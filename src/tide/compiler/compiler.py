@@ -21,7 +21,7 @@ from tide.compiler.normalized import (
     immutable_mapping,
 )
 from tide.compiler.source import SourceDocument, YamlSourceError, load_yaml_document
-from tide.diagnostics import CompilationFailed, Diagnostic, SourceLocation
+from tide.diagnostics import CompilationFailed, Diagnostic, Severity, SourceLocation
 from tide.model.source import (
     EntitySource,
     FormatsSource,
@@ -129,7 +129,7 @@ def compile_project(project: str | Path = ".") -> ApplicationModel:
         diagnostics,
     )
 
-    if diagnostics:
+    if any(diagnostic.severity is Severity.ERROR for diagnostic in diagnostics):
         raise CompilationFailed(diagnostics)
 
     resolved_views = _resolve_views(
@@ -197,6 +197,11 @@ def compile_project(project: str | Path = ".") -> ApplicationModel:
         roles=immutable_mapping(roles),
         row_policies=tuple(deep_freeze(policy) for policy in row_policies),
         field_policies=tuple(deep_freeze(policy) for policy in field_policies),
+        diagnostics=tuple(
+            diagnostic
+            for diagnostic in diagnostics
+            if diagnostic.severity is Severity.WARNING
+        ),
     )
 
 
@@ -430,6 +435,16 @@ def _validate_entities(
                     ("permissions", operation),
                 )
         for action_name, action in entity.actions.items():
+            if not action.permission:
+                _add(
+                    diagnostics,
+                    "TIDE226",
+                    f"action {action_name!r} declares no permission; any principal who can "
+                    f"read {entity_name} may execute it",
+                    document,
+                    ("actions", action_name),
+                    severity=Severity.WARNING,
+                )
             if not IDENTIFIER.fullmatch(action.execute):
                 _add(
                     diagnostics,
@@ -1301,12 +1316,15 @@ def _add(
     message: str,
     document: SourceDocument,
     path: tuple[str | int, ...],
+    *,
+    severity: Severity = Severity.ERROR,
 ) -> None:
     diagnostics.append(
         Diagnostic(
             code=code,
             message=message,
             location=document.location_for(path),
+            severity=severity,
             path=path,
         )
     )

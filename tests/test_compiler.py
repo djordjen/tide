@@ -28,6 +28,7 @@ def test_invoicing_fixture_compiles_to_immutable_model() -> None:
     assert model.entity("sales.Invoice").field("total").dependencies == ("lines.total",)
     assert model.entity("sales.Invoice").field("version").metadata["concurrency_token"]
     assert model.entity("sales.Invoice").field("status").metadata["write"] == "action_only"
+    assert model.diagnostics == ()
     resolved = model.views["sales.Invoice.edit"]
     assert resolved.data["settings"]["label_width"] == 18
     assert resolved.origins["settings.label_width"].layer == "application defaults"
@@ -54,6 +55,7 @@ def test_strict_yaml_does_not_coerce_legacy_boolean_words(tmp_path: Path) -> Non
     [
         ("duplicate-key", "TIDE005"),
         ("unknown-property", "TIDE102"),
+        ("unknown-field-type", "TIDE103"),
         ("unknown-reference", "TIDE205"),
         ("unsafe-expression", "TIDE302"),
         ("computed-cycle", "TIDE214"),
@@ -68,6 +70,13 @@ def test_invalid_fixtures_produce_stable_diagnostics(fixture: str, code: str) ->
     diagnostic_codes = {diagnostic.code for diagnostic in caught.value.diagnostics}
     assert code in diagnostic_codes
     assert all(diagnostic.location.line >= 1 for diagnostic in caught.value.diagnostics)
+
+
+def test_permissionless_action_compiles_with_a_warning() -> None:
+    model = compile_project(ROOT / "tests" / "fixtures" / "warning" / "permissionless-action")
+
+    warnings = {(diagnostic.code, diagnostic.severity.value) for diagnostic in model.diagnostics}
+    assert ("TIDE226", "warning") in warnings
 
 
 def test_project_discovery_cannot_escape_project_root(tmp_path: Path) -> None:

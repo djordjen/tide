@@ -7,6 +7,9 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from tide.diagnostics import Diagnostic
+
+
 @dataclass(frozen=True, slots=True)
 class NormalizedField:
     name: str
@@ -94,6 +97,7 @@ class ApplicationModel:
     roles: Mapping[str, tuple[str, ...]]
     row_policies: tuple[Mapping[str, Any], ...]
     field_policies: tuple[Mapping[str, Any], ...]
+    diagnostics: tuple[Diagnostic, ...] = ()
 
     def entity(self, name: str) -> NormalizedEntity:
         return self.entities[name]

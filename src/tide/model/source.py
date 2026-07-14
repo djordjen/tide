@@ -72,8 +72,21 @@ class ComputedSource(SourceModel):
     materialization: Literal["virtual", "stored", "database"] = "virtual"
 
 
+FieldType = Literal[
+    "string",
+    "integer",
+    "decimal",
+    "boolean",
+    "date",
+    "datetime",
+    "choice",
+    "reference",
+    "collection",
+]
+
+
 class FieldSource(SourceModel):
-    type: str
+    type: FieldType
     label: str | None = None
     help: str | None = None
     primary_key: bool = False

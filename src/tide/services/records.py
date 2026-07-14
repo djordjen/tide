@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from typing import Any, Callable, Mapping
 
@@ -181,11 +183,17 @@ class RecordsService:
             self.security.require_row(entity.name, "update", session.original, context)
         self._enforce_changes(entity, session, context, source)
         values = deepcopy(session.values)
-        missing_inputs = self._missing_required_inputs(entity, values)
-        if missing_inputs:
-            raise ValidationFailed(missing_inputs)
+        input_issues = [
+            *self._coerce_values(entity.name, values),
+            *self._missing_required_inputs(entity, values),
+        ]
+        if input_issues:
+            raise ValidationFailed(input_issues)
         self._apply_generators(entity, values, context)
         self._compute_entity(entity.name, values)
+        derived_issues = self._coerce_values(entity.name, values)
+        if derived_issues:
+            raise ValidationFailed(derived_issues)
         issues = self._validate_entity(entity.name, values)
         errors = [issue for issue in issues if issue.severity == "error"]
         if errors:
@@ -257,6 +265,50 @@ class RecordsService:
             immutable_when = metadata.get("immutable_when")
             if immutable_when and bool(evaluate_expression(immutable_when, session.original)):
                 raise ImmutableFieldError(field_name, f"condition {immutable_when!r} is true")
+
+    def _coerce_values(self, entity_name: str, values: dict[str, Any]) -> list[ValidationIssue]:
+        """Coerce present values to their declared field types before any evaluation."""
+
+        entity = self.model.entity(entity_name)
+        issues: list[ValidationIssue] = []
+        for field_name, field in entity.fields.items():
+            value = values.get(field_name)
+            if value is None:
+                continue
+            field_type = field.metadata["type"]
+            if field_type == "reference":
+                continue
+            if field_type == "collection":
+                if not isinstance(value, list):
+                    issues.append(
+                        ValidationIssue(
+                            "type", f"{field_name} must be a list of records", (field_name,)
+                        )
+                    )
+                    continue
+                if field.target_entity:
+                    for item in value:
+                        if not isinstance(item, dict):
+                            issues.append(
+                                ValidationIssue(
+                                    "type",
+                                    f"{field_name} items must be records",
+                                    (field_name,),
+                                )
+                            )
+                            continue
+                        issues.extend(self._coerce_values(field.target_entity, item))
+                continue
+            coerced, valid = _coerce_scalar(field_type, value)
+            if valid:
+                values[field_name] = coerced
+            else:
+                issues.append(
+                    ValidationIssue(
+                        "type", f"{field_name} must be a {field_type} value", (field_name,)
+                    )
+                )
+        return issues
 
     def _apply_generators(self, entity: NormalizedEntity, values: dict[str, Any], context: RequestContext) -> None:
         for field_name, field in entity.fields.items():
@@ -347,6 +399,8 @@ class RecordsService:
         for field_name, field in entity.fields.items():
             if not field.metadata.get("unique"):
                 continue
+            if values.get(field_name) is None:
+                continue
             for record in self.repository.all(entity.name):
                 if record.get(_primary_key(entity)) != identity and record.get(field_name) == values.get(field_name):
                     raise ValidationFailed(
@@ -382,6 +436,42 @@ def _version_field(entity: NormalizedEntity) -> str | None:
         (name for name, field in entity.fields.items() if field.metadata.get("concurrency_token")),
         None,
     )
+
+
+def _coerce_scalar(field_type: str, value: Any) -> tuple[Any, bool]:
+    if field_type == "decimal":
+        decimal_value = _as_decimal(value)
+        return (decimal_value, True) if decimal_value is not None else (value, False)
+    if field_type == "integer":
+        return value, isinstance(value, int) and not isinstance(value, bool)
+    if field_type in {"string", "choice"}:
+        return value, isinstance(value, str)
+    if field_type == "boolean":
+        return value, isinstance(value, bool)
+    if field_type == "date":
+        return value, isinstance(value, date) and not isinstance(value, datetime)
+    if field_type == "datetime":
+        return value, isinstance(value, datetime)
+    return value, True
+
+
+def _as_decimal(value: Any) -> Decimal | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, Decimal):
+        candidate = value
+    elif isinstance(value, int):
+        candidate = Decimal(value)
+    elif isinstance(value, float):
+        candidate = Decimal(str(value))
+    elif isinstance(value, str):
+        try:
+            candidate = Decimal(value.strip())
+        except InvalidOperation:
+            return None
+    else:
+        return None
+    return candidate if candidate.is_finite() else None
 
 
 def _matches(value: Any, condition: FilterCondition) -> bool:

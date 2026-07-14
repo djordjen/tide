@@ -189,6 +189,111 @@ def test_action_permission_does_not_require_general_update_permission(runtime) -
     assert posted["version"] == 2
 
 
+def test_commit_coerces_typed_inputs_to_declared_field_types(runtime) -> None:
+    _, _, records, _ = runtime
+    clerk = context("user:clerk", "sales_clerk")
+    values = invoice_values()
+    values["lines"][0]["quantity"] = 2.5
+    values["lines"][0]["unit_price"] = "4.20"
+
+    created = records.commit(records.create("sales.Invoice", clerk, values), clerk)
+
+    line = created["lines"][0]
+    assert isinstance(line["quantity"], Decimal)
+    assert line["quantity"] == Decimal("2.5")
+    assert isinstance(line["unit_price"], Decimal)
+    assert line["unit_price"] == Decimal("4.20")
+    assert isinstance(created["total"], Decimal)
+    assert created["total"] == Decimal("10.50")
+
+
+def test_commit_rejects_values_that_cannot_become_the_field_type(runtime) -> None:
+    _, _, records, _ = runtime
+    clerk = context("user:clerk", "sales_clerk")
+    values = invoice_values()
+    values["lines"][0]["quantity"] = "not-a-number"
+
+    with pytest.raises(ValidationFailed) as caught:
+        records.commit(records.create("sales.Invoice", clerk, values), clerk)
+
+    assert any(
+        issue.rule == "type" and issue.fields == ("quantity",)
+        for issue in caught.value.issues
+    )
+
+
+def test_commit_rejects_wrong_scalar_types_instead_of_storing_them(runtime) -> None:
+    _, _, records, _ = runtime
+    clerk = context("user:clerk", "sales_clerk")
+    values = invoice_values()
+    values["invoice_date"] = "2026-07-14"
+    values["lines"][0]["line_number"] = "1"
+
+    with pytest.raises(ValidationFailed) as caught:
+        records.commit(records.create("sales.Invoice", clerk, values), clerk)
+
+    failed = {issue.fields for issue in caught.value.issues if issue.rule == "type"}
+    assert ("invoice_date",) in failed
+    assert ("line_number",) in failed
+
+
+def test_commit_rejects_non_boolean_flags(runtime) -> None:
+    _, _, records, _ = runtime
+    clerk = context("user:clerk", "sales_clerk")
+    session = records.create(
+        "crm.Customer",
+        clerk,
+        {"code": "NEW", "name": "New Co", "active": "yes"},
+    )
+
+    with pytest.raises(ValidationFailed) as caught:
+        records.commit(session, clerk)
+
+    assert any(
+        issue.rule == "type" and issue.fields == ("active",)
+        for issue in caught.value.issues
+    )
+
+
+def test_unique_fields_allow_multiple_null_values(runtime) -> None:
+    _, _, records, _ = runtime
+    clerk = context("user:clerk", "sales_clerk")
+
+    first = records.commit(
+        records.create("crm.Customer", clerk, {"code": "A1", "name": "First"}), clerk
+    )
+    second = records.commit(
+        records.create("crm.Customer", clerk, {"code": "A2", "name": "Second"}), clerk
+    )
+
+    assert first["email"] is None
+    assert second["email"] is None
+
+
+def test_unique_fields_reject_duplicate_values(runtime) -> None:
+    _, _, records, _ = runtime
+    clerk = context("user:clerk", "sales_clerk")
+    records.commit(
+        records.create(
+            "crm.Customer", clerk, {"code": "B1", "name": "First", "email": "x@example.com"}
+        ),
+        clerk,
+    )
+
+    with pytest.raises(ValidationFailed) as caught:
+        records.commit(
+            records.create(
+                "crm.Customer", clerk, {"code": "B2", "name": "Second", "email": "x@example.com"}
+            ),
+            clerk,
+        )
+
+    assert any(
+        issue.rule == "unique" and issue.fields == ("email",)
+        for issue in caught.value.issues
+    )
+
+
 def test_optimistic_concurrency_rejects_stale_session(runtime) -> None:
     _, _, records, _ = runtime
     clerk = context("user:clerk", "sales_clerk")

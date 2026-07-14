@@ -22,7 +22,19 @@ def test_model_validate_json(capsys) -> None:
         "entities": 4,
         "views": 3,
         "reports": 1,
+        "warnings": [],
     }
+
+
+def test_model_validate_json_reports_warnings(capsys) -> None:
+    fixture = ROOT / "tests" / "fixtures" / "warning" / "permissionless-action"
+    result = main(["model", "validate", str(fixture), "--json"])
+    output = json.loads(capsys.readouterr().out)
+
+    assert result == 0
+    assert output["valid"] is True
+    assert [warning["code"] for warning in output["warnings"]] == ["TIDE226"]
+    assert [warning["severity"] for warning in output["warnings"]] == ["warning"]
 
 
 def test_model_explain_reports_dependencies(capsys) -> None:

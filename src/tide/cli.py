@@ -11,7 +11,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from tide.compiler.compiler import compile_project
-from tide.diagnostics import CompilationFailed
+from tide.diagnostics import CompilationFailed, Severity
 from tide.model.source import (
     EntitySource,
     FormatsSource,
@@ -61,8 +61,13 @@ def main(argv: list[str] | None = None) -> int:
         else:
             for diagnostic in error.diagnostics:
                 print(diagnostic.format(root=root), file=sys.stderr)
+            errors = [
+                diagnostic
+                for diagnostic in error.diagnostics
+                if diagnostic.severity is Severity.ERROR
+            ]
             print(
-                f"Model validation failed with {len(error.diagnostics)} error(s).",
+                f"Model validation failed with {len(errors)} error(s).",
                 file=sys.stderr,
             )
         return 2
@@ -119,6 +124,8 @@ def _create_parser() -> argparse.ArgumentParser:
 
 def _model_validate(arguments: argparse.Namespace) -> int:
     model = compile_project(arguments.project)
+    project = Path(arguments.project).resolve()
+    root = project.parent if project.is_file() else project
     result = {
         "valid": True,
         "application": model.name,
@@ -127,14 +134,17 @@ def _model_validate(arguments: argparse.Namespace) -> int:
         "entities": len(model.entities),
         "views": len(model.views),
         "reports": len(model.reports),
+        "warnings": [diagnostic.as_dict(root=root) for diagnostic in model.diagnostics],
     }
     if arguments.json:
         print(json.dumps(result, indent=2))
     else:
+        for diagnostic in model.diagnostics:
+            print(diagnostic.format(root=root), file=sys.stderr)
         print(
             f"Model is valid: {model.name} {model.version} "
             f"({len(model.entities)} entities, {len(model.views)} views, "
-            f"{len(model.reports)} reports)."
+            f"{len(model.reports)} reports, {len(model.diagnostics)} warning(s))."
         )
     return 0
 

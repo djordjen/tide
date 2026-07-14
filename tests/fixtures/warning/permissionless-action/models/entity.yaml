@@ -1,0 +1,8 @@
+entity: demo.Thing
+fields:
+  id: {type: integer, primary_key: true}
+  status: {type: string}
+actions:
+  touch:
+    label: Touch
+    execute: handlers.touch
