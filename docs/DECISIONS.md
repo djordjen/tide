@@ -38,6 +38,11 @@ decision was first recorded, not when implementation was completed.
 | 2026-07-14 | The first application-service adapter is an in-memory repository. | Security, sessions, validation, actions, and concurrency can stabilize before SQLAlchemy mapping concerns are introduced. |
 | 2026-07-14 | Persistence owns concurrency-token increments; domain actions own state transitions. | Central version management makes retries and stale-write handling consistent across all actions and adapters. |
 | 2026-07-14 | Idempotency replay reauthorizes and reprojects its target. | Cached transport output could leak fields after permission changes; replay must use current authorization. |
+| 2026-07-14 | Decimal fields use exact decimal arithmetic end to end: fractional expression literals evaluate as `decimal.Decimal`, division of exact numbers stays exact, and record services coerce int, float, and numeric string inputs to `Decimal` at the service boundary. | Business quantities such as money must not accumulate binary floating-point error, and adapters deliver mixed primitive types (JSON floats, terminal strings). |
+| 2026-07-14 | Field values are validated against their declared type at commit; values that cannot represent the type fail validation instead of being stored. | An invoicing runtime must not silently store a string in a date field; the SQLAlchemy adapter would otherwise disagree with the in-memory contract. |
+| 2026-07-14 | Unique fields treat null as absent: multiple null values never conflict. | This matches SQL unique-index semantics, keeping the in-memory contract and the future SQLAlchemy adapter in agreement. |
+| 2026-07-14 | Expression comparisons are limited to `==`, `!=`, `<`, `<=`, `>`, `>=`; membership `in` and identity `is` are rejected at compile time with `TIDE308`. | Operators the runtime and the future SQL translator cannot honor must fail at authoring time, not at evaluation. |
+| 2026-07-14 | Compilation separates error and warning severities; an action without a permission compiles with warning `TIDE226`. | Entity operations are deny-by-default while actions were silently executable with read access alone; the asymmetry must be visible without breaking valid projects. |
 
 ## Open decisions
 

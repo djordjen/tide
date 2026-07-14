@@ -43,6 +43,8 @@ and Python handler references use qualified dotted names.
 
 The v0.1 compiler checks:
 
+- field types against the v0.1 set: string, integer, decimal, boolean, date,
+  datetime, choice, reference, and collection;
 - one primary key per entity and at most one integer concurrency token;
 - relationship targets, inverse fields, and collection ordering fields;
 - display, search, view, and report field references;
@@ -89,4 +91,10 @@ source locations are compatibility-sensitive. The current ranges are:
 | `TIDE001-012` | file, YAML, and project discovery |
 | `TIDE100-103` | typed source-schema validation |
 | `TIDE200-269` | model, view, preset, report, handler, and security resolution |
-| `TIDE300-307` | expression parsing, safety, and typing |
+| `TIDE300-308` | expression parsing, safety, and typing |
+
+Diagnostics carry a severity. Errors fail compilation; warnings do not. A
+successful `tide model validate` prints warnings and includes them in the
+`--json` output under `warnings`. The first warning is `TIDE226`: an action
+that declares no `permission` is executable by any principal who can read the
+entity.

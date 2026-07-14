@@ -47,7 +47,8 @@ The compiler is also responsible for diagnostics such as:
 - unknown fields and targets;
 - invalid override paths;
 - circular computed-field dependencies;
-- expressions that cannot be translated for a requested database filter;
+- expressions that cannot be translated for a requested database filter
+  (planned with the SQLAlchemy adapter);
 - conflicting action shortcuts;
 - migration-sensitive renames;
 - permission references that do not exist.

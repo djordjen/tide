@@ -26,7 +26,11 @@ The runtime currently provides:
 - SQL-independent row-policy evaluation for the in-memory adapter;
 - field read/write policies and a typed `ProtectedValue` sentinel;
 - create, get, query, begin-edit, commit, and rollback;
-- required, range, choice, uniqueness, and expression validation;
+- typed value coercion at the service boundary: decimal fields accept int,
+  float, and numeric string inputs and always store `decimal.Decimal`; other
+  scalar types are strictly checked;
+- required, range, choice, uniqueness, and expression validation, with null
+  values never colliding on unique fields;
 - stored computed fields across unsaved master-detail collections;
 - user, action, and system mutation sources;
 - `readonly`, `action_only`, `system`, and `immutable_when` enforcement;

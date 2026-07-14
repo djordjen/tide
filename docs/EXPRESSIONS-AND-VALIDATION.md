@@ -24,13 +24,14 @@ Expression text
       -> parser
       -> typed expression tree
           -> Python evaluator
-          -> SQLAlchemy translator
+          -> SQLAlchemy translator (planned)
           -> dependency tracker
           -> diagnostic formatter
 ```
 
-The compiler verifies names and types, detects computed-field cycles, records
-dependencies, and determines whether an expression can execute in SQL.
+The compiler verifies names and types, detects computed-field cycles, and
+records dependencies. Determining whether an expression can execute in SQL
+arrives with the SQLAlchemy adapter.
 
 An initial vocabulary may contain:
 
@@ -44,7 +45,18 @@ Aggregates:  sum count average any all
 ```
 
 Function calls are allow-listed. Attribute paths may traverse declared model
-relationships but cannot call arbitrary Python methods.
+relationships but cannot call arbitrary Python methods. Comparison operators
+outside the vocabulary, such as membership `in` and identity `is`, are
+rejected at compile time with `TIDE308`.
+
+## Numeric semantics
+
+Fractional literals are exact decimal values, not binary floats: `1.21`
+evaluates as `decimal.Decimal("1.21")`, so `unit_price * 1.21` stays exact for
+decimal fields. Division of exact numbers produces an exact decimal
+(`10 / 4` is `2.5` as a decimal). Record services coerce incoming values to
+their declared field types before any expression is evaluated, so decimal
+fields always carry `decimal.Decimal` at runtime.
 
 ## Computed fields
 
@@ -81,9 +93,10 @@ total:
     materialization: stored
 ```
 
-A virtual computed field is sortable or filterable only when its expression can
-be translated to SQL. Otherwise TIDE reports a model error rather than loading
-and filtering the entire table in Python.
+A virtual computed field will be sortable or filterable only when its
+expression can be translated to SQL, with a model error rather than loading
+and filtering the entire table in Python. This guard lands with the SQLAlchemy
+adapter and is not yet enforced by the in-memory runtime.
 
 ## Named filters
 
