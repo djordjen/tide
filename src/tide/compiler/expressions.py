@@ -7,6 +7,7 @@ import operator
 import re
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 from typing import Any, Mapping
 
 from tide.model.source import EntitySource
@@ -14,6 +15,7 @@ from tide.model.source import EntitySource
 ALLOWED_FUNCTIONS = frozenset(
     {"round", "coalesce", "min", "max", "today", "length", "sum", "count", "average", "any", "all"}
 )
+ALLOWED_COMPARISONS = (ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE)
 PARAMETER_PATTERN = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
 NUMERIC_TYPES = frozenset({"integer", "decimal"})
 
@@ -221,6 +223,14 @@ class _ExpressionValidator(ast.NodeVisitor):
         return "unknown"
 
     def visit_Compare(self, node: ast.Compare) -> str:
+        for operator_node in node.ops:
+            if not isinstance(operator_node, ALLOWED_COMPARISONS):
+                self.issues.append(
+                    ExpressionIssue(
+                        "TIDE308",
+                        f"comparison operator {_operator_name(operator_node)!r} is not supported in TIDE expressions",
+                    )
+                )
         types = [self.visit(node.left), *(self.visit(value) for value in node.comparators)]
         for left, right in zip(types, types[1:]):
             if not _comparable(left, right):
@@ -276,6 +286,8 @@ class _Evaluator(ast.NodeVisitor):
         return self.visit(node.body)
 
     def visit_Constant(self, node: ast.Constant) -> Any:
+        if isinstance(node.value, float):
+            return Decimal(str(node.value))
         return node.value
 
     def visit_Name(self, node: ast.Name) -> Any:
@@ -301,6 +313,12 @@ class _Evaluator(ast.NodeVisitor):
         left, right = self.visit(node.left), self.visit(node.right)
         if isinstance(node.op, ast.Add) and (isinstance(left, str) or isinstance(right, str)):
             return f"{left}{right}"
+        if (
+            isinstance(node.op, ast.Div)
+            and isinstance(left, (int, Decimal))
+            and isinstance(right, (int, Decimal))
+        ):
+            return Decimal(left) / Decimal(right)
         operations = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv, ast.Mod: operator.mod}
         operation = operations.get(type(node.op))
         if operation is None:
@@ -323,11 +341,16 @@ class _Evaluator(ast.NodeVisitor):
         raise ValueError("unsupported unary operator")
 
     def visit_Compare(self, node: ast.Compare) -> bool:
-        operations = {ast.Eq: operator.eq, ast.NotEq: operator.ne, ast.Lt: operator.lt, ast.LtE: operator.le, ast.Gt: operator.gt, ast.GtE: operator.ge, ast.Is: operator.is_, ast.IsNot: operator.is_not}
+        operations = {ast.Eq: operator.eq, ast.NotEq: operator.ne, ast.Lt: operator.lt, ast.LtE: operator.le, ast.Gt: operator.gt, ast.GtE: operator.ge}
         left = self.visit(node.left)
         for operator_node, comparator in zip(node.ops, node.comparators):
+            operation = operations.get(type(operator_node))
+            if operation is None:
+                raise ValueError(
+                    f"comparison operator {_operator_name(operator_node)!r} is not supported"
+                )
             right = self.visit(comparator)
-            if not operations[type(operator_node)](left, right):
+            if not operation(left, right):
                 return False
             left = right
         return True
@@ -367,6 +390,11 @@ def _lookup(value: Any, name: str) -> Any:
     if isinstance(value, Mapping):
         return value.get(name)
     raise ValueError(f"cannot traverse {type(value).__name__}")
+
+
+def _operator_name(node: ast.cmpop) -> str:
+    names = {ast.In: "in", ast.NotIn: "not in", ast.Is: "is", ast.IsNot: "is not"}
+    return names.get(type(node), type(node).__name__)
 
 
 def _attribute_parts(node: ast.Attribute) -> tuple[str, ...]:
