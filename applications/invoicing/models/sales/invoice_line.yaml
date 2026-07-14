@@ -1,0 +1,65 @@
+# TIDE application metadata.
+entity: sales.InvoiceLine
+label: Invoice Lines
+
+permissions:
+  list: sales.invoice.read
+  read: sales.invoice.read
+  create: sales.invoice.write
+  update: sales.invoice.write
+
+fields:
+  id:          {type: integer, primary_key: true}
+  line_number:
+    type: integer
+    required: true
+    immutable_when: "invoice.status != 'draft'"
+
+  description:
+    type: string
+    length: 200
+    required: true
+    immutable_when: "invoice.status != 'draft'"
+
+  quantity:
+    type: decimal
+    precision: 12
+    scale: 3
+    required: true
+    minimum: 0.001
+    immutable_when: "invoice.status != 'draft'"
+
+  unit_price:
+    type: decimal
+    precision: 12
+    scale: 2
+    required: true
+    format: money
+    immutable_when: "invoice.status != 'draft'"
+
+  invoice:
+    type: reference
+    target: sales.Invoice
+    storage: invoice_id
+    inverse: lines
+    required: true
+    on_delete: cascade
+    immutable_when: "invoice.status != 'draft'"
+
+  product:
+    type: reference
+    target: catalog.Product
+    storage: product_id
+    required: true
+    on_delete: restrict
+    immutable_when: "invoice.status != 'draft'"
+
+  total:
+    type: decimal
+    precision: 12
+    scale: 2
+    format: money
+    readonly: true
+    computed:
+      expression: "round(quantity * unit_price, 2)"
+      materialization: stored

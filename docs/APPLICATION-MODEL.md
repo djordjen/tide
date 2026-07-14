@@ -1,0 +1,234 @@
+# Application Model
+
+## Purpose
+
+The application model is TIDE's central dictionary. It describes domain
+structure and application intent once so that persistence, views, REST, MCP,
+reports, validation, and security can share the same meaning.
+
+YAML is the preferred human authoring format. JSON may be accepted and
+exported, but both compile into the same normalized `ApplicationModel`.
+
+The source-schema version is separate from the application version:
+
+```yaml
+schema_version: "0.1"
+application: {name: Invoicing, version: 0.1.0}
+```
+
+See [Metadata contract v0.1](METADATA-V0.md) for the strict parsing,
+diagnostic, path-confinement, and currently executable semantic rules.
+
+## Application organization
+
+A repository containing both TIDE and applications is expected to resemble:
+
+```text
+src/tide/                  TIDE runtime and compiler
+applications/
+    invoicing/             one application root
+        tide.yaml
+        models/
+            crm/
+                customer.yaml
+            sales/
+                invoice.yaml
+                invoice_line.yaml
+        views/
+        presentation/
+            defaults.yaml
+            formats.yaml
+            presets.yaml
+        actions.py
+        reports/
+        security/
+        migrations/
+        tests/
+```
+
+Every direct child of `applications/` is independent and contains its own
+`tide.yaml`. Paths in that manifest are confined to that application root. The
+runtime may be installed separately; the `applications/` convention does not
+couple application source into the framework package.
+
+Portable model files do not contain production credentials or a fixed database
+URL. Deployment-specific database settings, secrets, logging, and environment
+choices belong in environment variables or deployment configuration.
+
+## Compact field syntax
+
+YAML flow mappings keep simple fields readable while complex definitions remain
+expanded:
+
+```yaml
+entity: crm.Person
+label: People
+display: "{first_name} {last_name}"
+
+expose:
+  tui: true
+  rest: {operations: [list, get, create, update]}
+  mcp: {resources: [schema, record]}
+
+fields:
+  id:         {type: integer, primary_key: true}
+  first_name: {type: string, length: 80, required: true}
+  last_name:  {type: string, length: 80, required: true}
+  birth_date: {type: date}
+  email:      {type: string, length: 254, validation: email}
+  active:     {type: boolean, default: true}
+```
+
+The field identifier is stable application vocabulary. Labels, help text,
+formats, editor hints, and localization are separate facets of the field.
+
+## Model facets
+
+A field may contribute to several projections without mixing their concerns:
+
+- storage: type, length, precision, nullability, indexes, and uniqueness;
+- semantics: label, help, display format, and reference meaning;
+- validation: local constraints and named validation rules;
+- presentation: preferred editor, width, alignment, and view defaults;
+- API: read/write representation and exposure policy;
+- security: read and write permission requirements;
+- reporting: formatting and aggregation behavior.
+
+The compiler combines these facets into one `FieldModel`. Adapters use the
+facet appropriate to their job rather than inferring behavior independently.
+
+## Relationships
+
+Relationships may cross files and modules using qualified names. A reference
+can declare both its storage column and inverse collection:
+
+```yaml
+# models/sales/invoice.yaml
+entity: sales.Invoice
+
+fields:
+  id:           {type: integer, primary_key: true}
+  number:       {type: string, length: 30, required: true, unique: true}
+  invoice_date: {type: date, required: true}
+
+  customer:
+    type: reference
+    target: crm.Customer
+    storage: customer_id
+    inverse: invoices
+    required: true
+    on_delete: restrict
+    lookup_view: crm.Customer.lookup
+
+  lines:
+    type: collection
+    target: sales.InvoiceLine
+    inverse: invoice
+    order_by: line_number
+    cascade: [create, update]
+    orphan_delete: true
+```
+
+The child declares the other side:
+
+```yaml
+# models/sales/invoice_line.yaml
+entity: sales.InvoiceLine
+
+fields:
+  id:          {type: integer, primary_key: true}
+  line_number: {type: integer, required: true}
+
+  invoice:
+    type: reference
+    target: sales.Invoice
+    storage: invoice_id
+    inverse: lines
+    required: true
+    on_delete: cascade
+```
+
+The compiler normalizes a reference into foreign-key storage, object
+navigation, lookup behavior, integrity validation, and adapter metadata.
+
+Initial relationship goals are:
+
+- many-to-one references;
+- one-to-many collections;
+- one-to-one relationships;
+- self-references;
+- explicit association entities.
+
+Direct many-to-many syntax is deferred. Business associations frequently gain
+attributes such as dates, roles, quantities, ordering, or status, making an
+explicit association entity safer.
+
+All model files are loaded before references are resolved. This two-pass model
+allows circular relationships without Python-style import cycles.
+
+## Display and lookup behavior
+
+An entity has a stable display expression used by default in references:
+
+```yaml
+entity: crm.Customer
+display: "{code} - {name}"
+search_fields: [code, name, email]
+```
+
+A particular reference may override its lookup view or search policy. Lookup
+queries remain subject to row and field permissions on the target entity.
+
+## Computed fields
+
+Computed fields are part of the domain model and use the shared expression
+system:
+
+```yaml
+total:
+  type: decimal
+  format: money
+  readonly: true
+  computed:
+    expression: "quantity * unit_price"
+    materialization: virtual
+```
+
+See [Expressions and validation](EXPRESSIONS-AND-VALIDATION.md) for computed
+field modes, aggregates, filtering, and security inheritance.
+
+## Schema evolution
+
+Alembic executes migrations but does not decide model semantics. TIDE must
+distinguish additions, renames, type changes, relationship changes, and
+deletions explicitly.
+
+The intended workflow is:
+
+```bash
+tide model validate
+tide db diff
+tide db revision --name add-invoice-status
+tide db migrate
+```
+
+Migration proposals are reviewable. A renamed field must not be guessed as
+"drop old column, create new column." Stable identifiers or explicit rename
+declarations will be chosen before the model contract becomes stable.
+
+## Format independence
+
+The compiler pipeline is:
+
+```text
+YAML/JSON -> parsed data -> typed source model -> merge and resolution
+          -> normalized immutable ApplicationModel
+```
+
+JSON is the natural MCP/OpenAPI interchange representation even when developers
+author YAML. A formatter may later provide:
+
+```bash
+tide model format
+tide model export --format json
+```

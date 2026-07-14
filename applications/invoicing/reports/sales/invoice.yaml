@@ -1,0 +1,30 @@
+# TIDE application metadata.
+report: sales.invoice
+title: Invoice
+entity: sales.Invoice
+permission: sales.invoice.report
+
+parameters:
+  invoice_id: {type: integer, required: true}
+
+query:
+  criteria: "id == $invoice_id"
+
+bands:
+  report_header:
+    - text: Invoice
+      style: report_title
+
+  detail:
+    source: lines
+    columns: [product, description, quantity, unit_price, total]
+
+  report_footer:
+    - field: total
+      label: Total
+      format: money
+    - field: currency
+      label: Currency
+
+  page_footer:
+    - expression: "'Page ' + page_number"

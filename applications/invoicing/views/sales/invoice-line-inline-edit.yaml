@@ -1,0 +1,14 @@
+# TIDE application metadata.
+view: sales.InvoiceLine.inline_edit
+entity: sales.InvoiceLine
+kind: inline_edit
+mode: overlay
+
+columns: [line_number, product, description, quantity, unit_price, total]
+
+fields:
+  line_number: {width: 6}
+  description: {width: 32}
+  quantity: {width: 10}
+  unit_price: {width: 14}
+  total: {width: 14}

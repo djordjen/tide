@@ -1,0 +1,110 @@
+# TIDE application metadata.
+entity: sales.Invoice
+label: Invoices
+display: number
+
+expose:
+  tui: true
+  rest: {path: invoices, operations: [list, get, create, update]}
+  mcp: {resources: [schema, record], tools: [search]}
+
+permissions:
+  list: sales.invoice.read
+  read: sales.invoice.read
+  create: sales.invoice.write
+  update: sales.invoice.write
+
+fields:
+  id:           {type: integer, primary_key: true}
+  number:
+    type: string
+    length: 30
+    required: true
+    unique: true
+    readonly: true
+    write: system
+    generated_by: actions.allocate_invoice_number
+
+  invoice_date:
+    type: date
+    required: true
+    format: local_date
+    immutable_when: "status != 'draft'"
+
+  currency:
+    type: string
+    length: 3
+    required: true
+    default: EUR
+    immutable_when: "status != 'draft'"
+
+  status:
+    type: choice
+    choices: [draft, posted, cancelled]
+    default: draft
+    readonly: true
+    write: action_only
+
+  posted_at:
+    type: datetime
+    readonly: true
+    write: action_only
+
+  posted_by:
+    type: string
+    length: 120
+    readonly: true
+    write: action_only
+
+  version:
+    type: integer
+    required: true
+    default: 1
+    readonly: true
+    write: system
+    concurrency_token: true
+
+  customer:
+    type: reference
+    target: crm.Customer
+    storage: customer_id
+    inverse: invoices
+    required: true
+    on_delete: restrict
+    immutable_when: "status != 'draft'"
+
+  lines:
+    type: collection
+    target: sales.InvoiceLine
+    inverse: invoice
+    order_by: line_number
+    cascade: [create, update]
+    orphan_delete: true
+    immutable_when: "status != 'draft'"
+
+  total:
+    type: decimal
+    precision: 12
+    scale: 2
+    format: money
+    readonly: true
+    computed:
+      expression: "sum(lines.total)"
+      materialization: stored
+
+validations:
+  - id: invoice_has_lines
+    when: "status == 'posted'"
+    assert: "count(lines) > 0"
+    message: A posted invoice must contain at least one line.
+    run: [before_commit]
+
+actions:
+  post:
+    label: Post invoice
+    shortcut: Ctrl+P
+    enabled_when: "status == 'draft' and count(lines) > 0"
+    permission: sales.invoice.post
+    execute: actions.post_invoice
+    expose: {rest: true, mcp: true}
+    idempotent: true

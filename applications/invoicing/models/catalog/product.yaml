@@ -1,0 +1,23 @@
+# TIDE application metadata.
+entity: catalog.Product
+label: Products
+display: "{code} - {name}"
+search_fields: [code, name]
+
+expose:
+  tui: true
+  rest: {path: products, operations: [list, get, create, update]}
+  mcp: {resources: [schema, record], tools: [search]}
+
+permissions:
+  list: catalog.product.read
+  read: catalog.product.read
+  create: catalog.product.write
+  update: catalog.product.write
+
+fields:
+  id:         {type: integer, primary_key: true}
+  code:       {type: string, length: 30, required: true, unique: true}
+  name:       {type: string, length: 120, required: true, searchable: true}
+  unit_price: {type: decimal, precision: 12, scale: 2, required: true, minimum: 0, format: money}
+  active:     {type: boolean, default: true}

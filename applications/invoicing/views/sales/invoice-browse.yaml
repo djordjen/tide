@@ -1,0 +1,17 @@
+# TIDE application metadata.
+view: sales.Invoice.browse
+base: generated.browse
+mode: overlay
+extends: standard_browse
+
+columns: [number, invoice_date, customer, status, total]
+search: [number, customer]
+
+filters:
+  drafts:
+    label: Draft invoices
+    criteria: "status == 'draft'"
+
+  high_value:
+    label: High-value invoices
+    criteria: "total >= 10000"

@@ -1,0 +1,16 @@
+# TIDE application metadata.
+presets:
+  standard_browse:
+    kind: browse
+    settings:
+      show_filter_bar: true
+
+  standard_form:
+    kind: form
+    settings:
+      show_action_bar: true
+
+  master_detail:
+    kind: form
+    settings:
+      transactional_collections: true

@@ -1,0 +1,64 @@
+# TIDE application metadata.
+permissions:
+  - crm.customer.read
+  - crm.customer.write
+  - catalog.product.read
+  - catalog.product.write
+  - sales.invoice.read
+  - sales.invoice.write
+  - sales.invoice.post
+  - sales.invoice.report
+  - sales.invoice.audit
+  - sales.invoice.detail
+
+roles:
+  sales_clerk:
+    grants:
+      - crm.customer.read
+      - crm.customer.write
+      - catalog.product.read
+      - sales.invoice.read
+      - sales.invoice.write
+      - sales.invoice.post
+      - sales.invoice.report
+      - sales.invoice.detail
+
+  auditor:
+    grants:
+      - crm.customer.read
+      - catalog.product.read
+      - sales.invoice.read
+      - sales.invoice.report
+      - sales.invoice.audit
+      - sales.invoice.detail
+
+  summary_viewer:
+    grants:
+      - sales.invoice.read
+
+  invoice_poster:
+    grants:
+      - sales.invoice.read
+      - sales.invoice.post
+      - sales.invoice.detail
+
+row_policies:
+  - id: active_customers
+    entity: crm.Customer
+    operations: [list, read]
+    criteria: "active == true"
+
+  - id: active_products
+    entity: catalog.Product
+    operations: [list, read]
+    criteria: "active == true"
+
+field_policies:
+  - entity: sales.Invoice
+    field: lines
+    read: sales.invoice.detail
+
+  - entity: sales.Invoice
+    field: posted_by
+    read: sales.invoice.audit
+    write: sales.invoice.post

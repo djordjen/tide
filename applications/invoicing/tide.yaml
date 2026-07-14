@@ -1,0 +1,23 @@
+# TIDE application manifest.
+schema_version: "0.1"
+
+application:
+  name: TIDE Invoicing
+  version: 0.1.0
+
+model:
+  paths: [models]
+
+views:
+  paths: [views]
+
+presentation:
+  defaults: presentation/defaults.yaml
+  formats: presentation/formats.yaml
+  presets: [presentation/presets.yaml]
+
+reports:
+  paths: [reports]
+
+security:
+  paths: [security]

@@ -1,0 +1,175 @@
+# TIDE Architecture
+
+## Central rule
+
+Every client invokes the same application services. A Textual screen, REST
+route, MCP tool, report, and future web form may authenticate differently, but
+none implements separate business or authorization rules.
+
+```text
+applications/<name>/ (YAML + Python handlers + overlays)
+                         |
+                         v
+                  Model compiler
+        parsing | merging | typing | diagnostics
+                         |
+                         v
+            Normalized ApplicationModel
+                         |
+          +--------------+---------------+
+          |                              |
+          v                              v
+  Application services            Presentation model
+  queries | records | actions      views | formats | reports
+          |                              |
+          +--------------+---------------+
+                         |
+       +---------+-------+-------+----------+
+       |         |               |          |
+       v         v               v          v
+    Textual   FastAPI REST        MCP      Reports
+                         |
+                         v
+          Security + RecordSession/Unit of Work
+                         |
+                         v
+              SQLAlchemy persistence
+```
+
+## Model compiler
+
+Adapters must never consume arbitrary YAML dictionaries. The compiler loads
+all files, resolves namespaces and references, applies defaults and overlays,
+type-checks expressions, and creates an immutable `ApplicationModel`.
+
+The compiler is also responsible for diagnostics such as:
+
+- unknown fields and targets;
+- invalid override paths;
+- circular computed-field dependencies;
+- expressions that cannot be translated for a requested database filter;
+- conflicting action shortcuts;
+- migration-sensitive renames;
+- permission references that do not exist.
+
+The resolved model should be inspectable through the CLI and developer MCP
+server.
+
+This is semantic compilation: the result is a typed runtime model. It does not
+turn the application into a native executable or replace its Python files with
+bytecode. Production should validate during CI and fail fast by compiling the
+model again at process startup; a future cache may store the normalized model
+as a disposable optimization.
+
+## Application services
+
+The core presents a small set of UI-independent operations:
+
+```python
+records.query(entity, query_spec, context)
+records.get(entity, identity, context)
+records.begin_edit(entity, identity, context)
+records.commit(record_session, context)
+actions.execute(action, target, payload, context)
+reports.render(report, parameters, context)
+```
+
+Adapters may provide transport concerns such as HTTP serialization or terminal
+focus management. They may not reimplement validation, permission checks,
+transactions, or lifecycle hooks.
+
+The initial executable implementation uses an `InMemoryRepository` behind these
+services. It is a contract test adapter: the subsequent SQLAlchemy adapter must
+preserve the same outcomes, errors, policy behavior, and version semantics.
+
+## Request context
+
+Every operation carries a context similar to:
+
+```python
+@dataclass(frozen=True)
+class RequestContext:
+    principal: Principal
+    locale: str
+    timezone: str
+    channel: Channel
+    correlation_id: str
+```
+
+The initial runtime is single-tenant per deployment. A multi-tenant version
+must define tenant-scoped identities, uniqueness, migrations, policies, caches,
+and audit behavior before adding a tenant identifier to this core contract.
+
+The channel identifies TUI, REST, WEB, MCP, REPORT, or SYSTEM for auditing and
+carefully defined policy differences. It is not a shortcut around security.
+
+## RecordSession and unit of work
+
+TIDE needs an XAF Object Space-like editing boundary. A `RecordSession` owns:
+
+- loaded object graphs;
+- original values and change tracking;
+- unsaved master-detail additions and deletions;
+- validation state;
+- optimistic concurrency tokens;
+- commit, rollback, refresh, and conflict resolution.
+
+Generated views work against this abstraction rather than exposing a
+SQLAlchemy session. This keeps cancel/save semantics identical across TUI, web,
+REST, and MCP.
+
+## Actions
+
+CRUD commands and domain operations share a first-class action model. An
+action can define visibility, enabled state, required selection, permissions,
+confirmation, input schema, handler, audit behavior, and presentations such as
+buttons, menu entries, shortcuts, REST routes, and MCP tools.
+
+The runtime rechecks action conditions and permissions during execution. A
+disabled UI control is never the enforcement boundary.
+
+## Lifecycle and extension model
+
+The initial lifecycle distinguishes:
+
+- parsing and field validation;
+- object validation;
+- action preconditions;
+- `before_commit` behavior inside the transaction;
+- `after_commit` behavior after durable success.
+
+External side effects must not run in an `after_save` hook before a transaction
+has committed. Applications that need reliable integration events may later
+use an outbox adapter.
+
+Pure validation remains synchronous where possible. Actions and I/O-dependent
+handlers may be asynchronous.
+
+## Proposed package structure
+
+```text
+src/tide/
+    model/            Typed metadata and normalized model
+    compiler/         Loading, merging, reference resolution, diagnostics
+    expressions/      Typed expression AST and evaluators
+    services/         Query, record, action, and report services
+    runtime/          Lifecycle, context, events, configuration
+    sessions/         RecordSession, transactions, concurrency
+    security/         Principals, permissions, policies, redaction
+    presentation/     View resolution, formats, presets, overlays
+    data/             SQLAlchemy and Alembic integration
+    adapters/
+        textual/      Terminal UI
+        rest/         FastAPI and OpenAPI
+        mcp/          Developer and runtime MCP servers
+        reporting/    Report renderers and exports
+    designer/         Headless designer command service
+    cli/              Project and runtime commands
+```
+
+## Runtime metadata first
+
+The first versions interpret metadata at runtime. Source generation may be
+considered only after the model and extension contracts are stable. Runtime
+metadata avoids generated-file ownership and regeneration conflicts while
+preserving immediate feedback.

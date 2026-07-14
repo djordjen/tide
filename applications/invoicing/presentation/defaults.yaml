@@ -1,0 +1,21 @@
+# TIDE application metadata.
+browse:
+  page_size: 25
+  incremental_search: true
+  zebra_stripes: true
+  confirm_delete: true
+  keymap: standard
+  actions: [new, edit, delete, refresh, close]
+
+form:
+  label_position: left
+  label_width: 18
+  show_required_indicator: true
+  validate_on_leave: true
+  keymap: standard
+  actions: [save, cancel]
+
+lookup:
+  page_size: 15
+  incremental_search: true
+  close_after_selection: true

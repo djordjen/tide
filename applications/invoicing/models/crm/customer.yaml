@@ -1,0 +1,28 @@
+# TIDE application metadata.
+entity: crm.Customer
+label: Customers
+display: "{code} - {name}"
+search_fields: [code, name, email]
+
+expose:
+  tui: true
+  rest: {path: customers, operations: [list, get, create, update]}
+  mcp: {resources: [schema, record], tools: [search]}
+
+permissions:
+  list: crm.customer.read
+  read: crm.customer.read
+  create: crm.customer.write
+  update: crm.customer.write
+
+fields:
+  id:     {type: integer, primary_key: true}
+  code:   {type: string, length: 20, required: true, unique: true}
+  name:   {type: string, length: 120, required: true, searchable: true}
+  email:  {type: string, length: 254, validation: email}
+  active: {type: boolean, default: true}
+
+  invoices:
+    type: collection
+    target: sales.Invoice
+    inverse: customer

@@ -1,0 +1,4 @@
+entity: example.Item
+fields:
+  id: {type: integer, primary_key: true}
+  owner: {type: reference, target: missing.Person}

@@ -1,0 +1,5 @@
+entity: example.Item
+fields:
+  id: {type: integer, primary_key: true}
+  name: {type: string}
+  total: {type: decimal, computed: {expression: "name"}}

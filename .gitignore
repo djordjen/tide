@@ -1,0 +1,15 @@
+# Local assistant/session tooling
+.remember/
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.coverage
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pycache/
+.venv/
+.uv-cache/
+build/
+dist/

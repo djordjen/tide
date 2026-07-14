@@ -1,0 +1,5 @@
+entity: example.Item
+fields:
+  id: {type: integer, primary_key: true}
+  a: {type: integer, computed: {expression: "b + 1"}}
+  b: {type: integer, computed: {expression: "a + 1"}}

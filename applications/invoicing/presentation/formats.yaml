@@ -1,0 +1,11 @@
+# TIDE application metadata.
+formats:
+  money:
+    decimal_places: 2
+    thousands_separator: true
+    align: right
+    tui_width: 14
+
+  local_date:
+    display: "%d.%m.%Y"
+    input: ["%d.%m.%Y", "%d/%m/%Y"]

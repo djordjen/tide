@@ -1,0 +1,7 @@
+entity: example.Item
+fields:
+  id: {type: integer, primary_key: true}
+actions:
+  run:
+    label: Run
+    execute: missing.handlers.run

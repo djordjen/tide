@@ -1,0 +1,28 @@
+# TIDE application metadata.
+view: sales.Invoice.edit
+base: generated.edit
+mode: overlay
+extends: standard_form
+
+layout:
+  - group: Invoice
+    rows:
+      - [number, invoice_date, status, currency]
+      - [customer]
+
+  - collection: lines
+    view: sales.InvoiceLine.inline_edit
+
+  - group: Totals
+    align: right
+    rows:
+      - [total]
+
+  - group: Posting
+    rows:
+      - [posted_at, posted_by, version]
+
+surfaces:
+  tui:
+    minimum_width: 100
+    collection_height: 14

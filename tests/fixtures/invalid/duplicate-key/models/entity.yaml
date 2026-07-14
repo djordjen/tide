@@ -1,0 +1,5 @@
+entity: example.Item
+label: Items
+label: Duplicate
+fields:
+  id: {type: integer, primary_key: true}

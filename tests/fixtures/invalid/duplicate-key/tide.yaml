@@ -1,0 +1,3 @@
+schema_version: "0.1"
+application: {name: Duplicate Key, version: 0.1.0}
+model: {paths: [models]}
