@@ -31,9 +31,14 @@ class PresentationPathsSource(SourceModel):
     presets: tuple[str, ...] = ()
 
 
+class DatabaseSource(SourceModel):
+    mode: Literal["managed", "legacy"] = "managed"
+
+
 class ProjectSource(SourceModel):
     schema_version: Literal["0.1"]
     application: ApplicationSource
+    database: DatabaseSource = Field(default_factory=DatabaseSource)
     model: PathSetSource
     views: PathSetSource = Field(default_factory=lambda: PathSetSource(paths=()))
     presentation: PresentationPathsSource = Field(default_factory=PresentationPathsSource)
@@ -106,6 +111,7 @@ class FieldSource(SourceModel):
     validation: str | tuple[str, ...] | None = None
     choices: tuple[str, ...] = ()
     target: str | None = None
+    column: str | None = Field(default=None, min_length=1)
     storage: str | None = None
     inverse: str | None = None
     on_delete: Literal["restrict", "cascade", "set_null"] | None = None
@@ -150,6 +156,7 @@ class ActionSource(SourceModel):
     enabled_when: str | None = None
     visible_when: str | None = None
     permission: str | None = None
+    unrestricted: bool = False
     execute: str
     expose: ActionExposureSource = Field(default_factory=ActionExposureSource)
     idempotent: bool = False
@@ -161,10 +168,18 @@ class FilterSource(SourceModel):
     criteria: str
 
 
+class EntityStorageSource(SourceModel):
+    table: str | None = Field(default=None, min_length=1)
+    schema_: str | None = Field(default=None, alias="schema", min_length=1)
+
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
+
+
 class EntitySource(SourceModel):
     entity: str
     label: str | None = None
     display: str | None = None
+    storage: EntityStorageSource | None = None
     search_fields: tuple[str, ...] = ()
     expose: EntityExposureSource = Field(default_factory=EntityExposureSource)
     permissions: EntityPermissionsSource = Field(default_factory=EntityPermissionsSource)

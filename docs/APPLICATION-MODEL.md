@@ -55,6 +55,43 @@ Portable model files do not contain production credentials or a fixed database
 URL. Deployment-specific database settings, secrets, logging, and environment
 choices belong in environment variables or deployment configuration.
 
+## Database ownership modes
+
+The application manifest states who owns the physical schema. TIDE-managed
+applications use the default mode:
+
+```yaml
+database: {mode: managed}
+```
+
+An application that maps a database created and evolved by another system must
+opt into legacy mode:
+
+```yaml
+database: {mode: legacy}
+```
+
+Legacy mode is a no-DDL boundary. TIDE may inspect the connected database and
+read or write mapped records, but it must never create, alter, drop, or migrate
+database objects. Startup fails with compatibility diagnostics when required
+objects do not match the compiled model.
+
+Physical names are explicit in legacy mode:
+
+```yaml
+entity: legacy.Customer
+storage: {schema: erp, table: CUSTOMER_MASTER}
+
+fields:
+  id:   {type: integer, primary_key: true, column: CUSTOMER_NO}
+  name: {type: string, length: 120, column: DISPLAY_NAME}
+```
+
+References continue to use `storage` for their physical foreign-key column,
+while scalar fields use `column`. Collections and virtual computed fields have
+no physical column. See [Legacy databases](LEGACY-DATABASES.md) for the adapter
+contract and current limitations.
+
 ## Compact field syntax
 
 YAML flow mappings keep simple fields readable while complex definitions remain
@@ -215,6 +252,10 @@ tide db migrate
 Migration proposals are reviewable. A renamed field must not be guessed as
 "drop old column, create new column." Stable identifiers or explicit rename
 declarations will be chosen before the model contract becomes stable.
+
+Schema evolution commands apply only to `database.mode: managed`. In legacy
+mode, `tide db diff` becomes a read-only compatibility report and revision or
+migration commands must refuse to run.
 
 ## Format independence
 

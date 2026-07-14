@@ -89,6 +89,7 @@ class ApplicationModel:
     name: str
     version: str
     project_root: Path
+    database: Mapping[str, Any]
     entities: Mapping[str, NormalizedEntity]
     views: Mapping[str, ResolvedView]
     reports: Mapping[str, Mapping[str, Any]]
@@ -106,6 +107,7 @@ class ApplicationModel:
         return {
             "schema_version": self.schema_version,
             "application": {"name": self.name, "version": self.version},
+            "database": deep_thaw(self.database),
             "entities": {name: entity.as_dict() for name, entity in self.entities.items()},
             "views": {
                 name: view.as_dict() for name, view in self.views.items()

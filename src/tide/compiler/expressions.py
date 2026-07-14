@@ -7,7 +7,7 @@ import operator
 import re
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
+from decimal import Context, Decimal, InvalidOperation, ROUND_HALF_EVEN, localcontext
 from typing import Any, Mapping
 
 from tide.model.source import EntitySource
@@ -18,6 +18,7 @@ ALLOWED_FUNCTIONS = frozenset(
 ALLOWED_COMPARISONS = (ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE)
 PARAMETER_PATTERN = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
 NUMERIC_TYPES = frozenset({"integer", "decimal"})
+_TIDE_DECIMAL_CONTEXT = Context(prec=38, rounding=ROUND_HALF_EVEN)
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +43,7 @@ def validate_expression(
     globals_: Mapping[str, str] | frozenset[str] = frozenset(),
     expected_type: str | None = None,
 ) -> ExpressionResult:
-    tree, syntax_issue = _parse(expression)
+    tree, _, syntax_issue = _parse(expression)
     if syntax_issue:
         return ExpressionResult((), (syntax_issue,))
     assert tree is not None
@@ -82,23 +83,31 @@ def evaluate_expression(
 ) -> Any:
     """Evaluate the validated expression subset without Python ``eval``."""
 
-    tree, issue = _parse(expression)
+    tree, rewritten, issue = _parse(expression)
     if issue:
         raise ValueError(issue.message)
     assert tree is not None
-    return _Evaluator(
-        values=values,
-        parameters=parameters or {},
-        globals_=globals_ or {},
-    ).visit(tree)
+    with localcontext(_TIDE_DECIMAL_CONTEXT):
+        return _Evaluator(
+            source=rewritten,
+            values=values,
+            parameters=parameters or {},
+            globals_=globals_ or {},
+        ).visit(tree)
 
 
-def _parse(expression: str) -> tuple[ast.Expression | None, ExpressionIssue | None]:
+def _parse(
+    expression: str,
+) -> tuple[ast.Expression | None, str, ExpressionIssue | None]:
     rewritten = PARAMETER_PATTERN.sub(r"__tide_parameter_\1", expression)
     try:
-        return ast.parse(rewritten, mode="eval"), None
+        return ast.parse(rewritten, mode="eval"), rewritten, None
     except SyntaxError as error:
-        return None, ExpressionIssue("TIDE300", f"invalid expression syntax: {error.msg}")
+        return (
+            None,
+            rewritten,
+            ExpressionIssue("TIDE300", f"invalid expression syntax: {error.msg}"),
+        )
 
 
 class _ExpressionValidator(ast.NodeVisitor):
@@ -254,6 +263,14 @@ class _ExpressionValidator(ast.NodeVisitor):
         if name in {"any", "all"}:
             return "boolean"
         if name == "average":
+            argument_type = argument_types[0] if argument_types else "unknown"
+            item_type = _collection_item(argument_type)
+            if not argument_type.startswith("collection[") or item_type not in (
+                NUMERIC_TYPES | {"unknown"}
+            ):
+                self.issues.append(
+                    ExpressionIssue("TIDE306", "average requires a numeric collection")
+                )
             return "decimal"
         if name == "sum":
             item_type = _collection_item(argument_types[0]) if argument_types else "unknown"
@@ -274,7 +291,15 @@ class _ExpressionValidator(ast.NodeVisitor):
 
 
 class _Evaluator(ast.NodeVisitor):
-    def __init__(self, *, values: Mapping[str, Any], parameters: Mapping[str, Any], globals_: Mapping[str, Any]) -> None:
+    def __init__(
+        self,
+        *,
+        source: str,
+        values: Mapping[str, Any],
+        parameters: Mapping[str, Any],
+        globals_: Mapping[str, Any],
+    ) -> None:
+        self.source = source
         self.values = values
         self.parameters = parameters
         self.globals = globals_
@@ -287,7 +312,13 @@ class _Evaluator(ast.NodeVisitor):
 
     def visit_Constant(self, node: ast.Constant) -> Any:
         if isinstance(node.value, float):
-            return Decimal(str(node.value))
+            literal = ast.get_source_segment(self.source, node)
+            if literal is None:
+                raise ValueError("decimal literal source is unavailable")
+            try:
+                return Decimal(literal.replace("_", ""))
+            except InvalidOperation as error:
+                raise ValueError(f"invalid decimal literal {literal!r}") from error
         return node.value
 
     def visit_Name(self, node: ast.Name) -> Any:
@@ -371,7 +402,18 @@ class _Evaluator(ast.NodeVisitor):
         if name == "sum":
             return sum(arguments[0])
         if name == "average":
-            return sum(arguments[0]) / len(arguments[0]) if arguments[0] else None
+            values = arguments[0]
+            if not isinstance(values, (list, tuple)):
+                raise ValueError("average requires exact numeric values")
+            if not values:
+                return None
+            if any(
+                isinstance(value, bool) or not isinstance(value, (int, Decimal))
+                for value in values
+            ):
+                raise ValueError("average requires exact numeric values")
+            total = sum(values)
+            return Decimal(total) / Decimal(len(values))
         if name == "any":
             return any(arguments[0])
         if name == "all":

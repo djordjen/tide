@@ -51,12 +51,14 @@ rejected at compile time with `TIDE308`.
 
 ## Numeric semantics
 
-Fractional literals are exact decimal values, not binary floats: `1.21`
-evaluates as `decimal.Decimal("1.21")`, so `unit_price * 1.21` stays exact for
-decimal fields. Division of exact numbers produces an exact decimal
-(`10 / 4` is `2.5` as a decimal). Record services coerce incoming values to
-their declared field types before any expression is evaluated, so decimal
-fields always carry `decimal.Decimal` at runtime.
+Fractional literals are constructed from their original source token rather
+than an intermediate binary float: `1.21` evaluates as
+`decimal.Decimal("1.21")`, and high-precision literals retain every authored
+digit. Expression arithmetic runs in a framework-owned 38-significant-digit
+decimal context with round-half-even behavior, independent of ambient Python
+decimal settings. Division and `average` return `Decimal` for exact numeric
+inputs. Record services coerce incoming values to their declared field types
+before evaluation, so decimal fields always carry `decimal.Decimal` at runtime.
 
 ## Computed fields
 
@@ -163,6 +165,7 @@ actions:
     label: Post invoice
     shortcut: Ctrl+P
     enabled_when: "status == 'draft' and count(lines) > 0"
+    permission: sales.invoice.post
     execute: sales.actions.post_invoice
 ```
 

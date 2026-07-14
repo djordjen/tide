@@ -58,6 +58,9 @@ audit, and OpenAPI preview remain.
 - integer version tokens and stale-commit rejection;
 - first-class action registry;
 - SQLAlchemy adapter and generated schema for SQLite;
+- repository conformance tests for both managed and legacy database modes;
+- legacy table/schema/column mapping, compatibility inspection, and a hard
+  no-DDL guard for externally owned schemas;
 - generated Pydantic/OpenAPI preview without mutation routes.
 
 Exit condition: core behavior can be tested without Textual or FastAPI.
@@ -97,6 +100,8 @@ the same services.
 ## Milestone 5 - Production data and security
 
 - PostgreSQL support;
+- additional SQLAlchemy dialect certification for legacy databases, based on
+  demand and dialect availability;
 - Alembic migration proposal workflow;
 - explicit rename and destructive-change handling;
 - interactive conflict inspection and permitted field-level merge assistance;

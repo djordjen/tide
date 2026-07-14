@@ -18,6 +18,11 @@ configuration is present, the database is reachable, and the schema revision is
 compatible. A process that needs migration is not ready and must not attempt an
 automatic destructive migration.
 
+For `database.mode: legacy`, readiness uses reflection-based compatibility
+inspection rather than a TIDE schema revision. It reports mismatched mapped
+tables, columns, keys, and types but never attempts to repair or migrate the
+externally owned database.
+
 Graceful shutdown stops accepting new work, lets bounded in-flight transactions
 finish, and then closes adapters and database pools. Background actions carry a
 correlation identifier and service principal just like interactive work.
@@ -51,4 +56,3 @@ configured.
 - audit storage, retention, and clock/timezone behavior are explicit;
 - an operator can identify a failed request by correlation identifier;
 - restore and migration-recovery procedures are rehearsed before release.
-

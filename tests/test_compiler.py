@@ -15,6 +15,7 @@ def test_invoicing_fixture_compiles_to_immutable_model() -> None:
     model = compile_project(INVOICING)
 
     assert model.schema_version == "0.1"
+    assert model.database == {"mode": "managed"}
     assert set(model.entities) == {
         "catalog.Product",
         "crm.Customer",
@@ -56,6 +57,8 @@ def test_strict_yaml_does_not_coerce_legacy_boolean_words(tmp_path: Path) -> Non
         ("duplicate-key", "TIDE005"),
         ("unknown-property", "TIDE102"),
         ("unknown-field-type", "TIDE103"),
+        ("permissionless-action", "TIDE226"),
+        ("legacy-mapping", "TIDE228"),
         ("unknown-reference", "TIDE205"),
         ("unsafe-expression", "TIDE302"),
         ("computed-cycle", "TIDE214"),
@@ -72,11 +75,83 @@ def test_invalid_fixtures_produce_stable_diagnostics(fixture: str, code: str) ->
     assert all(diagnostic.location.line >= 1 for diagnostic in caught.value.diagnostics)
 
 
-def test_permissionless_action_compiles_with_a_warning() -> None:
+def test_explicitly_unrestricted_action_compiles_without_a_warning() -> None:
     model = compile_project(ROOT / "tests" / "fixtures" / "warning" / "permissionless-action")
 
-    warnings = {(diagnostic.code, diagnostic.severity.value) for diagnostic in model.diagnostics}
-    assert ("TIDE226", "warning") in warnings
+    action = model.entity("demo.Thing").actions["touch"]
+    assert action["unrestricted"] is True
+    assert model.diagnostics == ()
+
+
+def test_legacy_database_mapping_is_explicit_and_normalized() -> None:
+    project = ROOT / "tests" / "fixtures" / "valid" / "legacy-database"
+
+    model = compile_project(project)
+
+    assert model.database == {"mode": "legacy"}
+    customer = model.entity("legacy.Customer")
+    assert customer.metadata["storage"] == {
+        "table": "CUSTOMER_MASTER",
+        "schema": "erp",
+    }
+    assert customer.field("id").metadata["column"] == "CUSTOMER_NO"
+    assert customer.field("name").metadata["column"] == "DISPLAY_NAME"
+    assert customer.field("account_manager").metadata["storage"] == "OWNER_EMPLOYEE_NO"
+    assert customer.field("account_manager").target_entity == "legacy.Employee"
+
+
+def test_legacy_database_requires_explicit_physical_field_mappings() -> None:
+    project = ROOT / "tests" / "fixtures" / "invalid" / "legacy-mapping"
+
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(project)
+
+    diagnostics = {diagnostic.code: diagnostic for diagnostic in caught.value.diagnostics}
+    assert "TIDE228" in diagnostics
+    assert "TIDE229" in diagnostics
+    assert diagnostics["TIDE229"].path == ("fields", "id", "column")
+
+
+def test_action_permission_and_unrestricted_access_are_mutually_exclusive(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "conflicting-action-access"
+    models = project / "models"
+    models.mkdir(parents=True)
+    (project / "tide.yaml").write_text(
+        '\n'.join(
+            [
+                'schema_version: "0.1"',
+                'application: {name: Conflicting Action Access, version: 0.1.0}',
+                'model: {paths: [models]}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (project / "handlers.py").write_text(
+        "def touch(record, context, payload):\n    return record\n",
+        encoding="utf-8",
+    )
+    (models / "entity.yaml").write_text(
+        '\n'.join(
+            [
+                'entity: demo.Thing',
+                'fields: {id: {type: integer, primary_key: true}}',
+                'actions:',
+                '  touch:',
+                '    label: Touch',
+                '    permission: demo.thing.touch',
+                '    unrestricted: true',
+                '    execute: handlers.touch',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(project)
+
+    assert "TIDE227" in {diagnostic.code for diagnostic in caught.value.diagnostics}
 
 
 def test_project_discovery_cannot_escape_project_root(tmp_path: Path) -> None:

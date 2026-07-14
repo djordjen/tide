@@ -1,0 +1,11 @@
+entity: legacy.Customer
+storage: {schema: erp, table: CUSTOMER_MASTER}
+display: name
+fields:
+  id:   {type: integer, primary_key: true, column: CUSTOMER_NO}
+  name: {type: string, length: 120, required: true, column: DISPLAY_NAME}
+  account_manager:
+    type: reference
+    target: legacy.Employee
+    storage: OWNER_EMPLOYEE_NO
+    on_delete: restrict

@@ -83,6 +83,13 @@ The initial executable implementation uses an `InMemoryRepository` behind these
 services. It is a contract test adapter: the subsequent SQLAlchemy adapter must
 preserve the same outcomes, errors, policy behavior, and version semantics.
 
+The SQLAlchemy boundary supports two schema-ownership modes. `managed` maps a
+TIDE-owned schema whose reviewed migrations may be executed explicitly.
+`legacy` maps externally owned tables and columns, permits compatibility
+inspection and normal secured data operations, and rejects all DDL and
+migration entry points. Both modes use the same repository and service
+conformance suite.
+
 ## Request context
 
 Every operation carries a context similar to:

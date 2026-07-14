@@ -277,6 +277,37 @@ class RecordsService:
                 continue
             field_type = field.metadata["type"]
             if field_type == "reference":
+                if field.target_entity is None:
+                    issues.append(
+                        ValidationIssue(
+                            "reference",
+                            f"{field_name} has no reference target",
+                            (field_name,),
+                        )
+                    )
+                    continue
+                target = self.model.entity(field.target_entity)
+                target_key = target.field(_primary_key(target))
+                target_key_type = target_key.metadata["type"]
+                coerced, valid = _coerce_scalar(target_key_type, value)
+                if not valid:
+                    issues.append(
+                        ValidationIssue(
+                            "type",
+                            f"{field_name} must be a {target_key_type} reference value",
+                            (field_name,),
+                        )
+                    )
+                    continue
+                values[field_name] = coerced
+                if not self.repository.exists(field.target_entity, coerced):
+                    issues.append(
+                        ValidationIssue(
+                            "reference",
+                            f"{field_name} must reference an existing {field.target_entity}",
+                            (field_name,),
+                        )
+                    )
                 continue
             if field_type == "collection":
                 if not isinstance(value, list):

@@ -189,6 +189,17 @@ def test_action_permission_does_not_require_general_update_permission(runtime) -
     assert posted["version"] == 2
 
 
+def test_action_authorization_fails_closed_without_explicit_access(runtime) -> None:
+    model, _, records, _ = runtime
+    entity = model.entity("sales.Invoice")
+    clerk = context("user:clerk", "sales_clerk")
+
+    with pytest.raises(AuthorizationError):
+        records.security.authorize_action(entity, {}, clerk)
+
+    records.security.authorize_action(entity, {"unrestricted": True}, clerk)
+
+
 def test_commit_coerces_typed_inputs_to_declared_field_types(runtime) -> None:
     _, _, records, _ = runtime
     clerk = context("user:clerk", "sales_clerk")
@@ -251,6 +262,36 @@ def test_commit_rejects_non_boolean_flags(runtime) -> None:
 
     assert any(
         issue.rule == "type" and issue.fields == ("active",)
+        for issue in caught.value.issues
+    )
+
+
+def test_commit_rejects_reference_with_wrong_identity_type(runtime) -> None:
+    _, _, records, _ = runtime
+    clerk = context("user:clerk", "sales_clerk")
+    values = invoice_values()
+    values["customer"] = "1"
+
+    with pytest.raises(ValidationFailed) as caught:
+        records.commit(records.create("sales.Invoice", clerk, values), clerk)
+
+    assert any(
+        issue.rule == "type" and issue.fields == ("customer",)
+        for issue in caught.value.issues
+    )
+
+
+def test_commit_rejects_reference_to_missing_record(runtime) -> None:
+    _, _, records, _ = runtime
+    clerk = context("user:clerk", "sales_clerk")
+    values = invoice_values()
+    values["lines"][0]["product"] = 999
+
+    with pytest.raises(ValidationFailed) as caught:
+        records.commit(records.create("sales.Invoice", clerk, values), clerk)
+
+    assert any(
+        issue.rule == "reference" and issue.fields == ("product",)
         for issue in caught.value.issues
     )
 

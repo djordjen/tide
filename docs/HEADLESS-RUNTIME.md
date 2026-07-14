@@ -28,7 +28,8 @@ The runtime currently provides:
 - create, get, query, begin-edit, commit, and rollback;
 - typed value coercion at the service boundary: decimal fields accept int,
   float, and numeric string inputs and always store `decimal.Decimal`; other
-  scalar types are strictly checked;
+  scalar types are strictly checked; reference identities are checked against
+  their target primary-key type and must identify an existing record;
 - required, range, choice, uniqueness, and expression validation, with null
   values never colliding on unique fields;
 - stored computed fields across unsaved master-detail collections;
@@ -36,7 +37,8 @@ The runtime currently provides:
 - `readonly`, `action_only`, `system`, and `immutable_when` enforcement;
 - integer optimistic concurrency tokens;
 - action preconditions and handler registration;
-- independent action permissions without requiring a general entity-update grant;
+- fail-closed action access through an independent permission or explicit
+  `unrestricted: true`, without requiring a general entity-update grant;
 - idempotency-key binding and reauthorization on replay;
 - bounded, allow-listed filtering and deterministic sorting.
 

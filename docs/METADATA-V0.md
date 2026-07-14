@@ -14,6 +14,8 @@ schema_version: "0.1"
 application:
   name: Example
   version: 0.1.0
+
+database: {mode: managed}
 ```
 
 `schema_version` controls metadata interpretation. `application.version`
@@ -49,13 +51,21 @@ The v0.1 compiler checks:
 - relationship targets, inverse fields, and collection ordering fields;
 - display, search, view, and report field references;
 - semantic format and presentation-preset references;
-- action handler shape and shortcut conflicts;
+- action handler shape, explicit action access, and shortcut conflicts;
 - static project-handler module/function resolution without importing code;
 - permission declarations, role grants, row policies, and field policies;
 - the safe typed expression subset, relationship paths, parameters, expected
   result types, and computed field cycles;
 - action-only/system fields being read-only to adapters;
 - collection views and report entity references.
+- explicit physical table and persisted-column mappings for legacy databases.
+
+`database.mode` is either `managed` (the default) or `legacy`. Legacy entities
+must declare `storage.table`; `storage.schema` is optional. Every persisted
+scalar field must declare `column`, and every persisted reference must declare
+its existing foreign-key column through `storage`. Missing mappings are
+`TIDE228` and `TIDE229` errors. Collections and virtual computed fields are not
+persisted and therefore do not require column mappings.
 
 JSON Schema can be exported for each source-file kind:
 
@@ -95,6 +105,6 @@ source locations are compatibility-sensitive. The current ranges are:
 
 Diagnostics carry a severity. Errors fail compilation; warnings do not. A
 successful `tide model validate` prints warnings and includes them in the
-`--json` output under `warnings`. The first warning is `TIDE226`: an action
-that declares no `permission` is executable by any principal who can read the
-entity.
+`--json` output under `warnings`. `TIDE226` is an error: every action must
+declare a `permission` or explicitly opt into `unrestricted: true`. Declaring
+both forms is rejected with `TIDE227`.

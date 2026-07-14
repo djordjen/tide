@@ -1,0 +1,6 @@
+entity: legacy.Employee
+storage: {schema: erp, table: EMPLOYEE_MASTER}
+display: name
+fields:
+  id:   {type: integer, primary_key: true, column: EMPLOYEE_NO}
+  name: {type: string, length: 120, required: true, column: DISPLAY_NAME}

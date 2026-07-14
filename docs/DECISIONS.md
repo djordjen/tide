@@ -38,11 +38,14 @@ decision was first recorded, not when implementation was completed.
 | 2026-07-14 | The first application-service adapter is an in-memory repository. | Security, sessions, validation, actions, and concurrency can stabilize before SQLAlchemy mapping concerns are introduced. |
 | 2026-07-14 | Persistence owns concurrency-token increments; domain actions own state transitions. | Central version management makes retries and stale-write handling consistent across all actions and adapters. |
 | 2026-07-14 | Idempotency replay reauthorizes and reprojects its target. | Cached transport output could leak fields after permission changes; replay must use current authorization. |
-| 2026-07-14 | Decimal fields use exact decimal arithmetic end to end: fractional expression literals evaluate as `decimal.Decimal`, division of exact numbers stays exact, and record services coerce int, float, and numeric string inputs to `Decimal` at the service boundary. | Business quantities such as money must not accumulate binary floating-point error, and adapters deliver mixed primitive types (JSON floats, terminal strings). |
+| 2026-07-14 | Decimal fields use deterministic decimal arithmetic end to end: fractional literals preserve their source tokens, evaluation uses a private 38-digit round-half-even context, division and averages return `Decimal`, and record services normalize decimal inputs at the service boundary. | Business quantities such as money must not accumulate binary floating-point error or depend on process-global decimal settings. |
 | 2026-07-14 | Field values are validated against their declared type at commit; values that cannot represent the type fail validation instead of being stored. | An invoicing runtime must not silently store a string in a date field; the SQLAlchemy adapter would otherwise disagree with the in-memory contract. |
 | 2026-07-14 | Unique fields treat null as absent: multiple null values never conflict. | This matches SQL unique-index semantics, keeping the in-memory contract and the future SQLAlchemy adapter in agreement. |
 | 2026-07-14 | Expression comparisons are limited to `==`, `!=`, `<`, `<=`, `>`, `>=`; membership `in` and identity `is` are rejected at compile time with `TIDE308`. | Operators the runtime and the future SQL translator cannot honor must fail at authoring time, not at evaluation. |
-| 2026-07-14 | Compilation separates error and warning severities; an action without a permission compiles with warning `TIDE226`. | Entity operations are deny-by-default while actions were silently executable with read access alone; the asymmetry must be visible without breaking valid projects. |
+| 2026-07-14 | Compilation separates error and warning severities; errors fail compilation while warnings remain attached to the normalized model and CLI output. | Advisory diagnostics must be visible without making every non-fatal condition block application startup. |
+| 2026-07-14 | Actions fail closed unless they declare a permission or explicitly set `unrestricted: true`; omission is `TIDE226`. | Accidentally omitting metadata must never grant mutation authority to every principal with record read access. |
+| 2026-07-14 | Reference values are normalized against the target primary-key type and checked for existence before commit. | The in-memory contract must reject broken relationships before the SQL adapter adds database foreign-key enforcement. |
+| 2026-07-15 | Database ownership is explicit: `managed` permits reviewed TIDE migrations, while `legacy` maps externally owned tables and columns under a hard no-DDL rule. | Existing third-party schemas must be usable without risking an implicit create, alter, drop, or migration operation. |
 
 ## Open decisions
 
@@ -53,6 +56,8 @@ decision was first recorded, not when implementation was completed.
 - Stable identifiers and explicit rename representation for schema evolution.
 - Exact representation of protected fields in versioned REST contracts.
 - Whether direct many-to-many syntax belongs in the first stable model.
+- Composite-key representation and database-generated key/refresh behavior for
+  broader legacy database compatibility.
 
 ## Deferred decisions
 

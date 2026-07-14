@@ -26,15 +26,14 @@ def test_model_validate_json(capsys) -> None:
     }
 
 
-def test_model_validate_json_reports_warnings(capsys) -> None:
+def test_model_validate_json_accepts_explicitly_unrestricted_action(capsys) -> None:
     fixture = ROOT / "tests" / "fixtures" / "warning" / "permissionless-action"
     result = main(["model", "validate", str(fixture), "--json"])
     output = json.loads(capsys.readouterr().out)
 
     assert result == 0
     assert output["valid"] is True
-    assert [warning["code"] for warning in output["warnings"]] == ["TIDE226"]
-    assert [warning["severity"] for warning in output["warnings"]] == ["warning"]
+    assert output["warnings"] == []
 
 
 def test_model_explain_reports_dependencies(capsys) -> None:
@@ -60,6 +59,7 @@ def test_schema_export_is_strict(capsys) -> None:
     assert result == 0
     assert schema["additionalProperties"] is False
     assert schema["properties"]["schema_version"]["const"] == "0.1"
+    assert schema["properties"]["database"]["$ref"].endswith("/DatabaseSource")
 
 
 def test_view_explain_includes_resolved_provenance(capsys) -> None:

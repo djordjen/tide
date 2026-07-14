@@ -38,6 +38,10 @@ class InMemoryRepository:
                 raise NotFoundError(f"{entity} {identity!r} was not found")
             return deepcopy(record)
 
+    def exists(self, entity: str, identity: Any) -> bool:
+        with self._lock:
+            return identity in self._records.get(entity, {})
+
     def peek_next_identity(self, entity: str) -> int:
         with self._lock:
             return self._next_identity.get(entity, 1)

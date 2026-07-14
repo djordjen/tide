@@ -103,6 +103,7 @@ Start with [the documentation index](docs/README.md). Important documents are:
 - [Vision](docs/VISION.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Application model](docs/APPLICATION-MODEL.md)
+- [Legacy databases](docs/LEGACY-DATABASES.md)
 - [Compilation and application layout](docs/COMPILATION-AND-LAYOUT.md)
 - [Metadata contract v0.1](docs/METADATA-V0.md)
 - [Presentation model](docs/PRESENTATION.md)

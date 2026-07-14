@@ -1,0 +1,4 @@
+schema_version: "0.1"
+application: {name: Legacy Database, version: 0.1.0}
+database: {mode: legacy}
+model: {paths: [models]}

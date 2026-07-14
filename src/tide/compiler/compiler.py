@@ -117,7 +117,15 @@ def compile_project(project: str | Path = ".") -> ApplicationModel:
             preset_documents[name] = document
 
     dependency_map: dict[tuple[str, str], tuple[str, ...]] = {}
-    _validate_entities(entities, entity_documents, formats, dependency_map, diagnostics, root)
+    _validate_entities(
+        entities,
+        entity_documents,
+        formats,
+        dependency_map,
+        diagnostics,
+        root,
+        project_source.database.mode,
+    )
     _validate_views(views, view_documents, entities, presets, diagnostics)
     _validate_reports(reports, report_documents, entities, diagnostics)
     permissions, roles, row_policies, field_policies = _validate_security(
@@ -184,6 +192,9 @@ def compile_project(project: str | Path = ".") -> ApplicationModel:
         name=project_source.application.name,
         version=project_source.application.version,
         project_root=root,
+        database=immutable_mapping(
+            project_source.database.model_dump(mode="json", exclude_none=True)
+        ),
         entities=immutable_mapping(normalized_entities),
         views=immutable_mapping(resolved_views),
         reports=immutable_mapping(
@@ -372,6 +383,7 @@ def _validate_entities(
     dependencies: dict[tuple[str, str], tuple[str, ...]],
     diagnostics: list[Diagnostic],
     project_root: Path,
+    database_mode: str,
 ) -> None:
     for entity_name, entity in entities.items():
         document = documents[entity_name]
@@ -382,6 +394,17 @@ def _validate_entities(
                 "entity identifiers must be qualified dotted names",
                 document,
                 ("entity",),
+            )
+
+        if database_mode == "legacy" and (
+            entity.storage is None or entity.storage.table is None
+        ):
+            _add(
+                diagnostics,
+                "TIDE228",
+                "legacy database entities must declare their physical storage table",
+                document,
+                ("storage",),
             )
 
         primary_keys = [name for name, field in entity.fields.items() if field.primary_key]
@@ -435,15 +458,22 @@ def _validate_entities(
                     ("permissions", operation),
                 )
         for action_name, action in entity.actions.items():
-            if not action.permission:
+            if not action.permission and not action.unrestricted:
                 _add(
                     diagnostics,
                     "TIDE226",
-                    f"action {action_name!r} declares no permission; any principal who can "
-                    f"read {entity_name} may execute it",
+                    f"action {action_name!r} must declare a permission or explicitly set "
+                    "unrestricted: true",
                     document,
                     ("actions", action_name),
-                    severity=Severity.WARNING,
+                )
+            if action.permission and action.unrestricted:
+                _add(
+                    diagnostics,
+                    "TIDE227",
+                    f"action {action_name!r} cannot declare both permission and unrestricted",
+                    document,
+                    ("actions", action_name),
                 )
             if not IDENTIFIER.fullmatch(action.execute):
                 _add(
@@ -487,6 +517,17 @@ def _validate_entities(
 
         for field_name, field in entity.fields.items():
             field_path = ("fields", field_name)
+            if database_mode == "legacy" and _is_persisted_field(field):
+                mapping_property = "storage" if field.type == "reference" else "column"
+                if getattr(field, mapping_property) is None:
+                    _add(
+                        diagnostics,
+                        "TIDE229",
+                        f"legacy database field {field_name!r} must declare its physical "
+                        f"{mapping_property}",
+                        document,
+                        (*field_path, mapping_property),
+                    )
             if field.type in {"reference", "collection"}:
                 if not field.target:
                     _add(
@@ -660,6 +701,12 @@ def _validate_entities(
             )
 
     _validate_computed_cycles(entities, documents, dependencies, diagnostics)
+
+
+def _is_persisted_field(field: Any) -> bool:
+    if field.type == "collection":
+        return False
+    return field.computed is None or field.computed.materialization != "virtual"
 
 
 def _validate_computed_cycles(

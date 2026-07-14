@@ -13,6 +13,11 @@ without receiving unrestricted invoice editing rights. The action service still
 requires record read access, evaluates row policy, rechecks its precondition,
 and applies field write policies during commit.
 
+Every action must declare a `permission` or explicitly set
+`unrestricted: true`. Omission fails compilation and runtime authorization.
+`unrestricted` only waives the action-specific permission; entity read access,
+row policy, field policy, preconditions, validation, and auditing still apply.
+
 ## Permission dimensions
 
 TIDE distinguishes:
