@@ -48,6 +48,7 @@ uv sync --extra dev
 uv run tide model validate applications/invoicing
 uv run tide model explain sales.Invoice.total --project applications/invoicing
 uv run tide api export-openapi applications/invoicing
+uv run tide run applications/invoicing --demo --page-size 3
 uv run pytest
 ```
 
@@ -163,8 +164,11 @@ covered, with live certification available through an opt-in integration suite.
 Shared SQLAlchemy cursor storage preserves exact typed continuation state across
 runtime restarts and processes while storing only hashes of bearer tokens. An
 adapter-independent, read-only OpenAPI 3.1 preview now generates typed
-Pydantic record/page schemas and explicitly exposed list/get contracts. Textual,
-REST hosting, MCP, migrations, and report rendering remain roadmap work.
+Pydantic record/page schemas and explicitly exposed list/get contracts. The
+first metadata-driven Textual invoice browse is runnable with application-owned
+demo data, secured reference display, opaque paging, refresh, and keyboard or
+mouse controls. Edit forms, REST hosting, MCP, migrations, and report rendering
+remain roadmap work.
 
 Metadata v0.1 is an executable experimental contract. Breaking authoring
 changes require a new `schema_version`; stable 1.0 compatibility is not yet

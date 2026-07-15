@@ -17,6 +17,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+tui = [
+    "textual>=8.2,<9",
+]
 sqlserver = [
     "pyodbc>=5.3,<6",
 ]
@@ -24,6 +27,7 @@ dev = [
     "build>=1.2,<1.5.1",
     "pytest>=8.3,<10",
     "ruff>=0.15,<1",
+    "textual>=8.2,<9",
 ]
 
 [project.scripts]

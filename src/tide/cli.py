@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from tide.api.openapi import DEFAULT_BASE_PATH, generate_openapi
 from tide.compiler.compiler import compile_project
 from tide.diagnostics import CompilationFailed, Severity
+from tide.data import InMemoryRepository
 from tide.model.source import (
     EntitySource,
     FormatsSource,
@@ -23,6 +24,8 @@ from tide.model.source import (
     SecurityDocumentSource,
     ViewSource,
 )
+from tide.runtime import Channel, Principal, RequestContext
+from tide.services import RecordsService
 
 SCHEMA_TYPES: dict[str, type[BaseModel]] = {
     "project": ProjectSource,
@@ -78,6 +81,30 @@ def _create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tide", description="Terminal Integrated Data Environment")
     parser.add_argument("--version", action="version", version="TIDE 0.1.0")
     commands = parser.add_subparsers(dest="command")
+
+    run = commands.add_parser("run", help="run the Textual application adapter")
+    run.add_argument(
+        "project",
+        nargs="?",
+        default=".",
+        metavar="APPLICATION",
+        help="application root or tide.yaml (default: current directory)",
+    )
+    run.add_argument(
+        "--demo",
+        action="store_true",
+        help="execute application-owned demo_data.py and seed an in-memory repository",
+    )
+    run.add_argument("--view", help="browse view to open (default: first browse view)")
+    run.add_argument(
+        "--role",
+        action="append",
+        default=[],
+        help="principal role; repeat for multiple roles (demo default: most capable role)",
+    )
+    run.add_argument("--principal", default="local:user", help="principal identifier")
+    run.add_argument("--page-size", type=int, help="override the view page size")
+    run.set_defaults(handler=_run_tui)
 
     model = commands.add_parser("model", help="validate and inspect the application model")
     model_commands = model.add_subparsers(dest="model_command")
@@ -142,6 +169,56 @@ def _create_parser() -> argparse.ArgumentParser:
     export_openapi.set_defaults(handler=_api_export_openapi)
 
     return parser
+
+
+def _run_tui(arguments: argparse.Namespace) -> int:
+    model = compile_project(arguments.project)
+    repository = InMemoryRepository()
+    source_label = "empty in-memory data"
+    if arguments.demo:
+        try:
+            from tide.tui.demo import DemoDataError, seed_demo_data
+
+            seeded = seed_demo_data(model, repository)
+        except DemoDataError as error:
+            print(f"TUI demo startup failed: {error}", file=sys.stderr)
+            return 1
+        source_label = f"demo data ({seeded} seeded records)"
+    roles = tuple(arguments.role)
+    if not roles and arguments.demo and model.roles:
+        roles = (max(model.roles, key=lambda role: len(model.roles[role])),)
+    context = RequestContext(
+        principal=Principal(
+            arguments.principal,
+            roles=frozenset(roles),
+        ),
+        channel=Channel.TUI,
+    )
+    records = RecordsService(model, repository)
+    try:
+        from tide.tui import TideApp
+    except ModuleNotFoundError as error:
+        if error.name == "textual" or (error.name or "").startswith("textual."):
+            print(
+                "The Textual adapter is not installed. Install the 'tui' extra "
+                "(for example: uv sync --extra tui).",
+                file=sys.stderr,
+            )
+            return 1
+        raise
+    try:
+        TideApp(
+            model,
+            records,
+            context,
+            view_name=arguments.view,
+            page_size=arguments.page_size,
+            source_label=source_label,
+        ).run()
+    except ValueError as error:
+        print(f"TUI startup failed: {error}", file=sys.stderr)
+        return 1
+    return 0
 
 
 def _model_validate(arguments: argparse.Namespace) -> int:

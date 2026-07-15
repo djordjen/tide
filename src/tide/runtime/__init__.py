@@ -9,6 +9,7 @@ from tide.runtime.errors import (
     InvalidQueryCursor,
     NotFoundError,
     RelationshipExpansionLimit,
+    TideRuntimeError,
     ValidationFailed,
 )
 
@@ -25,5 +26,6 @@ __all__ = [
     "Principal",
     "RelationshipExpansionLimit",
     "RequestContext",
+    "TideRuntimeError",
     "ValidationFailed",
 ]

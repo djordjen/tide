@@ -1,8 +1,8 @@
 # TIDE Invoicing Application
 
 This is the golden vertical-slice application proposed in the TIDE roadmap. It
-is now an executable compiler and secured headless-runtime fixture, not yet a
-complete database or Textual application.
+is an executable compiler and secured headless-runtime fixture with an initial
+metadata-driven Textual invoice browse.
 
 It demonstrates:
 
@@ -16,17 +16,24 @@ It demonstrates:
 - strict metadata v0.1 validation and source-located diagnostics;
 - action-owned posting state and an optimistic concurrency token;
 - idempotent posting behavior with audit stamps and decimal rounding;
-- immutable-when-posted metadata for invoice and line edits.
+- immutable-when-posted metadata for invoice and line edits;
 - a headless create/edit/post/retry workflow with row/field security and stale
-  update rejection.
+  update rejection;
+- application-owned typed demo records for the runnable TUI.
 
 Validate it from the repository root:
 
 ```bash
 uv run tide model validate applications/invoicing
 uv run tide model explain sales.Invoice.status --project applications/invoicing
+uv run tide run applications/invoicing --demo --page-size 3
 ```
 
-Deployment-specific database URLs and credentials are intentionally absent.
-SQLite and PostgreSQL configuration will be supplied through environment or
-deployment configuration once the runtime exists.
+The `--demo` flag explicitly executes this application's `demo_data.py` and
+loads an in-memory repository; it never changes a database. Omit `--page-size`
+to use the browse metadata default of 25. The initial visible slice supports
+secured browsing, next/previous paging, refresh, row selection, keyboard, and
+mouse controls. Editing and deployment database selection are the next slices.
+
+Deployment-specific database URLs and credentials remain intentionally absent.
+Microsoft SQL Server is the first multi-user deployment target.

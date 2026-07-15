@@ -1,6 +1,7 @@
 # Terminal Compatibility Contract
 
-**Status: Proposed test contract.**
+**Status: Initial automated browse harness implemented; full release matrix
+remains proposed.**
 
 TIDE's terminal adapter must work through keyboard alone; mouse behavior is an
 additional route to the same actions. A terminal-specific control must not be
@@ -30,8 +31,12 @@ than fragile full-screen snapshots alone. A smaller set of golden screenshots
 may verify layout at representative dimensions. Width calculations must use
 terminal cell width rather than Unicode code-point count.
 
+The initial Textual browse tests run headlessly at 100x24 and 120x30. They
+exercise metadata columns, secured reference display, key-driven paging and
+refresh, clickable navigation, page bounds, and cursor-backed service queries.
+This is the automated floor, not certification of the wider terminal matrix.
+
 SSH tests should include noticeable latency and interrupted connections.
 `RecordSession` retains unsaved edits until the user explicitly cancels or the
 session is irrecoverably closed; reconnect behavior must never duplicate an
 action silently.
-

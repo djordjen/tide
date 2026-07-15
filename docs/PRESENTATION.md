@@ -118,6 +118,13 @@ surfaces:
 The target is shared application semantics with limited renderer-specific
 presentation, not an identical lowest-common-denominator interface.
 
+The first executable renderer consumes a resolved browse view directly. It
+builds `DataTable` columns from view metadata, queries only through
+`RecordsService`, resolves reference display text through secured record reads,
+and carries opaque continuation cursors for next/previous navigation. Keyboard
+bindings and buttons invoke the same page and refresh actions. Form and lookup
+rendering remain the next vertical-slice work.
+
 ## Semantic formats
 
 Formats centralize Clarion picture-like behavior:

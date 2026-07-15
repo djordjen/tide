@@ -7,7 +7,8 @@ features. Designers and alternative renderers follow stable model contracts.
 
 Status: **in progress**. The package, CLI, typed v0.1 sources, project discovery,
 strict diagnostics, tests, compiler-ready invoicing fixture, and managed SQLite
-schema/persistence skeleton are implemented. Textual and developer MCP remain.
+schema/persistence skeleton are implemented. The first metadata-driven Textual
+browse shell is runnable; developer MCP remains.
 
 - living architecture documentation and decision log;
 - Python package, CLI, configuration, and test skeleton;
@@ -80,6 +81,11 @@ bounded capacity, hashed bearer tokens, and explicit schema ownership.
 Exit condition: core behavior can be tested without Textual or FastAPI.
 
 ## Milestone 3 - Golden invoicing slice
+
+Status: **in progress**. The resolved invoice browse now runs in Textual against
+the secured `RecordsService`, with application-owned demo data, formatted
+metadata columns, protected reference display, opaque next/previous paging,
+refresh, keyboard bindings, and clickable controls. Editing begins next.
 
 - generated browse, edit, and lookup views;
 - Customer and Product lookups;
