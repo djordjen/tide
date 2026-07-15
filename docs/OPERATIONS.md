@@ -1,8 +1,8 @@
 # Operational Baseline
 
-**Status: Action audit persistence is executable; the wider production
-contract remains proposed.** These requirements should be built alongside
-persistence rather than added after machine mutations ship.
+**Status: Action audit and shared cursor persistence are executable; the wider
+production contract remains proposed.** These requirements should be built
+alongside persistence rather than added after machine mutations ship.
 
 ## Configuration and secrets
 
@@ -40,6 +40,12 @@ SQLAlchemy action store. Started rows make interrupted work visible; terminal
 outcomes distinguish success, replay, conflict, and failure. Payloads and raw
 idempotency keys are excluded. Retention, purge, reconciliation, and protected
 change-detail policies must be configured before production use.
+
+Shared SQL cursor storage keeps only bearer-token hashes but does retain typed
+query boundaries, filters, and principal/permission identifiers. Its TTL and
+capacity must be configured, expired rows purged, and database/backup access
+treated as potentially sensitive. See
+[Shared cursor storage](CURSOR-STORAGE.md).
 
 ## Database changes and recovery
 

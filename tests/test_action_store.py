@@ -21,6 +21,7 @@ from tide.data import (
 from tide.runtime import ActionDisabled, Channel, Principal, RequestContext
 from tide.runtime.errors import IdempotencyConflict
 from tide.services import (
+    ActionAuditEvent,
     ActionExecutionStore,
     ActionService,
     AuditOutcome,
@@ -314,6 +315,40 @@ def test_sql_action_store_defaults_to_no_ddl() -> None:
     assert len(store.schema_issues()) == 2
     assert inspect(store.engine).get_table_names() == []
     store.dispose()
+
+
+def test_audit_events_preserve_begin_order_when_timestamps_match() -> None:
+    sql_store = SQLAlchemyActionExecutionStore(
+        "sqlite+pysqlite:///:memory:",
+        mode="managed",
+    )
+    sql_store.create_schema()
+    stores: tuple[ActionExecutionStore, ...] = (
+        InMemoryActionExecutionStore(),
+        sql_store,
+    )
+    started_at = datetime(2026, 7, 15, 10, 30, tzinfo=timezone.utc)
+
+    for store in stores:
+        for event_id in ("z-first", "a-second"):
+            store.begin_audit(
+                ActionAuditEvent(
+                    event_id=event_id,
+                    entity="sales.Invoice",
+                    action="post",
+                    identity=1,
+                    principal="user:clerk",
+                    channel="tui",
+                    correlation_id=event_id,
+                    started_at=started_at,
+                )
+            )
+        assert [event.event_id for event in store.audit_events()] == [
+            "z-first",
+            "a-second",
+        ]
+
+    sql_store.dispose()
 
 
 def _memory_runtime() -> tuple[Any, InMemoryRepository, RecordsService]:

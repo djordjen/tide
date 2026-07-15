@@ -151,8 +151,10 @@ authorized items per parent collection. Both values are configurable on
 
 List pagination uses deterministic keyset boundaries in the database rather
 than `OFFSET`. Opaque cursor tokens are bound to the exact secured query and
-principal. The default bounded store is process-local and expiring; deployments
-with multiple runtime processes will require a shared `CursorStore` adapter.
+principal. The default bounded store is process-local and expiring.
+`SQLAlchemyCursorStore` provides hashed-token, typed, expiring state shared by
+multiple runtime processes and across restarts. See
+[Shared cursor storage](CURSOR-STORAGE.md).
 
 Create policies check finalized values before insertion. Update policies are
 included in the atomic SQL mutation predicate, preventing a policy race even
@@ -170,6 +172,6 @@ See [Action audit and idempotency](AUDIT-AND-IDEMPOTENCY.md).
 The in-memory repository remains a test adapter. The SQLAlchemy slice does not
 yet provide multiple-collection policy translation, Alembic migrations,
 race-resistant business numbering, atomic application/action-store completion,
-audit retention/reconciliation tooling, a durable/shared cursor store, warning
-confirmation, or async handlers. Broader automated SQL Server version/CI
+audit retention/reconciliation tooling, warning confirmation, or async
+handlers. Broader automated SQL Server version/CI
 certification also remains required before production readiness.

@@ -72,7 +72,9 @@ correlation identifier, timestamps, outcome, and safe error code. They do not
 contain request payloads, protected field values, credentials, SQL parameters,
 or the raw idempotency key. When a key exists, audit stores only its SHA-256
 hash for operational correlation. `audit: false` suppresses the audit row but
-does not disable idempotency storage.
+does not disable idempotency storage. The SQL store assigns an identity-backed
+sequence when each audit row begins, so equal database timestamps do not make
+invocation history depend on random event identifiers.
 
 ## Crash and transaction semantics
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
+import hashlib
 import os
 from pathlib import Path
 from typing import Iterator
@@ -14,6 +15,7 @@ from tide import compile_project
 from tide.data import (
     QuerySpec,
     SQLAlchemyActionExecutionStore,
+    SQLAlchemyCursorStore,
     SQLAlchemyRepository,
     SortField,
 )
@@ -25,6 +27,7 @@ from tide.services import (
     IdempotencyStatus,
     RecordsService,
 )
+from tide.services.cursors import CURSOR_VERSION, CursorShape, CursorState
 
 ROOT = Path(__file__).parents[1]
 INVOICING = ROOT / "applications" / "invoicing"
@@ -317,5 +320,47 @@ def test_sql_server_persists_action_idempotency_and_audit(
         assert persisted.identity == Decimal("123.45")
         assert persisted.status is IdempotencyStatus.COMPLETED
         assert restarted.audit_events()[0].outcome is AuditOutcome.SUCCEEDED
+    finally:
+        store.metadata.drop_all(store.engine)
+
+
+def test_sql_server_persists_shared_query_cursor(
+    sqlserver_repository: SQLAlchemyRepository,
+) -> None:
+    store = SQLAlchemyCursorStore(
+        sqlserver_repository.engine,
+        mode="managed",
+    )
+    cursor_tables = {table.name for table in store.metadata.tables.values()}
+    collisions = cursor_tables & set(inspect(store.engine).get_table_names())
+    if collisions:
+        pytest.fail(
+            "SQL Server cursor-store tests require an unused TIDE-owned table; "
+            f"collisions: {sorted(collisions)}"
+        )
+    state = CursorState(
+        version=CURSOR_VERSION,
+        shape=CursorShape(
+            model=("Invoicing", "0.1.0", "0.1"),
+            entity="sales.Invoice",
+            filters=(),
+            sort=(SortField("total"), SortField("id")),
+            limit=25,
+            principal=("user:sqlserver", ("sales.invoice.read",)),
+        ),
+        values=(Decimal("12345678901234567890.123456789"),),
+    )
+    try:
+        store.create_schema()
+        store.validate_schema()
+        token = store.issue(state)
+
+        restarted = SQLAlchemyCursorStore(sqlserver_repository.engine)
+        restarted.validate_schema()
+        assert restarted.resolve(token) == state
+        with store.engine.connect() as connection:
+            persisted = connection.execute(store.cursor_table.select()).mappings().one()
+        assert token not in repr(dict(persisted))
+        assert persisted["token_hash"] == hashlib.sha256(token.encode()).hexdigest()
     finally:
         store.metadata.drop_all(store.engine)

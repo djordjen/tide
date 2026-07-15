@@ -213,12 +213,7 @@ class InMemoryActionExecutionStore:
                 for event in self._audit.values()
                 if correlation_id is None or event.correlation_id == correlation_id
             )
-            return tuple(
-                _copy_audit(event)
-                for event in sorted(
-                    events, key=lambda item: (item.started_at, item.event_id)
-                )
-            )
+            return tuple(_copy_audit(event) for event in events)
 
     def _matching_idempotency(
         self,

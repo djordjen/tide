@@ -25,8 +25,10 @@ decision log rather than being silently assumed in implementation code.
    fields, criteria, filters, action conditions, and validation.
 10. [Security](SECURITY.md) and the [threat model](THREAT-MODEL.md) define the
    permission model, protected values, boundaries, and baseline controls.
-11. [REST API and MCP](API-AND-MCP.md) and [query and concurrency](QUERY-AND-CONCURRENCY.md)
-   define machine-facing contracts.
+11. [REST API and MCP](API-AND-MCP.md),
+    [query and concurrency](QUERY-AND-CONCURRENCY.md), and
+    [shared cursor storage](CURSOR-STORAGE.md) define machine-facing query and
+    continuation contracts.
 12. [Action audit and idempotency](AUDIT-AND-IDEMPOTENCY.md) defines durable
     reservations, audit rows, replay, and crash reconciliation.
 13. [Designers and reporting](DESIGNERS-AND-REPORTING.md) describes TIDE Studio,

@@ -57,6 +57,10 @@ class InvalidQueryCursor(TideRuntimeError):
         super().__init__("query cursor is invalid or expired")
 
 
+class CursorStoreError(TideRuntimeError):
+    code = "cursor_store_error"
+
+
 class RelationshipExpansionLimit(TideRuntimeError):
     code = "relationship_expansion_limit"
 

@@ -15,6 +15,7 @@ from tide.data.sqlalchemy import (
     SchemaManagementError,
 )
 from tide.data.sqlalchemy_actions import SQLAlchemyActionExecutionStore
+from tide.data.sqlalchemy_cursors import SQLAlchemyCursorStore
 from tide.data.sql_expressions import QueryTranslationError
 
 __all__ = [
@@ -28,6 +29,7 @@ __all__ = [
     "Repository",
     "SQLAlchemyRepository",
     "SQLAlchemyActionExecutionStore",
+    "SQLAlchemyCursorStore",
     "SchemaCompatibilityError",
     "SchemaIssue",
     "SchemaManagementError",

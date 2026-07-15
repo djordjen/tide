@@ -123,6 +123,7 @@ Start with [the documentation index](docs/README.md). Important documents are:
 - [Security](docs/SECURITY.md)
 - [REST API and MCP](docs/API-AND-MCP.md)
 - [Query and concurrency](docs/QUERY-AND-CONCURRENCY.md)
+- [Shared cursor storage](docs/CURSOR-STORAGE.md)
 - [Action audit and idempotency](docs/AUDIT-AND-IDEMPOTENCY.md)
 - [Designers and reporting](docs/DESIGNERS-AND-REPORTING.md)
 - [Terminal compatibility](docs/TERMINAL-COMPATIBILITY.md)
@@ -150,7 +151,7 @@ tide report preview sales.invoice
 ## Current status
 
 Milestones 0 and 1 are substantially implemented, and the secured application
-core is in progress. The v0.1 compiler, resolved-view provenance, typed
+core milestone is complete. The v0.1 compiler, resolved-view provenance, typed
 expressions, headless services, in-memory and SQLite repositories, tests, and
 executable invoicing workflow are implemented. Direct, reference-path, and
 single-collection aggregate SQL policy translation and secured keyset
@@ -159,7 +160,9 @@ target-entity, and target-row authorization through bounded relationship load
 plans. Durable action reservations and channel-aware action audit rows are
 implemented for memory and SQLAlchemy stores. SQL Server dialect compilation is
 covered, with live certification available through an opt-in integration suite.
-An adapter-independent, read-only OpenAPI 3.1 preview now generates typed
+Shared SQLAlchemy cursor storage preserves exact typed continuation state across
+runtime restarts and processes while storing only hashes of bearer tokens. An
+adapter-independent, read-only OpenAPI 3.1 preview now generates typed
 Pydantic record/page schemas and explicitly exposed list/get contracts. Textual,
 REST hosting, MCP, migrations, and report rendering remain roadmap work.
 

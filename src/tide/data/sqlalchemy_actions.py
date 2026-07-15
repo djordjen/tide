@@ -6,9 +6,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
     Column,
     DateTime,
+    Identity,
     Index,
+    Integer,
     MetaData,
     String,
     Table,
@@ -78,7 +81,13 @@ class SQLAlchemyActionExecutionStore:
         self.audit_table = Table(
             "tide_action_audit",
             self.metadata,
-            Column("event_id", String(64), primary_key=True),
+            Column(
+                "sequence",
+                BigInteger().with_variant(Integer(), "sqlite"),
+                Identity(),
+                primary_key=True,
+            ),
+            Column("event_id", String(64), nullable=False, unique=True),
             Column("entity", Unicode(255), nullable=False),
             Column("action", Unicode(255), nullable=False),
             Column("identity_json", Unicode(2048), nullable=False),
@@ -318,10 +327,7 @@ class SQLAlchemyActionExecutionStore:
             statement = statement.where(
                 self.audit_table.c.correlation_id == correlation_id
             )
-        statement = statement.order_by(
-            self.audit_table.c.started_at,
-            self.audit_table.c.event_id,
-        )
+        statement = statement.order_by(self.audit_table.c.sequence)
         try:
             with self.engine.connect() as connection:
                 rows = connection.execute(statement).mappings().all()

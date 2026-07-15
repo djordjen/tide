@@ -71,11 +71,12 @@ back to root-table post-filtering. For supported paths, target read criteria are
 included in both hydration and root aggregate/reference predicates.
 
 The default cursor store is thread-safe, process-local, bounded to 10,000
-entries, and expires entries after 15 minutes. It is suitable for the current
-single-process runtime. `CursorStore` is an explicit service dependency so a
-shared deployment can later supply a durable or distributed implementation
-without changing query or transport contracts. Restarting the process
-invalidates cursors held by the default store.
+entries, and expires entries after 15 minutes. Restarting the process
+invalidates cursors held by that store. `SQLAlchemyCursorStore` is the durable,
+process-shared implementation: it persists typed state with only a hash of the
+random bearer token, applies TTL and capacity transactionally, and uses an
+explicitly owned table. Both implement the same `CursorStore` service
+dependency; see [Shared cursor storage](CURSOR-STORAGE.md).
 
 ## Mutation preconditions
 

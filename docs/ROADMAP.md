@@ -43,7 +43,7 @@ InvoiceLine, including references and calculated line totals.
 
 ## Milestone 2 - Secured application core
 
-Status: **in progress**. `RequestContext`, principals, role/permission expansion,
+Status: **complete**. `RequestContext`, principals, role/permission expansion,
 row and field policies, `ProtectedValue`, query/record services, `RecordSession`,
 validation, stored master-detail computation, action execution, idempotency,
 optimistic concurrency, managed SQLite persistence, and legacy no-DDL mapping
@@ -54,7 +54,9 @@ first multi-user target. Opaque, principal-bound keyset pagination is
 implemented across both repositories. Policy-aware, bounded collection
 hydration and the adapter-independent Pydantic/OpenAPI 3.1 preview are also
 implemented. Durable action audit/idempotency is implemented behind in-memory
-and SQLAlchemy stores. A shared cursor store remains.
+and SQLAlchemy stores. Continuation cursor state is implemented behind
+in-memory and process-shared SQLAlchemy stores with exact typed values, expiry,
+bounded capacity, hashed bearer tokens, and explicit schema ownership.
 
 - query and record application services;
 - deterministic keyset pagination and opaque continuation cursor contracts;
@@ -73,6 +75,7 @@ and SQLAlchemy stores. A shared cursor store remains.
 - legacy table/schema/column mapping, compatibility inspection, and a hard
   no-DDL guard for externally owned schemas;
 - generated Pydantic/OpenAPI preview without mutation routes.
+- restart-safe shared cursor storage with legacy no-DDL behavior.
 
 Exit condition: core behavior can be tested without Textual or FastAPI.
 
@@ -111,7 +114,6 @@ the same services.
 ## Milestone 5 - Production data and security
 
 - complete live SQL Server certification and operational guidance;
-- durable or distributed cursor storage for multi-process deployments;
 - PostgreSQL support after the SQL Server contract is stable;
 - additional SQLAlchemy dialect certification for legacy databases, based on
   demand and dialect availability;
@@ -125,8 +127,8 @@ the same services.
 - health/readiness checks, structured logging, backup/restore, and migration
   recovery guidance.
 
-Exit condition: multiple users can safely work against PostgreSQL and receive
-clear concurrency feedback.
+Exit condition: multiple users can safely work against certified SQL Server
+deployments and receive clear concurrency feedback.
 
 ## Milestone 6 - Reporting
 
