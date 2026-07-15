@@ -82,10 +82,13 @@ Exit condition: core behavior can be tested without Textual or FastAPI.
 
 ## Milestone 3 - Golden invoicing slice
 
-Status: **in progress**. The resolved invoice browse now runs in Textual against
-the secured `RecordsService`, with application-owned demo data, formatted
-metadata columns, protected reference display, opaque next/previous paging,
-refresh, keyboard bindings, and clickable controls. Editing begins next.
+Status: **in progress**. The resolved invoice browse and form now run in Textual
+against `RecordsService` and `ActionService`, with application-owned demo data
+and runtime registration. Create/edit, secured Customer/Product selectors,
+inline InvoiceLine add/apply/remove, computed previews, Save/Cancel, validation
+and stale-version feedback, immutable posted records, and audited posting are
+executable through keyboard or clickable controls. Search, named filters,
+sorting, printing, and deployment-repository selection remain.
 
 - generated browse, edit, and lookup views;
 - Customer and Product lookups;

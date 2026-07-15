@@ -8,7 +8,13 @@ from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["DemoDataError", "TideApp", "seed_demo_data"]
+__all__ = [
+    "ApplicationRuntimeError",
+    "DemoDataError",
+    "TideApp",
+    "configure_application_runtime",
+    "seed_demo_data",
+]
 
 
 def __getattr__(name: str) -> Any:
@@ -20,4 +26,14 @@ def __getattr__(name: str) -> Any:
         from tide.tui.demo import DemoDataError, seed_demo_data
 
         return {"DemoDataError": DemoDataError, "seed_demo_data": seed_demo_data}[name]
+    if name in {"ApplicationRuntimeError", "configure_application_runtime"}:
+        from tide.tui.application_runtime import (
+            ApplicationRuntimeError,
+            configure_application_runtime,
+        )
+
+        return {
+            "ApplicationRuntimeError": ApplicationRuntimeError,
+            "configure_application_runtime": configure_application_runtime,
+        }[name]
     raise AttributeError(name)

@@ -25,7 +25,7 @@ from tide.model.source import (
     ViewSource,
 )
 from tide.runtime import Channel, Principal, RequestContext
-from tide.services import RecordsService
+from tide.services import ActionService, RecordsService
 
 SCHEMA_TYPES: dict[str, type[BaseModel]] = {
     "project": ProjectSource,
@@ -195,8 +195,13 @@ def _run_tui(arguments: argparse.Namespace) -> int:
         channel=Channel.TUI,
     )
     records = RecordsService(model, repository)
+    actions = ActionService(model, records)
     try:
-        from tide.tui import TideApp
+        from tide.tui import (
+            ApplicationRuntimeError,
+            TideApp,
+            configure_application_runtime,
+        )
     except ModuleNotFoundError as error:
         if error.name == "textual" or (error.name or "").startswith("textual."):
             print(
@@ -207,10 +212,16 @@ def _run_tui(arguments: argparse.Namespace) -> int:
             return 1
         raise
     try:
+        configure_application_runtime(model, records, actions)
+    except ApplicationRuntimeError as error:
+        print(f"TUI startup failed: {error}", file=sys.stderr)
+        return 1
+    try:
         TideApp(
             model,
             records,
             context,
+            actions=actions,
             view_name=arguments.view,
             page_size=arguments.page_size,
             source_label=source_label,

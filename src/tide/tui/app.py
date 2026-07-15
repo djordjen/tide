@@ -21,7 +21,8 @@ from tide.compiler.normalized import (
 from tide.data import QuerySpec
 from tide.runtime import RequestContext, TideRuntimeError
 from tide.security import PROTECTED
-from tide.services import RecordsService
+from tide.services import ActionService, RecordsService
+from tide.tui.form import RecordEditScreen, select_form_view
 
 
 class TideApp(App[None]):
@@ -73,6 +74,8 @@ class TideApp(App[None]):
     """
 
     BINDINGS = [
+        Binding("c", "create_record", "Create"),
+        Binding("e", "edit_record", "Edit"),
         Binding("p", "previous_page", "Previous"),
         Binding("n", "next_page", "Next"),
         Binding("r", "reload", "Refresh"),
@@ -85,6 +88,7 @@ class TideApp(App[None]):
         records: RecordsService,
         context: RequestContext,
         *,
+        actions: ActionService | None = None,
         view_name: str | None = None,
         page_size: int | None = None,
         source_label: str = "in-memory",
@@ -92,9 +96,27 @@ class TideApp(App[None]):
         super().__init__()
         self.model = model
         self.records = records
+        self.actions = actions or ActionService(model, records)
         self.context = context
         self.view = _select_browse_view(model, view_name)
         self.entity = model.entity(self.view.entity)
+        self.form_view = select_form_view(model, self.entity.name)
+        self._create_allowed = bool(
+            self.form_view is not None
+            and self.records.security.can_access_entity(
+                self.entity,
+                "create",
+                self.context,
+            )
+        )
+        self._edit_allowed = bool(
+            self.form_view is not None
+            and self.records.security.can_access_entity(
+                self.entity,
+                "update",
+                self.context,
+            )
+        )
         self.columns = _browse_columns(self.view, self.entity)
         configured_page_size = int(
             self.view.data.get("settings", {}).get("page_size", 25)
@@ -127,6 +149,13 @@ class TideApp(App[None]):
             id="browse-context",
         )
         with Horizontal(id="browse-toolbar"):
+            yield Button(
+                "New",
+                id="create-record",
+                disabled=not self._create_allowed,
+                variant="success",
+            )
+            yield Button("Edit", id="edit-record", disabled=True)
             yield Button("Previous", id="previous-page", disabled=True)
             yield Button("Next", id="next-page", disabled=True, variant="primary")
             yield Button("Refresh", id="refresh-page")
@@ -155,6 +184,10 @@ class TideApp(App[None]):
             self.action_next_page()
         elif event.button.id == "refresh-page":
             self.action_reload()
+        elif event.button.id == "edit-record":
+            self.action_edit_record()
+        elif event.button.id == "create-record":
+            self.action_create_record()
         elif event.button.id == "quit-app":
             self.exit()
 
@@ -162,8 +195,63 @@ class TideApp(App[None]):
         record = self._record_for_row_key(str(event.row_key.value))
         if record is None:
             return
-        display = _display_record(self.entity, record)
-        self.notify(f"Selected {display}. The edit form is the next TIDE slice.")
+        self.open_record(record[_primary_key(self.entity)])
+
+    def action_edit_record(self) -> None:
+        table = self.query_one("#records", DataTable)
+        if not self._current_records or table.cursor_row < 0:
+            return
+        primary_key = _primary_key(self.entity)
+        self.open_record(self._current_records[table.cursor_row][primary_key])
+
+    def action_create_record(self) -> None:
+        if self.form_view is None:
+            self._notify_missing_form()
+            return
+        try:
+            session = self.records.create(self.entity.name, self.context)
+        except TideRuntimeError as error:
+            self.notify(str(error), severity="error")
+            return
+        self._open_form(session)
+
+    def open_record(self, identity: Any) -> None:
+        if self.form_view is None:
+            self._notify_missing_form()
+            return
+        try:
+            session = self.records.begin_edit(
+                self.entity.name,
+                identity,
+                self.context,
+            )
+        except TideRuntimeError as error:
+            self.notify(str(error), severity="error")
+            return
+        self._open_form(session)
+
+    def _open_form(self, session: Any) -> None:
+        self.push_screen(
+            RecordEditScreen(
+                self.model,
+                self.records,
+                self.actions,
+                self.context,
+                self.form_view,
+                session,
+            ),
+            self._record_form_closed,
+        )
+
+    def _notify_missing_form(self) -> None:
+        self.notify(
+            f"No form view is defined for {self.entity.name}.",
+            severity="warning",
+        )
+
+    def _record_form_closed(self, changed: bool | None) -> None:
+        if changed:
+            self.action_reload()
 
     def action_previous_page(self) -> None:
         if self._page_index == 0:
@@ -213,15 +301,19 @@ class TideApp(App[None]):
             noun = "record" if count == 1 else "records"
             status.update(
                 f"Page {self.page_number}  ·  {count} {noun}  ·  "
-                f"{self.source_label}  ·  P/N page  R refresh  Q quit"
+                f"{self.source_label}  ·  C create  E edit  P/N page  R refresh"
             )
             self._update_navigation()
+            self.query_one("#edit-record", Button).disabled = not (
+                page.records and self._edit_allowed
+            )
         except (TideRuntimeError, ValueError) as error:
             self._current_records = ()
             self._next_cursor = None
             table.clear()
             status.update(f"Unable to load {self.entity.label}: {error}")
             self._update_navigation(force_disabled=True)
+            self.query_one("#edit-record", Button).disabled = True
 
     def _format_value(
         self,

@@ -74,7 +74,9 @@ uses opaque, principal-bound continuation cursors with matching behavior in the
 in-memory and SQLAlchemy adapters. Action idempotency and audit state now share
 a storage-neutral lifecycle with in-memory and explicitly managed SQLAlchemy
 implementations; interrupted reservations fail closed instead of executing a
-handler twice.
+handler twice. The initial Textual adapter now interprets resolved browse and
+form metadata for secured create/edit, inline InvoiceLine editing, validation,
+cancel/save, optimistic-concurrency feedback, and audited invoice posting.
 
 ## Repository layout
 
@@ -85,6 +87,8 @@ src/tide/                  reusable TIDE runtime and compiler
 applications/
     invoicing/             a self-contained TIDE application
         tide.yaml
+        runtime.py           explicit action/generator registrations
+        demo_data.py         opt-in local demonstration records
         models/
         views/
         reports/
@@ -165,9 +169,11 @@ Shared SQLAlchemy cursor storage preserves exact typed continuation state across
 runtime restarts and processes while storing only hashes of bearer tokens. An
 adapter-independent, read-only OpenAPI 3.1 preview now generates typed
 Pydantic record/page schemas and explicitly exposed list/get contracts. The
-first metadata-driven Textual invoice browse is runnable with application-owned
-demo data, secured reference display, opaque paging, refresh, and keyboard or
-mouse controls. Edit forms, REST hosting, MCP, migrations, and report rendering
+first metadata-driven Textual invoicing workflow is runnable with
+application-owned demo data, secured reference display, opaque paging,
+create/edit forms, master-detail line editing, validation and concurrency
+feedback, and audited posting through keyboard or mouse controls. Lookup
+search, sorting/filtering, REST hosting, MCP, migrations, and report rendering
 remain roadmap work.
 
 Metadata v0.1 is an executable experimental contract. Breaking authoring
