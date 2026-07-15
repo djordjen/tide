@@ -172,9 +172,10 @@ Pydantic record/page schemas and explicitly exposed list/get contracts. The
 first metadata-driven Textual invoicing workflow is runnable with
 application-owned demo data, secured reference display, opaque paging,
 create/edit forms, master-detail line editing, validation and concurrency
-feedback, and audited posting through keyboard or mouse controls. Lookup
-search, sorting/filtering, REST hosting, MCP, migrations, and report rendering
-remain roadmap work.
+feedback, audited posting, invoice-number incremental search, named filters,
+and sortable stored scalar columns through keyboard or mouse controls. Reference
+lookup search, REST hosting, MCP, migrations, and report rendering remain
+roadmap work.
 
 Metadata v0.1 is an executable experimental contract. Breaking authoring
 changes require a new `schema_version`; stable 1.0 compatibility is not yet

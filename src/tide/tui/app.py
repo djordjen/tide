@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import ast
 from datetime import date, datetime
 from decimal import Decimal
 import re
 from typing import Any, Mapping
 
+from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
-from textual.widgets import Button, DataTable, Footer, Header, Static
+from textual.widgets import Button, DataTable, Footer, Header, Input, Select, Static
 
 from tide.compiler.normalized import (
     ApplicationModel,
@@ -18,7 +20,7 @@ from tide.compiler.normalized import (
     NormalizedField,
     ResolvedView,
 )
-from tide.data import QuerySpec
+from tide.data import FilterCondition, QuerySpec, SortField
 from tide.runtime import RequestContext, TideRuntimeError
 from tide.security import PROTECTED
 from tide.services import ActionService, RecordsService
@@ -54,6 +56,30 @@ class TideApp(App[None]):
         align-horizontal: right;
     }
 
+    #browse-query {
+        height: 3;
+        padding: 0 1;
+    }
+
+    #search-query {
+        width: 1fr;
+    }
+
+    #named-filter {
+        width: 26;
+        margin-left: 1;
+    }
+
+    #sort-field {
+        width: 22;
+        margin-left: 1;
+    }
+
+    #sort-direction, #clear-query {
+        min-width: 10;
+        margin-left: 1;
+    }
+
     #browse-toolbar Button {
         min-width: 12;
         margin: 0 0 0 1;
@@ -74,6 +100,9 @@ class TideApp(App[None]):
     """
 
     BINDINGS = [
+        Binding("slash", "focus_search", "Search"),
+        Binding("f", "focus_filter", "Filter"),
+        Binding("d", "toggle_sort_direction", "Direction"),
         Binding("c", "create_record", "Create"),
         Binding("e", "edit_record", "Edit"),
         Binding("p", "previous_page", "Previous"),
@@ -101,6 +130,10 @@ class TideApp(App[None]):
         self.view = _select_browse_view(model, view_name)
         self.entity = model.entity(self.view.entity)
         self.form_view = select_form_view(model, self.entity.name)
+        self.search_field = _search_field(self.view, self.entity)
+        self.named_filters = _named_filters(self.view)
+        self.columns = _browse_columns(self.view, self.entity)
+        self.sort_fields = _sortable_fields(self.columns, self.entity)
         self._create_allowed = bool(
             self.form_view is not None
             and self.records.security.can_access_entity(
@@ -117,7 +150,6 @@ class TideApp(App[None]):
                 self.context,
             )
         )
-        self.columns = _browse_columns(self.view, self.entity)
         configured_page_size = int(
             self.view.data.get("settings", {}).get("page_size", 25)
         )
@@ -132,6 +164,11 @@ class TideApp(App[None]):
         self._next_cursor: str | None = None
         self._current_records: tuple[dict[str, Any], ...] = ()
         self._reference_cache: dict[tuple[str, Any], str] = {}
+        self._search_text = ""
+        self._filter_name: str | None = None
+        self._sort_field: str | None = None
+        self._sort_descending = False
+        self._syncing_query_controls = False
 
     @property
     def page_number(self) -> int:
@@ -148,6 +185,37 @@ class TideApp(App[None]):
             f"{self.view.name}  ·  {self.context.principal.identifier}  ·  {roles}",
             id="browse-context",
         )
+        with Horizontal(id="browse-query"):
+            yield Input(
+                placeholder=(
+                    f"Search {_field_label(self.entity.field(self.search_field))}…"
+                    if self.search_field is not None
+                    else "Search is not configured"
+                ),
+                id="search-query",
+                disabled=self.search_field is None,
+            )
+            yield Select(
+                tuple(
+                    (str(filter_data["label"]), filter_name)
+                    for filter_name, filter_data in self.named_filters.items()
+                ),
+                prompt="All invoices",
+                allow_blank=True,
+                id="named-filter",
+                disabled=not bool(self.named_filters),
+            )
+            yield Select(
+                tuple(
+                    (_field_label(self.entity.field(name)), name)
+                    for name in self.sort_fields
+                ),
+                prompt="Default order",
+                allow_blank=True,
+                id="sort-field",
+            )
+            yield Button("↑ Asc", id="sort-direction", disabled=True)
+            yield Button("Clear", id="clear-query")
         with Horizontal(id="browse-toolbar"):
             yield Button(
                 "New",
@@ -188,8 +256,47 @@ class TideApp(App[None]):
             self.action_edit_record()
         elif event.button.id == "create-record":
             self.action_create_record()
+        elif event.button.id == "sort-direction":
+            self.action_toggle_sort_direction()
+        elif event.button.id == "clear-query":
+            self.action_clear_query()
         elif event.button.id == "quit-app":
             self.exit()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "search-query" or self._syncing_query_controls:
+            return
+        value = event.value.strip()
+        if value == self._search_text:
+            return
+        self._search_text = value
+        self._restart_query()
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if self._syncing_query_controls:
+            return
+        value = None if event.value is Select.NULL else str(event.value)
+        if event.select.id == "named-filter" and value != self._filter_name:
+            self._filter_name = value
+            self._restart_query()
+        elif event.select.id == "sort-field" and value != self._sort_field:
+            self._sort_field = value
+            self._sort_descending = False
+            self._update_sort_controls()
+            self._restart_query()
+
+    def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
+        field_name = str(event.column_key.value)
+        if field_name not in self.sort_fields:
+            return
+        if field_name == self._sort_field:
+            self._sort_descending = not self._sort_descending
+        else:
+            self._sort_field = field_name
+            self._sort_descending = False
+        self._sync_query_controls()
+        self._update_sort_controls()
+        self._restart_query()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         record = self._record_for_row_key(str(event.row_key.value))
@@ -268,6 +375,35 @@ class TideApp(App[None]):
         self._load_page()
 
     def action_reload(self) -> None:
+        self._restart_query()
+
+    def action_focus_search(self) -> None:
+        search = self.query_one("#search-query", Input)
+        if not search.disabled:
+            search.focus()
+
+    def action_focus_filter(self) -> None:
+        filter_select = self.query_one("#named-filter", Select)
+        if not filter_select.disabled:
+            filter_select.focus()
+
+    def action_toggle_sort_direction(self) -> None:
+        if self._sort_field is None:
+            return
+        self._sort_descending = not self._sort_descending
+        self._update_sort_controls()
+        self._restart_query()
+
+    def action_clear_query(self) -> None:
+        self._search_text = ""
+        self._filter_name = None
+        self._sort_field = None
+        self._sort_descending = False
+        self._sync_query_controls()
+        self._update_sort_controls()
+        self._restart_query()
+
+    def _restart_query(self) -> None:
         self._page_cursors = [None]
         self._page_index = 0
         self._reference_cache.clear()
@@ -280,6 +416,17 @@ class TideApp(App[None]):
             page = self.records.query_page(
                 self.entity.name,
                 QuerySpec(
+                    filters=self._query_filters(),
+                    sort=(
+                        (
+                            SortField(
+                                self._sort_field,
+                                descending=self._sort_descending,
+                            ),
+                        )
+                        if self._sort_field is not None
+                        else ()
+                    ),
                     limit=self.page_size,
                     cursor=self._page_cursors[self._page_index],
                 ),
@@ -301,7 +448,8 @@ class TideApp(App[None]):
             noun = "record" if count == 1 else "records"
             status.update(
                 f"Page {self.page_number}  ·  {count} {noun}  ·  "
-                f"{self.source_label}  ·  C create  E edit  P/N page  R refresh"
+                f"{self.source_label}{self._query_summary()}  ·  "
+                "C create  E edit  P/N page  R refresh"
             )
             self._update_navigation()
             self.query_one("#edit-record", Button).disabled = not (
@@ -314,6 +462,57 @@ class TideApp(App[None]):
             status.update(f"Unable to load {self.entity.label}: {error}")
             self._update_navigation(force_disabled=True)
             self.query_one("#edit-record", Button).disabled = True
+
+    def _query_filters(self) -> tuple[FilterCondition, ...]:
+        filters: list[FilterCondition] = []
+        if self._search_text and self.search_field is not None:
+            filters.append(
+                FilterCondition(self.search_field, "contains", self._search_text)
+            )
+        if self._filter_name is not None:
+            filters.extend(self.named_filters[self._filter_name]["conditions"])
+        return tuple(filters)
+
+    def _query_summary(self) -> str:
+        parts: list[str] = []
+        if self._search_text:
+            parts.append(f"search {self._search_text!r}")
+        if self._filter_name is not None:
+            parts.append(str(self.named_filters[self._filter_name]["label"]))
+        if self._sort_field is not None:
+            direction = "descending" if self._sort_descending else "ascending"
+            parts.append(
+                f"{_field_label(self.entity.field(self._sort_field))} {direction}"
+            )
+        return f"  ·  {'  ·  '.join(parts)}" if parts else ""
+
+    def _sync_query_controls(self) -> None:
+        self._syncing_query_controls = True
+        try:
+            self.query_one("#search-query", Input).value = self._search_text
+            self.query_one("#named-filter", Select).value = (
+                self._filter_name if self._filter_name is not None else Select.NULL
+            )
+            self.query_one("#sort-field", Select).value = (
+                self._sort_field if self._sort_field is not None else Select.NULL
+            )
+        finally:
+            self._syncing_query_controls = False
+
+    def _update_sort_controls(self) -> None:
+        button = self.query_one("#sort-direction", Button)
+        button.disabled = self._sort_field is None
+        button.label = "↓ Desc" if self._sort_descending else "↑ Asc"
+        table = self.query_one("#records", DataTable)
+        for index, field_name in enumerate(self.columns):
+            indicator = ""
+            if field_name == self._sort_field:
+                indicator = " ↓" if self._sort_descending else " ↑"
+            table.ordered_columns[index].label = Text(
+                f"{_field_label(self.entity.field(field_name))}{indicator}"
+            )
+            table.refresh_column(index)
+        table.refresh(layout=True)
 
     def _format_value(
         self,
@@ -407,6 +606,95 @@ def _browse_columns(
     if unknown:
         raise ValueError(f"browse view contains unknown columns: {', '.join(unknown)}")
     return columns
+
+
+def _search_field(
+    view: ResolvedView,
+    entity: NormalizedEntity,
+) -> str | None:
+    configured = tuple(str(name) for name in view.data.get("search", ()))
+    return next(
+        (
+            name
+            for name in configured
+            if name in entity.fields
+            and entity.field(name).metadata["type"] in {"string", "choice"}
+            and not entity.field(name).metadata.get("computed")
+        ),
+        None,
+    )
+
+
+def _sortable_fields(
+    columns: tuple[str, ...],
+    entity: NormalizedEntity,
+) -> tuple[str, ...]:
+    return tuple(
+        name
+        for name in columns
+        if entity.field(name).metadata["type"] not in {"collection", "reference"}
+        and not (
+            entity.field(name).metadata.get("computed")
+            and entity.field(name).metadata["computed"].get("materialization")
+            == "virtual"
+        )
+    )
+
+
+def _named_filters(view: ResolvedView) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for name, filter_data in view.data.get("filters", {}).items():
+        criteria = filter_data.get("criteria")
+        if not isinstance(criteria, str):
+            continue
+        try:
+            conditions = _criteria_conditions(criteria)
+        except ValueError:
+            continue
+        result[str(name)] = {
+            "label": str(filter_data.get("label") or _humanize(str(name))),
+            "conditions": conditions,
+        }
+    return result
+
+
+def _criteria_conditions(criteria: str) -> tuple[FilterCondition, ...]:
+    try:
+        expression = ast.parse(criteria, mode="eval").body
+    except SyntaxError as error:
+        raise ValueError("named filter has invalid syntax") from error
+    clauses = (
+        tuple(expression.values)
+        if isinstance(expression, ast.BoolOp) and isinstance(expression.op, ast.And)
+        else (expression,)
+    )
+    return tuple(_comparison_condition(clause) for clause in clauses)
+
+
+def _comparison_condition(expression: ast.expr) -> FilterCondition:
+    if (
+        not isinstance(expression, ast.Compare)
+        or len(expression.ops) != 1
+        or len(expression.comparators) != 1
+        or not isinstance(expression.left, ast.Name)
+    ):
+        raise ValueError("named filters must use direct field comparisons")
+    operators: dict[type[ast.cmpop], str] = {
+        ast.Eq: "eq",
+        ast.NotEq: "ne",
+        ast.Lt: "lt",
+        ast.LtE: "lte",
+        ast.Gt: "gt",
+        ast.GtE: "gte",
+    }
+    operator = operators.get(type(expression.ops[0]))
+    if operator is None:
+        raise ValueError("named filter comparison is not queryable")
+    try:
+        value = ast.literal_eval(expression.comparators[0])
+    except (ValueError, TypeError) as error:
+        raise ValueError("named filter value must be a literal") from error
+    return FilterCondition(expression.left.id, operator, value)
 
 
 def _primary_key(entity: NormalizedEntity) -> str:

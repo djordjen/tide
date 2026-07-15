@@ -39,6 +39,10 @@ loads an in-memory repository; it never changes a database. Omit `--page-size`
 to use the browse metadata default of 25. Select a row with Enter or the mouse,
 or use **New**. Forms support invoice headers and line items; Ctrl+S saves,
 Ctrl+P posts an eligible draft, Ctrl+N adds a line, and Escape cancels.
+The browse search applies incrementally to invoice numbers. The filter selector
+exposes **Draft invoices** and **High-value invoices** from view metadata, and
+the sort selector or eligible column headers toggle secured ascending and
+descending queries. **Clear** restores the default browse query.
 
 Running an application may also execute its fixed `runtime.py` file. That file
 does not implement persistence or UI behavior; it explicitly registers the

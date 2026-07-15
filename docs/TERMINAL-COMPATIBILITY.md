@@ -35,8 +35,9 @@ The initial Textual tests run headlessly at 100x24, 120x30, and 120x40. They
 exercise metadata columns, secured reference display, key-driven paging and
 refresh, clickable navigation, metadata forms, typed reference selectors,
 master-detail editing, create/save/post actions, immutable states, and stale
-commit feedback. This is the automated floor, not certification of the wider
-terminal matrix.
+commit feedback. Browse coverage also includes incremental search, metadata
+filters, query-reset behavior, and ascending/descending sort controls. This is
+the automated floor, not certification of the wider terminal matrix.
 
 SSH tests should include noticeable latency and interrupted connections.
 `RecordSession` retains unsaved edits until the user explicitly cancels or the

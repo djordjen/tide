@@ -81,6 +81,50 @@ def test_textual_reference_display_fails_closed_without_target_access() -> None:
     asyncio.run(exercise())
 
 
+def test_textual_browse_search_named_filters_and_sorting() -> None:
+    app = _demo_app(page_size=3)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            table = app.query_one("#records", DataTable)
+
+            search = app.query_one("#search-query", Input)
+            search.value = "0008"
+            await pilot.pause()
+            assert table.row_count == 1
+            assert table.get_row_at(0)[0] == "INV-2026-0008"
+            assert app.query_one("#next-page", Button).disabled
+
+            await pilot.click("#clear-query")
+            await pilot.pause()
+            assert table.row_count == 3
+
+            app.query_one("#named-filter", Select).value = "drafts"
+            await pilot.pause()
+            assert table.row_count == 3
+            assert all(table.get_row_at(index)[3] == "Draft" for index in range(3))
+            assert "Draft invoices" in str(
+                app.query_one("#browse-status", Static).content
+            )
+
+            app.query_one("#named-filter", Select).value = "high_value"
+            await pilot.pause()
+            assert table.row_count == 0
+
+            await pilot.click("#clear-query")
+            app.query_one("#sort-field", Select).value = "total"
+            await pilot.pause()
+            assert table.get_row_at(0)[-1] == "240.00"
+
+            await pilot.click("#sort-direction")
+            await pilot.pause()
+            assert table.get_row_at(0)[-1] == "2,400.00"
+            assert str(table.ordered_columns[-1].label).endswith("↓")
+
+    asyncio.run(exercise())
+
+
 def test_tide_run_demo_constructs_textual_app(monkeypatch) -> None:
     launched: list[TideApp] = []
     monkeypatch.setattr(TideApp, "run", lambda self: launched.append(self))

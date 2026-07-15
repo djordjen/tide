@@ -86,9 +86,10 @@ Status: **in progress**. The resolved invoice browse and form now run in Textual
 against `RecordsService` and `ActionService`, with application-owned demo data
 and runtime registration. Create/edit, secured Customer/Product selectors,
 inline InvoiceLine add/apply/remove, computed previews, Save/Cancel, validation
-and stale-version feedback, immutable posted records, and audited posting are
-executable through keyboard or clickable controls. Search, named filters,
-sorting, printing, and deployment-repository selection remain.
+and stale-version feedback, immutable posted records, audited posting,
+invoice-number incremental search, simple compiled named filters, and sortable
+columns are executable through keyboard or clickable controls. Reference
+lookup search, printing, and deployment-repository selection remain.
 
 - generated browse, edit, and lookup views;
 - Customer and Product lookups;
