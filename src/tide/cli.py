@@ -10,6 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from tide.api.openapi import DEFAULT_BASE_PATH, generate_openapi
 from tide.compiler.compiler import compile_project
 from tide.diagnostics import CompilationFailed, Severity
 from tide.model.source import (
@@ -119,6 +120,27 @@ def _create_parser() -> argparse.ArgumentParser:
     )
     view_explain.set_defaults(handler=_view_explain)
 
+    api = commands.add_parser("api", help="inspect generated machine-interface contracts")
+    api_commands = api.add_subparsers(dest="api_command")
+    export_openapi = api_commands.add_parser(
+        "export-openapi",
+        help="export the read-only OpenAPI preview",
+    )
+    export_openapi.add_argument(
+        "project",
+        nargs="?",
+        default=".",
+        metavar="APPLICATION",
+        help="application root or tide.yaml (default: current directory)",
+    )
+    export_openapi.add_argument(
+        "--base-path",
+        default=DEFAULT_BASE_PATH,
+        help=f"REST base path (default: {DEFAULT_BASE_PATH})",
+    )
+    export_openapi.add_argument("--output", type=Path)
+    export_openapi.set_defaults(handler=_api_export_openapi)
+
     return parser
 
 
@@ -184,6 +206,21 @@ def _model_schema(arguments: argparse.Namespace) -> int:
     schema = SCHEMA_TYPES[arguments.kind].model_json_schema(by_alias=True)
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     text = json.dumps(schema, indent=2) + "\n"
+    if arguments.output:
+        arguments.output.write_text(text, encoding="utf-8")
+    else:
+        print(text, end="")
+    return 0
+
+
+def _api_export_openapi(arguments: argparse.Namespace) -> int:
+    model = compile_project(arguments.project)
+    try:
+        document = generate_openapi(model, base_path=arguments.base_path)
+    except ValueError as error:
+        print(f"OpenAPI preview failed: {error}", file=sys.stderr)
+        return 1
+    text = json.dumps(document, indent=2) + "\n"
     if arguments.output:
         arguments.output.write_text(text, encoding="utf-8")
     else:

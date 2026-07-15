@@ -77,3 +77,51 @@ def test_view_explain_includes_resolved_provenance(capsys) -> None:
     assert result == 0
     assert output["settings"]["label_width"] == 18
     assert output["provenance"]["settings.label_width"]["layer"] == "application defaults"
+
+
+def test_api_export_openapi_emits_read_only_preview(capsys) -> None:
+    result = main(["api", "export-openapi", str(INVOICING)])
+    output = json.loads(capsys.readouterr().out)
+
+    assert result == 0
+    assert output["openapi"] == "3.1.0"
+    assert output["x-tide"]["read_only"] is True
+    assert set(output["paths"]["/api/v1/invoices"]) == {"get"}
+    assert "/api/v1/invoices/{id}" in output["paths"]
+
+
+def test_api_export_openapi_writes_output_file(tmp_path) -> None:
+    output_file = tmp_path / "openapi.json"
+
+    result = main(
+        [
+            "api",
+            "export-openapi",
+            str(INVOICING),
+            "--base-path",
+            "/internal/v1",
+            "--output",
+            str(output_file),
+        ]
+    )
+    output = json.loads(output_file.read_text(encoding="utf-8"))
+
+    assert result == 0
+    assert "/internal/v1/invoices" in output["paths"]
+
+
+def test_api_export_openapi_reports_invalid_base_path(capsys) -> None:
+    result = main(
+        [
+            "api",
+            "export-openapi",
+            str(INVOICING),
+            "--base-path",
+            "api/v1",
+        ]
+    )
+
+    assert result == 1
+    assert capsys.readouterr().err == (
+        "OpenAPI preview failed: API base path must start with '/'\n"
+    )

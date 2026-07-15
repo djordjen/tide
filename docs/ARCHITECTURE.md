@@ -174,6 +174,7 @@ src/tide/
     runtime/          Lifecycle, context, events, configuration
     sessions/         RecordSession, transactions, concurrency
     security/         Principals, permissions, policies, redaction
+    api/              Adapter-independent Pydantic/OpenAPI contracts
     presentation/     View resolution, formats, presets, overlays
     data/             SQLAlchemy and Alembic integration
     adapters/

@@ -46,6 +46,20 @@ The runtime currently provides:
 - opaque, principal-bound keyset pagination with expiring cursors;
 - policy-aware collection hydration with explicit depth and item limits.
 
+The same compiled model can also produce a read-only OpenAPI 3.1 preview and
+its generated Pydantic record/page models without importing FastAPI:
+
+```python
+from tide.api import build_openapi_preview
+
+preview = build_openapi_preview(model)
+document = preview.as_dict()
+invoice_model = preview.record_models["sales.Invoice"]
+```
+
+This describes explicitly exposed list/get contracts only; it is contract
+generation, not an HTTP server or an alternate authorization path.
+
 The initial SQLAlchemy repository additionally provides:
 
 - explicit managed-schema creation for SQLite;

@@ -52,8 +52,8 @@ single-collection aggregate row-policy translation are also implemented. SQL
 Server dialect compilation and an opt-in live integration harness establish the
 first multi-user target. Opaque, principal-bound keyset pagination is
 implemented across both repositories. Policy-aware, bounded collection
-hydration is also implemented. Durable audit/idempotency, a shared cursor
-store, and OpenAPI preview remain.
+hydration and the adapter-independent Pydantic/OpenAPI 3.1 preview are also
+implemented. Durable audit/idempotency and a shared cursor store remain.
 
 - query and record application services;
 - deterministic keyset pagination and opaque continuation cursor contracts;

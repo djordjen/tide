@@ -60,6 +60,39 @@ Filtering, sorting, expansion, and pagination are model-controlled and
 allow-listed. Clients cannot submit arbitrary SQL. API contracts should expose
 stable resource representations rather than leaking persistence internals.
 
+### Current read-only contract preview
+
+The implemented preview deliberately precedes the FastAPI hosting adapter. It
+generates Pydantic record/page models and an OpenAPI 3.1 document directly from
+the immutable `ApplicationModel`:
+
+```bash
+tide api export-openapi applications/invoicing
+tide api export-openapi applications/invoicing --output openapi.json
+```
+
+Only an entity's declared `list` and `get` operations appear. `rest: true` is a
+safe shorthand for both read operations; mapping form remains explicit. A
+declared create, update, delete, or action exposure does not produce a mutation
+route in this preview. If `path` is omitted, the default is a namespaced,
+kebab-case resource path such as `crm/person`.
+
+List previews currently publish the implemented page size and opaque cursor
+parameters. The versioned HTTP syntax for structured filtering and sorting is
+still deferred to the machine-interface milestone rather than being guessed by
+the preview.
+
+The preview includes bearer-compatible authentication metadata, but it neither
+starts an HTTP server nor authenticates a user. A future hosting adapter must
+map the identity to `RequestContext` and invoke the same secured services.
+
+Response schemas keep every model field present and nullable so a protected
+value can be represented as JSON null. Optional `_tide.protected_fields`
+metadata distinguishes protection from a genuine null. Decimal values are JSON
+strings to preserve exact precision; dates and datetimes use standard OpenAPI
+formats. This is the experimental v0.1 preview contract, not yet a stable 1.0
+wire-compatibility promise.
+
 Queries use deterministic ordering and opaque continuation cursors. A primary
 key tie-breaker is added when necessary. Expansion and page sizes are bounded
 by the core, not only by adapter configuration. See

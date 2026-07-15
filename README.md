@@ -47,6 +47,7 @@ The initial metadata compiler and CLI are executable on Python 3.11 or later:
 uv sync --extra dev
 uv run tide model validate applications/invoicing
 uv run tide model explain sales.Invoice.total --project applications/invoicing
+uv run tide api export-openapi applications/invoicing
 uv run pytest
 ```
 
@@ -134,6 +135,7 @@ tide new invoicing
 tide model validate
 tide model explain sales.Invoice.customer
 tide view explain sales.Invoice.edit
+tide api export-openapi
 tide db diff
 tide db migrate
 tide run
@@ -151,8 +153,10 @@ single-collection aggregate SQL policy translation and secured keyset
 pagination are executable. Collection hydration now applies source-field,
 target-entity, and target-row authorization through bounded relationship load
 plans. SQL Server dialect compilation is covered, with live certification
-available through an opt-in integration suite. Textual, REST, MCP, migrations,
-and report rendering remain roadmap work.
+available through an opt-in integration suite. An adapter-independent,
+read-only OpenAPI 3.1 preview now generates typed Pydantic record/page schemas
+and explicitly exposed list/get contracts. Textual, REST hosting, MCP,
+migrations, and report rendering remain roadmap work.
 
 Metadata v0.1 is an executable experimental contract. Breaking authoring
 changes require a new `schema_version`; stable 1.0 compatibility is not yet
