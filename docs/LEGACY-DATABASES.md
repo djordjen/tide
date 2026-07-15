@@ -95,6 +95,12 @@ The no-DDL rule does not make data access unrestricted. Entity, row, field,
 action, and reference validation still pass through the same secured
 application services.
 
+Durable action audit and idempotency tables are TIDE-owned operational data.
+They are not silently added to a legacy application schema. The SQLAlchemy
+action store defaults to `mode="legacy"` and refuses `create_schema()`; deploy a
+separate explicitly managed operations database/schema when TIDE should own
+those tables.
+
 ## Initial compatibility boundary
 
 Schema v0.1 still requires one declared primary-key field per entity. Composite

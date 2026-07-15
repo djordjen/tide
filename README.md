@@ -70,7 +70,10 @@ reference-path, and single-collection aggregate row policies are pushed into
 root queries. SQL Server schema/query compilation and an opt-in live integration
 suite establish it as the first multi-user target. Secured keyset pagination
 uses opaque, principal-bound continuation cursors with matching behavior in the
-in-memory and SQLAlchemy adapters.
+in-memory and SQLAlchemy adapters. Action idempotency and audit state now share
+a storage-neutral lifecycle with in-memory and explicitly managed SQLAlchemy
+implementations; interrupted reservations fail closed instead of executing a
+handler twice.
 
 ## Repository layout
 
@@ -120,6 +123,7 @@ Start with [the documentation index](docs/README.md). Important documents are:
 - [Security](docs/SECURITY.md)
 - [REST API and MCP](docs/API-AND-MCP.md)
 - [Query and concurrency](docs/QUERY-AND-CONCURRENCY.md)
+- [Action audit and idempotency](docs/AUDIT-AND-IDEMPOTENCY.md)
 - [Designers and reporting](docs/DESIGNERS-AND-REPORTING.md)
 - [Terminal compatibility](docs/TERMINAL-COMPATIBILITY.md)
 - [Threat model](docs/THREAT-MODEL.md)
@@ -152,11 +156,12 @@ executable invoicing workflow are implemented. Direct, reference-path, and
 single-collection aggregate SQL policy translation and secured keyset
 pagination are executable. Collection hydration now applies source-field,
 target-entity, and target-row authorization through bounded relationship load
-plans. SQL Server dialect compilation is covered, with live certification
-available through an opt-in integration suite. An adapter-independent,
-read-only OpenAPI 3.1 preview now generates typed Pydantic record/page schemas
-and explicitly exposed list/get contracts. Textual, REST hosting, MCP,
-migrations, and report rendering remain roadmap work.
+plans. Durable action reservations and channel-aware action audit rows are
+implemented for memory and SQLAlchemy stores. SQL Server dialect compilation is
+covered, with live certification available through an opt-in integration suite.
+An adapter-independent, read-only OpenAPI 3.1 preview now generates typed
+Pydantic record/page schemas and explicitly exposed list/get contracts. Textual,
+REST hosting, MCP, migrations, and report rendering remain roadmap work.
 
 Metadata v0.1 is an executable experimental contract. Breaking authoring
 changes require a new `schema_version`; stable 1.0 compatibility is not yet

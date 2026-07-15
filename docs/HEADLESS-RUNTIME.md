@@ -41,7 +41,8 @@ The runtime currently provides:
 - action preconditions and handler registration;
 - fail-closed action access through an independent permission or explicit
   `unrestricted: true`, without requiring a general entity-update grant;
-- idempotency-key binding and reauthorization on replay;
+- storage-neutral idempotency reservations, current-principal reauthorization
+  on replay, and action audit lifecycle rows;
 - bounded, allow-listed filtering and deterministic sorting;
 - opaque, principal-bound keyset pagination with expiring cursors;
 - policy-aware collection hydration with explicit depth and item limits.
@@ -157,11 +158,18 @@ Create policies check finalized values before insertion. Update policies are
 included in the atomic SQL mutation predicate, preventing a policy race even
 for legacy tables that do not have a concurrency-token column.
 
+`ActionService` defaults to a thread-safe in-memory execution store. An
+explicit `SQLAlchemyActionExecutionStore` makes idempotency and action audit
+durable across service/process restarts. It reserves a key immediately before
+the handler and records audit start before execution. Completed keys replay;
+failed or interrupted keys require reconciliation and never run automatically.
+See [Action audit and idempotency](AUDIT-AND-IDEMPOTENCY.md).
+
 ## Deliberate limitations
 
 The in-memory repository remains a test adapter. The SQLAlchemy slice does not
 yet provide multiple-collection policy translation, Alembic migrations,
-race-resistant business numbering, durable
-audit/idempotency storage, a durable/shared cursor store, warning confirmation,
-or async handlers. Broader automated SQL Server version/CI certification also
-remains required before production readiness.
+race-resistant business numbering, atomic application/action-store completion,
+audit retention/reconciliation tooling, a durable/shared cursor store, warning
+confirmation, or async handlers. Broader automated SQL Server version/CI
+certification also remains required before production readiness.

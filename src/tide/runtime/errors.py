@@ -46,6 +46,10 @@ class IdempotencyConflict(TideRuntimeError):
     code = "idempotency_conflict"
 
 
+class ActionStoreError(TideRuntimeError):
+    code = "action_store_error"
+
+
 class InvalidQueryCursor(TideRuntimeError):
     code = "invalid_query_cursor"
 

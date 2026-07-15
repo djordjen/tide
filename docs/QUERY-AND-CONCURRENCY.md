@@ -104,6 +104,14 @@ principal, action, target, or payload is rejected.
 The invoicing `post` action is idempotent: retrying an already posted invoice
 does not increment its version or repeat side effects.
 
+The executable store contract writes an `in_progress` reservation before the
+handler and completes it only after the secured record commit. Completed
+replays reload and reauthorize the target rather than returning cached output.
+Failed or crash-interrupted reservations reject automatic retries until an
+operator reconciles them. Typed canonical fingerprints distinguish values such
+as datetimes, decimals, and strings. See
+[Action audit and idempotency](AUDIT-AND-IDEMPOTENCY.md).
+
 ## Errors and protected values
 
 Transport errors map from stable application errors: invalid query, validation

@@ -102,7 +102,8 @@ connections.
 The fixture refuses to run if any mapped TIDE table already exists. It tests
 schema creation/reflection, identity retrieval, Unicode and decimal round
 trips, relationship aggregate and hydration policy SQL, keyset page boundaries,
-and optimistic concurrency, then removes only the tables it created.
+optimistic concurrency, and durable action idempotency/audit round trips, then
+removes only the tables it created.
 
 For legacy mode, `create_schema()` remains forbidden regardless of dialect.
 Compatibility inspection and normal bound data operations may run against an

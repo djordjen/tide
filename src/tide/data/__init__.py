@@ -14,6 +14,7 @@ from tide.data.sqlalchemy import (
     SchemaIssue,
     SchemaManagementError,
 )
+from tide.data.sqlalchemy_actions import SQLAlchemyActionExecutionStore
 from tide.data.sql_expressions import QueryTranslationError
 
 __all__ = [
@@ -26,6 +27,7 @@ __all__ = [
     "RelationshipLoadPlan",
     "Repository",
     "SQLAlchemyRepository",
+    "SQLAlchemyActionExecutionStore",
     "SchemaCompatibilityError",
     "SchemaIssue",
     "SchemaManagementError",

@@ -53,7 +53,8 @@ Server dialect compilation and an opt-in live integration harness establish the
 first multi-user target. Opaque, principal-bound keyset pagination is
 implemented across both repositories. Policy-aware, bounded collection
 hydration and the adapter-independent Pydantic/OpenAPI 3.1 preview are also
-implemented. Durable audit/idempotency and a shared cursor store remain.
+implemented. Durable action audit/idempotency is implemented behind in-memory
+and SQLAlchemy stores. A shared cursor store remains.
 
 - query and record application services;
 - deterministic keyset pagination and opaque continuation cursor contracts;
@@ -65,6 +66,7 @@ implemented. Durable audit/idempotency and a shared cursor store remain.
 - `RecordSession`, change tracking, commit, and rollback;
 - integer version tokens and stale-commit rejection;
 - first-class action registry;
+- durable pre-handler idempotency reservations and channel-aware action audit;
 - SQLAlchemy adapter and generated schema for SQLite and SQL Server dialect
   compilation;
 - repository conformance tests for both managed and legacy database modes;

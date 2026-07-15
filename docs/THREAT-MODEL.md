@@ -27,7 +27,7 @@ authorization; application services are the enforcement boundary.
 | Row/field inference through filters and totals | Apply policies before query, aggregate, sort, and export |
 | Child-record leakage through relationship hydration | Require source-field and target-entity access; bind target row policies into bounded child queries |
 | Direct status mutation bypassing an action | Action-owned read-only fields and service-side transition checks |
-| Lost updates or retry duplication | Version preconditions and idempotency records |
+| Lost updates or retry duplication | Version preconditions and durable pre-handler idempotency reservations; interrupted/failed keys require reconciliation |
 | Report image/template resource access | Constrained resource loaders; no arbitrary URL/file access |
 | MCP prompt/tool abuse | Least-privilege principal, explicit exposure, reauthorization, audit |
 | Secret/protected-value leakage | Structured redaction in serialization, errors, logs, and diagnostics |

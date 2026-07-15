@@ -27,16 +27,18 @@ decision log rather than being silently assumed in implementation code.
    permission model, protected values, boundaries, and baseline controls.
 11. [REST API and MCP](API-AND-MCP.md) and [query and concurrency](QUERY-AND-CONCURRENCY.md)
    define machine-facing contracts.
-12. [Designers and reporting](DESIGNERS-AND-REPORTING.md) describes TIDE Studio,
+12. [Action audit and idempotency](AUDIT-AND-IDEMPOTENCY.md) defines durable
+    reservations, audit rows, replay, and crash reconciliation.
+13. [Designers and reporting](DESIGNERS-AND-REPORTING.md) describes TIDE Studio,
    view designers, and the banded report model.
-13. [Terminal compatibility](TERMINAL-COMPATIBILITY.md) defines the initial
+14. [Terminal compatibility](TERMINAL-COMPATIBILITY.md) defines the initial
     terminal test matrix.
-14. [Operational baseline](OPERATIONS.md) defines deployment, health, logging,
+15. [Operational baseline](OPERATIONS.md) defines deployment, health, logging,
     backup, and recovery expectations.
-15. [Headless runtime](HEADLESS-RUNTIME.md) documents the executable in-memory
+16. [Headless runtime](HEADLESS-RUNTIME.md) documents the executable in-memory
     application-service contract.
-16. [Roadmap](ROADMAP.md) orders the work into testable vertical slices.
-17. [Decision log](DECISIONS.md) records accepted and unresolved decisions.
+17. [Roadmap](ROADMAP.md) orders the work into testable vertical slices.
+18. [Decision log](DECISIONS.md) records accepted and unresolved decisions.
 
 ## Status vocabulary
 

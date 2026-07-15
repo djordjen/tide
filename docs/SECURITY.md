@@ -138,7 +138,8 @@ Multi-tenant support requires an explicit isolation and migration contract.
 
 ## Auditing
 
-Audit records should include principal, channel, action, entity, identity,
-timestamp, correlation identifier, outcome, and permitted change details.
-Protected values must not leak into logs. MCP and export operations deserve
-explicit audit events because of their potential breadth.
+Implemented action audit records include principal, channel, action, entity,
+typed identity, timestamps, correlation identifier, and outcome. They exclude
+payloads, protected values, and raw idempotency keys. Permitted change details,
+generic CRUD, MCP, report/export audit, retention, and reconciliation remain
+future extensions and must preserve the same non-disclosure rule.

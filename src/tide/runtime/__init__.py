@@ -1,6 +1,7 @@
 from tide.runtime.context import Channel, Principal, RequestContext
 from tide.runtime.errors import (
     ActionDisabled,
+    ActionStoreError,
     AuthorizationError,
     ConcurrencyError,
     ImmutableFieldError,
@@ -12,6 +13,7 @@ from tide.runtime.errors import (
 
 __all__ = [
     "ActionDisabled",
+    "ActionStoreError",
     "AuthorizationError",
     "Channel",
     "ConcurrencyError",

@@ -1,7 +1,8 @@
 # Operational Baseline
 
-**Status: Proposed production contract.** These requirements should be built
-alongside persistence rather than added after machine mutations ship.
+**Status: Action audit persistence is executable; the wider production
+contract remains proposed.** These requirements should be built alongside
+persistence rather than added after machine mutations ship.
 
 ## Configuration and secrets
 
@@ -33,6 +34,12 @@ Runtime logs are structured and include timestamp, level, channel, correlation
 identifier, and safe operation name. Audit events are a separate durable
 contract. Neither stream contains credentials, protected values, full request
 bodies, arbitrary SQL parameters, or MCP prompts by default.
+
+Domain actions now write a durable audit lifecycle when configured with a
+SQLAlchemy action store. Started rows make interrupted work visible; terminal
+outcomes distinguish success, replay, conflict, and failure. Payloads and raw
+idempotency keys are excluded. Retention, purge, reconciliation, and protected
+change-detail policies must be configured before production use.
 
 ## Database changes and recovery
 

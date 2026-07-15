@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 import os
 from pathlib import Path
@@ -11,9 +11,20 @@ import pytest
 from sqlalchemy import event, inspect
 
 from tide import compile_project
-from tide.data import QuerySpec, SQLAlchemyRepository, SortField
+from tide.data import (
+    QuerySpec,
+    SQLAlchemyActionExecutionStore,
+    SQLAlchemyRepository,
+    SortField,
+)
 from tide.runtime import Channel, ConcurrencyError, Principal, RequestContext
-from tide.services import RecordsService
+from tide.services import (
+    ActionAuditEvent,
+    AuditOutcome,
+    IdempotencyRecord,
+    IdempotencyStatus,
+    RecordsService,
+)
 
 ROOT = Path(__file__).parents[1]
 INVOICING = ROOT / "applications" / "invoicing"
@@ -241,3 +252,70 @@ def test_sql_server_relationship_hydration_applies_target_policy(
         statement for statement in statements if "FROM SALES_INVOICE_LINE" in statement
     )
     assert "SALES_INVOICE_LINE.QUANTITY >=" in child_query
+
+
+def test_sql_server_persists_action_idempotency_and_audit(
+    sqlserver_repository: SQLAlchemyRepository,
+) -> None:
+    store = SQLAlchemyActionExecutionStore(
+        sqlserver_repository.engine,
+        mode="managed",
+    )
+    action_tables = {table.name for table in store.metadata.tables.values()}
+    collisions = action_tables & set(inspect(store.engine).get_table_names())
+    if collisions:
+        pytest.fail(
+            "SQL Server action-store tests require unused TIDE-owned tables; "
+            f"collisions: {sorted(collisions)}"
+        )
+    now = datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc)
+    try:
+        store.create_schema()
+        store.validate_schema()
+        claim = store.claim_idempotency(
+            IdempotencyRecord(
+                key="sqlserver-action-1",
+                fingerprint="a" * 64,
+                entity="sales.Invoice",
+                identity=Decimal("123.45"),
+                principal="user:sqlserver",
+                correlation_id="sqlserver-correlation",
+                status=IdempotencyStatus.IN_PROGRESS,
+                started_at=now,
+            )
+        )
+        store.complete_idempotency(
+            claim.record.key,
+            claim.record.fingerprint,
+            finished_at=now,
+        )
+        store.begin_audit(
+            ActionAuditEvent(
+                event_id="sqlserver-event-1",
+                entity="sales.Invoice",
+                action="post",
+                identity=Decimal("123.45"),
+                principal="user:sqlserver",
+                channel="rest",
+                correlation_id="sqlserver-correlation",
+                started_at=now,
+            )
+        )
+        store.finish_audit(
+            "sqlserver-event-1",
+            outcome=AuditOutcome.SUCCEEDED,
+            finished_at=now,
+        )
+
+        restarted = SQLAlchemyActionExecutionStore(
+            sqlserver_repository.engine,
+            mode="legacy",
+        )
+        restarted.validate_schema()
+        persisted = restarted.get_idempotency("sqlserver-action-1")
+        assert persisted is not None
+        assert persisted.identity == Decimal("123.45")
+        assert persisted.status is IdempotencyStatus.COMPLETED
+        assert restarted.audit_events()[0].outcome is AuditOutcome.SUCCEEDED
+    finally:
+        store.metadata.drop_all(store.engine)
