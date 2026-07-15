@@ -24,14 +24,18 @@ Expression text
       -> parser
       -> typed expression tree
           -> Python evaluator
-          -> SQLAlchemy translator (planned)
+          -> SQLAlchemy predicate translator
           -> dependency tracker
           -> diagnostic formatter
 ```
 
 The compiler verifies names and types, detects computed-field cycles, and
-records dependencies. Determining whether an expression can execute in SQL
-arrives with the SQLAlchemy adapter.
+records dependencies. The SQLAlchemy translator handles stored fields, exact
+bound literals, arithmetic, comparisons, boolean operators, relationship
+paths, and the allow-listed scalar functions. Collection aggregates translate
+through one collection traversal into correlated aggregate or `EXISTS`
+subqueries. Multiple collection traversals fail query preflight instead of
+falling back to in-process filtering.
 
 An initial vocabulary may contain:
 
@@ -59,6 +63,9 @@ decimal context with round-half-even behavior, independent of ambient Python
 decimal settings. Division and `average` return `Decimal` for exact numeric
 inputs. Record services coerce incoming values to their declared field types
 before evaluation, so decimal fields always carry `decimal.Decimal` at runtime.
+Collection `sum`, `average`, `min`, and `max` ignore null items consistently
+with SQL aggregates. `sum` returns zero when no non-null values exist;
+`average`, `min`, and `max` return null.
 
 ## Computed fields
 
@@ -95,10 +102,9 @@ total:
     materialization: stored
 ```
 
-A virtual computed field will be sortable or filterable only when its
-expression can be translated to SQL, with a model error rather than loading
-and filtering the entire table in Python. This guard lands with the SQLAlchemy
-adapter and is not yet enforced by the in-memory runtime.
+A virtual computed field is not currently sortable or filterable. The shared
+query validator rejects virtual and collection fields consistently for memory
+and SQL adapters rather than loading and filtering an entire table in Python.
 
 ## Named filters
 

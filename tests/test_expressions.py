@@ -81,6 +81,23 @@ def test_average_rejects_non_numeric_runtime_values() -> None:
         evaluate_expression("average(values)", {"values": [True, False]})
 
 
+def test_collection_aggregates_ignore_null_values_consistently() -> None:
+    values = {"numbers": [Decimal("1.5"), None, Decimal("2.5")]}
+
+    assert evaluate_expression("sum(numbers)", values) == Decimal("4.0")
+    assert evaluate_expression("average(numbers)", values) == Decimal("2.0")
+    assert evaluate_expression("min(numbers)", values) == Decimal("1.5")
+    assert evaluate_expression("max(numbers)", values) == Decimal("2.5")
+
+
+def test_empty_collection_min_max_and_average_return_null() -> None:
+    values = {"numbers": [None]}
+
+    assert evaluate_expression("average(numbers)", values) is None
+    assert evaluate_expression("min(numbers)", values) is None
+    assert evaluate_expression("max(numbers)", values) is None
+
+
 def test_expression_arithmetic_uses_the_framework_decimal_context() -> None:
     with localcontext() as context:
         context.prec = 3

@@ -102,14 +102,16 @@ keys, database-generated key strategies, writable database views, stored
 procedure mappings, trigger-driven refresh, and unusual vendor types need
 explicit contracts before they can be claimed as supported.
 
-The adapter and no-DDL behavior are currently proven with SQLite. PostgreSQL is
-next. Other existing databases can be added through tested SQLAlchemy dialects;
-support will be stated per dialect instead of assuming that every third-party
-dialect has identical reflection, transaction, and type behavior.
+The adapter and no-DDL behavior are currently proven live with SQLite.
+Microsoft SQL Server is the first additional target: schema and query
+compilation are covered and an opt-in live integration suite is available.
+Support is stated per dialect instead of assuming that every database has
+identical reflection, transaction, identity, and type behavior.
 
-SQL row-policy and filter translation is not implemented yet. Legacy mode must
-not be used as a production row-security boundary until predicates and paging
-are pushed into database queries.
+Root structured filters, direct/reference row policies, single-collection
+aggregates, ordering, and limits use bound SQL in legacy mode as well.
+Policy-aware relationship expansion and multiple-collection policies remain
+outside the implemented production boundary.
 
 A later `tide db inspect` command may propose TIDE metadata from an existing
 schema. Generated proposals will remain reviewable source files and will never

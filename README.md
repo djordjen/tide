@@ -29,7 +29,8 @@ business behavior remains ordinary Python.
 - SQLAlchemy and Alembic
 - Pydantic
 - SQLite for local development
-- PostgreSQL for multi-user deployment
+- Microsoft SQL Server as the first multi-user deployment target
+- PostgreSQL as a later certified dialect
 - FastAPI for generated REST/OpenAPI
 - the official Python MCP SDK
 - Jinja2 plus an HTML/PDF renderer for initial reports
@@ -63,8 +64,10 @@ The headless runtime adds secured record/query/action services, a repository
 protocol with in-memory and synchronous SQLAlchemy Core implementations,
 `RecordSession`, computed master-detail values, field protection, validation,
 action-owned state, idempotency, and optimistic concurrency. Managed SQLite
-schema creation and legacy no-DDL mappings are executable; SQL predicate and
-row-policy pushdown remain before persistent production use.
+schema creation and legacy no-DDL mappings are executable. SQL predicate,
+reference-path, and single-collection aggregate row policies are pushed into
+root queries. SQL Server schema/query compilation and an opt-in live integration
+suite establish it as the first multi-user target.
 
 ## Repository layout
 
@@ -106,6 +109,7 @@ Start with [the documentation index](docs/README.md). Important documents are:
 - [Architecture](docs/ARCHITECTURE.md)
 - [Application model](docs/APPLICATION-MODEL.md)
 - [Legacy databases](docs/LEGACY-DATABASES.md)
+- [Microsoft SQL Server](docs/SQL-SERVER.md)
 - [Compilation and application layout](docs/COMPILATION-AND-LAYOUT.md)
 - [Metadata contract v0.1](docs/METADATA-V0.md)
 - [Presentation model](docs/PRESENTATION.md)
@@ -140,7 +144,10 @@ tide report preview sales.invoice
 Milestones 0 and 1 are substantially implemented, and the secured application
 core is in progress. The v0.1 compiler, resolved-view provenance, typed
 expressions, headless services, in-memory and SQLite repositories, tests, and
-executable invoicing workflow are implemented. SQL query/policy translation,
+executable invoicing workflow are implemented. Direct, reference-path, and
+single-collection aggregate SQL policy translation are executable. SQL Server
+dialect compilation is covered, with live certification available through an
+opt-in integration suite. Relationship expansion security, cursor pagination,
 Textual, REST, MCP, migrations, and report rendering remain roadmap work.
 
 Metadata v0.1 is an executable experimental contract. Breaking authoring

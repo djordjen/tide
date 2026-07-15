@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -12,13 +13,22 @@ from sqlalchemy.pool import StaticPool
 
 from tide import compile_project
 from tide.data import (
+    FilterCondition,
     InMemoryRepository,
+    QuerySpec,
     Repository,
     SQLAlchemyRepository,
     SchemaCompatibilityError,
     SchemaManagementError,
+    SortField,
 )
-from tide.runtime import Channel, ConcurrencyError, Principal, RequestContext
+from tide.runtime import (
+    AuthorizationError,
+    Channel,
+    ConcurrencyError,
+    Principal,
+    RequestContext,
+)
 from tide.services import ActionService, RecordsService
 
 ROOT = Path(__file__).parents[1]
@@ -30,6 +40,29 @@ SPEC = importlib.util.spec_from_file_location(
 assert SPEC and SPEC.loader
 invoicing_actions = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(invoicing_actions)
+CUSTOMERS = [
+    {
+        "id": 1,
+        "code": "ACME",
+        "name": "ACME Ltd",
+        "email": None,
+        "active": True,
+    },
+    {
+        "id": 2,
+        "code": "OLD",
+        "name": "Old Ltd",
+        "email": None,
+        "active": False,
+    },
+    {
+        "id": 3,
+        "code": "ZEN",
+        "name": "Zen Ltd",
+        "email": None,
+        "active": True,
+    },
+]
 
 
 def context() -> RequestContext:
@@ -55,6 +88,34 @@ def invoice_values() -> dict[str, Any]:
     }
 
 
+def _seed_invoice(repository: SQLAlchemyRepository) -> None:
+    repository.seed(
+        "sales.Invoice",
+        [
+            {
+                "id": 100,
+                "number": "INV-TEST",
+                "invoice_date": date(2026, 7, 15),
+                "currency": "EUR",
+                "status": "draft",
+                "customer": 1,
+                "total": Decimal("10.50"),
+                "lines": [
+                    {
+                        "id": 1000,
+                        "line_number": 1,
+                        "description": "Consulting",
+                        "quantity": Decimal("2.5"),
+                        "unit_price": Decimal("4.20"),
+                        "product": 1,
+                        "total": Decimal("10.50"),
+                    }
+                ],
+            }
+        ],
+    )
+
+
 @pytest.fixture
 def sql_runtime():
     model = compile_project(INVOICING)
@@ -63,17 +124,10 @@ def sql_runtime():
     assert inspect(repository.engine).get_table_names() == []
     repository.create_schema()
     repository.validate_schema()
+    repository.validate_query_support()
     repository.seed(
         "crm.Customer",
-        [
-            {
-                "id": 1,
-                "code": "ACME",
-                "name": "ACME Ltd",
-                "email": None,
-                "active": True,
-            }
-        ],
+        CUSTOMERS,
     )
     repository.seed(
         "catalog.Product",
@@ -103,6 +157,232 @@ def test_repository_protocol_accepts_memory_and_sqlalchemy(sql_runtime) -> None:
 
     assert isinstance(InMemoryRepository(), Repository)
     assert isinstance(repository, Repository)
+
+
+def test_sql_query_pushes_policy_filter_sort_and_limit_to_database(sql_runtime) -> None:
+    model, repository, records = sql_runtime
+    statements: list[str] = []
+
+    @event.listens_for(repository.engine, "before_cursor_execute")
+    def capture_statement(
+        _connection: Any,
+        _cursor: Any,
+        statement: str,
+        _parameters: Any,
+        _context: Any,
+        _executemany: bool,
+    ) -> None:
+        statements.append(statement.upper())
+
+    query = QuerySpec(
+        filters=(FilterCondition("name", "contains", "Ltd"),),
+        sort=(SortField("name", descending=True),),
+        limit=1,
+    )
+    customers = records.query("crm.Customer", query, context())
+
+    memory = InMemoryRepository()
+    memory.seed("crm.Customer", CUSTOMERS)
+    memory_customers = RecordsService(model, memory).query(
+        "crm.Customer", query, context()
+    )
+
+    assert [customer["code"] for customer in customers] == ["ZEN"]
+    assert [customer["code"] for customer in memory_customers] == ["ZEN"]
+    root_query = next(
+        statement for statement in statements if "FROM CRM_CUSTOMER" in statement
+    )
+    assert "CRM_CUSTOMER.ACTIVE = 1" in root_query
+    assert "CRM_CUSTOMER.NAME LIKE" in root_query
+    assert "ORDER BY" in root_query
+    assert "LIMIT" in root_query
+    assert "LTD" not in root_query
+
+
+def test_sql_query_translates_relationship_aggregates(sql_runtime) -> None:
+    model, repository, _ = sql_runtime
+    _seed_invoice(repository)
+
+    customers = repository.query(
+        "crm.Customer",
+        QuerySpec(sort=(SortField("id"),)),
+        row_criteria=("count(invoices) > 0",),
+    )
+    invoices = repository.query(
+        "sales.Invoice",
+        QuerySpec(sort=(SortField("id"),)),
+        row_criteria=(
+            "count(lines) == 1 "
+            "and sum(lines.total) == 10.50 "
+            "and average(lines.quantity) == 2.5 "
+            "and min(lines.total) == 10.50 "
+            "and max(lines.total) == 10.50 "
+            "and any(lines.product.active) "
+            "and all(lines.product.active)",
+        ),
+    )
+    lines = repository.query(
+        "sales.InvoiceLine",
+        QuerySpec(sort=(SortField("id"),)),
+        row_criteria=("invoice.status == 'draft'",),
+    )
+
+    assert [customer["code"] for customer in customers] == ["ACME"]
+    assert [invoice["number"] for invoice in invoices] == ["INV-TEST"]
+    assert [line["description"] for line in lines] == ["Consulting"]
+
+    protected_model = replace(
+        model,
+        row_policies=(
+            *model.row_policies,
+            {
+                "id": "customers_with_invoices",
+                "entity": "crm.Customer",
+                "operations": ("list",),
+                "criteria": "count(invoices) > 0",
+            },
+            {
+                "id": "invoices_with_active_products",
+                "entity": "sales.Invoice",
+                "operations": ("list",),
+                "criteria": (
+                    "sum(lines.total) == 10.50 "
+                    "and any(lines.product.active) "
+                    "and all(lines.product.active)"
+                ),
+            },
+            {
+                "id": "draft_invoice_lines",
+                "entity": "sales.InvoiceLine",
+                "operations": ("list",),
+                "criteria": "invoice.status == 'draft'",
+            },
+        ),
+    )
+    secured = RecordsService(protected_model, repository)
+
+    secured_customers = secured.query(
+        "crm.Customer", QuerySpec(sort=(SortField("id"),)), context()
+    )
+    secured_invoices = secured.query(
+        "sales.Invoice", QuerySpec(sort=(SortField("id"),)), context()
+    )
+    secured_lines = secured.query(
+        "sales.InvoiceLine", QuerySpec(sort=(SortField("id"),)), context()
+    )
+
+    assert [customer["code"] for customer in secured_customers] == ["ACME"]
+    assert [invoice["number"] for invoice in secured_invoices] == ["INV-TEST"]
+    assert [line["description"] for line in secured_lines] == ["Consulting"]
+
+
+def test_sql_single_record_load_pushes_row_policy_to_database(sql_runtime) -> None:
+    _, repository, records = sql_runtime
+    statements: list[str] = []
+
+    @event.listens_for(repository.engine, "before_cursor_execute")
+    def capture_statement(
+        _connection: Any,
+        _cursor: Any,
+        statement: str,
+        _parameters: Any,
+        _context: Any,
+        _executemany: bool,
+    ) -> None:
+        statements.append(statement.upper())
+
+    with pytest.raises(AuthorizationError):
+        records.get("crm.Customer", 2, context())
+
+    policy_query = next(
+        statement
+        for statement in statements
+        if "FROM CRM_CUSTOMER" in statement and "CRM_CUSTOMER.ACTIVE" in statement
+    )
+    assert "CRM_CUSTOMER.ID =" in policy_query
+    assert "CRM_CUSTOMER.ACTIVE = 1" in policy_query
+
+
+def test_sql_update_rechecks_row_policy_in_atomic_update(sql_runtime) -> None:
+    model, repository, _ = sql_runtime
+    protected_model = replace(
+        model,
+        row_policies=(
+            *model.row_policies,
+            {
+                "id": "active_customer_updates",
+                "entity": "crm.Customer",
+                "operations": ("update",),
+                "criteria": "active == true",
+            },
+        ),
+    )
+    records = RecordsService(protected_model, repository)
+    edit = records.begin_edit("crm.Customer", 1, context())
+
+    current = repository.get("crm.Customer", 1)
+    current["active"] = False
+    repository.write(
+        "crm.Customer",
+        current,
+        primary_key="id",
+        version_field=None,
+        expected_version=None,
+        is_new=False,
+    )
+    statements: list[str] = []
+
+    @event.listens_for(repository.engine, "before_cursor_execute")
+    def capture_statement(
+        _connection: Any,
+        _cursor: Any,
+        statement: str,
+        _parameters: Any,
+        _context: Any,
+        _executemany: bool,
+    ) -> None:
+        statements.append(statement.upper())
+
+    edit.set("name", "Raced update")
+    with pytest.raises(AuthorizationError):
+        records.commit(edit, context())
+
+    update_statement = next(
+        statement for statement in statements if statement.startswith("UPDATE CRM_CUSTOMER")
+    )
+    assert "CRM_CUSTOMER.ACTIVE = 1" in update_statement
+    persisted = repository.get("crm.Customer", 1)
+    assert persisted["name"] == "ACME Ltd"
+    assert persisted["active"] is False
+
+
+def test_create_row_policy_checks_final_values_before_insert(sql_runtime) -> None:
+    model, repository, _ = sql_runtime
+    protected_model = replace(
+        model,
+        row_policies=(
+            *model.row_policies,
+            {
+                "id": "active_customer_creation",
+                "entity": "crm.Customer",
+                "operations": ("create",),
+                "criteria": "active == true",
+            },
+        ),
+    )
+    records = RecordsService(protected_model, repository)
+    session = records.create(
+        "crm.Customer",
+        context(),
+        {"code": "BLOCKED", "name": "Blocked", "active": False},
+    )
+
+    with pytest.raises(AuthorizationError):
+        records.commit(session, context())
+
+    assert all(
+        customer["code"] != "BLOCKED" for customer in repository.all("crm.Customer")
+    )
 
 
 def test_managed_schema_and_master_detail_round_trip(sql_runtime) -> None:

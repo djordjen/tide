@@ -92,9 +92,11 @@ migration entry points. Both modes use the same repository and service
 conformance suite.
 
 Repository construction never changes a schema. Managed creation is an
-explicit call; legacy creation is rejected. Query predicate and row-policy SQL
-translation remains the next persistence boundary and is required before the
-adapter is production-ready.
+explicit call; legacy creation is rejected. Root structured filters, direct
+and reference-path policies, single-collection aggregates, ordering, and limits
+translate to bound SQL and are checked for adapter support before deployment
+readiness. Policy-aware relationship expansion and multiple-collection
+translation remain required before the adapter is production-ready.
 
 ## Request context
 

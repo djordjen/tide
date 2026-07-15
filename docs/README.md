@@ -12,29 +12,31 @@ decision log rather than being silently assumed in implementation code.
    entities, relationships, and schema evolution.
 4. [Legacy databases](LEGACY-DATABASES.md) defines physical mapping and the
    no-DDL contract for externally owned schemas.
-5. [Compilation and application layout](COMPILATION-AND-LAYOUT.md) distinguishes
+5. [Microsoft SQL Server](SQL-SERVER.md) defines the first multi-user dialect,
+   driver, connection, and test contract.
+6. [Compilation and application layout](COMPILATION-AND-LAYOUT.md) distinguishes
    metadata compilation from bytecode/native compilation and fixes the
    runtime/application directory boundary.
-6. [Metadata contract v0.1](METADATA-V0.md) defines what the current compiler
+7. [Metadata contract v0.1](METADATA-V0.md) defines what the current compiler
    accepts and diagnoses.
-7. [Presentation model](PRESENTATION.md) defines generated views, presets,
+8. [Presentation model](PRESENTATION.md) defines generated views, presets,
    overlays, formats, and renderer-specific settings.
-8. [Expressions and validation](EXPRESSIONS-AND-VALIDATION.md) defines computed
+9. [Expressions and validation](EXPRESSIONS-AND-VALIDATION.md) defines computed
    fields, criteria, filters, action conditions, and validation.
-9. [Security](SECURITY.md) and the [threat model](THREAT-MODEL.md) define the
+10. [Security](SECURITY.md) and the [threat model](THREAT-MODEL.md) define the
    permission model, protected values, boundaries, and baseline controls.
-10. [REST API and MCP](API-AND-MCP.md) and [query and concurrency](QUERY-AND-CONCURRENCY.md)
+11. [REST API and MCP](API-AND-MCP.md) and [query and concurrency](QUERY-AND-CONCURRENCY.md)
    define machine-facing contracts.
-11. [Designers and reporting](DESIGNERS-AND-REPORTING.md) describes TIDE Studio,
+12. [Designers and reporting](DESIGNERS-AND-REPORTING.md) describes TIDE Studio,
    view designers, and the banded report model.
-12. [Terminal compatibility](TERMINAL-COMPATIBILITY.md) defines the initial
+13. [Terminal compatibility](TERMINAL-COMPATIBILITY.md) defines the initial
     terminal test matrix.
-13. [Operational baseline](OPERATIONS.md) defines deployment, health, logging,
+14. [Operational baseline](OPERATIONS.md) defines deployment, health, logging,
     backup, and recovery expectations.
-14. [Headless runtime](HEADLESS-RUNTIME.md) documents the executable in-memory
+15. [Headless runtime](HEADLESS-RUNTIME.md) documents the executable in-memory
     application-service contract.
-15. [Roadmap](ROADMAP.md) orders the work into testable vertical slices.
-16. [Decision log](DECISIONS.md) records accepted and unresolved decisions.
+16. [Roadmap](ROADMAP.md) orders the work into testable vertical slices.
+17. [Decision log](DECISIONS.md) records accepted and unresolved decisions.
 
 ## Status vocabulary
 

@@ -64,12 +64,18 @@ class SecurityEngine:
         record: Mapping[str, Any],
         context: RequestContext,
     ) -> bool:
+        return all(
+            bool(evaluate_expression(criteria, record))
+            for criteria in self.row_criteria(entity, operation)
+        )
+
+    def row_criteria(self, entity: str, operation: str) -> tuple[str, ...]:
         matching = [
             policy
             for policy in self.model.row_policies
             if policy["entity"] == entity and operation in policy["operations"]
         ]
-        return all(bool(evaluate_expression(policy["criteria"], record)) for policy in matching)
+        return tuple(str(policy["criteria"]) for policy in matching)
 
     def require_row(
         self,

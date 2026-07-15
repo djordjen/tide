@@ -47,8 +47,11 @@ Status: **in progress**. `RequestContext`, principals, role/permission expansion
 row and field policies, `ProtectedValue`, query/record services, `RecordSession`,
 validation, stored master-detail computation, action execution, idempotency,
 optimistic concurrency, managed SQLite persistence, and legacy no-DDL mapping
-are implemented. SQL query/policy translation, durable audit/idempotency, and
-OpenAPI preview remain.
+are implemented. Root SQL filters, ordering, limits, reference paths, and
+single-collection aggregate row-policy translation are also implemented. SQL
+Server dialect compilation and an opt-in live integration harness establish the
+first multi-user target. Policy-aware relationship expansion, durable
+audit/idempotency, and OpenAPI preview remain.
 
 - query and record application services;
 - `RequestContext` and principal abstraction;
@@ -58,7 +61,8 @@ OpenAPI preview remain.
 - `RecordSession`, change tracking, commit, and rollback;
 - integer version tokens and stale-commit rejection;
 - first-class action registry;
-- SQLAlchemy adapter and generated schema for SQLite;
+- SQLAlchemy adapter and generated schema for SQLite and SQL Server dialect
+  compilation;
 - repository conformance tests for both managed and legacy database modes;
 - legacy table/schema/column mapping, compatibility inspection, and a hard
   no-DDL guard for externally owned schemas;
@@ -100,7 +104,8 @@ the same services.
 
 ## Milestone 5 - Production data and security
 
-- PostgreSQL support;
+- complete live SQL Server certification and operational guidance;
+- PostgreSQL support after the SQL Server contract is stable;
 - additional SQLAlchemy dialect certification for legacy databases, based on
   demand and dialect availability;
 - Alembic migration proposal workflow;

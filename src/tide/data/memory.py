@@ -6,6 +6,13 @@ from copy import deepcopy
 from threading import RLock
 from typing import Any, Iterable
 
+from tide.compiler.expressions import evaluate_expression
+from tide.data.repository import (
+    QuerySpec,
+    RowPolicyMismatch,
+    matches_filter,
+    query_sort_key,
+)
 from tide.runtime.errors import ConcurrencyError, NotFoundError
 
 
@@ -31,11 +38,45 @@ class InMemoryRepository:
         with self._lock:
             return [deepcopy(record) for record in self._records.get(entity, {}).values()]
 
-    def get(self, entity: str, identity: Any) -> dict[str, Any]:
+    def query(
+        self,
+        entity: str,
+        query: QuerySpec,
+        *,
+        row_criteria: tuple[str, ...] = (),
+    ) -> list[dict[str, Any]]:
+        records = [
+            record
+            for record in self.all(entity)
+            if all(bool(evaluate_expression(criteria, record)) for criteria in row_criteria)
+        ]
+        for condition in query.filters:
+            records = [
+                record for record in records if matches_filter(record, condition)
+            ]
+        for sort in reversed(query.sort):
+            records.sort(
+                key=lambda record: query_sort_key(record.get(sort.field)),
+                reverse=sort.descending,
+            )
+        return records[: query.limit]
+
+    def get(
+        self,
+        entity: str,
+        identity: Any,
+        *,
+        row_criteria: tuple[str, ...] = (),
+    ) -> dict[str, Any]:
         with self._lock:
             record = self._records.get(entity, {}).get(identity)
             if record is None:
                 raise NotFoundError(f"{entity} {identity!r} was not found")
+            if not all(
+                bool(evaluate_expression(criteria, record))
+                for criteria in row_criteria
+            ):
+                raise RowPolicyMismatch
             return deepcopy(record)
 
     def exists(self, entity: str, identity: Any) -> bool:
@@ -55,6 +96,7 @@ class InMemoryRepository:
         version_field: str | None,
         expected_version: int | None,
         is_new: bool,
+        row_criteria: tuple[str, ...] = (),
     ) -> dict[str, Any]:
         with self._lock:
             bucket = self._records.setdefault(entity, {})
@@ -73,6 +115,11 @@ class InMemoryRepository:
                 current = bucket.get(identity)
                 if current is None:
                     raise NotFoundError(f"{entity} {identity!r} was not found")
+                if not all(
+                    bool(evaluate_expression(criteria, current))
+                    for criteria in row_criteria
+                ):
+                    raise RowPolicyMismatch
                 actual_version = current.get(version_field) if version_field else None
                 if version_field and expected_version != actual_version:
                     raise ConcurrencyError(expected_version, actual_version)

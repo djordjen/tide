@@ -17,8 +17,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+sqlserver = [
+    "pyodbc>=5.3,<6",
+]
 dev = [
-    "build>=1.2,<2",
+    "build>=1.2,<1.5.1",
     "pytest>=8.3,<10",
     "ruff>=0.15,<1",
 ]
@@ -32,6 +35,9 @@ packages = ["src/tide"]
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+markers = [
+    "sqlserver: requires an explicitly configured SQL Server integration database",
+]
 
 [tool.coverage.run]
 source = ["tide"]

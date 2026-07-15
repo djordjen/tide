@@ -21,7 +21,13 @@ from tide.runtime import (
 )
 from tide.runtime.errors import IdempotencyConflict
 from tide.security import PROTECTED, SecurityEngine
-from tide.services import ActionService, FilterCondition, QuerySpec, RecordsService
+from tide.services import (
+    ActionService,
+    FilterCondition,
+    QuerySpec,
+    RecordsService,
+    SortField,
+)
 
 ROOT = Path(__file__).parents[1]
 INVOICING = ROOT / "applications" / "invoicing"
@@ -363,6 +369,32 @@ def test_row_policy_query_and_authorization(runtime) -> None:
 
     with pytest.raises(AuthorizationError):
         records.query("crm.Customer", QuerySpec(), outsider)
+
+
+def test_query_rejects_unstored_fields_and_invalid_filter_types(runtime) -> None:
+    _, _, records, _ = runtime
+    clerk = context("user:clerk", "sales_clerk")
+
+    with pytest.raises(ValueError, match="not stored"):
+        records.query(
+            "sales.Invoice",
+            QuerySpec(sort=(SortField("lines"),)),
+            clerk,
+        )
+
+    with pytest.raises(ValueError, match="string field and value"):
+        records.query(
+            "crm.Customer",
+            QuerySpec(filters=(FilterCondition("active", "contains", "true"),)),
+            clerk,
+        )
+
+    with pytest.raises(ValueError, match="must be a integer"):
+        records.query(
+            "crm.Customer",
+            QuerySpec(filters=(FilterCondition("id", "eq", "1"),)),
+            clerk,
+        )
 
 
 def test_post_requires_lines(runtime) -> None:

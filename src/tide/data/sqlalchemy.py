@@ -19,6 +19,9 @@ from sqlalchemy import (
     Numeric,
     String,
     Table,
+    Unicode,
+    and_,
+    case,
     create_engine,
     delete,
     event,
@@ -28,16 +31,23 @@ from sqlalchemy import (
     select,
     update,
 )
-from sqlalchemy.engine import Connection, Engine, make_url
+from sqlalchemy.engine import Connection, Engine, URL, make_url
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.type_api import TypeEngine
 
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
+from tide.data.repository import FilterCondition, QuerySpec, RowPolicyMismatch
+from tide.data.sql_expressions import QueryTranslationError, translate_expression
 from tide.runtime.errors import ConcurrencyError, NotFoundError, TideRuntimeError
 
 
 class SchemaManagementError(TideRuntimeError):
     code = "schema_management_forbidden"
+
+
+class DatabaseDriverError(TideRuntimeError):
+    code = "database_driver_unavailable"
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +75,7 @@ class SQLAlchemyRepository:
     :meth:`create_schema` explicitly. Legacy applications cannot call it.
     """
 
-    def __init__(self, model: ApplicationModel, bind: str | Engine):
+    def __init__(self, model: ApplicationModel, bind: str | URL | Engine):
         self.model = model
         self.mode = str(model.database["mode"])
         self.engine = bind if isinstance(bind, Engine) else _create_engine(bind)
@@ -170,6 +180,23 @@ class SQLAlchemyRepository:
         if issues:
             raise SchemaCompatibilityError(issues)
 
+    def validate_query_support(self) -> None:
+        for policy in self.model.row_policies:
+            entity = self.model.entity(str(policy["entity"]))
+            table = self.table(entity.name)
+            try:
+                translate_expression(
+                    str(policy["criteria"]),
+                    model=self.model,
+                    entity=entity,
+                    columns=table.c,
+                    tables=self._tables,
+                )
+            except QueryTranslationError as error:
+                raise QueryTranslationError(
+                    f"row policy {policy['id']!r} cannot run in SQL: {error}"
+                ) from error
+
     def seed(
         self,
         entity: str,
@@ -199,9 +226,77 @@ class SQLAlchemyRepository:
             rows = connection.execute(select(table).order_by(table.c[primary_key])).mappings()
             return [self._hydrate(connection, entity, row) for row in rows]
 
-    def get(self, entity: str, identity: Any) -> dict[str, Any]:
+    def query(
+        self,
+        entity: str,
+        query: QuerySpec,
+        *,
+        row_criteria: tuple[str, ...] = (),
+    ) -> list[dict[str, Any]]:
+        statement = self._query_statement(
+            entity,
+            query,
+            row_criteria=row_criteria,
+        )
         with self.engine.connect() as connection:
-            return self._get(connection, entity, identity)
+            rows = connection.execute(statement).mappings()
+            return [self._hydrate(connection, entity, row) for row in rows]
+
+    def _query_statement(
+        self,
+        entity: str,
+        query: QuerySpec,
+        *,
+        row_criteria: tuple[str, ...] = (),
+    ) -> Any:
+        if query.limit < 1 or query.limit > 500:
+            raise ValueError("query limit must be between 1 and 500")
+        normalized_entity = self.model.entity(entity)
+        table = self.table(entity)
+        predicates = [
+            translate_expression(
+                criteria,
+                model=self.model,
+                entity=normalized_entity,
+                columns=table.c,
+                tables=self._tables,
+            )
+            for criteria in row_criteria
+        ]
+        predicates.extend(
+            _filter_predicate(normalized_entity, table, condition)
+            for condition in query.filters
+        )
+        statement = select(table)
+        if predicates:
+            statement = statement.where(and_(*predicates))
+        for sort in query.sort:
+            column = table.c.get(sort.field)
+            if column is None:
+                raise QueryTranslationError(
+                    f"field {entity}.{sort.field} is not stored and cannot be sorted in SQL"
+                )
+            null_rank = case((column.is_(None), 0 if sort.descending else 1), else_=1 if sort.descending else 0)
+            statement = statement.order_by(
+                null_rank,
+                column.desc() if sort.descending else column.asc(),
+            )
+        return statement.limit(query.limit)
+
+    def get(
+        self,
+        entity: str,
+        identity: Any,
+        *,
+        row_criteria: tuple[str, ...] = (),
+    ) -> dict[str, Any]:
+        with self.engine.connect() as connection:
+            return self._get(
+                connection,
+                entity,
+                identity,
+                row_criteria=row_criteria,
+            )
 
     def exists(self, entity: str, identity: Any) -> bool:
         table = self.table(entity)
@@ -229,6 +324,7 @@ class SQLAlchemyRepository:
         version_field: str | None,
         expected_version: int | None,
         is_new: bool,
+        row_criteria: tuple[str, ...] = (),
     ) -> dict[str, Any]:
         expected_key = _primary_key(self.model.entity(entity))
         expected_version_field = _version_field(self.model.entity(entity))
@@ -241,6 +337,7 @@ class SQLAlchemyRepository:
                 dict(values),
                 expected_version=expected_version,
                 is_new=is_new,
+                row_criteria=row_criteria,
             )
 
     def dispose(self) -> None:
@@ -254,6 +351,7 @@ class SQLAlchemyRepository:
         *,
         expected_version: int | None,
         is_new: bool,
+        row_criteria: tuple[str, ...] = (),
     ) -> dict[str, Any]:
         entity = self.model.entity(entity_name)
         table = self.table(entity_name)
@@ -277,6 +375,18 @@ class SQLAlchemyRepository:
             update_values = dict(scalar_values)
             update_values.pop(primary_key, None)
             criteria = table.c[primary_key] == identity
+            policy_predicates = [
+                translate_expression(
+                    policy,
+                    model=self.model,
+                    entity=entity,
+                    columns=table.c,
+                    tables=self._tables,
+                )
+                for policy in row_criteria
+            ]
+            if policy_predicates:
+                criteria = criteria & and_(*policy_predicates)
             if version_field:
                 criteria = criteria & (table.c[version_field] == expected_version)
                 update_values[version_field] = int(expected_version or 0) + 1
@@ -284,14 +394,22 @@ class SQLAlchemyRepository:
                 update(table).where(criteria).values(**update_values)
             )
             if result.rowcount != 1:
-                actual = connection.execute(
-                    select(table.c[version_field] if version_field else table.c[primary_key]).where(
-                        table.c[primary_key] == identity
-                    )
-                ).scalar_one_or_none()
-                if actual is None:
+                current = connection.execute(
+                    select(table.c[primary_key], *(
+                        (table.c[version_field],) if version_field else ()
+                    )).where(table.c[primary_key] == identity)
+                ).first()
+                if current is None:
                     raise NotFoundError(f"{entity_name} {identity!r} was not found")
-                raise ConcurrencyError(expected_version, actual if version_field else None)
+                if policy_predicates and connection.execute(
+                    select(table.c[primary_key]).where(
+                        table.c[primary_key] == identity,
+                        and_(*policy_predicates),
+                    )
+                ).first() is None:
+                    raise RowPolicyMismatch
+                actual = current._mapping[version_field] if version_field else None
+                raise ConcurrencyError(expected_version, actual)
 
         for field_name, field in entity.fields.items():
             if field.metadata["type"] != "collection" or field_name not in values:
@@ -356,15 +474,35 @@ class SQLAlchemyRepository:
                 )
 
     def _get(
-        self, connection: Connection, entity_name: str, identity: Any
+        self,
+        connection: Connection,
+        entity_name: str,
+        identity: Any,
+        *,
+        row_criteria: tuple[str, ...] = (),
     ) -> dict[str, Any]:
         entity = self.model.entity(entity_name)
         table = self.table(entity_name)
         primary_key = _primary_key(entity)
+        predicates = [table.c[primary_key] == identity]
+        predicates.extend(
+            translate_expression(
+                criteria,
+                model=self.model,
+                entity=entity,
+                columns=table.c,
+                tables=self._tables,
+            )
+            for criteria in row_criteria
+        )
         row = connection.execute(
-            select(table).where(table.c[primary_key] == identity)
+            select(table).where(and_(*predicates))
         ).mappings().first()
         if row is None:
+            if row_criteria and connection.execute(
+                select(table.c[primary_key]).where(table.c[primary_key] == identity)
+            ).first() is not None:
+                raise RowPolicyMismatch
             raise NotFoundError(f"{entity_name} {identity!r} was not found")
         return self._hydrate(connection, entity_name, row)
 
@@ -405,7 +543,7 @@ class SQLAlchemyRepository:
         return values
 
 
-def _create_engine(url: str) -> Engine:
+def _create_engine(url: str | URL) -> Engine:
     parsed = make_url(url)
     options: dict[str, Any] = {"future": True}
     if parsed.get_backend_name() == "sqlite" and parsed.database in {
@@ -417,7 +555,18 @@ def _create_engine(url: str) -> Engine:
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
         )
-    return create_engine(url, **options)
+    elif parsed.get_backend_name() == "mssql":
+        options["pool_pre_ping"] = True
+    try:
+        return create_engine(url, **options)
+    except ModuleNotFoundError as error:
+        if parsed.get_backend_name() == "mssql" and error.name == "pyodbc":
+            raise DatabaseDriverError(
+                "SQL Server requires the optional 'sqlserver' dependency and "
+                "Microsoft ODBC Driver 17 or later; install "
+                "tide-framework[sqlserver]"
+            ) from error
+        raise
 
 
 def _enable_sqlite_foreign_keys(engine: Engine) -> None:
@@ -469,7 +618,7 @@ def _build_column(model: ApplicationModel, field: NormalizedField) -> Column[Any
         arguments.append(
             ForeignKey(
                 _qualified_name(target_schema, target_table, target_column),
-                ondelete=str(field.metadata.get("on_delete", "restrict")).upper().replace("_", " "),
+                ondelete=_sql_on_delete(field.metadata.get("on_delete")),
             )
         )
     return Column(
@@ -505,8 +654,8 @@ def _sql_type(model: ApplicationModel, field: NormalizedField) -> TypeEngine[Any
         length = metadata.get("length") or max(
             (len(choice) for choice in metadata.get("choices", ())), default=255
         )
-        return String(length)
-    return String(metadata.get("length") or 255)
+        return Unicode(length)
+    return Unicode(metadata.get("length") or 255)
 
 
 def _scalar_values(entity: NormalizedEntity, values: Mapping[str, Any]) -> dict[str, Any]:
@@ -515,6 +664,34 @@ def _scalar_values(entity: NormalizedEntity, values: Mapping[str, Any]) -> dict[
         for field_name, value in values.items()
         if field_name in entity.fields and _is_persisted(entity.fields[field_name])
     }
+
+
+def _filter_predicate(
+    entity: NormalizedEntity,
+    table: Table,
+    condition: FilterCondition,
+) -> ColumnElement[bool]:
+    column = table.c.get(condition.field)
+    if column is None:
+        raise QueryTranslationError(
+            f"field {entity.name}.{condition.field} is not stored and cannot be filtered in SQL"
+        )
+    value = condition.value
+    if condition.operator == "eq":
+        return column.is_(None) if value is None else column == value
+    if condition.operator == "ne":
+        return column.is_not(None) if value is None else column != value
+    if condition.operator == "lt":
+        return column < value
+    if condition.operator == "lte":
+        return column <= value
+    if condition.operator == "gt":
+        return column > value
+    if condition.operator == "gte":
+        return column >= value
+    if condition.operator == "contains":
+        return column.contains(value)
+    raise ValueError(f"unsupported filter operator {condition.operator!r}")
 
 
 def _is_persisted(field: NormalizedField) -> bool:
@@ -557,6 +734,15 @@ def _managed_table_name(entity_name: str) -> str:
         re.sub(r"(?<!^)(?=[A-Z])", "_", part).lower()
         for part in entity_name.split(".")
     )
+
+
+def _sql_on_delete(value: Any) -> str:
+    action = str(value or "restrict").lower()
+    return {
+        "restrict": "NO ACTION",
+        "cascade": "CASCADE",
+        "set_null": "SET NULL",
+    }[action]
 
 
 def _has_default(column: Mapping[str, Any]) -> bool:

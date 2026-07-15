@@ -18,11 +18,26 @@ Relationship expansion is allow-listed and depth/size bounded. Counts, totals,
 exports, and relationship loads apply the same row and field policies as the
 root query. Adapters may impose smaller limits but may not bypass core limits.
 
-The current service validates filters, applies deterministic primary-key
-tie-breaking, and bounds result counts. The in-memory adapter evaluates the
-query locally. The initial SQLAlchemy adapter still uses that path; SQL
-predicate, row-policy, ordering, and paging translation are the next required
-slice.
+The service validates stored fields, operators, filter value types, readable
+field access, deterministic primary-key tie-breaking, and result limits. The
+in-memory adapter evaluates the resulting repository query locally. The
+SQLAlchemy adapter emits bound predicates for structured filters, stored-field
+and reference-path policies, and single-collection aggregates, with ordering
+and a dialect-specific bounded limit applied by the database.
+Single-record read/update/action loads also include their applicable row-policy
+criteria in the root SQL query.
+
+Create policies evaluate the finalized candidate record before insertion.
+Update policies are repeated in the atomic SQL `UPDATE` predicate, alongside
+the identity and expected version, so a row that becomes unauthorized between
+edit and commit cannot be changed. SQL distinguishes missing, policy-denied,
+and stale rows without loading protected field values.
+
+SQL relationship paths use correlated scalar subqueries. `count`, `sum`,
+`average`, `min`, `max`, `any`, and `all` over one collection traversal use
+correlated aggregate/`EXISTS` subqueries. Multiple collection traversals and
+policy-aware relationship expansion fail closed or remain pending rather than
+falling back to root-table post-filtering. Continuation cursors remain pending.
 
 ## Mutation preconditions
 

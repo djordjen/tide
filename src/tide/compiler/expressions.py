@@ -400,11 +400,12 @@ class _Evaluator(ast.NodeVisitor):
         if name == "count":
             return len(arguments[0])
         if name == "sum":
-            return sum(arguments[0])
+            return sum(value for value in arguments[0] if value is not None)
         if name == "average":
             values = arguments[0]
             if not isinstance(values, (list, tuple)):
                 raise ValueError("average requires exact numeric values")
+            values = [value for value in values if value is not None]
             if not values:
                 return None
             if any(
@@ -422,7 +423,10 @@ class _Evaluator(ast.NodeVisitor):
             return round(*arguments)
         if name in {"min", "max"}:
             function = min if name == "min" else max
-            return function(arguments[0]) if len(arguments) == 1 and isinstance(arguments[0], (list, tuple)) else function(*arguments)
+            if len(arguments) == 1 and isinstance(arguments[0], (list, tuple)):
+                values = [value for value in arguments[0] if value is not None]
+                return function(values) if values else None
+            return function(*arguments)
         raise ValueError(f"unsupported function {name}")
 
 

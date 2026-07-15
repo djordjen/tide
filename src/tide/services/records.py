@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import ast
 from copy import deepcopy
-from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
@@ -11,7 +11,13 @@ from typing import Any, Callable, Mapping
 
 from tide.compiler.expressions import evaluate_expression
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity
-from tide.data.repository import Repository
+from tide.data.repository import (
+    FilterCondition as FilterCondition,
+    QuerySpec,
+    Repository,
+    RowPolicyMismatch,
+    SortField,
+)
 from tide.runtime.context import RequestContext
 from tide.runtime.errors import (
     AuthorizationError,
@@ -27,26 +33,6 @@ class MutationSource(StrEnum):
     USER = "user"
     ACTION = "action"
     SYSTEM = "system"
-
-
-@dataclass(frozen=True, slots=True)
-class FilterCondition:
-    field: str
-    operator: str
-    value: Any
-
-
-@dataclass(frozen=True, slots=True)
-class SortField:
-    field: str
-    descending: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class QuerySpec:
-    filters: tuple[FilterCondition, ...] = ()
-    sort: tuple[SortField, ...] = ()
-    limit: int = 100
 
 
 Generator = Callable[[dict[str, Any], RequestContext, Repository], Any]
@@ -98,9 +84,9 @@ class RecordsService:
         entity = self.model.entity(entity_name)
         self.security.authorize_entity(entity, "read", context)
         self.security.authorize_entity(entity, "update", context)
-        values = self.repository.get(entity_name, identity)
-        self.security.require_row(entity_name, "read", values, context)
-        self.security.require_row(entity_name, "update", values, context)
+        values = self._load_authorized(
+            entity_name, identity, context, operations=("read", "update")
+        )
         version_field = _version_field(entity)
         return RecordSession(
             entity=entity_name,
@@ -115,8 +101,9 @@ class RecordsService:
 
         entity = self.model.entity(entity_name)
         self.security.authorize_entity(entity, "read", context)
-        values = self.repository.get(entity_name, identity)
-        self.security.require_row(entity_name, "read", values, context)
+        values = self._load_authorized(
+            entity_name, identity, context, operations=("read",)
+        )
         version_field = _version_field(entity)
         return RecordSession(
             entity=entity_name,
@@ -129,9 +116,42 @@ class RecordsService:
     def get(self, entity_name: str, identity: Any, context: RequestContext) -> dict[str, Any]:
         entity = self.model.entity(entity_name)
         self.security.authorize_entity(entity, "read", context)
-        values = self.repository.get(entity_name, identity)
-        self.security.require_row(entity_name, "read", values, context)
+        values = self._load_authorized(
+            entity_name, identity, context, operations=("read",)
+        )
         return self._project(entity, values, context)
+
+    def _load_authorized(
+        self,
+        entity_name: str,
+        identity: Any,
+        context: RequestContext,
+        *,
+        operations: tuple[str, ...],
+    ) -> dict[str, Any]:
+        criteria = tuple(
+            criterion
+            for operation in operations
+            for criterion in self.security.row_criteria(entity_name, operation)
+        )
+        try:
+            values = self.repository.get(
+                entity_name,
+                identity,
+                row_criteria=criteria,
+            )
+        except RowPolicyMismatch as error:
+            raise AuthorizationError(
+                f"{context.principal.identifier!r} may not access this {entity_name} record"
+            ) from error
+        for operation in operations:
+            self.security.require_row(
+                entity_name,
+                operation,
+                self._policy_values(entity_name, values, operation),
+                context,
+            )
+        return values
 
     def query(
         self,
@@ -143,25 +163,55 @@ class RecordsService:
         self.security.authorize_entity(entity, "list", context)
         if query.limit < 1 or query.limit > 500:
             raise ValueError("query limit must be between 1 and 500")
-        for field_name in [condition.field for condition in query.filters] + [sort.field for sort in query.sort]:
+        for field_name in [condition.field for condition in query.filters] + [
+            sort.field for sort in query.sort
+        ]:
             if field_name not in entity.fields:
                 raise ValueError(f"unknown query field {field_name!r}")
             if not self.security.can_read_field(entity_name, field_name, context):
                 raise AuthorizationError(f"field {field_name!r} cannot be used for filtering or sorting")
-        records = [
-            record
-            for record in self.repository.all(entity_name)
-            if self.security.row_allowed(entity_name, "list", record, context)
-        ]
-        for condition in query.filters:
-            records = [record for record in records if _matches(record.get(condition.field), condition)]
+            field = entity.fields[field_name]
+            computed = field.metadata.get("computed")
+            if field.metadata["type"] == "collection" or (
+                computed and computed.get("materialization") == "virtual"
+            ):
+                raise ValueError(
+                    f"field {field_name!r} is not stored and cannot be queried"
+                )
+        normalized_filters = tuple(
+            _normalize_filter(self.model, entity, condition)
+            for condition in query.filters
+        )
         primary_key = _primary_key(entity)
         sort_fields = list(query.sort)
         if not any(sort.field == primary_key for sort in sort_fields):
             sort_fields.append(SortField(primary_key))
-        for sort in reversed(sort_fields):
-            records.sort(key=lambda record: _sort_key(record.get(sort.field)), reverse=sort.descending)
-        return [self._project(entity, record, context) for record in records[: query.limit]]
+        repository_query = QuerySpec(
+            filters=normalized_filters,
+            sort=tuple(sort_fields),
+            limit=query.limit,
+        )
+        records = self.repository.query(
+            entity_name,
+            repository_query,
+            row_criteria=self.security.row_criteria(entity_name, "list"),
+        )
+        policy_cache: dict[tuple[str, Any], dict[str, Any]] = {}
+        return [
+            self._project(entity, record, context)
+            for record in records
+            if self.security.row_allowed(
+                entity_name,
+                "list",
+                self._policy_values(
+                    entity_name,
+                    record,
+                    "list",
+                    cache=policy_cache,
+                ),
+                context,
+            )
+        ]
 
     def commit(
         self,
@@ -178,9 +228,19 @@ class RecordsService:
         else:
             self.security.authorize_entity(entity, operation, context)
         if not session.is_new and source is MutationSource.ACTION:
-            self.security.require_row(entity.name, "read", session.original, context)
+            self.security.require_row(
+                entity.name,
+                "read",
+                self._policy_values(entity.name, session.original, "read"),
+                context,
+            )
         elif not session.is_new:
-            self.security.require_row(entity.name, "update", session.original, context)
+            self.security.require_row(
+                entity.name,
+                "update",
+                self._policy_values(entity.name, session.original, "update"),
+                context,
+            )
         self._enforce_changes(entity, session, context, source)
         values = deepcopy(session.values)
         input_issues = [
@@ -198,15 +258,34 @@ class RecordsService:
         errors = [issue for issue in issues if issue.severity == "error"]
         if errors:
             raise ValidationFailed(errors)
+        if session.is_new:
+            self.security.require_row(
+                entity.name,
+                "create",
+                self._policy_values(entity.name, values, "create"),
+                context,
+            )
         self._validate_uniqueness(entity, values, session.identity)
-        stored = self.repository.write(
-            entity.name,
-            values,
-            primary_key=_primary_key(entity),
-            version_field=_version_field(entity),
-            expected_version=session.expected_version,
-            is_new=session.is_new,
-        )
+        write_operation = "read" if source is MutationSource.ACTION else operation
+        try:
+            stored = self.repository.write(
+                entity.name,
+                values,
+                primary_key=_primary_key(entity),
+                version_field=_version_field(entity),
+                expected_version=session.expected_version,
+                is_new=session.is_new,
+                row_criteria=(
+                    ()
+                    if session.is_new
+                    else self.security.row_criteria(entity.name, write_operation)
+                ),
+            )
+        except RowPolicyMismatch as error:
+            raise AuthorizationError(
+                f"{context.principal.identifier!r} may not {write_operation} this "
+                f"{entity.name} record"
+            ) from error
         session.identity = stored[_primary_key(entity)]
         session.mark_committed(stored)
         return self._project(entity, stored, context)
@@ -457,9 +536,118 @@ class RecordsService:
                 result[field_name] = deepcopy(value)
         return result
 
+    def _policy_values(
+        self,
+        entity_name: str,
+        source: Mapping[str, Any],
+        operation: str,
+        *,
+        cache: dict[tuple[str, Any], dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        values = deepcopy(dict(source))
+        entity = self.model.entity(entity_name)
+        relationship_cache = cache if cache is not None else {}
+        paths = {
+            path
+            for criteria in self.security.row_criteria(entity_name, operation)
+            for path in _expression_paths(criteria)
+            if path and path[0] in entity.fields
+        }
+        for path in paths:
+            self._expand_policy_path(
+                entity,
+                values,
+                path,
+                relationship_cache,
+            )
+        return values
+
+    def _expand_policy_path(
+        self,
+        entity: NormalizedEntity,
+        values: dict[str, Any],
+        path: tuple[str, ...],
+        cache: dict[tuple[str, Any], dict[str, Any]],
+    ) -> None:
+        field = entity.fields.get(path[0])
+        if field is None or len(path) == 1 or field.target_entity is None:
+            return
+        value = values.get(field.name)
+        if value is None:
+            return
+        target = self.model.entity(field.target_entity)
+        remainder = path[1:]
+
+        if field.metadata["type"] == "collection":
+            if not isinstance(value, (list, tuple)):
+                raise ValueError(
+                    f"collection {entity.name}.{field.name} is not available for policy evaluation"
+                )
+            expanded: list[dict[str, Any]] = []
+            for item in value:
+                if not isinstance(item, Mapping):
+                    raise ValueError(
+                        f"collection {entity.name}.{field.name} contains an invalid policy value"
+                    )
+                related = deepcopy(dict(item))
+                self._expand_policy_path(target, related, remainder, cache)
+                expanded.append(related)
+            values[field.name] = expanded
+            return
+
+        if field.metadata["type"] != "reference":
+            return
+        if isinstance(value, Mapping):
+            related = deepcopy(dict(value))
+        else:
+            key = (target.name, value)
+            if key not in cache:
+                cache[key] = self.repository.get(target.name, value)
+            related = deepcopy(cache[key])
+        self._expand_policy_path(target, related, remainder, cache)
+        values[field.name] = related
+
 
 def _primary_key(entity: NormalizedEntity) -> str:
     return next(name for name, field in entity.fields.items() if field.metadata.get("primary_key"))
+
+
+class _ExpressionPathCollector(ast.NodeVisitor):
+    def __init__(self) -> None:
+        self.paths: set[tuple[str, ...]] = set()
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        parts = _attribute_parts(node)
+        if parts:
+            self.paths.add(parts)
+
+    def visit_Name(self, node: ast.Name) -> None:
+        self.paths.add((node.id,))
+
+    def visit_Call(self, node: ast.Call) -> None:
+        for argument in node.args:
+            self.visit(argument)
+        for keyword in node.keywords:
+            self.visit(keyword.value)
+
+
+def _expression_paths(expression: str) -> tuple[tuple[str, ...], ...]:
+    tree = ast.parse(expression, mode="eval")
+    collector = _ExpressionPathCollector()
+    collector.visit(tree)
+    return tuple(sorted(collector.paths))
+
+
+def _attribute_parts(node: ast.Attribute) -> tuple[str, ...]:
+    parts: list[str] = [node.attr]
+    value = node.value
+    while isinstance(value, ast.Attribute):
+        parts.append(value.attr)
+        value = value.value
+    if not isinstance(value, ast.Name):
+        return ()
+    parts.append(value.id)
+    return tuple(reversed(parts))
 
 
 def _version_field(entity: NormalizedEntity) -> str | None:
@@ -486,6 +674,40 @@ def _coerce_scalar(field_type: str, value: Any) -> tuple[Any, bool]:
     return value, True
 
 
+def _normalize_filter(
+    model: ApplicationModel,
+    entity: NormalizedEntity,
+    condition: FilterCondition,
+) -> FilterCondition:
+    field = entity.fields[condition.field]
+    operator = condition.operator
+    allowed = {"eq", "ne", "lt", "lte", "gt", "gte", "contains"}
+    if operator not in allowed:
+        raise ValueError(f"unsupported filter operator {operator!r}")
+    field_type = field.metadata["type"]
+    if operator == "contains":
+        if field_type not in {"string", "choice"} or not isinstance(
+            condition.value, str
+        ):
+            raise ValueError("contains filters require a string field and value")
+        return condition
+    if condition.value is None:
+        if operator not in {"eq", "ne"}:
+            raise ValueError("null supports only eq and ne filters")
+        return condition
+    if field_type == "reference" and field.target_entity:
+        target = model.entity(field.target_entity)
+        field_type = target.field(_primary_key(target)).metadata["type"]
+    coerced, valid = _coerce_scalar(field_type, condition.value)
+    if not valid:
+        raise ValueError(
+            f"filter value for {condition.field!r} must be a {field_type} value"
+        )
+    if field_type == "boolean" and operator not in {"eq", "ne"}:
+        raise ValueError("boolean fields support only eq and ne filters")
+    return FilterCondition(condition.field, operator, coerced)
+
+
 def _as_decimal(value: Any) -> Decimal | None:
     if isinstance(value, bool):
         return None
@@ -503,22 +725,3 @@ def _as_decimal(value: Any) -> Decimal | None:
     else:
         return None
     return candidate if candidate.is_finite() else None
-
-
-def _matches(value: Any, condition: FilterCondition) -> bool:
-    operations = {
-        "eq": lambda: value == condition.value,
-        "ne": lambda: value != condition.value,
-        "lt": lambda: value < condition.value,
-        "lte": lambda: value <= condition.value,
-        "gt": lambda: value > condition.value,
-        "gte": lambda: value >= condition.value,
-        "contains": lambda: condition.value in value,
-    }
-    if condition.operator not in operations:
-        raise ValueError(f"unsupported filter operator {condition.operator!r}")
-    return bool(operations[condition.operator]())
-
-
-def _sort_key(value: Any) -> tuple[bool, Any]:
-    return value is None, value

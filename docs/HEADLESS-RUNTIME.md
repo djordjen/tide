@@ -81,6 +81,10 @@ repository.validate_schema()
 records = RecordsService(model, repository)
 ```
 
+Microsoft SQL Server is the first multi-user target. Install the `sqlserver`
+extra and pass an `mssql+pyodbc` string or SQLAlchemy `URL`; see
+[Microsoft SQL Server](SQL-SERVER.md).
+
 Actions are registered by their statically validated metadata reference. The
 compiler parses handler modules to confirm that a top-level function exists but
 does not import or execute application code.
@@ -92,17 +96,27 @@ or sorting on a field the principal cannot read is rejected. Idempotency replay
 reauthorizes and reprojects the record under the current principal rather than
 returning a cached serialization that could outlive a permission change.
 
-Row policies and user filters are still evaluated by the service after calling
-the repository's bounded in-process query path. The next SQL slice must
-translate the same validated expressions into SQL and apply paging there.
-Until that lands, the SQLAlchemy repository is not approved for persistent
-deployments that depend on row-policy isolation; loading unauthorized rows and
-filtering them afterward is not an acceptable production boundary.
+Root list queries translate structured filters, direct and reference-path row
+policies, single-collection aggregates, deterministic ordering, and limits into
+bound SQL. Single-record read/update/action loads put their row policies in the
+root query as well. The service resolves only policy-referenced relationships
+when rechecking returned rows as defense in depth. Unsupported policy
+expressions fail `validate_query_support()` and query execution closed; they
+never fall back to loading and post-filtering the root table.
+
+Create policies check finalized values before insertion. Update policies are
+included in the atomic SQL mutation predicate, preventing a policy race even
+for legacy tables that do not have a concurrency-token column.
+
+Relationship collection hydration does not yet translate target row policies,
+so deployments that require secured relationship expansion must wait for that
+next query slice.
 
 ## Deliberate limitations
 
 The in-memory repository remains a test adapter. The SQLAlchemy slice does not
-yet provide SQL row-policy/filter translation, Alembic migrations,
-race-resistant business numbering, durable audit/idempotency storage, cursor
-pagination, warning confirmation, or async handlers. These remain required
-before production readiness.
+yet provide policy-aware relationship expansion, multiple-collection policy
+translation, Alembic migrations, race-resistant business numbering, durable
+audit/idempotency storage, cursor pagination, warning confirmation, or async
+handlers. Broader automated SQL Server version/CI certification also remains
+required before production readiness.
