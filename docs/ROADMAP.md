@@ -93,14 +93,14 @@ compact, visually distinct editable/read-only fields, localized date parsing,
 model-owned today defaults, keyboard date stepping, column-first Tab traversal,
 and Enter-to-advance data entry. Product references now support a secured,
 case-insensitive, multi-column lookup window and declarative selection values
-that copy description and unit price into the editable line draft. Explicit
-developer-controlled editor field ordering, printing, and
-deployment-repository selection remain.
+that copy description and unit price into the editable line draft. Inline
+editor layout and keyboard order are now developer-controlled independently of
+the collection table. Printing and deployment-repository selection remain.
 
 - generated browse, edit, and lookup views;
 - view-level field ordering for form and inline editor controls, independent of
   collection-table column order (for example, Product before Description in
-  InvoiceLine details);
+  InvoiceLine details); **implemented for the Textual invoice workflow**
 - Customer and Product lookups;
 - transactional Invoice/InvoiceLine master-detail editing;
 - parsing, formatting, and validation feedback;

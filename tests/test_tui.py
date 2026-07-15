@@ -217,12 +217,24 @@ def test_textual_form_focuses_columns_and_enter_advances() -> None:
             assert screen.focused is not None
             assert screen.focused.id == "field-currency"
 
+            assert screen.line_fields == (
+                "line_number",
+                "product",
+                "description",
+                "quantity",
+                "unit_price",
+                "total",
+            )
+            assert screen.line_editor_columns == (
+                ("line_number", "product", "description"),
+                ("unit_price", "quantity"),
+            )
             line_number = screen.query_one("#line-line_number", Input)
             line_number.focus()
             for expected_id in (
+                "line-product",
                 "line-description",
                 "line-unit_price",
-                "line-product",
                 "line-quantity",
             ):
                 await pilot.press("tab")

@@ -50,6 +50,11 @@ def test_invoicing_fixture_compiles_to_immutable_model() -> None:
     assert lookup.data["columns"] == ("code", "name", "unit_price")
     inline = model.views["sales.InvoiceLine.inline_edit"]
     assert inline.data["fields"]["product"]["editor"] == "lookup"
+    assert inline.data["layout"][0]["rows"] == (
+        ("line_number", "unit_price"),
+        ("product", "quantity"),
+        ("description",),
+    )
 
     with pytest.raises(TypeError):
         model.entities["other.Entity"] = model.entity("sales.Invoice")  # type: ignore[index]
@@ -241,6 +246,7 @@ def test_lookup_editor_and_selection_assignments_are_validated(tmp_path: Path) -
                 'entity: demo.Line',
                 'fields:',
                 '  id: {type: integer, primary_key: true}',
+                '  quantity: {type: decimal}',
                 '  unit_price: {type: decimal}',
                 '  product:',
                 '    type: reference',
@@ -270,6 +276,10 @@ def test_lookup_editor_and_selection_assignments_are_validated(tmp_path: Path) -
                 'view: demo.Line.inline_edit',
                 'entity: demo.Line',
                 'kind: inline_edit',
+                'columns: [product, quantity, unit_price]',
+                'layout:',
+                '  - rows:',
+                '      - [product, product, unit_price]',
                 'fields:',
                 '  product: {editor: grid}',
             ]
@@ -281,7 +291,17 @@ def test_lookup_editor_and_selection_assignments_are_validated(tmp_path: Path) -
         compile_project(project)
 
     codes = {diagnostic.code for diagnostic in caught.value.diagnostics}
-    assert {"TIDE219", "TIDE238", "TIDE239"} <= codes
+    assert {"TIDE219", "TIDE238", "TIDE239", "TIDE241"} <= codes
+    layout_messages = {
+        diagnostic.message
+        for diagnostic in caught.value.diagnostics
+        if diagnostic.code == "TIDE241"
+    }
+    assert {
+        "inline editor rows support at most two fields",
+        "inline editor layout repeats fields: product",
+        "inline editor layout omits editable fields: quantity",
+    } <= layout_messages
 
 
 def test_project_discovery_cannot_escape_project_root(tmp_path: Path) -> None:

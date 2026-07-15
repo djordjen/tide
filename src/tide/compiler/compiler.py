@@ -1057,6 +1057,13 @@ def _validate_views(
                         document,
                         ("columns", index),
                     )
+        if _view_kind(view) == "inline_edit":
+            _validate_inline_editor_layout(
+                view,
+                entity,
+                document,
+                diagnostics,
+            )
         _validate_layout(view, entity, views, document, diagnostics)
 
     for view_name in views:
@@ -1113,6 +1120,74 @@ def _validate_layout(
                     document,
                     ("layout", index, "view"),
                 )
+
+
+def _validate_inline_editor_layout(
+    view: ViewSource,
+    entity: EntitySource,
+    document: SourceDocument,
+    diagnostics: list[Diagnostic],
+) -> None:
+    rows: list[tuple[int, int, tuple[str, ...]]] = []
+    for section_index, node in enumerate(view.layout):
+        if not isinstance(node, dict) or "rows" not in node:
+            continue
+        raw_rows = node["rows"]
+        if not isinstance(raw_rows, (list, tuple)):
+            continue
+        for row_index, raw_row in enumerate(raw_rows):
+            names = tuple(_strings_in(raw_row))
+            rows.append((section_index, row_index, names))
+            if len(names) > 2:
+                _add(
+                    diagnostics,
+                    "TIDE241",
+                    "inline editor rows support at most two fields",
+                    document,
+                    ("layout", section_index, "rows", row_index),
+                )
+    if not rows:
+        return
+
+    declared = [name for _section, _row, names in rows for name in names]
+    duplicates = sorted({name for name in declared if declared.count(name) > 1})
+    if duplicates:
+        _add(
+            diagnostics,
+            "TIDE241",
+            "inline editor layout repeats fields: " + ", ".join(duplicates),
+            document,
+            ("layout",),
+        )
+
+    expected = {
+        name
+        for name in view.columns
+        if name in entity.fields
+        and not entity.fields[name].readonly
+        and entity.fields[name].computed is None
+        and not view.fields.get(name, {}).get("hidden", False)
+    }
+    declared_set = set(declared)
+    missing = sorted(expected - declared_set)
+    unsupported = sorted(declared_set - expected)
+    if missing:
+        _add(
+            diagnostics,
+            "TIDE241",
+            "inline editor layout omits editable fields: " + ", ".join(missing),
+            document,
+            ("layout",),
+        )
+    if unsupported:
+        _add(
+            diagnostics,
+            "TIDE241",
+            "inline editor layout includes non-editor fields: "
+            + ", ".join(unsupported),
+            document,
+            ("layout",),
+        )
 
 
 def _resolve_views(

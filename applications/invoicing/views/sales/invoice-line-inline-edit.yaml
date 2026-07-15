@@ -6,6 +6,13 @@ mode: overlay
 
 columns: [line_number, product, description, quantity, unit_price, total]
 
+layout:
+  - group: Line details
+    rows:
+      - [line_number, unit_price]
+      - [product, quantity]
+      - [description]
+
 fields:
   line_number: {width: 6}
   product: {editor: lookup}

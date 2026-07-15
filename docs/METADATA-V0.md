@@ -61,7 +61,10 @@ The v0.1 compiler checks:
   exclusive with literal `default` values;
 - collection views and report entity references;
 - reference editor modes, lookup-view target compatibility, and type-safe
-  `on_select` draft assignments.
+  `on_select` draft assignments;
+- explicit inline-editor layouts: each row has at most two fields, every
+  editable column appears exactly once, and computed, read-only, or hidden
+  fields cannot be placed in the editor;
 - explicit physical table and persisted-column mappings for legacy databases.
 
 `database.mode` is either `managed` (the default) or `legacy`. Legacy entities
@@ -85,6 +88,13 @@ entity presentation settings, optional base views, and the specific overlay.
 Scalars replace, mappings merge recursively by key, and lists replace. `null`
 is a literal value, not an implicit remove operation. Explicit removal remains
 a future dedicated operation.
+
+For an `inline_edit` view, `columns` defines the collection table and
+`layout[*].rows` optionally defines the separate detail editor. Each layout row
+contains one or two field names. The first positions form the left editor
+column, the second positions form the right, and keyboard traversal follows
+the complete left column before the right. Omitting `layout` retains the
+generated editable-column order. Invalid explicit layouts report `TIDE241`.
 
 `tide view explain` returns the resolved view plus provenance for every leaf or
 replaced collection, including the layer, source file, and source property path.

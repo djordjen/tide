@@ -115,11 +115,13 @@ surfaces:
     collapse_header_below: 800
 ```
 
-The planned form-rendering contract will honor the order declared by layout
-rows for both scalar forms and inline collection editors. Editor order is
-independent of the collection table's `columns` order; for example, an invoice
-line editor may place `product` before `description` without changing the line
-table layout.
+Inline collection editors honor the order declared by `layout.rows`
+independently of the collection table's `columns` order. Each row may contain
+one or two fields; the Textual renderer places the first field in the left
+column and the second in the right, then traverses the complete left column
+before the right column. When no inline layout is declared, the renderer falls
+back to the editable `columns` order. This lets an invoice line editor place
+`product` before `description` without changing the line table layout.
 
 The target is shared application semantics with limited renderer-specific
 presentation, not an identical lowest-common-denominator interface.

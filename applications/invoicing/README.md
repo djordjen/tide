@@ -50,6 +50,10 @@ Product uses the alternative lookup editor: Space, Down, or F4 opens a secured
 multi-column Product search. Selecting a Product copies its name and current
 unit price into the editable line draft; the stored invoice price remains a
 historical snapshot and may be edited before saving.
+The line table keeps its reporting-oriented column order, while the explicit
+line editor places Line Number, Product, and Description in the left column and
+Unit Price and Quantity in the right. Its focus order follows that same
+sequence: down the left column first and then down the right.
 The browse search applies incrementally to invoice numbers. The filter selector
 exposes **Draft invoices** and **High-value invoices** from view metadata, and
 the sort selector or eligible column headers toggle secured ascending and

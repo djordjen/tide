@@ -246,6 +246,18 @@ class RecordEditScreen(Screen[bool]):
             if self.inline_view is not None
             else ()
         )
+        self.line_editor_columns = (
+            _inline_editor_columns(
+                self.inline_view,
+                self.collection_entity,
+                self.line_fields,
+            )
+            if self.inline_view is not None and self.collection_entity is not None
+            else ((), ())
+        )
+        self.line_editor_fields = tuple(
+            name for column in self.line_editor_columns for name in column
+        )
         source_lines = (
             session.values.get(self.collection_name, [])
             if self.collection_name is not None
@@ -307,18 +319,8 @@ class RecordEditScreen(Screen[bool]):
                     classes="section-title",
                 )
                 yield DataTable(id="collection-records")
-                line_editor_fields = tuple(
-                    field_name
-                    for field_name in self.line_fields
-                    if not self.collection_entity.field(field_name).metadata.get(
-                        "computed"
-                    )
-                    and not self.collection_entity.field(field_name).metadata.get(
-                        "readonly"
-                    )
-                )
                 with Horizontal(id="line-fields"):
-                    for column_fields in _field_columns(line_editor_fields):
+                    for column_fields in self.line_editor_columns:
                         with Grid(classes="field-column"):
                             for field_name in column_fields:
                                 field = self.collection_entity.field(field_name)
@@ -622,7 +624,7 @@ class RecordEditScreen(Screen[bool]):
         if self.collection_entity is not None:
             fields.extend(
                 (self.collection_entity.field(name), "line")
-                for name in self.line_fields
+                for name in self.line_editor_fields
             )
         for field, prefix in fields:
             if field.metadata["type"] != "reference" or not field.target_entity:
@@ -893,6 +895,33 @@ def _form_fields(view: ResolvedView, entity: NormalizedEntity) -> tuple[str, ...
                 if name in entity.fields and name not in result:
                     result.append(name)
     return tuple(result)
+
+
+def _inline_editor_columns(
+    view: ResolvedView,
+    entity: NormalizedEntity,
+    table_fields: tuple[str, ...],
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    candidates = tuple(
+        name
+        for name in table_fields
+        if name in entity.fields
+        and not entity.field(name).metadata.get("computed")
+        and not entity.field(name).metadata.get("readonly")
+        and not view.data.get("fields", {}).get(name, {}).get("hidden", False)
+    )
+    rows: list[tuple[str, ...]] = []
+    for section in view.data.get("layout", ()):
+        for raw_row in section.get("rows", ()):
+            row = tuple(str(name) for name in raw_row if str(name) in candidates)
+            if row:
+                rows.append(row)
+    if not rows:
+        return _field_columns(candidates)
+    return (
+        tuple(row[0] for row in rows),
+        tuple(row[1] for row in rows if len(row) > 1),
+    )
 
 
 def _field_columns(
