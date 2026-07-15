@@ -4,6 +4,7 @@ from tide.runtime.errors import (
     AuthorizationError,
     ConcurrencyError,
     ImmutableFieldError,
+    InvalidQueryCursor,
     NotFoundError,
     ValidationFailed,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "Channel",
     "ConcurrencyError",
     "ImmutableFieldError",
+    "InvalidQueryCursor",
     "NotFoundError",
     "Principal",
     "RequestContext",

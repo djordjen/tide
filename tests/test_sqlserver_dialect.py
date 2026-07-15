@@ -3,8 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from sqlalchemy import MetaData
 from sqlalchemy.dialects import mssql
-from sqlalchemy.schema import CreateTable
+from sqlalchemy.schema import CreateIndex, CreateTable
 
 from tide import compile_project
 from tide.data import (
@@ -30,15 +31,18 @@ def repository() -> SQLAlchemyRepository:
     result.dispose()
 
 
-def test_managed_schema_compiles_to_sql_server_native_types(
-    repository: SQLAlchemyRepository,
-) -> None:
+def test_managed_schema_compiles_to_sql_server_native_types() -> None:
+    tables = sqlalchemy_adapter._build_tables(
+        compile_project(INVOICING),
+        MetaData(),
+        dialect_name="mssql",
+    )
     dialect = mssql.dialect()
     customer_ddl = str(
-        CreateTable(repository.table("crm.Customer")).compile(dialect=dialect)
+        CreateTable(tables["crm.Customer"]).compile(dialect=dialect)
     ).upper()
     invoice_ddl = str(
-        CreateTable(repository.table("sales.Invoice")).compile(dialect=dialect)
+        CreateTable(tables["sales.Invoice"]).compile(dialect=dialect)
     ).upper()
 
     assert "IDENTITY" in customer_ddl
@@ -48,6 +52,16 @@ def test_managed_schema_compiles_to_sql_server_native_types(
     assert "FOREIGN KEY(CUSTOMER_ID)" in invoice_ddl
     assert "ON DELETE NO ACTION" in invoice_ddl
     assert "ON DELETE RESTRICT" not in invoice_ddl
+
+    email_index = next(
+        index
+        for index in tables["crm.Customer"].indexes
+        if tuple(column.key for column in index.columns) == ("email",)
+    )
+    email_index_ddl = str(CreateIndex(email_index).compile(dialect=dialect)).upper()
+    assert "CREATE UNIQUE INDEX" in email_index_ddl
+    assert "WHERE EMAIL IS NOT NULL" in email_index_ddl
+    assert "UNIQUE (EMAIL)" not in customer_ddl
 
 
 def test_secured_query_compiles_to_parameterized_sql_server_sql(
@@ -96,6 +110,30 @@ def test_boolean_relationship_aggregates_avoid_invalid_sql_server_is_boolean(
     assert "= 1" in sql
     assert "!= 1" in sql
     assert "IS 1" not in sql
+
+
+def test_keyset_boundary_compiles_to_sql_server_top_and_bound_predicates(
+    repository: SQLAlchemyRepository,
+) -> None:
+    statement = repository._query_statement(
+        "crm.Customer",
+        QuerySpec(
+            sort=(SortField("name"), SortField("id")),
+            limit=26,
+            after=("ACME Ltd", 1),
+        ),
+        row_criteria=("active == true",),
+    )
+    compiled = statement.compile(dialect=mssql.dialect())
+    sql = str(compiled).upper()
+
+    assert "SELECT TOP" in sql
+    assert "CASE WHEN" in sql
+    assert " OR " in sql
+    assert "CRM_CUSTOMER.NAME >" in sql
+    assert "CRM_CUSTOMER.ID >" in sql
+    assert "ACME LTD" not in sql
+    assert "ACME Ltd" in compiled.params.values()
 
 
 def test_missing_pyodbc_reports_the_installable_sql_server_extra(

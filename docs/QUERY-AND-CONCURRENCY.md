@@ -1,6 +1,7 @@
 # Query and Concurrency Contract
 
-**Status: Structured query and optimistic concurrency partially implemented.**
+**Status: Structured keyset query and optimistic concurrency implemented for
+the current headless adapters.**
 
 ## Query shape
 
@@ -11,8 +12,28 @@ are never transport inputs.
 
 Ordering must be deterministic. When the requested sort is not unique, the
 query service appends the entity primary key as a tie-breaker. Continuation
-cursors are opaque, versioned, bound to the effective sort/filter, and must not
-contain unprotected field values in readable form.
+cursors are opaque, versioned, and bound to the model, entity, normalized
+filter, effective sort, page size, principal, and effective permissions. The
+token itself contains no field values in readable form.
+
+`RecordsService.query_page()` returns a `QueryPage` containing an immutable
+record tuple and an optional `next_cursor`. `RecordsService.query()` remains a
+list-returning compatibility wrapper. Clients obtain the next page by repeating
+the same query shape with the returned cursor; changing a bound property or
+presenting an unknown, expired, or tampered token fails with
+`invalid_query_cursor`.
+
+Pagination is keyset-based rather than offset-based. The repositories fetch one
+extra record to determine whether another page exists and compare the effective
+sort tuple against the stored boundary. Ascending order places nulls last;
+descending order places nulls first. The SQL adapter emits bound lexicographic
+predicates and never places boundary values in generated SQL text.
+
+A cursor represents a continuation boundary, not a database snapshot. Keyset
+pagination avoids offset drift when rows are inserted or removed before the
+current position, but a concurrent update to a sort field can still move that
+row between pages. Workflows that require a fixed historical result set need a
+separate snapshot/export contract.
 
 Relationship expansion is allow-listed and depth/size bounded. Counts, totals,
 exports, and relationship loads apply the same row and field policies as the
@@ -37,7 +58,14 @@ SQL relationship paths use correlated scalar subqueries. `count`, `sum`,
 `average`, `min`, `max`, `any`, and `all` over one collection traversal use
 correlated aggregate/`EXISTS` subqueries. Multiple collection traversals and
 policy-aware relationship expansion fail closed or remain pending rather than
-falling back to root-table post-filtering. Continuation cursors remain pending.
+falling back to root-table post-filtering.
+
+The default cursor store is thread-safe, process-local, bounded to 10,000
+entries, and expires entries after 15 minutes. It is suitable for the current
+single-process runtime. `CursorStore` is an explicit service dependency so a
+shared deployment can later supply a durable or distributed implementation
+without changing query or transport contracts. Restarting the process
+invalidates cursors held by the default store.
 
 ## Mutation preconditions
 

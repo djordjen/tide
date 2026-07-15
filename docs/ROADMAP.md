@@ -50,10 +50,12 @@ optimistic concurrency, managed SQLite persistence, and legacy no-DDL mapping
 are implemented. Root SQL filters, ordering, limits, reference paths, and
 single-collection aggregate row-policy translation are also implemented. SQL
 Server dialect compilation and an opt-in live integration harness establish the
-first multi-user target. Policy-aware relationship expansion, durable
-audit/idempotency, and OpenAPI preview remain.
+first multi-user target. Opaque, principal-bound keyset pagination is
+implemented across both repositories. Policy-aware relationship expansion,
+durable audit/idempotency, a shared cursor store, and OpenAPI preview remain.
 
 - query and record application services;
+- deterministic keyset pagination and opaque continuation cursor contracts;
 - `RequestContext` and principal abstraction;
 - entity, row, field, and action policy interfaces;
 - threat-model regression tests and cross-adapter authorization scenarios;
@@ -92,7 +94,7 @@ an invoice entirely by keyboard or mouse.
 - opt-in generated REST create, update, delete, and action routes;
 - required expected-version preconditions for update, delete, and targeted actions;
 - API pagination, filtering, sorting, protected-field representation, and
-  concurrency contracts;
+  concurrency transport contracts over the implemented service primitives;
 - runtime MCP resources and read-only query tools;
 - opt-in MCP domain actions and mutations;
 - shared authentication-to-Principal adapters;
@@ -105,6 +107,7 @@ the same services.
 ## Milestone 5 - Production data and security
 
 - complete live SQL Server certification and operational guidance;
+- durable or distributed cursor storage for multi-process deployments;
 - PostgreSQL support after the SQL Server contract is stable;
 - additional SQLAlchemy dialect certification for legacy databases, based on
   demand and dialect availability;

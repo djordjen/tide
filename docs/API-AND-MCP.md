@@ -65,6 +65,12 @@ key tie-breaker is added when necessary. Expansion and page sizes are bounded
 by the core, not only by adapter configuration. See
 [Query and concurrency](QUERY-AND-CONCURRENCY.md).
 
+List adapters map the service page to an envelope such as
+`{"records": [...], "next_cursor": "..."}`. A missing or null
+`next_cursor` means the result is complete. The continuation token is a bearer
+value and should not be logged; clients must repeat the same filter, sort, and
+page size when presenting it.
+
 Entities exposed for update or delete carry an integer concurrency token.
 Generated REST responses publish an ETag, and mutations require the version the
 caller observed. TUI and MCP carry the same expected version through application

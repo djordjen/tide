@@ -66,9 +66,12 @@ SQLAlchemy MSSQL dialect. It covers:
 - integer identity primary keys;
 - Unicode `NVARCHAR`, `BIT`, `DATE`, `DATETIMEOFFSET`, and exact `NUMERIC`
   mappings;
+- filtered unique indexes for optional fields, preserving TIDE's
+  multiple-null uniqueness contract;
 - foreign keys and physical schema/table/column mappings;
 - portable delete actions (`restrict` renders as SQL Server `NO ACTION`);
-- parameterized filters, deterministic ordering, and SQL Server `TOP` limits;
+- parameterized filters, deterministic null ordering, SQL Server `TOP` limits,
+  and bound lexicographic keyset boundaries;
 - direct, reference-path, and single-collection aggregate row policies;
 - SQL Server-specific `LEN` and date-only `today()` rendering;
 - optimistic update predicates without invalid `IS 1` boolean syntax.
@@ -89,10 +92,15 @@ $env:TIDE_TEST_SQLSERVER_URL = "mssql+pyodbc://..."
 uv run pytest -m sqlserver tests/test_sqlserver_integration.py
 ```
 
+For a Windows-integrated localhost scratch instance that does not support
+encrypted connections, the test URL may include `trusted_connection=yes` and
+`Encrypt=no`. Keep encryption enabled for networked and production database
+connections.
+
 The fixture refuses to run if any mapped TIDE table already exists. It tests
 schema creation/reflection, identity retrieval, Unicode and decimal round
-trips, relationship aggregate policy SQL, and optimistic concurrency, then
-removes only the tables it created.
+trips, relationship aggregate policy SQL, keyset page boundaries, and
+optimistic concurrency, then removes only the tables it created.
 
 For legacy mode, `create_schema()` remains forbidden regardless of dialect.
 Compatibility inspection and normal bound data operations may run against an

@@ -14,6 +14,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     MetaData,
     Numeric,
@@ -28,6 +29,7 @@ from sqlalchemy import (
     func,
     inspect,
     insert,
+    or_,
     select,
     update,
 )
@@ -37,7 +39,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.type_api import TypeEngine
 
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
-from tide.data.repository import FilterCondition, QuerySpec, RowPolicyMismatch
+from tide.data.repository import FilterCondition, QuerySpec, RowPolicyMismatch, SortField
 from tide.data.sql_expressions import QueryTranslationError, translate_expression
 from tide.runtime.errors import ConcurrencyError, NotFoundError, TideRuntimeError
 
@@ -81,7 +83,11 @@ class SQLAlchemyRepository:
         self.engine = bind if isinstance(bind, Engine) else _create_engine(bind)
         _enable_sqlite_foreign_keys(self.engine)
         self.metadata = MetaData()
-        self._tables = _build_tables(model, self.metadata)
+        self._tables = _build_tables(
+            model,
+            self.metadata,
+            dialect_name=self.engine.dialect.name,
+        )
 
     def table(self, entity: str) -> Table:
         return self._tables[entity]
@@ -223,7 +229,11 @@ class SQLAlchemyRepository:
         table = self.table(entity)
         primary_key = _primary_key(self.model.entity(entity))
         with self.engine.connect() as connection:
-            rows = connection.execute(select(table).order_by(table.c[primary_key])).mappings()
+            rows = (
+                connection.execute(select(table).order_by(table.c[primary_key]))
+                .mappings()
+                .all()
+            )
             return [self._hydrate(connection, entity, row) for row in rows]
 
     def query(
@@ -239,7 +249,7 @@ class SQLAlchemyRepository:
             row_criteria=row_criteria,
         )
         with self.engine.connect() as connection:
-            rows = connection.execute(statement).mappings()
+            rows = connection.execute(statement).mappings().all()
             return [self._hydrate(connection, entity, row) for row in rows]
 
     def _query_statement(
@@ -249,8 +259,14 @@ class SQLAlchemyRepository:
         *,
         row_criteria: tuple[str, ...] = (),
     ) -> Any:
-        if query.limit < 1 or query.limit > 500:
-            raise ValueError("query limit must be between 1 and 500")
+        if query.cursor is not None:
+            raise ValueError("opaque cursors must be resolved by RecordsService")
+        if query.limit < 1 or query.limit > 501:
+            raise ValueError("repository query limit must be between 1 and 501")
+        if query.after is not None and not query.sort:
+            raise ValueError("query cursor boundary requires an effective sort")
+        if query.after is not None and len(query.after) != len(query.sort):
+            raise ValueError("query cursor boundary does not match the effective sort")
         normalized_entity = self.model.entity(entity)
         table = self.table(entity)
         predicates = [
@@ -267,6 +283,10 @@ class SQLAlchemyRepository:
             _filter_predicate(normalized_entity, table, condition)
             for condition in query.filters
         )
+        if query.after is not None:
+            predicates.append(
+                _cursor_predicate(table, query.sort, query.after)
+            )
         statement = select(table)
         if predicates:
             statement = statement.where(and_(*predicates))
@@ -276,7 +296,7 @@ class SQLAlchemyRepository:
                 raise QueryTranslationError(
                     f"field {entity}.{sort.field} is not stored and cannot be sorted in SQL"
                 )
-            null_rank = case((column.is_(None), 0 if sort.descending else 1), else_=1 if sort.descending else 0)
+            null_rank = _sort_null_rank(column, sort.descending)
             statement = statement.order_by(
                 null_rank,
                 column.desc() if sort.descending else column.asc(),
@@ -535,7 +555,8 @@ class SQLAlchemyRepository:
             if order_by:
                 statement = statement.order_by(target_table.c[order_by])
             children = []
-            for child_row in connection.execute(statement).mappings():
+            child_rows = connection.execute(statement).mappings().all()
+            for child_row in child_rows:
                 child = self._hydrate(connection, target.name, child_row)
                 child.pop(inverse_name, None)
                 children.append(child)
@@ -583,7 +604,10 @@ def _enable_sqlite_foreign_keys(engine: Engine) -> None:
 
 
 def _build_tables(
-    model: ApplicationModel, metadata: MetaData
+    model: ApplicationModel,
+    metadata: MetaData,
+    *,
+    dialect_name: str,
 ) -> dict[str, Table]:
     tables: dict[str, Table] = {}
     physical_names: set[tuple[str | None, str]] = set()
@@ -597,15 +621,37 @@ def _build_tables(
         physical_names.add(physical_name)
 
         columns = [
-            _build_column(model, field)
+            _build_column(
+                model,
+                field,
+                filtered_unique=_requires_filtered_unique(field, dialect_name),
+            )
             for field in entity.fields.values()
             if _is_persisted(field)
         ]
-        tables[entity_name] = Table(table_name, metadata, *columns, schema=schema)
+        table = Table(table_name, metadata, *columns, schema=schema)
+        for field in entity.fields.values():
+            if not _is_persisted(field) or not _requires_filtered_unique(
+                field, dialect_name
+            ):
+                continue
+            column = table.c[field.name]
+            Index(
+                _filtered_unique_index_name(table_name, column.name),
+                column,
+                unique=True,
+                mssql_where=column.is_not(None),
+            )
+        tables[entity_name] = table
     return tables
 
 
-def _build_column(model: ApplicationModel, field: NormalizedField) -> Column[Any]:
+def _build_column(
+    model: ApplicationModel,
+    field: NormalizedField,
+    *,
+    filtered_unique: bool = False,
+) -> Column[Any]:
     data_type = _sql_type(model, field)
     arguments: list[Any] = []
     if field.metadata["type"] == "reference" and field.target_entity:
@@ -628,8 +674,21 @@ def _build_column(model: ApplicationModel, field: NormalizedField) -> Column[Any
         key=field.name,
         primary_key=bool(field.metadata.get("primary_key")),
         nullable=not bool(field.metadata.get("required") or field.metadata.get("primary_key")),
-        unique=bool(field.metadata.get("unique")),
+        unique=bool(field.metadata.get("unique")) and not filtered_unique,
     )
+
+
+def _requires_filtered_unique(field: NormalizedField, dialect_name: str) -> bool:
+    return bool(
+        dialect_name == "mssql"
+        and field.metadata.get("unique")
+        and not field.metadata.get("required")
+        and not field.metadata.get("primary_key")
+    )
+
+
+def _filtered_unique_index_name(table_name: str, column_name: str) -> str:
+    return f"ux_{table_name}_{column_name}_not_null"[:128]
 
 
 def _sql_type(model: ApplicationModel, field: NormalizedField) -> TypeEngine[Any]:
@@ -692,6 +751,52 @@ def _filter_predicate(
     if condition.operator == "contains":
         return column.contains(value)
     raise ValueError(f"unsupported filter operator {condition.operator!r}")
+
+
+def _cursor_predicate(
+    table: Table,
+    sort_fields: tuple[SortField, ...],
+    boundary: tuple[Any, ...],
+) -> ColumnElement[bool]:
+    prefix: list[ColumnElement[bool]] = []
+    branches: list[ColumnElement[bool]] = []
+    for sort, boundary_value in zip(sort_fields, boundary):
+        column = table.c.get(sort.field)
+        if column is None:
+            raise QueryTranslationError(
+                f"field {table.name}.{sort.field} is not stored and cannot be paged in SQL"
+            )
+        null_rank = _sort_null_rank(column, sort.descending)
+        boundary_rank = _cursor_null_rank(boundary_value, sort.descending)
+        branches.append(and_(*prefix, null_rank > boundary_rank))
+        prefix.append(null_rank == boundary_rank)
+        if boundary_value is None:
+            prefix.append(column.is_(None))
+            continue
+        comparison = (
+            column < boundary_value
+            if sort.descending
+            else column > boundary_value
+        )
+        branches.append(and_(*prefix, comparison))
+        prefix.append(column == boundary_value)
+    return or_(*branches)
+
+
+def _sort_null_rank(
+    column: ColumnElement[Any],
+    descending: bool,
+) -> ColumnElement[int]:
+    return case(
+        (column.is_(None), 0 if descending else 1),
+        else_=1 if descending else 0,
+    )
+
+
+def _cursor_null_rank(value: Any, descending: bool) -> int:
+    if descending:
+        return 0 if value is None else 1
+    return 1 if value is None else 0
 
 
 def _is_persisted(field: NormalizedField) -> bool:

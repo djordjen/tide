@@ -42,7 +42,8 @@ The runtime currently provides:
 - fail-closed action access through an independent permission or explicit
   `unrestricted: true`, without requiring a general entity-update grant;
 - idempotency-key binding and reauthorization on replay;
-- bounded, allow-listed filtering and deterministic sorting.
+- bounded, allow-listed filtering and deterministic sorting;
+- opaque, principal-bound keyset pagination with expiring cursors.
 
 The initial SQLAlchemy repository additionally provides:
 
@@ -69,6 +70,22 @@ context = RequestContext(
 
 session = records.create("sales.Invoice", context, values)
 invoice = records.commit(session, context)
+
+page = records.query_page(
+    "sales.Invoice",
+    QuerySpec(sort=(SortField("number"),), limit=50),
+    context,
+)
+if page.next_cursor:
+    next_page = records.query_page(
+        "sales.Invoice",
+        QuerySpec(
+            sort=(SortField("number"),),
+            limit=50,
+            cursor=page.next_cursor,
+        ),
+        context,
+    )
 ```
 
 For managed SQLite persistence, schema creation is deliberately separate from
@@ -104,6 +121,11 @@ when rechecking returned rows as defense in depth. Unsupported policy
 expressions fail `validate_query_support()` and query execution closed; they
 never fall back to loading and post-filtering the root table.
 
+List pagination uses deterministic keyset boundaries in the database rather
+than `OFFSET`. Opaque cursor tokens are bound to the exact secured query and
+principal. The default bounded store is process-local and expiring; deployments
+with multiple runtime processes will require a shared `CursorStore` adapter.
+
 Create policies check finalized values before insertion. Update policies are
 included in the atomic SQL mutation predicate, preventing a policy race even
 for legacy tables that do not have a concurrency-token column.
@@ -117,6 +139,6 @@ next query slice.
 The in-memory repository remains a test adapter. The SQLAlchemy slice does not
 yet provide policy-aware relationship expansion, multiple-collection policy
 translation, Alembic migrations, race-resistant business numbering, durable
-audit/idempotency storage, cursor pagination, warning confirmation, or async
-handlers. Broader automated SQL Server version/CI certification also remains
-required before production readiness.
+audit/idempotency storage, a durable/shared cursor store, warning confirmation,
+or async handlers. Broader automated SQL Server version/CI certification also
+remains required before production readiness.

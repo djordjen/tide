@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Protocol, runtime_checkable
 
 
@@ -24,6 +24,8 @@ class QuerySpec:
     filters: tuple[FilterCondition, ...] = ()
     sort: tuple[SortField, ...] = ()
     limit: int = 100
+    cursor: str | None = None
+    after: tuple[Any, ...] | None = field(default=None, repr=False, compare=False)
 
 
 def matches_filter(record: Mapping[str, Any], condition: FilterCondition) -> bool:

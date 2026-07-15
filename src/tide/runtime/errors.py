@@ -46,6 +46,13 @@ class IdempotencyConflict(TideRuntimeError):
     code = "idempotency_conflict"
 
 
+class InvalidQueryCursor(TideRuntimeError):
+    code = "invalid_query_cursor"
+
+    def __init__(self) -> None:
+        super().__init__("query cursor is invalid or expired")
+
+
 @dataclass(frozen=True, slots=True)
 class ValidationIssue:
     rule: str

@@ -67,7 +67,9 @@ action-owned state, idempotency, and optimistic concurrency. Managed SQLite
 schema creation and legacy no-DDL mappings are executable. SQL predicate,
 reference-path, and single-collection aggregate row policies are pushed into
 root queries. SQL Server schema/query compilation and an opt-in live integration
-suite establish it as the first multi-user target.
+suite establish it as the first multi-user target. Secured keyset pagination
+uses opaque, principal-bound continuation cursors with matching behavior in the
+in-memory and SQLAlchemy adapters.
 
 ## Repository layout
 
@@ -145,10 +147,11 @@ Milestones 0 and 1 are substantially implemented, and the secured application
 core is in progress. The v0.1 compiler, resolved-view provenance, typed
 expressions, headless services, in-memory and SQLite repositories, tests, and
 executable invoicing workflow are implemented. Direct, reference-path, and
-single-collection aggregate SQL policy translation are executable. SQL Server
-dialect compilation is covered, with live certification available through an
-opt-in integration suite. Relationship expansion security, cursor pagination,
-Textual, REST, MCP, migrations, and report rendering remain roadmap work.
+single-collection aggregate SQL policy translation and secured keyset
+pagination are executable. SQL Server dialect compilation is covered, with live
+certification available through an opt-in integration suite. Relationship
+expansion security, Textual, REST, MCP, migrations, and report rendering remain
+roadmap work.
 
 Metadata v0.1 is an executable experimental contract. Breaking authoring
 changes require a new `schema_version`; stable 1.0 compatibility is not yet

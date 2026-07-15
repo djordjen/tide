@@ -68,6 +68,7 @@ The core presents a small set of UI-independent operations:
 
 ```python
 records.query(entity, query_spec, context)
+records.query_page(entity, query_spec, context)
 records.get(entity, identity, context)
 records.begin_edit(entity, identity, context)
 records.commit(record_session, context)

@@ -10,6 +10,7 @@ from tide.compiler.expressions import evaluate_expression
 from tide.data.repository import (
     QuerySpec,
     RowPolicyMismatch,
+    SortField,
     matches_filter,
     query_sort_key,
 )
@@ -45,6 +46,14 @@ class InMemoryRepository:
         *,
         row_criteria: tuple[str, ...] = (),
     ) -> list[dict[str, Any]]:
+        if query.cursor is not None:
+            raise ValueError("opaque cursors must be resolved by RecordsService")
+        if query.limit < 1 or query.limit > 501:
+            raise ValueError("repository query limit must be between 1 and 501")
+        if query.after is not None and not query.sort:
+            raise ValueError("query cursor boundary requires an effective sort")
+        if query.after is not None and len(query.after) != len(query.sort):
+            raise ValueError("query cursor boundary does not match the effective sort")
         records = [
             record
             for record in self.all(entity)
@@ -53,6 +62,12 @@ class InMemoryRepository:
         for condition in query.filters:
             records = [
                 record for record in records if matches_filter(record, condition)
+            ]
+        if query.after is not None:
+            records = [
+                record
+                for record in records
+                if _record_is_after(record, query.sort, query.after)
             ]
         for sort in reversed(query.sort):
             records.sort(
@@ -127,3 +142,28 @@ class InMemoryRepository:
                     record[version_field] = int(actual_version) + 1
             bucket[identity] = deepcopy(record)
             return record
+
+
+def _record_is_after(
+    record: dict[str, Any],
+    sort_fields: tuple[SortField, ...],
+    boundary: tuple[Any, ...],
+) -> bool:
+    for sort, boundary_value in zip(sort_fields, boundary):
+        value = record.get(sort.field)
+        value_rank = _null_rank(value, sort.descending)
+        boundary_rank = _null_rank(boundary_value, sort.descending)
+        if value_rank != boundary_rank:
+            return value_rank > boundary_rank
+        if value is None:
+            continue
+        if value == boundary_value:
+            continue
+        return value < boundary_value if sort.descending else value > boundary_value
+    return False
+
+
+def _null_rank(value: Any, descending: bool) -> int:
+    if descending:
+        return 0 if value is None else 1
+    return 1 if value is None else 0

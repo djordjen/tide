@@ -118,3 +118,32 @@ def test_sql_server_identity_unicode_decimal_policy_and_concurrency(
             expected_version=1,
             is_new=False,
         )
+
+
+def test_sql_server_keyset_boundary(sqlserver_repository: SQLAlchemyRepository) -> None:
+    repository = sqlserver_repository
+    repository.seed(
+        "crm.Customer",
+        [
+            {"code": "D", "name": "Delta", "active": True},
+            {"code": "A1", "name": "Alpha", "active": True},
+            {"code": "A2", "name": "Alpha", "active": True},
+            {"code": "G", "name": "Gamma", "active": True},
+        ],
+    )
+    sort = (SortField("name"), SortField("id"))
+
+    first = repository.query(
+        "crm.Customer",
+        QuerySpec(sort=sort, limit=2),
+        row_criteria=("active == true",),
+    )
+    boundary = tuple(first[-1][field.field] for field in sort)
+    second = repository.query(
+        "crm.Customer",
+        QuerySpec(sort=sort, limit=2, after=boundary),
+        row_criteria=("active == true",),
+    )
+
+    assert [record["code"] for record in first] == ["A1", "A2"]
+    assert [record["code"] for record in second] == ["D", "G"]

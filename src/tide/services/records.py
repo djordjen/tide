@@ -22,10 +22,19 @@ from tide.runtime.context import RequestContext
 from tide.runtime.errors import (
     AuthorizationError,
     ImmutableFieldError,
+    InvalidQueryCursor,
     ValidationFailed,
     ValidationIssue,
 )
 from tide.security.engine import PROTECTED, SecurityEngine
+from tide.services.cursors import (
+    CURSOR_VERSION,
+    CursorShape,
+    CursorState,
+    CursorStore,
+    InMemoryCursorStore,
+    QueryPage,
+)
 from tide.sessions.record_session import RecordSession
 
 
@@ -44,10 +53,14 @@ class RecordsService:
         model: ApplicationModel,
         repository: Repository,
         security: SecurityEngine | None = None,
+        cursor_store: CursorStore | None = None,
     ) -> None:
         self.model = model
         self.repository = repository
         self.security = security or SecurityEngine(model)
+        self.cursor_store = (
+            cursor_store if cursor_store is not None else InMemoryCursorStore()
+        )
         self._generators: dict[str, Generator] = {}
 
     def register_generator(self, reference: str, generator: Generator) -> None:
@@ -159,10 +172,27 @@ class RecordsService:
         query: QuerySpec,
         context: RequestContext,
     ) -> list[dict[str, Any]]:
+        return list(self.query_page(entity_name, query, context).records)
+
+    def query_page(
+        self,
+        entity_name: str,
+        query: QuerySpec,
+        context: RequestContext,
+    ) -> QueryPage:
         entity = self.model.entity(entity_name)
         self.security.authorize_entity(entity, "list", context)
         if query.limit < 1 or query.limit > 500:
             raise ValueError("query limit must be between 1 and 500")
+        if query.after is not None:
+            raise ValueError("query cursor boundaries are internal to RecordsService")
+        if query.cursor is not None and (
+            not isinstance(query.cursor, str) or not query.cursor
+        ):
+            raise InvalidQueryCursor
+        requested_sort_names = [sort.field for sort in query.sort]
+        if len(set(requested_sort_names)) != len(requested_sort_names):
+            raise ValueError("query sort fields must not be repeated")
         for field_name in [condition.field for condition in query.filters] + [
             sort.field for sort in query.sort
         ]:
@@ -186,10 +216,33 @@ class RecordsService:
         sort_fields = list(query.sort)
         if not any(sort.field == primary_key for sort in sort_fields):
             sort_fields.append(SortField(primary_key))
+        effective_sort = tuple(sort_fields)
+        shape = CursorShape(
+            model=(self.model.name, self.model.version, self.model.schema_version),
+            entity=entity_name,
+            filters=normalized_filters,
+            sort=effective_sort,
+            limit=query.limit,
+            principal=(
+                context.principal.identifier,
+                tuple(sorted(self.security.effective_permissions(context.principal))),
+            ),
+        )
+        after: tuple[Any, ...] | None = None
+        if query.cursor is not None:
+            state = self.cursor_store.resolve(query.cursor)
+            if (
+                state.version != CURSOR_VERSION
+                or state.shape != shape
+                or len(state.values) != len(effective_sort)
+            ):
+                raise InvalidQueryCursor
+            after = state.values
         repository_query = QuerySpec(
             filters=normalized_filters,
-            sort=tuple(sort_fields),
-            limit=query.limit,
+            sort=effective_sort,
+            limit=query.limit + 1,
+            after=after,
         )
         records = self.repository.query(
             entity_name,
@@ -197,10 +250,9 @@ class RecordsService:
             row_criteria=self.security.row_criteria(entity_name, "list"),
         )
         policy_cache: dict[tuple[str, Any], dict[str, Any]] = {}
-        return [
-            self._project(entity, record, context)
-            for record in records
-            if self.security.row_allowed(
+        authorized: list[dict[str, Any]] = []
+        for record in records:
+            if not self.security.row_allowed(
                 entity_name,
                 "list",
                 self._policy_values(
@@ -210,8 +262,31 @@ class RecordsService:
                     cache=policy_cache,
                 ),
                 context,
+            ):
+                raise AuthorizationError("query result failed its row-policy recheck")
+            authorized.append(record)
+
+        has_more = len(authorized) > query.limit
+        page_records = authorized[: query.limit]
+        next_cursor = None
+        if has_more and page_records:
+            next_cursor = self.cursor_store.issue(
+                CursorState(
+                    version=CURSOR_VERSION,
+                    shape=shape,
+                    values=tuple(
+                        page_records[-1].get(sort.field)
+                        for sort in effective_sort
+                    ),
+                )
             )
-        ]
+        return QueryPage(
+            records=tuple(
+                self._project(entity, record, context)
+                for record in page_records
+            ),
+            next_cursor=next_cursor,
+        )
 
     def commit(
         self,
