@@ -90,6 +90,8 @@ class RecordsService:
             metadata = field.metadata
             if field.target_entity and metadata["type"] == "collection":
                 defaults[field_name] = []
+            elif metadata.get("default_factory") == "today":
+                defaults[field_name] = date.today()
             elif "default" in metadata:
                 defaults[field_name] = deepcopy(metadata["default"])
         initial = deepcopy(defaults)
@@ -144,6 +146,112 @@ class RecordsService:
             entity_name, identity, context, operations=("read",)
         )
         return self._project(entity, values, context)
+
+    def lookup_records(
+        self,
+        entity_name: str,
+        search_fields: tuple[str, ...],
+        search_text: str,
+        context: RequestContext,
+        *,
+        limit: int = 20,
+    ) -> tuple[dict[str, Any], ...]:
+        """Return a bounded secured lookup result, matching any search field."""
+
+        if not search_fields:
+            raise ValueError("lookup search requires at least one field")
+        if len(set(search_fields)) != len(search_fields):
+            raise ValueError("lookup search fields must not be repeated")
+        if limit < 1 or limit > 500:
+            raise ValueError("lookup limit must be between 1 and 500")
+        entity = self.model.entity(entity_name)
+        primary_key = _primary_key(entity)
+        if not self.security.can_read_field(entity_name, primary_key, context):
+            raise AuthorizationError("lookup primary key is not readable")
+        sort = (SortField(search_fields[0]),)
+        candidate = search_text.strip()
+        if not candidate:
+            return tuple(
+                self.query(
+                    entity_name,
+                    QuerySpec(sort=sort, limit=limit),
+                    context,
+                )
+            )
+        matches: dict[Any, dict[str, Any]] = {}
+        for field_name in search_fields:
+            page = self.query_page(
+                entity_name,
+                QuerySpec(
+                    filters=(FilterCondition(field_name, "icontains", candidate),),
+                    sort=sort,
+                    limit=limit,
+                ),
+                context,
+            )
+            for record in page.records:
+                matches.setdefault(record[primary_key], record)
+                if len(matches) >= limit:
+                    return tuple(matches.values())
+        return tuple(matches.values())
+
+    def apply_reference_selection(
+        self,
+        entity_name: str,
+        field_name: str,
+        values: Mapping[str, Any],
+        identity: Any,
+        context: RequestContext,
+    ) -> dict[str, Any]:
+        """Apply a secured reference choice and its declarative draft assignments."""
+
+        entity = self.model.entity(entity_name)
+        if field_name not in entity.fields:
+            raise ValueError(f"unknown field {field_name!r}")
+        reference = entity.field(field_name)
+        if reference.metadata["type"] != "reference" or not reference.target_entity:
+            raise ValueError(f"field {field_name!r} is not a reference")
+        if reference.metadata.get("readonly") or reference.metadata.get(
+            "write", "normal"
+        ) != "normal":
+            raise ImmutableFieldError(field_name, "reference field is not user-writable")
+        if not self.security.can_write_field(entity_name, field_name, context):
+            raise AuthorizationError(f"field {field_name!r} is not writable")
+
+        selected = self.get(reference.target_entity, identity, context)
+        target_entity = self.model.entity(reference.target_entity)
+        target_key = _primary_key(target_entity)
+        if selected.get(target_key) is PROTECTED:
+            raise AuthorizationError("lookup primary key is not readable")
+        result = deepcopy(dict(values))
+        result[field_name] = deepcopy(selected[target_key])
+        on_select = reference.metadata.get("on_select", {})
+        for destination_name, assignment in on_select.get("assign", {}).items():
+            destination = entity.field(destination_name)
+            if destination.metadata.get("readonly") or destination.metadata.get(
+                "write", "normal"
+            ) != "normal":
+                raise ImmutableFieldError(
+                    destination_name,
+                    "selection assignment target is not user-writable",
+                )
+            if not self.security.can_write_field(entity_name, destination_name, context):
+                raise AuthorizationError(f"field {destination_name!r} is not writable")
+            current = result.get(destination_name)
+            if (
+                assignment.get("overwrite", "always") == "when_blank"
+                and current is not None
+                and current != ""
+            ):
+                continue
+            source_name = assignment["from"]
+            source_value = selected.get(source_name)
+            if source_value is PROTECTED:
+                raise AuthorizationError(
+                    f"field {reference.target_entity}.{source_name!s} is not readable"
+                )
+            result[destination_name] = deepcopy(source_value)
+        return result
 
     def _load_authorized(
         self,
@@ -933,15 +1041,17 @@ def _normalize_filter(
 ) -> FilterCondition:
     field = entity.fields[condition.field]
     operator = condition.operator
-    allowed = {"eq", "ne", "lt", "lte", "gt", "gte", "contains"}
+    allowed = {"eq", "ne", "lt", "lte", "gt", "gte", "contains", "icontains"}
     if operator not in allowed:
         raise ValueError(f"unsupported filter operator {operator!r}")
     field_type = field.metadata["type"]
-    if operator == "contains":
+    if operator in {"contains", "icontains"}:
         if field_type not in {"string", "choice"} or not isinstance(
             condition.value, str
         ):
-            raise ValueError("contains filters require a string field and value")
+            raise ValueError(
+                f"{operator} filters require a string field and value"
+            )
         return condition
     if condition.value is None:
         if operator not in {"eq", "ne"}:

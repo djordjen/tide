@@ -1,0 +1,18 @@
+# TIDE application metadata.
+view: catalog.Product.lookup
+entity: catalog.Product
+kind: lookup
+mode: overlay
+
+columns: [code, name, unit_price]
+search: [code, name]
+
+fields:
+  code: {width: 12}
+  name: {width: 36}
+  unit_price: {width: 14}
+
+settings:
+  page_size: 20
+  incremental_search: true
+  close_after_selection: true

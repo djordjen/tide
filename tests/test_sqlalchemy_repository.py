@@ -199,6 +199,27 @@ def test_sql_query_pushes_policy_filter_sort_and_limit_to_database(sql_runtime) 
     assert "LTD" not in root_query
 
 
+def test_case_insensitive_lookup_filter_matches_memory_and_sql(sql_runtime) -> None:
+    model, _repository, records = sql_runtime
+    query = QuerySpec(
+        filters=(FilterCondition("name", "icontains", "lTd"),),
+        sort=(SortField("name"),),
+        limit=10,
+    )
+
+    sql_customers = records.query("crm.Customer", query, context())
+    memory = InMemoryRepository()
+    memory.seed("crm.Customer", CUSTOMERS)
+    memory_customers = RecordsService(model, memory).query(
+        "crm.Customer",
+        query,
+        context(),
+    )
+
+    assert [customer["code"] for customer in sql_customers] == ["ACME", "ZEN"]
+    assert [customer["code"] for customer in memory_customers] == ["ACME", "ZEN"]
+
+
 def test_sql_query_translates_relationship_aggregates(sql_runtime) -> None:
     model, repository, _ = sql_runtime
     _seed_invoice(repository)

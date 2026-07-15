@@ -57,7 +57,11 @@ The v0.1 compiler checks:
 - the safe typed expression subset, relationship paths, parameters, expected
   result types, and computed field cycles;
 - action-only/system fields being read-only to adapters;
-- collection views and report entity references.
+- typed dynamic defaults (`default_factory: today` for date fields), mutually
+  exclusive with literal `default` values;
+- collection views and report entity references;
+- reference editor modes, lookup-view target compatibility, and type-safe
+  `on_select` draft assignments.
 - explicit physical table and persisted-column mappings for legacy databases.
 
 `database.mode` is either `managed` (the default) or `legacy`. Legacy entities

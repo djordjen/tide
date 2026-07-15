@@ -88,10 +88,19 @@ and runtime registration. Create/edit, secured Customer/Product selectors,
 inline InvoiceLine add/apply/remove, computed previews, Save/Cancel, validation
 and stale-version feedback, immutable posted records, audited posting,
 invoice-number incremental search, simple compiled named filters, and sortable
-columns are executable through keyboard or clickable controls. Reference
-lookup search, printing, and deployment-repository selection remain.
+columns are executable through keyboard or clickable controls. Forms use
+compact, visually distinct editable/read-only fields, localized date parsing,
+model-owned today defaults, keyboard date stepping, column-first Tab traversal,
+and Enter-to-advance data entry. Product references now support a secured,
+case-insensitive, multi-column lookup window and declarative selection values
+that copy description and unit price into the editable line draft. Explicit
+developer-controlled editor field ordering, printing, and
+deployment-repository selection remain.
 
 - generated browse, edit, and lookup views;
+- view-level field ordering for form and inline editor controls, independent of
+  collection-table column order (for example, Product before Description in
+  InvoiceLine details);
 - Customer and Product lookups;
 - transactional Invoice/InvoiceLine master-detail editing;
 - parsing, formatting, and validation feedback;

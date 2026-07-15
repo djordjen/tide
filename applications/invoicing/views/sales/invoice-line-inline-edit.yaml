@@ -8,6 +8,7 @@ columns: [line_number, product, description, quantity, unit_price, total]
 
 fields:
   line_number: {width: 6}
+  product: {editor: lookup}
   description: {width: 32}
   quantity: {width: 10}
   unit_price: {width: 14}

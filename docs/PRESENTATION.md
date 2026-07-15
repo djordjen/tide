@@ -115,15 +115,22 @@ surfaces:
     collapse_header_below: 800
 ```
 
+The planned form-rendering contract will honor the order declared by layout
+rows for both scalar forms and inline collection editors. Editor order is
+independent of the collection table's `columns` order; for example, an invoice
+line editor may place `product` before `description` without changing the line
+table layout.
+
 The target is shared application semantics with limited renderer-specific
 presentation, not an identical lowest-common-denominator interface.
 
-The first executable renderer consumes a resolved browse view directly. It
-builds `DataTable` columns from view metadata, queries only through
-`RecordsService`, resolves reference display text through secured record reads,
-and carries opaque continuation cursors for next/previous navigation. Keyboard
-bindings and buttons invoke the same page and refresh actions. Form and lookup
-rendering remain the next vertical-slice work.
+The first executable renderer consumes resolved browse, form, inline-edit, and
+lookup views directly. It builds `DataTable` columns from view metadata, queries
+only through `RecordsService`, resolves reference display text through secured
+record reads, and carries opaque continuation cursors for browse navigation.
+Reference fields use compact selectors by default; `editor: lookup` opens a
+secured, case-insensitive, multi-column search window. Keyboard bindings and
+buttons invoke the same service operations.
 
 ## Semantic formats
 

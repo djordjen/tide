@@ -20,7 +20,7 @@ def test_model_validate_json(capsys) -> None:
         "version": "0.1.0",
         "schema_version": "0.1",
         "entities": 4,
-        "views": 3,
+        "views": 4,
         "reports": 1,
         "warnings": [],
     }

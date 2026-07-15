@@ -22,19 +22,34 @@ def test_invoicing_fixture_compiles_to_immutable_model() -> None:
         "sales.Invoice",
         "sales.InvoiceLine",
     }
-    assert len(model.views) == 3
+    assert len(model.views) == 4
     assert set(model.presets) == {"master_detail", "standard_browse", "standard_form"}
     assert "sales.invoice.post" in model.permissions
     assert "sales.invoice.write" not in model.roles["auditor"]
     assert model.entity("sales.Invoice").field("total").dependencies == ("lines.total",)
     assert model.entity("sales.Invoice").field("version").metadata["concurrency_token"]
     assert model.entity("sales.Invoice").field("status").metadata["write"] == "action_only"
+    assert (
+        model.entity("sales.Invoice").field("invoice_date").metadata["default_factory"]
+        == "today"
+    )
+    product_reference = model.entity("sales.InvoiceLine").field("product")
+    assert product_reference.metadata["lookup_view"] == "catalog.Product.lookup"
+    assert product_reference.metadata["on_select"]["assign"]["unit_price"] == {
+        "from": "unit_price",
+        "overwrite": "always",
+    }
     assert model.diagnostics == ()
     resolved = model.views["sales.Invoice.edit"]
     assert resolved.data["settings"]["label_width"] == 18
     assert resolved.origins["settings.label_width"].layer == "application defaults"
     assert resolved.origins["settings.show_action_bar"].layer == "preset:standard_form"
     assert resolved.origins["surfaces.tui.minimum_width"].layer == "view overlay"
+    lookup = model.views["catalog.Product.lookup"]
+    assert lookup.kind == "lookup"
+    assert lookup.data["columns"] == ("code", "name", "unit_price")
+    inline = model.views["sales.InvoiceLine.inline_edit"]
+    assert inline.data["fields"]["product"]["editor"] == "lookup"
 
     with pytest.raises(TypeError):
         model.entities["other.Entity"] = model.entity("sales.Invoice")  # type: ignore[index]
@@ -152,6 +167,121 @@ def test_action_permission_and_unrestricted_access_are_mutually_exclusive(
         compile_project(project)
 
     assert "TIDE227" in {diagnostic.code for diagnostic in caught.value.diagnostics}
+
+
+def test_today_default_factory_is_typed_and_exclusive(tmp_path: Path) -> None:
+    project = tmp_path / "invalid-default-factory"
+    models = project / "models"
+    models.mkdir(parents=True)
+    (project / "tide.yaml").write_text(
+        '\n'.join(
+            [
+                'schema_version: "0.1"',
+                'application: {name: Invalid Defaults, version: 0.1.0}',
+                'model: {paths: [models]}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (models / "entity.yaml").write_text(
+        '\n'.join(
+            [
+                'entity: demo.Thing',
+                'fields:',
+                '  id: {type: integer, primary_key: true}',
+                '  name: {type: string, default_factory: today}',
+                '  occurred_on:',
+                '    type: date',
+                '    default: "2026-07-15"',
+                '    default_factory: today',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(project)
+
+    codes = {diagnostic.code for diagnostic in caught.value.diagnostics}
+    assert {"TIDE217", "TIDE218"} <= codes
+
+
+def test_lookup_editor_and_selection_assignments_are_validated(tmp_path: Path) -> None:
+    project = tmp_path / "invalid-lookup"
+    models = project / "models"
+    views = project / "views"
+    models.mkdir(parents=True)
+    views.mkdir()
+    (project / "tide.yaml").write_text(
+        '\n'.join(
+            [
+                'schema_version: "0.1"',
+                'application: {name: Invalid Lookup, version: 0.1.0}',
+                'model: {paths: [models]}',
+                'views: {paths: [views]}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (models / "product.yaml").write_text(
+        '\n'.join(
+            [
+                'entity: demo.Product',
+                'fields:',
+                '  id: {type: integer, primary_key: true}',
+                '  name: {type: string}',
+                '  unit_price: {type: decimal}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (models / "line.yaml").write_text(
+        '\n'.join(
+            [
+                'entity: demo.Line',
+                'fields:',
+                '  id: {type: integer, primary_key: true}',
+                '  unit_price: {type: decimal}',
+                '  product:',
+                '    type: reference',
+                '    target: demo.Product',
+                '    lookup_view: demo.Product.browse',
+                '    on_select:',
+                '      assign:',
+                '        unit_price: {from: name}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (views / "product.yaml").write_text(
+        '\n'.join(
+            [
+                'view: demo.Product.browse',
+                'entity: demo.Product',
+                'kind: browse',
+                'columns: [name]',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (views / "line.yaml").write_text(
+        '\n'.join(
+            [
+                'view: demo.Line.inline_edit',
+                'entity: demo.Line',
+                'kind: inline_edit',
+                'fields:',
+                '  product: {editor: grid}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(project)
+
+    codes = {diagnostic.code for diagnostic in caught.value.diagnostics}
+    assert {"TIDE219", "TIDE238", "TIDE239"} <= codes
 
 
 def test_project_discovery_cannot_escape_project_root(tmp_path: Path) -> None:

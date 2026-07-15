@@ -90,6 +90,8 @@ def matches_filter(record: Mapping[str, Any], condition: FilterCondition) -> boo
         "gt": lambda: value > condition.value,
         "gte": lambda: value >= condition.value,
         "contains": lambda: value is not None and condition.value in value,
+        "icontains": lambda: value is not None
+        and condition.value.casefold() in value.casefold(),
     }
     if condition.operator not in operations:
         raise ValueError(f"unsupported filter operator {condition.operator!r}")

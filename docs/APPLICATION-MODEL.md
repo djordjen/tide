@@ -216,6 +216,47 @@ search_fields: [code, name, email]
 A particular reference may override its lookup view or search policy. Lookup
 queries remain subject to row and field permissions on the target entity.
 
+References render as compact single-column selectors by default. A view may
+request a searchable, multi-column lookup window for a particular reference:
+
+```yaml
+fields:
+  product:
+    editor: lookup
+    lookup_view: catalog.Product.lookup
+```
+
+The `lookup_view` may instead live on the reference field when every view uses
+the same lookup. Lookup views declare ordinary secured columns and search
+fields:
+
+```yaml
+view: catalog.Product.lookup
+entity: catalog.Product
+kind: lookup
+columns: [code, name, unit_price]
+search: [code, name]
+```
+
+A reference may copy secured target values into writable draft fields when a
+record is selected:
+
+```yaml
+product:
+  type: reference
+  target: catalog.Product
+  lookup_view: catalog.Product.lookup
+  on_select:
+    assign:
+      description: {from: name, overwrite: always}
+      unit_price: {from: unit_price, overwrite: always}
+```
+
+`overwrite` is either `always` or `when_blank`. Assignments are type-checked at
+compile time and applied through `RecordsService`, including target-field read
+and draft-field write authorization. Copied values remain stored snapshots; an
+invoice line price does not change when the Product price changes later.
+
 ## Computed fields
 
 Computed fields are part of the domain model and use the shared expression

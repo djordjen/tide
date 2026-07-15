@@ -52,6 +52,11 @@ fields:
     storage: product_id
     required: true
     on_delete: restrict
+    lookup_view: catalog.Product.lookup
+    on_select:
+      assign:
+        description: {from: name, overwrite: always}
+        unit_price: {from: unit_price, overwrite: always}
     immutable_when: "invoice.status != 'draft'"
 
   total:

@@ -39,6 +39,17 @@ loads an in-memory repository; it never changes a database. Omit `--page-size`
 to use the browse metadata default of 25. Select a row with Enter or the mouse,
 or use **New**. Forms support invoice headers and line items; Ctrl+S saves,
 Ctrl+P posts an eligible draft, Ctrl+N adds a line, and Escape cancels.
+New invoices default to today's date. Date entry accepts `DD.MM.YYYY`,
+`DD/MM/YYYY`, or ISO `YYYY-MM-DD`; with the date focused, `+` and `-` move it
+forward or backward one day. Compact editable controls use a strong accent,
+while read-only labels and values use muted italic styling. Tab traverses each
+form section down the left column and then down the right column. Enter advances
+from text, date, and collapsed selection fields; Space or an arrow opens a
+selection list, where Enter confirms the highlighted value.
+Product uses the alternative lookup editor: Space, Down, or F4 opens a secured
+multi-column Product search. Selecting a Product copies its name and current
+unit price into the editable line draft; the stored invoice price remains a
+historical snapshot and may be edited before saving.
 The browse search applies incrementally to invoice numbers. The filter selector
 exposes **Draft invoices** and **High-value invoices** from view metadata, and
 the sort selector or eligible column headers toggle secured ascending and

@@ -99,6 +99,18 @@ def invoice_values(*, lines: bool = True) -> dict:
     }
 
 
+def test_create_session_applies_today_default_factory(runtime) -> None:
+    _, _, records, _ = runtime
+
+    session = records.create(
+        "sales.Invoice",
+        context("user:clerk", "sales_clerk"),
+    )
+
+    assert session.values["invoice_date"] == date.today()
+    assert session.original["invoice_date"] == date.today()
+
+
 def test_headless_invoice_create_post_retry_and_protection(runtime) -> None:
     _, _, records, actions = runtime
     clerk = context("user:clerk", "sales_clerk")
@@ -412,11 +424,11 @@ def test_required_values_and_protected_field_inference_are_enforced(runtime) -> 
     invalid = records.create(
         "sales.Invoice",
         clerk,
-        {"customer": 1, "lines": []},
+        {"lines": []},
     )
     with pytest.raises(ValidationFailed) as caught:
         records.commit(invalid, clerk)
-    assert caught.value.issues[0].fields == ("invoice_date",)
+    assert caught.value.issues[0].fields == ("customer",)
 
     with pytest.raises(AuthorizationError):
         records.query(

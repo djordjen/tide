@@ -90,6 +90,15 @@ FieldType = Literal[
 ]
 
 
+class SelectionAssignmentSource(SourceModel):
+    source: str = Field(alias="from", min_length=1)
+    overwrite: Literal["always", "when_blank"] = "always"
+
+
+class SelectionSource(SourceModel):
+    assign: dict[str, SelectionAssignmentSource]
+
+
 class FieldSource(SourceModel):
     type: FieldType
     label: str | None = None
@@ -106,6 +115,7 @@ class FieldSource(SourceModel):
     minimum: Decimal | None = None
     maximum: Decimal | None = None
     default: Any = None
+    default_factory: Literal["today"] | None = None
     server_default: Any = None
     format: str | None = None
     validation: str | tuple[str, ...] | None = None
@@ -116,6 +126,7 @@ class FieldSource(SourceModel):
     inverse: str | None = None
     on_delete: Literal["restrict", "cascade", "set_null"] | None = None
     lookup_view: str | None = None
+    on_select: SelectionSource | None = None
     order_by: str | None = None
     cascade: tuple[Literal["create", "update", "delete"], ...] = ()
     orphan_delete: bool = False

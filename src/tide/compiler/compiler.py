@@ -24,6 +24,7 @@ from tide.compiler.source import SourceDocument, YamlSourceError, load_yaml_docu
 from tide.diagnostics import CompilationFailed, Diagnostic, Severity, SourceLocation
 from tide.model.source import (
     EntitySource,
+    FieldSource,
     FormatsSource,
     PresentationDefaultsSource,
     PresetDocumentSource,
@@ -126,7 +127,14 @@ def compile_project(project: str | Path = ".") -> ApplicationModel:
         root,
         project_source.database.mode,
     )
-    _validate_views(views, view_documents, entities, presets, diagnostics)
+    _validate_views(
+        views,
+        view_documents,
+        entities,
+        entity_documents,
+        presets,
+        diagnostics,
+    )
     _validate_reports(reports, report_documents, entities, diagnostics)
     permissions, roles, row_policies, field_policies = _validate_security(
         security_items,
@@ -583,6 +591,25 @@ def _validate_entities(
                     (*field_path, "target"),
                 )
 
+            if field.on_select:
+                if field.type != "reference":
+                    _add(
+                        diagnostics,
+                        "TIDE219",
+                        "only reference fields may declare on_select assignments",
+                        document,
+                        (*field_path, "on_select"),
+                    )
+                elif field.target and field.target in entities:
+                    _validate_selection_assignments(
+                        entity,
+                        field_name,
+                        field,
+                        entities[field.target],
+                        document,
+                        diagnostics,
+                    )
+
             if field.type == "choice" and not field.choices:
                 _add(
                     diagnostics,
@@ -614,6 +641,22 @@ def _validate_entities(
                     "schema v0.1 concurrency tokens must be integers",
                     document,
                     (*field_path, "concurrency_token"),
+                )
+            if field.default_factory == "today" and field.type != "date":
+                _add(
+                    diagnostics,
+                    "TIDE217",
+                    "the today default factory requires a date field",
+                    document,
+                    (*field_path, "default_factory"),
+                )
+            if field.default_factory is not None and field.default is not None:
+                _add(
+                    diagnostics,
+                    "TIDE218",
+                    "fields cannot declare both default and default_factory",
+                    document,
+                    (*field_path, "default_factory"),
                 )
 
             if field.computed:
@@ -755,13 +798,140 @@ def _validate_computed_cycles(
             visit(field_name)
 
 
+def _validate_selection_assignments(
+    entity: EntitySource,
+    reference_name: str,
+    reference: FieldSource,
+    target: EntitySource,
+    document: SourceDocument,
+    diagnostics: list[Diagnostic],
+) -> None:
+    assert reference.on_select is not None
+    for destination_name, assignment in reference.on_select.assign.items():
+        path = (
+            "fields",
+            reference_name,
+            "on_select",
+            "assign",
+            destination_name,
+        )
+        destination = entity.fields.get(destination_name)
+        if destination is None:
+            _add(
+                diagnostics,
+                "TIDE219",
+                f"selection assignment targets unknown field {destination_name!r}",
+                document,
+                path,
+            )
+            continue
+        source = target.fields.get(assignment.source)
+        if source is None:
+            _add(
+                diagnostics,
+                "TIDE219",
+                f"selection assignment reads unknown field "
+                f"{reference.target}.{assignment.source}",
+                document,
+                (*path, "from"),
+            )
+            continue
+        if (
+            destination.primary_key
+            or destination.readonly
+            or destination.write != "normal"
+            or destination.computed is not None
+        ):
+            _add(
+                diagnostics,
+                "TIDE219",
+                f"selection assignment target {destination_name!r} is not writable",
+                document,
+                path,
+            )
+        if source.type != destination.type or (
+            source.type == "reference" and source.target != destination.target
+        ):
+            _add(
+                diagnostics,
+                "TIDE219",
+                f"selection assignment cannot copy {source.type} "
+                f"to {destination.type} field {destination_name!r}",
+                document,
+                (*path, "from"),
+            )
+
+
+def _validate_lookup_view(
+    lookup_name: str,
+    reference: FieldSource,
+    views: dict[str, ViewSource],
+    entities: dict[str, EntitySource],
+    document: SourceDocument,
+    path: tuple[str | int, ...],
+    diagnostics: list[Diagnostic],
+) -> None:
+    lookup = views.get(lookup_name)
+    if lookup is None:
+        _add(
+            diagnostics,
+            "TIDE239",
+            f"unknown lookup view {lookup_name!r}",
+            document,
+            path,
+        )
+        return
+    if _view_kind(lookup) != "lookup":
+        _add(
+            diagnostics,
+            "TIDE239",
+            f"view {lookup_name!r} is not a lookup view",
+            document,
+            path,
+        )
+    lookup_entity = lookup.entity or _infer_view_entity(lookup_name, entities)
+    if reference.target and lookup_entity != reference.target:
+        _add(
+            diagnostics,
+            "TIDE239",
+            f"lookup view {lookup_name!r} targets {lookup_entity!r}, "
+            f"not {reference.target!r}",
+            document,
+            path,
+        )
+
+
 def _validate_views(
     views: dict[str, ViewSource],
     documents: dict[str, SourceDocument],
     entities: dict[str, EntitySource],
+    entity_documents: dict[str, SourceDocument],
     presets: dict[str, Any],
     diagnostics: list[Diagnostic],
 ) -> None:
+    for entity_name, entity in entities.items():
+        for field_name, field in entity.fields.items():
+            if field.lookup_view is None:
+                continue
+            if field.type != "reference":
+                _add(
+                    diagnostics,
+                    "TIDE239",
+                    "only reference fields may declare lookup_view",
+                    entity_documents[entity_name],
+                    ("fields", field_name, "lookup_view"),
+                )
+                continue
+            _validate_lookup_view(
+                field.lookup_view,
+                field,
+                views,
+                entities,
+                entity_documents[entity_name],
+                ("fields", field_name, "lookup_view"),
+                diagnostics,
+            )
+
     for view_name, view in views.items():
         document = documents[view_name]
         entity_name = view.entity or _infer_view_entity(view_name, entities)
@@ -801,6 +971,59 @@ def _validate_views(
             )
         for field_name in (*view.columns, *view.search, *view.fields.keys()):
             _require_field(entity, field_name, document, ("view",), diagnostics)
+        for field_name, configuration in view.fields.items():
+            field = entity.fields.get(field_name)
+            if field is None:
+                continue
+            editor = configuration.get("editor")
+            if editor is not None and (
+                not isinstance(editor, str) or editor not in {"select", "lookup"}
+            ):
+                _add(
+                    diagnostics,
+                    "TIDE238",
+                    f"unknown reference editor {editor!r}; expected 'select' or 'lookup'",
+                    document,
+                    ("fields", field_name, "editor"),
+                )
+                continue
+            if editor is not None and field.type != "reference":
+                _add(
+                    diagnostics,
+                    "TIDE238",
+                    "select and lookup editors require a reference field",
+                    document,
+                    ("fields", field_name, "editor"),
+                )
+                continue
+            lookup_view = configuration.get("lookup_view", field.lookup_view)
+            if editor == "lookup" and not lookup_view:
+                _add(
+                    diagnostics,
+                    "TIDE239",
+                    "lookup editors require a lookup_view",
+                    document,
+                    ("fields", field_name, "lookup_view"),
+                )
+            elif lookup_view is not None:
+                if not isinstance(lookup_view, str):
+                    _add(
+                        diagnostics,
+                        "TIDE239",
+                        "lookup_view must be a view name",
+                        document,
+                        ("fields", field_name, "lookup_view"),
+                    )
+                else:
+                    _validate_lookup_view(
+                        lookup_view,
+                        field,
+                        views,
+                        entities,
+                        document,
+                        ("fields", field_name, "lookup_view"),
+                        diagnostics,
+                    )
         for filter_name, filter_ in view.filters.items():
             _validate_expression_at(
                 filter_.criteria,
@@ -811,6 +1034,29 @@ def _validate_views(
                 diagnostics,
                 expected_type="boolean",
             )
+        if _view_kind(view) == "lookup":
+            for index, field_name in enumerate(view.search):
+                field = entity.fields.get(field_name)
+                if field is not None and (
+                    field.type not in {"string", "choice"} or field.computed
+                ):
+                    _add(
+                        diagnostics,
+                        "TIDE239",
+                        "lookup search fields must be stored strings or choices",
+                        document,
+                        ("search", index),
+                    )
+            for index, field_name in enumerate(view.columns):
+                field = entity.fields.get(field_name)
+                if field is not None and field.type == "collection":
+                    _add(
+                        diagnostics,
+                        "TIDE239",
+                        "lookup columns cannot contain collection fields",
+                        document,
+                        ("columns", index),
+                    )
         _validate_layout(view, entity, views, document, diagnostics)
 
     for view_name in views:

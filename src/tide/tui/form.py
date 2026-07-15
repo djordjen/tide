@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping
 from uuid import uuid4
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Grid, Horizontal, VerticalScroll
+from textual.containers import Grid, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Select, Static
 
@@ -26,6 +26,48 @@ from tide.runtime import RequestContext, TideRuntimeError, ValidationFailed
 from tide.security import PROTECTED
 from tide.services import ActionService, RecordsService
 from tide.sessions.record_session import RecordSession, SessionState
+from tide.tui.lookup import LookupField, LookupScreen
+
+
+class DateInput(Input):
+    """Compact local-date input with one-day keyboard stepping."""
+
+    BINDINGS = [
+        Binding("plus", "next_day", show=False, priority=True),
+        Binding("minus", "previous_day", show=False, priority=True),
+    ]
+
+    def action_next_day(self) -> None:
+        self._step(1)
+
+    def action_previous_day(self) -> None:
+        self._step(-1)
+
+    def _step(self, days: int) -> None:
+        current = _parse_date(self.value)
+        if current is None:
+            self.app.notify(
+                "Enter a valid date before using + or -.",
+                severity="warning",
+            )
+            return
+        self.value = _format_date(current + timedelta(days=days))
+        self.cursor_position = len(self.value)
+
+
+class FormSelect(Select[Any]):
+    """Select that reserves Enter for form traversal while collapsed."""
+
+    BINDINGS = [
+        Binding("enter", "focus_next_control", show=False),
+        Binding("down,space,up", "show_overlay", "Show menu", show=False),
+    ]
+
+    def action_focus_next_control(self) -> None:
+        self.screen.focus_next()
+
+
+Editor = Input | Select[Any] | LookupField
 
 
 class RecordEditScreen(Screen[bool]):
@@ -46,7 +88,7 @@ class RecordEditScreen(Screen[bool]):
         content-align: left middle;
     }
 
-    #form-scroll {
+    #form-body {
         height: 1fr;
         padding: 0 2;
     }
@@ -60,44 +102,109 @@ class RecordEditScreen(Screen[bool]):
     }
 
     #record-fields, #line-fields {
-        grid-size: 4;
-        grid-columns: 16 1fr 16 1fr;
+        height: auto;
+    }
+
+    .field-column {
+        grid-size: 2;
+        grid-columns: 16 1fr;
         grid-gutter: 0 1;
+        width: 1fr;
         height: auto;
     }
 
     .field-label {
-        height: 3;
+        height: 1;
         content-align: right middle;
+        color: $text;
+    }
+
+    .readonly-label {
         color: $text-muted;
+        text-style: italic;
+    }
+
+    .editable-value {
+        height: 1;
+        border: none;
+        border-left: thick $primary;
+        padding: 0 1;
+        background: $surface-lighten-2;
+        color: $text;
+    }
+
+    .editable-value:focus {
+        background: $primary;
+        color: $text;
+    }
+
+    Select.editable-value > SelectCurrent {
+        border: none;
+        background: $surface-lighten-2;
+    }
+
+    Select.editable-value:focus > SelectCurrent {
+        border: none;
+        background: $primary;
+    }
+
+    LookupField.editable-value {
+        content-align: left middle;
     }
 
     .readonly-value {
-        height: 3;
+        height: 1;
         padding: 0 1;
-        border: tall $surface-lighten-2;
+        border: none;
+        border-left: thick $surface-lighten-2;
+        background: $surface-lighten-1;
+        color: $text-muted;
+        text-style: italic;
         content-align: left middle;
     }
 
     #collection-records {
-        height: 12;
+        height: 1fr;
+        min-height: 5;
         border: round $primary;
     }
 
-    #line-toolbar, #form-actions {
-        height: 3;
-        align-horizontal: right;
+    #line-fields {
+        margin-top: 1;
     }
 
-    #line-toolbar Button, #form-actions Button {
+    #form-actions {
+        height: 3;
+        padding: 0 2;
+    }
+
+    #line-actions, #record-actions {
+        width: auto;
+        height: 3;
+    }
+
+    #action-spacer {
+        width: 1fr;
+        height: 3;
+    }
+
+    #line-actions Button, #record-actions Button {
         min-width: 12;
+    }
+
+    #line-actions Button {
+        margin-right: 1;
+    }
+
+    #record-actions Button {
         margin-left: 1;
     }
 
     #form-message {
-        min-height: 2;
+        min-height: 1;
         height: auto;
-        padding: 0 1;
+        max-height: 3;
+        padding: 0 2;
         color: $warning;
     }
     """
@@ -153,8 +260,8 @@ class RecordEditScreen(Screen[bool]):
         self._selected_line: int | None = None
         self._reference_options: dict[str, tuple[tuple[str, Any], ...]] = {}
         self._reference_records: dict[str, dict[Any, dict[str, Any]]] = {}
-        self._editors: dict[str, Input | Select[Any]] = {}
-        self._line_editors: dict[str, Input | Select[Any]] = {}
+        self._editors: dict[str, Editor] = {}
+        self._line_editors: dict[str, Editor] = {}
         self._load_reference_options()
         self.title = model.name
         self.sub_title = (
@@ -170,13 +277,29 @@ class RecordEditScreen(Screen[bool]):
             f"{_record_title(self.entity, self.session.values) or 'New record'}",
             id="form-context",
         )
-        with VerticalScroll(id="form-scroll"):
+        with Vertical(id="form-body"):
             yield Static(self.entity.label, classes="section-title")
-            with Grid(id="record-fields"):
-                for field_name in self.scalar_fields:
-                    field = self.entity.field(field_name)
-                    yield Label(_field_label(field), classes="field-label")
-                    yield self._field_widget(field, self.session.values.get(field_name))
+            with Horizontal(id="record-fields"):
+                for column_fields in _field_columns(self.scalar_fields):
+                    with Grid(classes="field-column"):
+                        for field_name in column_fields:
+                            field = self.entity.field(field_name)
+                            editable = self._field_is_editable(
+                                self.entity,
+                                field,
+                                self.session.original,
+                            )
+                            label_classes = (
+                                "field-label"
+                                if editable
+                                else "field-label readonly-label"
+                            )
+                            yield Label(_field_label(field), classes=label_classes)
+                            yield self._field_widget(
+                                field,
+                                self.session.values.get(field_name),
+                                editable=editable,
+                            )
 
             if self.collection_name is not None and self.collection_entity is not None:
                 yield Static(
@@ -184,23 +307,41 @@ class RecordEditScreen(Screen[bool]):
                     classes="section-title",
                 )
                 yield DataTable(id="collection-records")
-                with Horizontal(id="line-toolbar"):
-                    yield Button("Add line", id="add-line")
-                    yield Button("Apply line", id="apply-line", variant="primary")
-                    yield Button("Remove line", id="remove-line", variant="warning")
-                with Grid(id="line-fields"):
-                    for field_name in self.line_fields:
-                        field = self.collection_entity.field(field_name)
-                        if field.metadata.get("computed") or field.metadata.get("readonly"):
-                            continue
-                        yield Label(_field_label(field), classes="field-label")
-                        yield self._line_widget(field)
+                line_editor_fields = tuple(
+                    field_name
+                    for field_name in self.line_fields
+                    if not self.collection_entity.field(field_name).metadata.get(
+                        "computed"
+                    )
+                    and not self.collection_entity.field(field_name).metadata.get(
+                        "readonly"
+                    )
+                )
+                with Horizontal(id="line-fields"):
+                    for column_fields in _field_columns(line_editor_fields):
+                        with Grid(classes="field-column"):
+                            for field_name in column_fields:
+                                field = self.collection_entity.field(field_name)
+                                label_classes = (
+                                    "field-label"
+                                    if self._collection_is_editable()
+                                    else "field-label readonly-label"
+                                )
+                                yield Label(_field_label(field), classes=label_classes)
+                                yield self._line_widget(field)
 
         yield Static("", id="form-message")
         with Horizontal(id="form-actions"):
-            yield Button("Cancel", id="cancel-form")
-            yield Button("Save", id="save-form", variant="primary")
-            yield Button("Post", id="post-record", variant="success")
+            if self.collection_name is not None:
+                with Horizontal(id="line-actions"):
+                    yield Button("Add line", id="add-line")
+                    yield Button("Apply line", id="apply-line", variant="primary")
+                    yield Button("Remove line", id="remove-line", variant="warning")
+            yield Static("", id="action-spacer")
+            with Horizontal(id="record-actions"):
+                yield Button("Cancel", id="cancel-form")
+                yield Button("Save", id="save-form", variant="primary")
+                yield Button("Post", id="post-record", variant="success")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -234,6 +375,18 @@ class RecordEditScreen(Screen[bool]):
         handler = handlers.get(event.button.id or "")
         if handler is not None:
             handler()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.has_class("editable-value"):
+            event.stop()
+            self.focus_next()
+
+    def on_lookup_field_open_requested(
+        self,
+        event: LookupField.OpenRequested,
+    ) -> None:
+        event.stop()
+        self._open_lookup(event.lookup)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         if event.data_table.id != "collection-records":
@@ -344,8 +497,10 @@ class RecordEditScreen(Screen[bool]):
         self,
         field: NormalizedField,
         value: Any,
-    ) -> Input | Select[Any] | Static:
-        if not self._field_is_editable(self.entity, field, self.session.original):
+        *,
+        editable: bool,
+    ) -> Editor | Static:
+        if not editable:
             return Static(
                 self._format_value(field, value),
                 id=f"value-{field.name}",
@@ -355,7 +510,7 @@ class RecordEditScreen(Screen[bool]):
         self._editors[field.name] = widget
         return widget
 
-    def _line_widget(self, field: NormalizedField) -> Input | Select[Any]:
+    def _line_widget(self, field: NormalizedField) -> Editor:
         widget = self._editable_widget(field, None, prefix="line")
         widget.disabled = not self._collection_is_editable()
         self._line_editors[field.name] = widget
@@ -367,28 +522,47 @@ class RecordEditScreen(Screen[bool]):
         value: Any,
         *,
         prefix: str,
-    ) -> Input | Select[Any]:
+    ) -> Editor:
         widget_id = f"{prefix}-{field.name}"
         field_type = field.metadata["type"]
         if field_type == "reference":
-            return Select(
+            if self._reference_editor(field.name, prefix) == "lookup":
+                return LookupField(
+                    value=value,
+                    display=self._reference_display(field, value),
+                    id=widget_id,
+                    classes="editable-value",
+                )
+            return FormSelect(
                 self._reference_options.get(field.name, ()),
                 value=value if value is not None else Select.NULL,
                 allow_blank=True,
                 id=widget_id,
+                classes="editable-value",
+                compact=True,
             )
         if field_type == "choice":
             options = tuple(
                 (str(choice).replace("_", " ").title(), choice)
                 for choice in field.metadata.get("choices", ())
             )
-            return Select(
+            return FormSelect(
                 options,
                 value=value if value is not None else Select.NULL,
                 allow_blank=True,
                 id=widget_id,
+                classes="editable-value",
+                compact=True,
             )
-        return Input(value=_input_text(value), id=widget_id)
+        input_type = DateInput if field_type == "date" else Input
+        editor = input_type(
+            value=_input_text(field, value),
+            id=widget_id,
+            classes="editable-value",
+        )
+        if field_type == "date":
+            editor.tooltip = "DD.MM.YYYY; use + or - to change one day"
+        return editor
 
     def _collect_form(self) -> bool:
         if self._selected_line is not None and self._collection_is_editable():
@@ -407,10 +581,11 @@ class RecordEditScreen(Screen[bool]):
         line = self.lines[index]
         for field_name, editor in self._line_editors.items():
             value = line.get(field_name)
-            if isinstance(editor, Select):
-                editor.value = value if value is not None else Select.NULL
-            else:
-                editor.value = _input_text(value)
+            self._set_editor_value(
+                self.collection_entity.field(field_name),
+                editor,
+                value,
+            )
         self._update_actions()
 
     def _refresh_lines(self, *, select: int | None = None) -> None:
@@ -432,20 +607,27 @@ class RecordEditScreen(Screen[bool]):
             self._select_line(select)
 
     def _clear_line_editors(self) -> None:
-        for editor in self._line_editors.values():
+        for field_name, editor in self._line_editors.items():
             if isinstance(editor, Select):
                 editor.value = Select.NULL
+            elif isinstance(editor, LookupField):
+                editor.set_selection(None, "")
             else:
                 editor.value = ""
 
     def _load_reference_options(self) -> None:
-        fields = [self.entity.field(name) for name in self.scalar_fields]
+        fields = [
+            (self.entity.field(name), "field") for name in self.scalar_fields
+        ]
         if self.collection_entity is not None:
             fields.extend(
-                self.collection_entity.field(name) for name in self.line_fields
+                (self.collection_entity.field(name), "line")
+                for name in self.line_fields
             )
-        for field in fields:
+        for field, prefix in fields:
             if field.metadata["type"] != "reference" or not field.target_entity:
+                continue
+            if self._reference_editor(field.name, prefix) == "lookup":
                 continue
             try:
                 page = self.records.query_page(
@@ -464,6 +646,138 @@ class RecordEditScreen(Screen[bool]):
             self._reference_records[field.name] = {
                 record[key]: record for record in page.records
             }
+
+    def _open_lookup(self, editor: LookupField) -> None:
+        prefix, field_name = _editor_identity(editor.id)
+        entity = self.entity if prefix == "field" else self.collection_entity
+        if entity is None:
+            return
+        if prefix == "line" and self._selected_line is None:
+            self._set_message("Add or select a line before choosing a lookup value.")
+            return
+        field = entity.field(field_name)
+        lookup_name = self._reference_lookup_view(field, prefix)
+        if lookup_name is None or lookup_name not in self.model.views:
+            self._set_message(f"No lookup view is configured for {_field_label(field)}.")
+            return
+
+        self.app.push_screen(
+            LookupScreen(
+                self.model,
+                self.records,
+                self.context,
+                self.model.views[lookup_name],
+            ),
+            lambda result: self._lookup_selected(editor, entity, field, prefix, result),
+        )
+
+    def _lookup_selected(
+        self,
+        editor: LookupField,
+        entity: NormalizedEntity,
+        field: NormalizedField,
+        prefix: str,
+        selected: dict[str, Any] | None,
+    ) -> None:
+        if selected is None or field.target_entity is None:
+            return
+        target = self.model.entity(field.target_entity)
+        identity = selected[_primary_key(target)]
+        editors = self._editors if prefix == "field" else self._line_editors
+        if prefix == "field":
+            draft = deepcopy(self.session.values)
+        else:
+            if self._selected_line is None:
+                return
+            draft = deepcopy(self.lines[self._selected_line])
+        for name, draft_editor in editors.items():
+            draft[name] = _editor_value(entity.field(name), draft_editor)
+        try:
+            updated = self.records.apply_reference_selection(
+                entity.name,
+                field.name,
+                draft,
+                identity,
+                self.context,
+            )
+        except TideRuntimeError as error:
+            self._show_error(error, prefix="Lookup selection failed")
+            return
+
+        assigned = {field.name, *field.metadata.get("on_select", {}).get("assign", {})}
+        for name in assigned:
+            destination_editor = editors.get(name)
+            if destination_editor is None:
+                continue
+            display = (
+                _record_title(target, selected)
+                if name == field.name and isinstance(destination_editor, LookupField)
+                else None
+            )
+            self._set_editor_value(
+                entity.field(name),
+                destination_editor,
+                updated.get(name),
+                display=display,
+            )
+        _preview_computed_fields(entity, updated)
+        self._set_message(
+            f"{_record_title(target, selected)} selected; initial values applied."
+        )
+
+    def _set_editor_value(
+        self,
+        field: NormalizedField,
+        editor: Editor,
+        value: Any,
+        *,
+        display: str | None = None,
+    ) -> None:
+        if isinstance(editor, Select):
+            editor.value = value if value is not None else Select.NULL
+        elif isinstance(editor, LookupField):
+            editor.set_selection(
+                value,
+                display if display is not None else self._reference_display(field, value),
+            )
+        else:
+            editor.value = _input_text(field, value)
+
+    def _reference_editor(self, field_name: str, prefix: str) -> str:
+        configuration = self._reference_configuration(field_name, prefix)
+        return str(configuration.get("editor", "select"))
+
+    def _reference_lookup_view(
+        self,
+        field: NormalizedField,
+        prefix: str,
+    ) -> str | None:
+        configuration = self._reference_configuration(field.name, prefix)
+        value = configuration.get("lookup_view", field.metadata.get("lookup_view"))
+        return str(value) if value else None
+
+    def _reference_configuration(
+        self,
+        field_name: str,
+        prefix: str,
+    ) -> Mapping[str, Any]:
+        view = self.view if prefix == "field" else self.inline_view
+        if view is None:
+            return {}
+        configuration = view.data.get("fields", {}).get(field_name, {})
+        return configuration if isinstance(configuration, Mapping) else {}
+
+    def _reference_display(self, field: NormalizedField, value: Any) -> str:
+        if value is None or value is PROTECTED or not field.target_entity:
+            return ""
+        related = self._reference_records.get(field.name, {}).get(value)
+        if related is None:
+            try:
+                related = self.records.get(field.target_entity, value, self.context)
+            except TideRuntimeError:
+                return "Protected"
+            self._reference_records.setdefault(field.name, {})[value] = related
+        return _record_title(self.model.entity(field.target_entity), related)
 
     def _field_is_editable(
         self,
@@ -537,14 +851,15 @@ class RecordEditScreen(Screen[bool]):
                     values[self.collection_name] = deepcopy(self.lines)
                 can_post = can_post and bool(evaluate_expression(condition, values))
         self.query_one("#post-record", Button).disabled = not can_post
-        collection_editable = self._collection_is_editable()
-        self.query_one("#add-line", Button).disabled = not collection_editable
-        self.query_one("#apply-line", Button).disabled = (
-            not collection_editable or self._selected_line is None
-        )
-        self.query_one("#remove-line", Button).disabled = (
-            not collection_editable or self._selected_line is None
-        )
+        if self.collection_name is not None:
+            collection_editable = self._collection_is_editable()
+            self.query_one("#add-line", Button).disabled = not collection_editable
+            self.query_one("#apply-line", Button).disabled = (
+                not collection_editable or self._selected_line is None
+            )
+            self.query_one("#remove-line", Button).disabled = (
+                not collection_editable or self._selected_line is None
+            )
 
     def _show_validation(self, error: ValidationFailed) -> None:
         messages = "; ".join(issue.message for issue in error.issues)
@@ -580,6 +895,23 @@ def _form_fields(view: ResolvedView, entity: NormalizedEntity) -> tuple[str, ...
     return tuple(result)
 
 
+def _field_columns(
+    field_names: tuple[str, ...],
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Keep the visual rows while composing focusable fields column-first."""
+
+    return field_names[::2], field_names[1::2]
+
+
+def _editor_identity(widget_id: str | None) -> tuple[str, str]:
+    value = widget_id or ""
+    for prefix in ("field", "line"):
+        marker = f"{prefix}-"
+        if value.startswith(marker):
+            return prefix, value.removeprefix(marker)
+    raise ValueError(f"unknown form editor id {value!r}")
+
+
 def _collection_view(
     model: ApplicationModel,
     view: ResolvedView,
@@ -608,16 +940,19 @@ def select_form_view(
     )
 
 
-def _editor_value(field: NormalizedField, editor: Input | Select[Any]) -> Any:
+def _editor_value(field: NormalizedField, editor: Editor) -> Any:
     if isinstance(editor, Select):
         return None if editor.value is Select.NULL else editor.value
+    if isinstance(editor, LookupField):
+        return editor.value
     raw = editor.value.strip()
     if raw == "" and not field.metadata.get("required"):
         return None
     field_type = field.metadata["type"]
     try:
         if field_type == "date":
-            return date.fromisoformat(raw)
+            parsed = _parse_date(raw)
+            return parsed if parsed is not None else raw
         if field_type == "datetime":
             return datetime.fromisoformat(raw)
         if field_type == "integer":
@@ -662,12 +997,36 @@ def _preview_computed_fields(
             break
 
 
-def _input_text(value: Any) -> str:
+def _input_text(field: NormalizedField, value: Any) -> str:
     if value is None or value is PROTECTED:
         return ""
-    if isinstance(value, date):
+    if isinstance(value, datetime):
         return value.isoformat()
+    if isinstance(value, date):
+        return (
+            _format_date(value)
+            if field.metadata.get("format") == "local_date"
+            else value.isoformat()
+        )
     return str(value)
+
+
+def _parse_date(value: str) -> date | None:
+    candidate = value.strip()
+    for parser in (
+        date.fromisoformat,
+        lambda source: datetime.strptime(source, "%d.%m.%Y").date(),
+        lambda source: datetime.strptime(source, "%d/%m/%Y").date(),
+    ):
+        try:
+            return parser(candidate)
+        except ValueError:
+            continue
+    return None
+
+
+def _format_date(value: date) -> str:
+    return value.strftime("%d.%m.%Y")
 
 
 def _primary_key(entity: NormalizedEntity) -> str:

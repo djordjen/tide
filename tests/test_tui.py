@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from tide.tui import (
     seed_demo_data,
 )
 from tide.tui.form import RecordEditScreen
+from tide.tui.lookup import LookupField, LookupScreen
 
 ROOT = Path(__file__).parents[1]
 INVOICING = ROOT / "applications" / "invoicing"
@@ -162,9 +164,18 @@ def test_textual_invoice_edit_saves_header_and_line_transactionally() -> None:
             screen = app.screen
             assert isinstance(screen, RecordEditScreen)
             assert screen.session.identity == 2
-            assert screen.query_one("#field-invoice_date", Input).value == "2026-07-03"
-            assert screen.query_one("#collection-records", DataTable).row_count == 1
+            assert screen.query_one("#field-invoice_date", Input).value == "03.07.2026"
+            line_table = screen.query_one("#collection-records", DataTable)
+            line_fields = screen.query_one("#line-fields")
+            line_actions = screen.query_one("#line-actions")
+            record_actions = screen.query_one("#record-actions")
+            assert line_table.row_count == 1
+            assert line_table.region.height > 12
+            assert line_table.region.y < line_fields.region.y < line_actions.region.y
+            assert line_actions.region.y == record_actions.region.y
+            assert line_actions.region.x < record_actions.region.x
 
+            screen.query_one("#field-invoice_date", Input).value = "01.07.2026"
             screen.query_one("#field-currency", Input).value = "USD"
             screen.query_one("#line-quantity", Input).value = "3"
             screen.action_apply_line()
@@ -174,12 +185,135 @@ def test_textual_invoice_edit_saves_header_and_line_transactionally() -> None:
             await pilot.pause()
 
             stored = app.records.repository.get("sales.Invoice", 2)
+            assert stored["invoice_date"] == date(2026, 7, 1)
             assert stored["currency"] == "USD"
             assert stored["lines"][0]["quantity"] == Decimal("3")
             assert stored["lines"][0]["total"] == Decimal("720.00")
             assert stored["total"] == Decimal("720.00")
             assert stored["version"] == 2
             assert not isinstance(app.screen, RecordEditScreen)
+
+    asyncio.run(exercise())
+
+
+def test_textual_form_focuses_columns_and_enter_advances() -> None:
+    app = _demo_app(page_size=3)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.open_record(2)
+            await pilot.pause()
+
+            screen = app.screen
+            assert isinstance(screen, RecordEditScreen)
+            assert screen.focused is not None
+            assert screen.focused.id == "field-customer"
+
+            await pilot.press("tab")
+            assert screen.focused is not None
+            assert screen.focused.id == "field-invoice_date"
+            await pilot.press("tab")
+            assert screen.focused is not None
+            assert screen.focused.id == "field-currency"
+
+            line_number = screen.query_one("#line-line_number", Input)
+            line_number.focus()
+            for expected_id in (
+                "line-description",
+                "line-unit_price",
+                "line-product",
+                "line-quantity",
+            ):
+                await pilot.press("tab")
+                assert screen.focused is not None
+                assert screen.focused.id == expected_id
+
+            invoice_date = screen.query_one("#field-invoice_date", Input)
+            invoice_date.focus()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert screen.focused is not None
+            assert screen.focused.id == "field-currency"
+
+            customer = screen.query_one("#field-customer", Select)
+            customer.focus()
+            await pilot.press("enter")
+            assert not customer.expanded
+            assert screen.focused is not None
+            assert screen.focused.id == "field-invoice_date"
+
+            customer.focus()
+            await pilot.press("space")
+            assert customer.expanded
+            await pilot.press("up", "enter")
+            await pilot.pause()
+            assert not customer.expanded
+            assert screen.focused is not None
+            assert screen.focused.id == "field-customer"
+            assert customer.value == 1
+
+    asyncio.run(exercise())
+
+
+def test_textual_product_lookup_search_and_selection_defaults() -> None:
+    app = _demo_app(page_size=3)
+
+    matches = app.records.lookup_records(
+        "catalog.Product",
+        ("code", "name"),
+        "PRIORITY",
+        app.context,
+    )
+    assert [record["code"] for record in matches] == ["SUP"]
+    selected = app.records.apply_reference_selection(
+        "sales.InvoiceLine",
+        "product",
+        {"description": "Old description", "unit_price": Decimal("1.00")},
+        3,
+        app.context,
+    )
+    assert selected["product"] == 3
+    assert selected["description"] == "Annual license"
+    assert selected["unit_price"] == Decimal("1200.00")
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.open_record(2)
+            await pilot.pause()
+            form = app.screen
+            assert isinstance(form, RecordEditScreen)
+
+            product = form.query_one("#line-product", LookupField)
+            product.focus()
+            await pilot.press("space")
+            await pilot.pause()
+
+            lookup = app.screen
+            assert isinstance(lookup, LookupScreen)
+            results = lookup.query_one("#lookup-results", DataTable)
+            assert len(results.columns) == 3
+            assert results.row_count == 3
+
+            search = lookup.query_one("#lookup-search", Input)
+            search.value = "annual"
+            await pilot.pause()
+            assert results.row_count == 1
+            assert results.get_row_at(0) == ["LIC", "Annual license", "1,200.00"]
+
+            search.focus()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.screen is form
+            assert product.value == 3
+            assert form.query_one("#line-description", Input).value == "Annual license"
+            assert form.query_one("#line-unit_price", Input).value == "1200.00"
+
+            form.action_apply_line()
+            assert form.query_one("#collection-records", DataTable).get_row_at(0)[
+                -1
+            ] == "2,400.00"
 
     asyncio.run(exercise())
 
@@ -222,10 +356,23 @@ def test_textual_invoice_create_uses_generator_and_inline_line_editor() -> None:
             assert isinstance(screen, RecordEditScreen)
             assert screen.session.is_new
 
-            screen.query_one("#field-invoice_date", Input).value = "2026-07-20"
+            date_editor = screen.query_one("#field-invoice_date", Input)
+            assert date_editor.value == date.today().strftime("%d.%m.%Y")
+            date_editor.focus()
+            await pilot.press("plus")
+            assert date_editor.value == (date.today() + timedelta(days=1)).strftime(
+                "%d.%m.%Y"
+            )
+            await pilot.press("minus")
+            assert date_editor.value == date.today().strftime("%d.%m.%Y")
+
+            date_editor.value = "20.07.2026"
             screen.query_one("#field-customer", Select).value = 1
             screen.action_add_line()
-            screen.query_one("#line-product", Select).value = 1
+            screen.query_one("#line-product", LookupField).set_selection(
+                1,
+                "CONS - Consulting hour",
+            )
             screen.query_one("#line-description", Input).value = "Created in Textual"
             screen.query_one("#line-quantity", Input).value = "2.5"
             screen.query_one("#line-unit_price", Input).value = "85.00"
@@ -235,6 +382,7 @@ def test_textual_invoice_create_uses_generator_and_inline_line_editor() -> None:
 
             stored = app.records.repository.get("sales.Invoice", 9)
             assert stored["number"] == "INV-2026-000009"
+            assert stored["invoice_date"] == date(2026, 7, 20)
             assert stored["status"] == "draft"
             assert stored["customer"] == 1
             assert stored["total"] == Decimal("212.50")
@@ -255,6 +403,10 @@ def test_textual_posted_invoice_is_readonly() -> None:
             screen = app.screen
             assert isinstance(screen, RecordEditScreen)
             assert not screen.query("#field-invoice_date")
+            assert screen.query_one("#value-invoice_date", Static).has_class(
+                "readonly-value"
+            )
+            assert len(screen.query(".readonly-label")) >= 1
             assert screen.query_one("#save-form", Button).disabled
             assert screen.query_one("#post-record", Button).disabled
             assert screen.query_one("#add-line", Button).disabled

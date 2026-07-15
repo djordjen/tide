@@ -37,7 +37,14 @@ refresh, clickable navigation, metadata forms, typed reference selectors,
 master-detail editing, create/save/post actions, immutable states, and stale
 commit feedback. Browse coverage also includes incremental search, metadata
 filters, query-reset behavior, and ascending/descending sort controls. This is
-the automated floor, not certification of the wider terminal matrix.
+the automated floor, not certification of the wider terminal matrix. Form
+controls use single-row compact rendering; editable versus read-only state is
+communicated through both color and italic styling, rather than color alone.
+Form focus tests require column-first traversal (left top-to-bottom, then right
+top-to-bottom), Enter-to-advance behavior, and normal keyboard operation inside
+selection overlays. Reference lookup coverage includes modal multi-column
+tables, incremental case-insensitive search, keyboard selection, and
+selection-driven draft values.
 
 SSH tests should include noticeable latency and interrupted connections.
 `RecordSession` retains unsaved edits until the user explicitly cancels or the

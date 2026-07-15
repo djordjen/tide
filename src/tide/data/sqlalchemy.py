@@ -836,6 +836,8 @@ def _filter_predicate(
         return column >= value
     if condition.operator == "contains":
         return column.contains(value)
+    if condition.operator == "icontains":
+        return func.lower(column).contains(value.casefold())
     raise ValueError(f"unsupported filter operator {condition.operator!r}")
 
 

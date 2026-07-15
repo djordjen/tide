@@ -28,6 +28,8 @@ The runtime currently provides:
 - SQL-independent row-policy evaluation for the in-memory adapter;
 - field read/write policies and a typed `ProtectedValue` sentinel;
 - create, get, query, begin-edit, commit, and rollback;
+- model-owned literal defaults and a typed `today` date default factory applied
+  when a create session opens;
 - typed value coercion at the service boundary: decimal fields accept int,
   float, and numeric string inputs and always store `decimal.Decimal`; other
   scalar types are strictly checked; reference identities are checked against

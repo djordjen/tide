@@ -28,6 +28,7 @@ fields:
   invoice_date:
     type: date
     required: true
+    default_factory: today
     format: local_date
     immutable_when: "status != 'draft'"
 
