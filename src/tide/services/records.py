@@ -11,7 +11,7 @@ from typing import Any, Callable, Mapping
 
 from tide.compiler.expressions import evaluate_expression
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity
-from tide.data.memory import InMemoryRepository
+from tide.data.repository import Repository
 from tide.runtime.context import RequestContext
 from tide.runtime.errors import (
     AuthorizationError,
@@ -49,14 +49,14 @@ class QuerySpec:
     limit: int = 100
 
 
-Generator = Callable[[dict[str, Any], RequestContext, InMemoryRepository], Any]
+Generator = Callable[[dict[str, Any], RequestContext, Repository], Any]
 
 
 class RecordsService:
     def __init__(
         self,
         model: ApplicationModel,
-        repository: InMemoryRepository,
+        repository: Repository,
         security: SecurityEngine | None = None,
     ) -> None:
         self.model = model

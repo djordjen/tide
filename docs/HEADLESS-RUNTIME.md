@@ -1,10 +1,10 @@
 # Headless Runtime
 
-**Status: Executable in-memory contract slice.**
+**Status: Executable in-memory and SQLite persistence contract slices.**
 
-The first application-service implementation runs without Textual, FastAPI, or
-SQLAlchemy. It exists to prove editing, security, validation, actions, and
-concurrency before persistence and presentation adapters are introduced.
+The application-service implementation runs without Textual or FastAPI. The
+same service boundary now operates against an in-memory contract adapter or a
+synchronous SQLAlchemy Core repository.
 
 ## Implemented boundary
 
@@ -16,7 +16,9 @@ RecordsService / ActionService
           |
  security | validation | computed fields | version checks
           v
-RecordSession -> InMemoryRepository
+RecordSession -> Repository protocol
+                    |-> InMemoryRepository
+                    `-> SQLAlchemyRepository
 ```
 
 The runtime currently provides:
@@ -42,6 +44,16 @@ The runtime currently provides:
 - idempotency-key binding and reauthorization on replay;
 - bounded, allow-listed filtering and deterministic sorting.
 
+The initial SQLAlchemy repository additionally provides:
+
+- explicit managed-schema creation for SQLite;
+- deterministic table, scalar-column, and reference-column mapping;
+- transactional master-detail inserts, updates, and orphan deletion;
+- database-backed reference checks and exact decimal round trips;
+- atomic integer optimistic-concurrency updates;
+- legacy table/schema/column mappings with compatibility inspection;
+- an executable no-DDL guard for legacy mode.
+
 ## Example
 
 ```python
@@ -59,6 +71,16 @@ session = records.create("sales.Invoice", context, values)
 invoice = records.commit(session, context)
 ```
 
+For managed SQLite persistence, schema creation is deliberately separate from
+construction:
+
+```python
+repository = SQLAlchemyRepository(model, "sqlite:///invoicing.db")
+repository.create_schema()  # refused when database.mode is legacy
+repository.validate_schema()
+records = RecordsService(model, repository)
+```
+
 Actions are registered by their statically validated metadata reference. The
 compiler parses handler modules to confirm that a top-level function exists but
 does not import or execute application code.
@@ -70,15 +92,17 @@ or sorting on a field the principal cannot read is rejected. Idempotency replay
 reauthorizes and reprojects the record under the current principal rather than
 returning a cached serialization that could outlive a permission change.
 
-Row policies are evaluated in memory only for this adapter. The SQLAlchemy
-adapter must translate the same validated expression into the database query;
-loading unauthorized rows and filtering them afterward is not acceptable for
-persistent deployments.
+Row policies and user filters are still evaluated by the service after calling
+the repository's bounded in-process query path. The next SQL slice must
+translate the same validated expressions into SQL and apply paging there.
+Until that lands, the SQLAlchemy repository is not approved for persistent
+deployments that depend on row-policy isolation; loading unauthorized rows and
+filtering them afterward is not an acceptable production boundary.
 
 ## Deliberate limitations
 
-The in-memory repository is a test adapter, not durable production storage. It
-does not provide cross-process locks, migrations, database-generated numbering,
-audit persistence, cursor pagination, warning confirmation, or async handlers.
-These belong in the subsequent SQLite/SQLAlchemy slice while the service
-contracts remain stable.
+The in-memory repository remains a test adapter. The SQLAlchemy slice does not
+yet provide SQL row-policy/filter translation, Alembic migrations,
+race-resistant business numbering, durable audit/idempotency storage, cursor
+pagination, warning confirmation, or async handlers. These remain required
+before production readiness.

@@ -79,9 +79,10 @@ Adapters may provide transport concerns such as HTTP serialization or terminal
 focus management. They may not reimplement validation, permission checks,
 transactions, or lifecycle hooks.
 
-The initial executable implementation uses an `InMemoryRepository` behind these
-services. It is a contract test adapter: the subsequent SQLAlchemy adapter must
-preserve the same outcomes, errors, policy behavior, and version semantics.
+The executable implementation defines a structural `Repository` protocol.
+`InMemoryRepository` remains the fast contract-test adapter, while
+`SQLAlchemyRepository` supplies synchronous SQLAlchemy Core persistence without
+leaking SQLAlchemy sessions into application services.
 
 The SQLAlchemy boundary supports two schema-ownership modes. `managed` maps a
 TIDE-owned schema whose reviewed migrations may be executed explicitly.
@@ -89,6 +90,11 @@ TIDE-owned schema whose reviewed migrations may be executed explicitly.
 inspection and normal secured data operations, and rejects all DDL and
 migration entry points. Both modes use the same repository and service
 conformance suite.
+
+Repository construction never changes a schema. Managed creation is an
+explicit call; legacy creation is rejected. Query predicate and row-policy SQL
+translation remains the next persistence boundary and is required before the
+adapter is production-ready.
 
 ## Request context
 

@@ -59,10 +59,12 @@ detection, source-located diagnostics, project path confinement, cross-file
 relationship and view resolution, safe expression validation, computed-cycle
 detection, JSON Schema export, and immutable normalized model output.
 
-The headless runtime adds secured record/query/action services, an in-memory
-repository, `RecordSession`, computed master-detail values, field protection,
-validation, action-owned state, idempotency, and optimistic concurrency. It is
-the executable contract for the later SQLAlchemy and Textual adapters.
+The headless runtime adds secured record/query/action services, a repository
+protocol with in-memory and synchronous SQLAlchemy Core implementations,
+`RecordSession`, computed master-detail values, field protection, validation,
+action-owned state, idempotency, and optimistic concurrency. Managed SQLite
+schema creation and legacy no-DDL mappings are executable; SQL predicate and
+row-policy pushdown remain before persistent production use.
 
 ## Repository layout
 
@@ -137,9 +139,9 @@ tide report preview sales.invoice
 
 Milestones 0 and 1 are substantially implemented, and the secured application
 core is in progress. The v0.1 compiler, resolved-view provenance, typed
-expressions, headless services, in-memory `RecordSession`, tests, and executable
-invoicing workflow are implemented. SQLAlchemy persistence, Textual, REST, MCP,
-and report rendering remain roadmap work.
+expressions, headless services, in-memory and SQLite repositories, tests, and
+executable invoicing workflow are implemented. SQL query/policy translation,
+Textual, REST, MCP, migrations, and report rendering remain roadmap work.
 
 Metadata v0.1 is an executable experimental contract. Breaking authoring
 changes require a new `schema_version`; stable 1.0 compatibility is not yet

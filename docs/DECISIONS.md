@@ -46,6 +46,7 @@ decision was first recorded, not when implementation was completed.
 | 2026-07-14 | Actions fail closed unless they declare a permission or explicitly set `unrestricted: true`; omission is `TIDE226`. | Accidentally omitting metadata must never grant mutation authority to every principal with record read access. |
 | 2026-07-14 | Reference values are normalized against the target primary-key type and checked for existence before commit. | The in-memory contract must reject broken relationships before the SQL adapter adds database foreign-key enforcement. |
 | 2026-07-15 | Database ownership is explicit: `managed` permits reviewed TIDE migrations, while `legacy` maps externally owned tables and columns under a hard no-DDL rule. | Existing third-party schemas must be usable without risking an implicit create, alter, drop, or migration operation. |
+| 2026-07-15 | The first durable repository uses synchronous SQLAlchemy Core tables generated from the normalized model, not ORM domain classes. Construction never emits DDL; managed creation is explicit and legacy creation is refused. | Services already operate on typed dictionaries and `RecordSession`; Core preserves that boundary and makes schema authority visible. |
 
 ## Open decisions
 

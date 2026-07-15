@@ -1,6 +1,6 @@
 # Query and Concurrency Contract
 
-**Status: Accepted direction; runtime implementation pending.**
+**Status: Structured query and optimistic concurrency partially implemented.**
 
 ## Query shape
 
@@ -18,6 +18,12 @@ Relationship expansion is allow-listed and depth/size bounded. Counts, totals,
 exports, and relationship loads apply the same row and field policies as the
 root query. Adapters may impose smaller limits but may not bypass core limits.
 
+The current service validates filters, applies deterministic primary-key
+tie-breaking, and bounds result counts. The in-memory adapter evaluates the
+query locally. The initial SQLAlchemy adapter still uses that path; SQL
+predicate, row-policy, ordering, and paging translation are the next required
+slice.
+
 ## Mutation preconditions
 
 An entity exposed for update or delete must have a concurrency token. Generated
@@ -30,6 +36,10 @@ payloads. Missing, stale, null, and protected values are distinct states.
 
 Initial conflict handling reports the current version and the fields that can
 be safely disclosed. Interactive field-by-field merge remains a later feature.
+
+Integer expected-version comparison and increment are executable in both the
+in-memory and SQLAlchemy repositories. SQLAlchemy performs the comparison in
+the `UPDATE` predicate so a stale mutation cannot overwrite the current row.
 
 ## Idempotency
 
@@ -47,4 +57,3 @@ Transport errors map from stable application errors: invalid query, validation
 failure, forbidden, not found, precondition required, stale version, and action
 conflict. Public errors include a correlation identifier and safe field paths;
 they never echo protected values or internal SQL details.
-

@@ -6,8 +6,8 @@ features. Designers and alternative renderers follow stable model contracts.
 ## Milestone 0 - Contracts and skeleton
 
 Status: **in progress**. The package, CLI, typed v0.1 sources, project discovery,
-strict diagnostics, tests, and compiler-ready invoicing fixture are implemented.
-The Textual, SQLite, and developer MCP skeletons remain.
+strict diagnostics, tests, compiler-ready invoicing fixture, and managed SQLite
+schema/persistence skeleton are implemented. Textual and developer MCP remain.
 
 - living architecture documentation and decision log;
 - Python package, CLI, configuration, and test skeleton;
@@ -44,10 +44,11 @@ InvoiceLine, including references and calculated line totals.
 ## Milestone 2 - Secured application core
 
 Status: **in progress**. `RequestContext`, principals, role/permission expansion,
-row and field policies, `ProtectedValue`, in-memory query/record services,
-`RecordSession`, validation, stored master-detail computation, action execution,
-idempotency, and optimistic concurrency are implemented. SQLAlchemy, durable
-audit, and OpenAPI preview remain.
+row and field policies, `ProtectedValue`, query/record services, `RecordSession`,
+validation, stored master-detail computation, action execution, idempotency,
+optimistic concurrency, managed SQLite persistence, and legacy no-DDL mapping
+are implemented. SQL query/policy translation, durable audit/idempotency, and
+OpenAPI preview remain.
 
 - query and record application services;
 - `RequestContext` and principal abstraction;

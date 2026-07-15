@@ -1,6 +1,6 @@
 # Legacy Databases
 
-**Status: Compiler mapping contract implemented; SQLAlchemy adapter pending.**
+**Status: Initial compiler and SQLAlchemy Core adapter implemented.**
 
 Legacy mode lets a TIDE application use tables owned by another product or
 team without changing their structure. It is intended for existing databases,
@@ -24,10 +24,12 @@ Legacy mode imposes a hard no-DDL rule. The persistence adapter must not call
 other schema-changing statements. Database connection URLs and credentials
 remain deployment configuration and are not stored in portable metadata.
 
-At startup, the adapter will inspect the connected schema and compare it with
-the compiled mapping. Missing objects, incompatible types, nullability that
-cannot satisfy TIDE writes, and unsupported key shapes fail startup with
-diagnostics. Inspection never repairs the database automatically.
+The adapter's `validate_schema()` method inspects the connected schema and
+compares it with the compiled mapping. Missing objects, incompatible type
+families or capacities, nullability that cannot satisfy TIDE writes, unmapped
+required columns, and unsupported key shapes fail with structured issues.
+Inspection never repairs the database automatically; deployment startup must
+call this validation before becoming ready.
 
 ## Explicit physical mapping
 
@@ -66,6 +68,18 @@ are navigation or runtime values and have no column mapping.
 The compiler requires explicit mappings in legacy mode. This prevents a naming
 convention change from silently selecting the wrong table or column.
 
+Construction and validation are explicit:
+
+```python
+model = compile_project("applications/legacy-crm")
+repository = SQLAlchemyRepository(model, deployment_database_url)
+repository.validate_schema()
+records = RecordsService(model, repository)
+```
+
+Constructing the repository emits no DDL. Calling `create_schema()` in legacy
+mode raises `SchemaManagementError` before issuing SQL.
+
 ## Schema commands
 
 Database commands have different authority by mode:
@@ -88,10 +102,14 @@ keys, database-generated key strategies, writable database views, stored
 procedure mappings, trigger-driven refresh, and unusual vendor types need
 explicit contracts before they can be claimed as supported.
 
-The first adapter will prove the contract with SQLite and then PostgreSQL.
-Other existing databases can be added through tested SQLAlchemy dialects;
+The adapter and no-DDL behavior are currently proven with SQLite. PostgreSQL is
+next. Other existing databases can be added through tested SQLAlchemy dialects;
 support will be stated per dialect instead of assuming that every third-party
 dialect has identical reflection, transaction, and type behavior.
+
+SQL row-policy and filter translation is not implemented yet. Legacy mode must
+not be used as a production row-security boundary until predicates and paging
+are pushed into database queries.
 
 A later `tide db inspect` command may propose TIDE metadata from an existing
 schema. Generated proposals will remain reviewable source files and will never
