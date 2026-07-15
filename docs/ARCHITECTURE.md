@@ -96,8 +96,9 @@ Repository construction never changes a schema. Managed creation is an
 explicit call; legacy creation is rejected. Root structured filters, direct
 and reference-path policies, single-collection aggregates, ordering, and limits
 translate to bound SQL and are checked for adapter support before deployment
-readiness. Policy-aware relationship expansion and multiple-collection
-translation remain required before the adapter is production-ready.
+readiness. Bounded collection hydration applies source-field, target-entity,
+and target-row authorization before projection. Multiple-collection policy
+translation remains required before the adapter is production-ready.
 
 ## Request context
 

@@ -73,6 +73,8 @@ SQLAlchemy MSSQL dialect. It covers:
 - parameterized filters, deterministic null ordering, SQL Server `TOP` limits,
   and bound lexicographic keyset boundaries;
 - direct, reference-path, and single-collection aggregate row policies;
+- bounded collection hydration with target-row predicates and no requirement
+  for MARS;
 - SQL Server-specific `LEN` and date-only `today()` rendering;
 - optimistic update predicates without invalid `IS 1` boolean syntax.
 
@@ -99,8 +101,8 @@ connections.
 
 The fixture refuses to run if any mapped TIDE table already exists. It tests
 schema creation/reflection, identity retrieval, Unicode and decimal round
-trips, relationship aggregate policy SQL, keyset page boundaries, and
-optimistic concurrency, then removes only the tables it created.
+trips, relationship aggregate and hydration policy SQL, keyset page boundaries,
+and optimistic concurrency, then removes only the tables it created.
 
 For legacy mode, `create_schema()` remains forbidden regardless of dialect.
 Compatibility inspection and normal bound data operations may run against an

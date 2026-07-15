@@ -51,11 +51,13 @@ are implemented. Root SQL filters, ordering, limits, reference paths, and
 single-collection aggregate row-policy translation are also implemented. SQL
 Server dialect compilation and an opt-in live integration harness establish the
 first multi-user target. Opaque, principal-bound keyset pagination is
-implemented across both repositories. Policy-aware relationship expansion,
-durable audit/idempotency, a shared cursor store, and OpenAPI preview remain.
+implemented across both repositories. Policy-aware, bounded collection
+hydration is also implemented. Durable audit/idempotency, a shared cursor
+store, and OpenAPI preview remain.
 
 - query and record application services;
 - deterministic keyset pagination and opaque continuation cursor contracts;
+- source-field, target-entity, and target-row secured collection hydration;
 - `RequestContext` and principal abstraction;
 - entity, row, field, and action policy interfaces;
 - threat-model regression tests and cross-adapter authorization scenarios;

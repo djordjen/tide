@@ -53,6 +53,15 @@ class InvalidQueryCursor(TideRuntimeError):
         super().__init__("query cursor is invalid or expired")
 
 
+class RelationshipExpansionLimit(TideRuntimeError):
+    code = "relationship_expansion_limit"
+
+    def __init__(self, relationship: str, limit: str) -> None:
+        self.relationship = relationship
+        self.limit = limit
+        super().__init__(f"relationship {relationship!r} exceeds the {limit} limit")
+
+
 @dataclass(frozen=True, slots=True)
 class ValidationIssue:
     rule: str

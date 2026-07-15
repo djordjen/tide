@@ -41,6 +41,12 @@ be loaded and then filtered by a TUI widget or serializer. Query services apply
 row policies to lists, lookups, reports, relationships, aggregates, REST, and
 MCP consistently.
 
+Collection relationships require source-field read access and target-entity
+read access. Target row criteria are part of the child database statement and
+supported root aggregate/reference predicates. The service rechecks returned
+children before projection; inaccessible target entities remain protected and
+are not hydrated by SQL repositories.
+
 ## Protected fields
 
 When a user may see a record but not a field, TIDE uses an internal sentinel:

@@ -110,8 +110,9 @@ identical reflection, transaction, identity, and type behavior.
 
 Root structured filters, direct/reference row policies, single-collection
 aggregates, ordering, and limits use bound SQL in legacy mode as well.
-Policy-aware relationship expansion and multiple-collection policies remain
-outside the implemented production boundary.
+Policy-aware collection hydration uses bound target-row predicates and performs
+no DDL. Multiple-collection policies remain outside the implemented production
+boundary.
 
 A later `tide db inspect` command may propose TIDE metadata from an existing
 schema. Generated proposals will remain reviewable source files and will never

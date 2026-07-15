@@ -4,17 +4,22 @@ from __future__ import annotations
 
 from copy import deepcopy
 from threading import RLock
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from tide.compiler.expressions import evaluate_expression
 from tide.data.repository import (
     QuerySpec,
+    RelationshipLoadPlan,
     RowPolicyMismatch,
     SortField,
     matches_filter,
     query_sort_key,
 )
-from tide.runtime.errors import ConcurrencyError, NotFoundError
+from tide.runtime.errors import (
+    ConcurrencyError,
+    NotFoundError,
+    RelationshipExpansionLimit,
+)
 
 
 class InMemoryRepository:
@@ -45,6 +50,7 @@ class InMemoryRepository:
         query: QuerySpec,
         *,
         row_criteria: tuple[str, ...] = (),
+        relationships: RelationshipLoadPlan | None = None,
     ) -> list[dict[str, Any]]:
         if query.cursor is not None:
             raise ValueError("opaque cursors must be resolved by RecordsService")
@@ -54,9 +60,15 @@ class InMemoryRepository:
             raise ValueError("query cursor boundary requires an effective sort")
         if query.after is not None and len(query.after) != len(query.sort):
             raise ValueError("query cursor boundary does not match the effective sort")
+        records = self.all(entity)
+        if relationships is not None:
+            records = [
+                _apply_relationship_plan(entity, record, relationships, depth=0)
+                for record in records
+            ]
         records = [
             record
-            for record in self.all(entity)
+            for record in records
             if all(bool(evaluate_expression(criteria, record)) for criteria in row_criteria)
         ]
         for condition in query.filters:
@@ -82,17 +94,26 @@ class InMemoryRepository:
         identity: Any,
         *,
         row_criteria: tuple[str, ...] = (),
+        relationships: RelationshipLoadPlan | None = None,
     ) -> dict[str, Any]:
         with self._lock:
             record = self._records.get(entity, {}).get(identity)
             if record is None:
                 raise NotFoundError(f"{entity} {identity!r} was not found")
+            result = deepcopy(record)
+            if relationships is not None:
+                result = _apply_relationship_plan(
+                    entity,
+                    result,
+                    relationships,
+                    depth=0,
+                )
             if not all(
-                bool(evaluate_expression(criteria, record))
+                bool(evaluate_expression(criteria, result))
                 for criteria in row_criteria
             ):
                 raise RowPolicyMismatch
-            return deepcopy(record)
+            return result
 
     def exists(self, entity: str, identity: Any) -> bool:
         with self._lock:
@@ -161,6 +182,49 @@ def _record_is_after(
             continue
         return value < boundary_value if sort.descending else value > boundary_value
     return False
+
+
+def _apply_relationship_plan(
+    entity: str,
+    record: dict[str, Any],
+    plan: RelationshipLoadPlan,
+    *,
+    depth: int,
+) -> dict[str, Any]:
+    result = deepcopy(record)
+    for load in plan.loads:
+        if load.source_entity != entity:
+            continue
+        relationship = f"{entity}.{load.field}"
+        source_items = result.get(load.field) or []
+        if not isinstance(source_items, (list, tuple)):
+            raise ValueError(f"relationship {relationship!r} is not a collection")
+        if not all(isinstance(item, Mapping) for item in source_items):
+            raise ValueError(f"relationship {relationship!r} contains an invalid record")
+        items = [
+            deepcopy(dict(item))
+            for item in source_items
+            if all(
+                bool(evaluate_expression(criteria, item))
+                for criteria in plan.criteria_for_entity(load.target_entity)
+            )
+        ]
+        if items and depth >= plan.max_depth:
+            raise RelationshipExpansionLimit(relationship, "depth")
+        if len(items) > plan.max_items:
+            raise RelationshipExpansionLimit(relationship, "item")
+        if load.order_by:
+            items.sort(key=lambda item: query_sort_key(item.get(load.order_by)))
+        result[load.field] = [
+            _apply_relationship_plan(
+                load.target_entity,
+                item,
+                plan,
+                depth=depth + 1,
+            )
+            for item in items
+        ]
+    return result
 
 
 def _null_rank(value: Any, descending: bool) -> int:

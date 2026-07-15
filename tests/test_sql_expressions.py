@@ -7,7 +7,12 @@ from pathlib import Path
 import pytest
 
 from tide import compile_project
-from tide.data import QueryTranslationError, SQLAlchemyRepository
+from tide.data import (
+    QuerySpec,
+    QueryTranslationError,
+    RelationshipLoadPlan,
+    SQLAlchemyRepository,
+)
 from tide.data.sql_expressions import translate_expression
 
 ROOT = Path(__file__).parents[1]
@@ -48,6 +53,43 @@ def test_sql_repository_preflights_collection_row_policy_translation() -> None:
 
     repository.validate_query_support()
 
+    repository.dispose()
+
+
+def test_sql_relationship_paths_include_target_read_criteria() -> None:
+    model = compile_project(INVOICING)
+    repository = SQLAlchemyRepository(model, "sqlite+pysqlite:///:memory:")
+    statement = repository._query_statement(
+        "sales.Invoice",
+        QuerySpec(),
+        row_criteria=("customer.name == 'ACME Ltd'",),
+        relationships=RelationshipLoadPlan(
+            entity_criteria=(("crm.Customer", ("active == true",)),),
+        ),
+    )
+    sql = str(statement).upper()
+
+    assert "TIDE_REL_1.ACTIVE = TRUE" in sql
+    repository.dispose()
+
+
+def test_nested_target_criteria_use_distinct_relationship_aliases() -> None:
+    model = compile_project(INVOICING)
+    repository = SQLAlchemyRepository(model, "sqlite+pysqlite:///:memory:")
+    statement = repository._query_statement(
+        "sales.Invoice",
+        QuerySpec(),
+        row_criteria=("count(lines) == 1",),
+        relationships=RelationshipLoadPlan(
+            entity_criteria=(
+                ("sales.InvoiceLine", ("product.active == true",)),
+            ),
+        ),
+    )
+    sql = str(statement).upper()
+
+    assert "SALES_INVOICE_LINE AS TIDE_REL_1" in sql
+    assert "CATALOG_PRODUCT AS TIDE_REL_1_POLICY_1" in sql
     repository.dispose()
 
 

@@ -34,12 +34,19 @@ class SecurityEngine:
         return permission is not None and permission in self.effective_permissions(context.principal)
 
     def authorize_entity(self, entity: NormalizedEntity, operation: str, context: RequestContext) -> None:
-        permissions = entity.metadata.get("permissions", {})
-        permission = permissions.get(operation)
-        if not self.has_permission(context, permission):
+        if not self.can_access_entity(entity, operation, context):
             raise AuthorizationError(
                 f"{context.principal.identifier!r} may not {operation} {entity.name}"
             )
+
+    def can_access_entity(
+        self,
+        entity: NormalizedEntity,
+        operation: str,
+        context: RequestContext,
+    ) -> bool:
+        permissions = entity.metadata.get("permissions", {})
+        return self.has_permission(context, permissions.get(operation))
 
     def authorize_action(self, entity: NormalizedEntity, action: Mapping[str, Any], context: RequestContext) -> None:
         if action.get("unrestricted") is True:

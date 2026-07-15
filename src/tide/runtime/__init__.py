@@ -6,6 +6,7 @@ from tide.runtime.errors import (
     ImmutableFieldError,
     InvalidQueryCursor,
     NotFoundError,
+    RelationshipExpansionLimit,
     ValidationFailed,
 )
 
@@ -18,6 +19,7 @@ __all__ = [
     "InvalidQueryCursor",
     "NotFoundError",
     "Principal",
+    "RelationshipExpansionLimit",
     "RequestContext",
     "ValidationFailed",
 ]

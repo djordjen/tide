@@ -39,9 +39,20 @@ from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.type_api import TypeEngine
 
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
-from tide.data.repository import FilterCondition, QuerySpec, RowPolicyMismatch, SortField
+from tide.data.repository import (
+    FilterCondition,
+    QuerySpec,
+    RelationshipLoadPlan,
+    RowPolicyMismatch,
+    SortField,
+)
 from tide.data.sql_expressions import QueryTranslationError, translate_expression
-from tide.runtime.errors import ConcurrencyError, NotFoundError, TideRuntimeError
+from tide.runtime.errors import (
+    ConcurrencyError,
+    NotFoundError,
+    RelationshipExpansionLimit,
+    TideRuntimeError,
+)
 
 
 class SchemaManagementError(TideRuntimeError):
@@ -187,6 +198,7 @@ class SQLAlchemyRepository:
             raise SchemaCompatibilityError(issues)
 
     def validate_query_support(self) -> None:
+        relationship_criteria = _model_read_criteria(self.model)
         for policy in self.model.row_policies:
             entity = self.model.entity(str(policy["entity"]))
             table = self.table(entity.name)
@@ -197,6 +209,7 @@ class SQLAlchemyRepository:
                     entity=entity,
                     columns=table.c,
                     tables=self._tables,
+                    relationship_criteria=relationship_criteria,
                 )
             except QueryTranslationError as error:
                 raise QueryTranslationError(
@@ -242,15 +255,26 @@ class SQLAlchemyRepository:
         query: QuerySpec,
         *,
         row_criteria: tuple[str, ...] = (),
+        relationships: RelationshipLoadPlan | None = None,
     ) -> list[dict[str, Any]]:
         statement = self._query_statement(
             entity,
             query,
             row_criteria=row_criteria,
+            relationships=relationships,
         )
         with self.engine.connect() as connection:
             rows = connection.execute(statement).mappings().all()
-            return [self._hydrate(connection, entity, row) for row in rows]
+            return [
+                self._hydrate(
+                    connection,
+                    entity,
+                    row,
+                    relationships=relationships,
+                    depth=0,
+                )
+                for row in rows
+            ]
 
     def _query_statement(
         self,
@@ -258,6 +282,7 @@ class SQLAlchemyRepository:
         query: QuerySpec,
         *,
         row_criteria: tuple[str, ...] = (),
+        relationships: RelationshipLoadPlan | None = None,
     ) -> Any:
         if query.cursor is not None:
             raise ValueError("opaque cursors must be resolved by RecordsService")
@@ -276,6 +301,7 @@ class SQLAlchemyRepository:
                 entity=normalized_entity,
                 columns=table.c,
                 tables=self._tables,
+                relationship_criteria=_plan_relationship_criteria(relationships),
             )
             for criteria in row_criteria
         ]
@@ -309,6 +335,7 @@ class SQLAlchemyRepository:
         identity: Any,
         *,
         row_criteria: tuple[str, ...] = (),
+        relationships: RelationshipLoadPlan | None = None,
     ) -> dict[str, Any]:
         with self.engine.connect() as connection:
             return self._get(
@@ -316,6 +343,7 @@ class SQLAlchemyRepository:
                 entity,
                 identity,
                 row_criteria=row_criteria,
+                relationships=relationships,
             )
 
     def exists(self, entity: str, identity: Any) -> bool:
@@ -402,6 +430,7 @@ class SQLAlchemyRepository:
                     entity=entity,
                     columns=table.c,
                     tables=self._tables,
+                    relationship_criteria=_model_read_criteria(self.model),
                 )
                 for policy in row_criteria
             ]
@@ -500,6 +529,7 @@ class SQLAlchemyRepository:
         identity: Any,
         *,
         row_criteria: tuple[str, ...] = (),
+        relationships: RelationshipLoadPlan | None = None,
     ) -> dict[str, Any]:
         entity = self.model.entity(entity_name)
         table = self.table(entity_name)
@@ -512,6 +542,7 @@ class SQLAlchemyRepository:
                 entity=entity,
                 columns=table.c,
                 tables=self._tables,
+                relationship_criteria=_plan_relationship_criteria(relationships),
             )
             for criteria in row_criteria
         )
@@ -524,13 +555,22 @@ class SQLAlchemyRepository:
             ).first() is not None:
                 raise RowPolicyMismatch
             raise NotFoundError(f"{entity_name} {identity!r} was not found")
-        return self._hydrate(connection, entity_name, row)
+        return self._hydrate(
+            connection,
+            entity_name,
+            row,
+            relationships=relationships,
+            depth=0,
+        )
 
     def _hydrate(
         self,
         connection: Connection,
         entity_name: str,
         row: Mapping[str, Any],
+        *,
+        relationships: RelationshipLoadPlan | None = None,
+        depth: int = 0,
     ) -> dict[str, Any]:
         entity = self.model.entity(entity_name)
         table = self.table(entity_name)
@@ -542,6 +582,15 @@ class SQLAlchemyRepository:
         for field_name, field in entity.fields.items():
             if field.metadata["type"] != "collection" or field.target_entity is None:
                 continue
+            load = (
+                relationships.for_field(entity_name, field_name)
+                if relationships is not None
+                else None
+            )
+            if relationships is not None and load is None:
+                values[field_name] = []
+                continue
+            relationship = f"{entity_name}.{field_name}"
             inverse_name = field.metadata.get("inverse")
             if not inverse_name:
                 values[field_name] = []
@@ -551,13 +600,50 @@ class SQLAlchemyRepository:
             statement = select(target_table).where(
                 target_table.c[inverse_name] == values[_primary_key(entity)]
             )
+            if load is not None:
+                if load.target_entity != target.name:
+                    raise ValueError(
+                        f"relationship load target for {relationship!r} does not match the model"
+                    )
+                relationship_predicates = [
+                    translate_expression(
+                        criteria,
+                        model=self.model,
+                        entity=target,
+                        columns=target_table.c,
+                        tables=self._tables,
+                        relationship_criteria=_plan_relationship_criteria(
+                            relationships
+                        ),
+                    )
+                    for criteria in relationships.criteria_for_entity(
+                        load.target_entity
+                    )
+                ]
+                if relationship_predicates:
+                    statement = statement.where(and_(*relationship_predicates))
             order_by = field.metadata.get("order_by")
             if order_by:
                 statement = statement.order_by(target_table.c[order_by])
+            if relationships is not None and depth >= relationships.max_depth:
+                if connection.execute(statement.limit(1)).first() is not None:
+                    raise RelationshipExpansionLimit(relationship, "depth")
+                values[field_name] = []
+                continue
+            if relationships is not None:
+                statement = statement.limit(relationships.max_items + 1)
             children = []
             child_rows = connection.execute(statement).mappings().all()
+            if relationships is not None and len(child_rows) > relationships.max_items:
+                raise RelationshipExpansionLimit(relationship, "item")
             for child_row in child_rows:
-                child = self._hydrate(connection, target.name, child_row)
+                child = self._hydrate(
+                    connection,
+                    target.name,
+                    child_row,
+                    relationships=relationships,
+                    depth=depth + 1,
+                )
                 child.pop(inverse_name, None)
                 children.append(child)
             values[field_name] = children
@@ -797,6 +883,27 @@ def _cursor_null_rank(value: Any, descending: bool) -> int:
     if descending:
         return 0 if value is None else 1
     return 1 if value is None else 0
+
+
+def _plan_relationship_criteria(
+    plan: RelationshipLoadPlan | None,
+) -> dict[str, tuple[str, ...]]:
+    if plan is None:
+        return {}
+    return dict(plan.entity_criteria)
+
+
+def _model_read_criteria(
+    model: ApplicationModel,
+) -> dict[str, tuple[str, ...]]:
+    return {
+        entity_name: tuple(
+            str(policy["criteria"])
+            for policy in model.row_policies
+            if policy["entity"] == entity_name and "read" in policy["operations"]
+        )
+        for entity_name in model.entities
+    }
 
 
 def _is_persisted(field: NormalizedField) -> bool:

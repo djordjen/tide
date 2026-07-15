@@ -57,6 +57,9 @@ def translate_expression(
     columns: Mapping[str, ColumnElement[Any]],
     tables: Mapping[str, FromClause] | None = None,
     parameters: Mapping[str, Any] | None = None,
+    relationship_criteria: Mapping[str, tuple[str, ...]] | None = None,
+    _policy_stack: frozenset[str] | None = None,
+    _alias_prefix: str = "tide_rel",
 ) -> ColumnElement[bool]:
     rewritten = PARAMETER_PATTERN.sub(r"__tide_parameter_\1", expression)
     try:
@@ -72,6 +75,9 @@ def translate_expression(
         columns=columns,
         tables=tables,
         parameters=parameters or {},
+        relationship_criteria=relationship_criteria or {},
+        policy_stack=_policy_stack or frozenset({entity.name}),
+        alias_prefix=_alias_prefix,
     )
     result = translator.visit(tree)
     if not isinstance(result, ColumnElement):
@@ -100,6 +106,9 @@ class _SQLExpressionTranslator(ast.NodeVisitor):
         columns: Mapping[str, ColumnElement[Any]],
         tables: Mapping[str, FromClause] | None,
         parameters: Mapping[str, Any],
+        relationship_criteria: Mapping[str, tuple[str, ...]],
+        policy_stack: frozenset[str],
+        alias_prefix: str,
     ) -> None:
         self.source = source
         self.model = model
@@ -107,6 +116,9 @@ class _SQLExpressionTranslator(ast.NodeVisitor):
         self.columns = columns
         self.tables = tables
         self.parameters = parameters
+        self.relationship_criteria = relationship_criteria
+        self.policy_stack = policy_stack
+        self.alias_prefix = alias_prefix
         self._relationship_index = 0
 
     def generic_visit(self, node: ast.AST) -> Any:
@@ -327,6 +339,12 @@ class _SQLExpressionTranslator(ast.NodeVisitor):
                     target_entity, target_from, str(inverse_name)
                 )
                 predicates.append(inverse_column == parent_column)
+                predicates.extend(
+                    self._relationship_policy_predicates(
+                        target_entity,
+                        target_from,
+                    )
+                )
                 from_clauses.append(target_from)
                 current_entity = target_entity
                 current_from = target_from
@@ -355,6 +373,12 @@ class _SQLExpressionTranslator(ast.NodeVisitor):
                     target_entity, target_from, target_key
                 )
                 predicates.append(target_column == column)
+                predicates.extend(
+                    self._relationship_policy_predicates(
+                        target_entity,
+                        target_from,
+                    )
+                )
                 from_clauses.append(target_from)
                 current_entity = target_entity
                 current_from = target_from
@@ -399,7 +423,39 @@ class _SQLExpressionTranslator(ast.NodeVisitor):
                 "SQL table metadata is required for relationship translation"
             )
         self._relationship_index += 1
-        return self.tables[entity_name].alias(f"tide_rel_{self._relationship_index}")
+        return self.tables[entity_name].alias(
+            f"{self.alias_prefix}_{self._relationship_index}"
+        )
+
+    def _relationship_policy_predicates(
+        self,
+        entity: NormalizedEntity,
+        from_clause: FromClause,
+    ) -> tuple[ColumnElement[bool], ...]:
+        if entity.name in self.policy_stack:
+            return ()
+        criteria = self.relationship_criteria.get(entity.name, ())
+        if not criteria:
+            return ()
+        tables = dict(self.tables or {})
+        tables[entity.name] = from_clause
+        stack = self.policy_stack | {entity.name}
+        return tuple(
+            translate_expression(
+                expression,
+                model=self.model,
+                entity=entity,
+                columns=from_clause.c,
+                tables=tables,
+                parameters=self.parameters,
+                relationship_criteria=self.relationship_criteria,
+                _policy_stack=stack,
+                _alias_prefix=(
+                    f"{self.alias_prefix}_{self._relationship_index}_policy"
+                ),
+            )
+            for expression in criteria
+        )
 
     def _column(
         self,

@@ -28,6 +28,58 @@ class QuerySpec:
     after: tuple[Any, ...] | None = field(default=None, repr=False, compare=False)
 
 
+@dataclass(frozen=True, slots=True)
+class RelationshipLoad:
+    source_entity: str
+    field: str
+    target_entity: str
+    order_by: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RelationshipLoadPlan:
+    loads: tuple[RelationshipLoad, ...] = ()
+    entity_criteria: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    max_depth: int = 3
+    max_items: int = 1_000
+
+    def __post_init__(self) -> None:
+        if self.max_depth < 1:
+            raise ValueError("relationship expansion depth must be positive")
+        if self.max_items < 1:
+            raise ValueError("relationship expansion item limit must be positive")
+        keys = [(load.source_entity, load.field) for load in self.loads]
+        if len(set(keys)) != len(keys):
+            raise ValueError("relationship load fields must not be repeated")
+        criteria_entities = [entity for entity, _criteria in self.entity_criteria]
+        if len(set(criteria_entities)) != len(criteria_entities):
+            raise ValueError("relationship criteria entities must not be repeated")
+
+    def for_field(
+        self,
+        source_entity: str,
+        field: str,
+    ) -> RelationshipLoad | None:
+        return next(
+            (
+                load
+                for load in self.loads
+                if load.source_entity == source_entity and load.field == field
+            ),
+            None,
+        )
+
+    def criteria_for_entity(self, entity: str) -> tuple[str, ...]:
+        return next(
+            (
+                criteria
+                for criteria_entity, criteria in self.entity_criteria
+                if criteria_entity == entity
+            ),
+            (),
+        )
+
+
 def matches_filter(record: Mapping[str, Any], condition: FilterCondition) -> bool:
     value = record.get(condition.field)
     operations = {
@@ -70,6 +122,7 @@ class Repository(Protocol):
         query: QuerySpec,
         *,
         row_criteria: tuple[str, ...] = (),
+        relationships: RelationshipLoadPlan | None = None,
     ) -> list[dict[str, Any]]: ...
 
     def get(
@@ -78,6 +131,7 @@ class Repository(Protocol):
         identity: Any,
         *,
         row_criteria: tuple[str, ...] = (),
+        relationships: RelationshipLoadPlan | None = None,
     ) -> dict[str, Any]: ...
 
     def exists(self, entity: str, identity: Any) -> bool: ...

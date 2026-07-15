@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 import os
@@ -7,11 +8,12 @@ from pathlib import Path
 from typing import Iterator
 
 import pytest
-from sqlalchemy import inspect
+from sqlalchemy import event, inspect
 
 from tide import compile_project
 from tide.data import QuerySpec, SQLAlchemyRepository, SortField
-from tide.runtime import ConcurrencyError
+from tide.runtime import Channel, ConcurrencyError, Principal, RequestContext
+from tide.services import RecordsService
 
 ROOT = Path(__file__).parents[1]
 INVOICING = ROOT / "applications" / "invoicing"
@@ -147,3 +149,95 @@ def test_sql_server_keyset_boundary(sqlserver_repository: SQLAlchemyRepository) 
 
     assert [record["code"] for record in first] == ["A1", "A2"]
     assert [record["code"] for record in second] == ["D", "G"]
+
+
+def test_sql_server_relationship_hydration_applies_target_policy(
+    sqlserver_repository: SQLAlchemyRepository,
+) -> None:
+    repository = sqlserver_repository
+    repository.seed(
+        "crm.Customer",
+        [{"code": "REL", "name": "Relationship test", "active": True}],
+    )
+    repository.seed(
+        "catalog.Product",
+        [
+            {
+                "code": "REL",
+                "name": "Relationship product",
+                "unit_price": Decimal("1.00"),
+                "active": True,
+            }
+        ],
+    )
+    customer = repository.all("crm.Customer")[0]
+    product = repository.all("catalog.Product")[0]
+    repository.seed(
+        "sales.Invoice",
+        [
+            {
+                "number": "SQLSERVER-REL",
+                "invoice_date": date(2026, 7, 15),
+                "currency": "EUR",
+                "status": "draft",
+                "customer": customer["id"],
+                "total": Decimal("3.00"),
+                "lines": [
+                    {
+                        "line_number": 1,
+                        "description": "Denied detail",
+                        "quantity": Decimal("1"),
+                        "unit_price": Decimal("1.00"),
+                        "product": product["id"],
+                        "total": Decimal("1.00"),
+                    },
+                    {
+                        "line_number": 2,
+                        "description": "Visible detail",
+                        "quantity": Decimal("2"),
+                        "unit_price": Decimal("1.00"),
+                        "product": product["id"],
+                        "total": Decimal("2.00"),
+                    },
+                ],
+            }
+        ],
+    )
+    invoice = repository.all("sales.Invoice")[0]
+    protected_model = replace(
+        repository.model,
+        row_policies=(
+            *repository.model.row_policies,
+            {
+                "id": "substantial_invoice_lines",
+                "entity": "sales.InvoiceLine",
+                "operations": ("read",),
+                "criteria": "quantity >= 2",
+            },
+        ),
+    )
+    records = RecordsService(protected_model, repository)
+    request_context = RequestContext(
+        principal=Principal("user:clerk", roles=frozenset({"sales_clerk"})),
+        channel=Channel.TUI,
+    )
+    statements: list[str] = []
+
+    @event.listens_for(repository.engine, "before_cursor_execute")
+    def capture_statement(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append(statement.upper())
+
+    result = records.get("sales.Invoice", invoice["id"], request_context)
+
+    assert [line["description"] for line in result["lines"]] == ["Visible detail"]
+    child_query = next(
+        statement for statement in statements if "FROM SALES_INVOICE_LINE" in statement
+    )
+    assert "SALES_INVOICE_LINE.QUANTITY >=" in child_query

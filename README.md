@@ -148,10 +148,11 @@ core is in progress. The v0.1 compiler, resolved-view provenance, typed
 expressions, headless services, in-memory and SQLite repositories, tests, and
 executable invoicing workflow are implemented. Direct, reference-path, and
 single-collection aggregate SQL policy translation and secured keyset
-pagination are executable. SQL Server dialect compilation is covered, with live
-certification available through an opt-in integration suite. Relationship
-expansion security, Textual, REST, MCP, migrations, and report rendering remain
-roadmap work.
+pagination are executable. Collection hydration now applies source-field,
+target-entity, and target-row authorization through bounded relationship load
+plans. SQL Server dialect compilation is covered, with live certification
+available through an opt-in integration suite. Textual, REST, MCP, migrations,
+and report rendering remain roadmap work.
 
 Metadata v0.1 is an executable experimental contract. Breaking authoring
 changes require a new `schema_version`; stable 1.0 compatibility is not yet

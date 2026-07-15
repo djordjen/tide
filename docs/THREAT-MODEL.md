@@ -25,6 +25,7 @@ authorization; application services are the enforcement boundary.
 | Expression code or SQL injection | Allow-listed parsed AST and parameterized SQL translation |
 | Python handler substitution | Qualified allow-listed handlers; deployment-controlled code |
 | Row/field inference through filters and totals | Apply policies before query, aggregate, sort, and export |
+| Child-record leakage through relationship hydration | Require source-field and target-entity access; bind target row policies into bounded child queries |
 | Direct status mutation bypassing an action | Action-owned read-only fields and service-side transition checks |
 | Lost updates or retry duplication | Version preconditions and idempotency records |
 | Report image/template resource access | Constrained resource loaders; no arbitrary URL/file access |

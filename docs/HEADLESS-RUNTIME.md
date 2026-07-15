@@ -43,7 +43,8 @@ The runtime currently provides:
   `unrestricted: true`, without requiring a general entity-update grant;
 - idempotency-key binding and reauthorization on replay;
 - bounded, allow-listed filtering and deterministic sorting;
-- opaque, principal-bound keyset pagination with expiring cursors.
+- opaque, principal-bound keyset pagination with expiring cursors;
+- policy-aware collection hydration with explicit depth and item limits.
 
 The initial SQLAlchemy repository additionally provides:
 
@@ -121,6 +122,18 @@ when rechecking returned rows as defense in depth. Unsupported policy
 expressions fail `validate_query_support()` and query execution closed; they
 never fall back to loading and post-filtering the root table.
 
+Collection loads require read access to both the source field and target
+entity. Target `read` row policies are emitted in each child SQL query and in
+relationship predicates used by root aggregates and reference paths. A denied
+target entity is represented as `ProtectedValue`, and SQL hydration does not
+issue its child query. The service also rechecks child policies before
+projection as defense in depth.
+
+The default relationship plan permits three collection levels and 1,000
+authorized items per parent collection. Both values are configurable on
+`RecordsService`. Exceeding either limit raises
+`relationship_expansion_limit`; results are never silently truncated.
+
 List pagination uses deterministic keyset boundaries in the database rather
 than `OFFSET`. Opaque cursor tokens are bound to the exact secured query and
 principal. The default bounded store is process-local and expiring; deployments
@@ -130,15 +143,11 @@ Create policies check finalized values before insertion. Update policies are
 included in the atomic SQL mutation predicate, preventing a policy race even
 for legacy tables that do not have a concurrency-token column.
 
-Relationship collection hydration does not yet translate target row policies,
-so deployments that require secured relationship expansion must wait for that
-next query slice.
-
 ## Deliberate limitations
 
 The in-memory repository remains a test adapter. The SQLAlchemy slice does not
-yet provide policy-aware relationship expansion, multiple-collection policy
-translation, Alembic migrations, race-resistant business numbering, durable
+yet provide multiple-collection policy translation, Alembic migrations,
+race-resistant business numbering, durable
 audit/idempotency storage, a durable/shared cursor store, warning confirmation,
 or async handlers. Broader automated SQL Server version/CI certification also
 remains required before production readiness.

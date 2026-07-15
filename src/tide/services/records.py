@@ -14,6 +14,8 @@ from tide.compiler.normalized import ApplicationModel, NormalizedEntity
 from tide.data.repository import (
     FilterCondition as FilterCondition,
     QuerySpec,
+    RelationshipLoad,
+    RelationshipLoadPlan,
     Repository,
     RowPolicyMismatch,
     SortField,
@@ -23,6 +25,7 @@ from tide.runtime.errors import (
     AuthorizationError,
     ImmutableFieldError,
     InvalidQueryCursor,
+    RelationshipExpansionLimit,
     ValidationFailed,
     ValidationIssue,
 )
@@ -54,13 +57,21 @@ class RecordsService:
         repository: Repository,
         security: SecurityEngine | None = None,
         cursor_store: CursorStore | None = None,
+        relationship_max_depth: int = 3,
+        relationship_max_items: int = 1_000,
     ) -> None:
+        if relationship_max_depth < 1:
+            raise ValueError("relationship expansion depth must be positive")
+        if relationship_max_items < 1:
+            raise ValueError("relationship expansion item limit must be positive")
         self.model = model
         self.repository = repository
         self.security = security or SecurityEngine(model)
         self.cursor_store = (
             cursor_store if cursor_store is not None else InMemoryCursorStore()
         )
+        self.relationship_max_depth = relationship_max_depth
+        self.relationship_max_items = relationship_max_items
         self._generators: dict[str, Generator] = {}
 
     def register_generator(self, reference: str, generator: Generator) -> None:
@@ -152,6 +163,11 @@ class RecordsService:
                 entity_name,
                 identity,
                 row_criteria=criteria,
+                relationships=self._relationship_plan(
+                    entity_name,
+                    context,
+                    operations=operations,
+                ),
             )
         except RowPolicyMismatch as error:
             raise AuthorizationError(
@@ -161,7 +177,7 @@ class RecordsService:
             self.security.require_row(
                 entity_name,
                 operation,
-                self._policy_values(entity_name, values, operation),
+                self._policy_values(entity_name, values, operation, context),
                 context,
             )
         return values
@@ -248,6 +264,11 @@ class RecordsService:
             entity_name,
             repository_query,
             row_criteria=self.security.row_criteria(entity_name, "list"),
+            relationships=self._relationship_plan(
+                entity_name,
+                context,
+                operations=("list",),
+            ),
         )
         policy_cache: dict[tuple[str, Any], dict[str, Any]] = {}
         authorized: list[dict[str, Any]] = []
@@ -259,6 +280,7 @@ class RecordsService:
                     entity_name,
                     record,
                     "list",
+                    context,
                     cache=policy_cache,
                 ),
                 context,
@@ -306,14 +328,24 @@ class RecordsService:
             self.security.require_row(
                 entity.name,
                 "read",
-                self._policy_values(entity.name, session.original, "read"),
+                self._policy_values(
+                    entity.name,
+                    session.original,
+                    "read",
+                    context,
+                ),
                 context,
             )
         elif not session.is_new:
             self.security.require_row(
                 entity.name,
                 "update",
-                self._policy_values(entity.name, session.original, "update"),
+                self._policy_values(
+                    entity.name,
+                    session.original,
+                    "update",
+                    context,
+                ),
                 context,
             )
         self._enforce_changes(entity, session, context, source)
@@ -337,7 +369,7 @@ class RecordsService:
             self.security.require_row(
                 entity.name,
                 "create",
-                self._policy_values(entity.name, values, "create"),
+                self._policy_values(entity.name, values, "create", context),
                 context,
             )
         self._validate_uniqueness(entity, values, session.identity)
@@ -592,7 +624,68 @@ class RecordsService:
                         [ValidationIssue("unique", f"{field_name} must be unique", (field_name,))]
                     )
 
-    def _project(self, entity: NormalizedEntity, source: Mapping[str, Any], context: RequestContext) -> dict[str, Any]:
+    def _relationship_plan(
+        self,
+        entity_name: str,
+        context: RequestContext,
+        *,
+        operations: tuple[str, ...],
+    ) -> RelationshipLoadPlan:
+        loads: dict[tuple[str, str], RelationshipLoad] = {}
+        visited: set[tuple[str, tuple[str, ...]]] = set()
+
+        def visit(current_name: str, policy_operations: tuple[str, ...]) -> None:
+            visit_key = current_name, policy_operations
+            if visit_key in visited:
+                return
+            visited.add(visit_key)
+            current = self.model.entity(current_name)
+            required = _policy_collection_edges(
+                self.model,
+                self.security,
+                current_name,
+                policy_operations,
+            )
+            for field_name, field in current.fields.items():
+                if field.metadata["type"] != "collection" or not field.target_entity:
+                    continue
+                target = self.model.entity(field.target_entity)
+                visible = self.security.can_read_field(
+                    current_name,
+                    field_name,
+                    context,
+                ) and self.security.can_access_entity(target, "read", context)
+                if not visible and (current_name, field_name) not in required:
+                    continue
+                loads[(current_name, field_name)] = RelationshipLoad(
+                    source_entity=current_name,
+                    field=field_name,
+                    target_entity=target.name,
+                    order_by=field.metadata.get("order_by"),
+                )
+                visit(target.name, ("read",))
+
+        visit(entity_name, operations)
+        entity_criteria = tuple(
+            (candidate, criteria)
+            for candidate in self.model.entities
+            if (criteria := self.security.row_criteria(candidate, "read"))
+        )
+        return RelationshipLoadPlan(
+            loads=tuple(loads.values()),
+            entity_criteria=entity_criteria,
+            max_depth=self.relationship_max_depth,
+            max_items=self.relationship_max_items,
+        )
+
+    def _project(
+        self,
+        entity: NormalizedEntity,
+        source: Mapping[str, Any],
+        context: RequestContext,
+        *,
+        depth: int = 0,
+    ) -> dict[str, Any]:
         values = deepcopy(dict(source))
         for field_name, field in entity.fields.items():
             computed = field.metadata.get("computed")
@@ -606,7 +699,37 @@ class RecordsService:
             value = values.get(field_name)
             if field.metadata["type"] == "collection" and field.target_entity:
                 target = self.model.entity(field.target_entity)
-                result[field_name] = [self._project(target, item, context) for item in value or []]
+                if not self.security.can_access_entity(target, "read", context):
+                    result[field_name] = PROTECTED
+                    continue
+                items = value or []
+                if not isinstance(items, (list, tuple)):
+                    raise ValueError(
+                        f"relationship {entity.name}.{field_name!s} is not a collection"
+                    )
+                if not all(isinstance(item, Mapping) for item in items):
+                    raise ValueError(
+                        f"relationship {entity.name}.{field_name!s} contains an invalid record"
+                    )
+                visible_items = [
+                    item
+                    for item in items
+                    if self.security.row_allowed(
+                        target.name,
+                        "read",
+                        self._policy_values(target.name, item, "read", context),
+                        context,
+                    )
+                ]
+                relationship = f"{entity.name}.{field_name}"
+                if visible_items and depth >= self.relationship_max_depth:
+                    raise RelationshipExpansionLimit(relationship, "depth")
+                if len(visible_items) > self.relationship_max_items:
+                    raise RelationshipExpansionLimit(relationship, "item")
+                result[field_name] = [
+                    self._project(target, item, context, depth=depth + 1)
+                    for item in visible_items
+                ]
             else:
                 result[field_name] = deepcopy(value)
         return result
@@ -616,6 +739,7 @@ class RecordsService:
         entity_name: str,
         source: Mapping[str, Any],
         operation: str,
+        context: RequestContext,
         *,
         cache: dict[tuple[str, Any], dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
@@ -634,6 +758,7 @@ class RecordsService:
                 values,
                 path,
                 relationship_cache,
+                context,
             )
         return values
 
@@ -643,6 +768,7 @@ class RecordsService:
         values: dict[str, Any],
         path: tuple[str, ...],
         cache: dict[tuple[str, Any], dict[str, Any]],
+        context: RequestContext,
     ) -> None:
         field = entity.fields.get(path[0])
         if field is None or len(path) == 1 or field.target_entity is None:
@@ -665,7 +791,13 @@ class RecordsService:
                         f"collection {entity.name}.{field.name} contains an invalid policy value"
                     )
                 related = deepcopy(dict(item))
-                self._expand_policy_path(target, related, remainder, cache)
+                self._expand_policy_path(
+                    target,
+                    related,
+                    remainder,
+                    cache,
+                    context,
+                )
                 expanded.append(related)
             values[field.name] = expanded
             return
@@ -674,12 +806,34 @@ class RecordsService:
             return
         if isinstance(value, Mapping):
             related = deepcopy(dict(value))
+            if not self.security.row_allowed(target.name, "read", related, context):
+                raise AuthorizationError("related record failed its row-policy recheck")
         else:
             key = (target.name, value)
             if key not in cache:
-                cache[key] = self.repository.get(target.name, value)
+                try:
+                    cache[key] = self.repository.get(
+                        target.name,
+                        value,
+                        row_criteria=self.security.row_criteria(target.name, "read"),
+                        relationships=self._relationship_plan(
+                            target.name,
+                            context,
+                            operations=("read",),
+                        ),
+                    )
+                except RowPolicyMismatch as error:
+                    raise AuthorizationError(
+                        "related record failed its row-policy recheck"
+                    ) from error
             related = deepcopy(cache[key])
-        self._expand_policy_path(target, related, remainder, cache)
+        self._expand_policy_path(
+            target,
+            related,
+            remainder,
+            cache,
+            context,
+        )
         values[field.name] = related
 
 
@@ -711,6 +865,29 @@ def _expression_paths(expression: str) -> tuple[tuple[str, ...], ...]:
     collector = _ExpressionPathCollector()
     collector.visit(tree)
     return tuple(sorted(collector.paths))
+
+
+def _policy_collection_edges(
+    model: ApplicationModel,
+    security: SecurityEngine,
+    entity_name: str,
+    operations: tuple[str, ...],
+) -> set[tuple[str, str]]:
+    edges: set[tuple[str, str]] = set()
+    for operation in operations:
+        for criteria in security.row_criteria(entity_name, operation):
+            for path in _expression_paths(criteria):
+                current = model.entity(entity_name)
+                for part in path:
+                    field = current.fields.get(part)
+                    if field is None:
+                        break
+                    if field.metadata["type"] == "collection":
+                        edges.add((current.name, field.name))
+                    if field.target_entity is None:
+                        break
+                    current = model.entity(field.target_entity)
+    return edges
 
 
 def _attribute_parts(node: ast.Attribute) -> tuple[str, ...]:

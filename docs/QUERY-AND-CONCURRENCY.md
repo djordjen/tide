@@ -37,7 +37,16 @@ separate snapshot/export contract.
 
 Relationship expansion is allow-listed and depth/size bounded. Counts, totals,
 exports, and relationship loads apply the same row and field policies as the
-root query. Adapters may impose smaller limits but may not bypass core limits.
+root query. Collection hydration requires readable source-field access and
+target-entity `read` access, and applies target `read` row criteria in the child
+database statement. Adapters may impose smaller limits but may not bypass core
+limits.
+
+The default service boundary allows three collection levels and 1,000
+authorized children per parent collection. An exceeded depth or item bound
+fails with `relationship_expansion_limit`; it never returns a partial collection
+that could be mistaken for complete data. A collection whose target entity is
+not readable is projected as protected and is not queried by the SQL adapter.
 
 The service validates stored fields, operators, filter value types, readable
 field access, deterministic primary-key tie-breaking, and result limits. The
@@ -57,8 +66,9 @@ and stale rows without loading protected field values.
 SQL relationship paths use correlated scalar subqueries. `count`, `sum`,
 `average`, `min`, `max`, `any`, and `all` over one collection traversal use
 correlated aggregate/`EXISTS` subqueries. Multiple collection traversals and
-policy-aware relationship expansion fail closed or remain pending rather than
-falling back to root-table post-filtering.
+their policy translation remain pending and fail closed rather than falling
+back to root-table post-filtering. For supported paths, target read criteria are
+included in both hydration and root aggregate/reference predicates.
 
 The default cursor store is thread-safe, process-local, bounded to 10,000
 entries, and expires entries after 15 minutes. It is suitable for the current
