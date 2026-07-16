@@ -137,6 +137,69 @@ def _create_parser() -> argparse.ArgumentParser:
     run.add_argument("--page-size", type=int, help="override the view page size")
     run.set_defaults(handler=_run_tui)
 
+    serve = commands.add_parser(
+        "serve",
+        help="run the FastAPI application server",
+    )
+    serve.add_argument(
+        "project",
+        nargs="?",
+        default=".",
+        metavar="APPLICATION",
+        help="application root or tide.yaml (default: current directory)",
+    )
+    serve_source = serve.add_mutually_exclusive_group()
+    serve_source.add_argument(
+        "--demo",
+        action="store_true",
+        help="execute application-owned demo_data.py in an in-memory repository",
+    )
+    serve_source.add_argument(
+        "--database-env",
+        nargs="?",
+        const="TIDE_DATABASE_URL",
+        metavar="NAME",
+        help=(
+            "use a SQLAlchemy database URL from environment variable NAME "
+            "(default name: TIDE_DATABASE_URL)"
+        ),
+    )
+    serve.add_argument(
+        "--create-schema",
+        action="store_true",
+        help="explicitly create missing managed application and TIDE system tables",
+    )
+    serve.add_argument(
+        "--base-path",
+        default=DEFAULT_BASE_PATH,
+        help=f"REST base path (default: {DEFAULT_BASE_PATH})",
+    )
+    serve.add_argument(
+        "--host",
+        default="127.0.0.1",
+        choices=("127.0.0.1", "localhost", "::1"),
+        help="loopback interface for the development identity adapter",
+    )
+    serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument(
+        "--dev-token-env",
+        default="TIDE_API_TOKEN",
+        metavar="NAME",
+        help="read the local-development bearer token from environment variable NAME",
+    )
+    serve.add_argument(
+        "--role",
+        action="append",
+        default=[],
+        help="server-assigned principal role; repeat for multiple roles",
+    )
+    serve.add_argument(
+        "--principal",
+        default="development:api",
+        help="server-assigned development principal identifier",
+    )
+    serve.set_defaults(handler=_serve_api)
+
     database = commands.add_parser("db", help="manage development database data")
     database_commands = database.add_subparsers(dest="database_command")
     seed = database_commands.add_parser(
@@ -245,6 +308,105 @@ def _run_tui(arguments: argparse.Namespace) -> int:
         storage.dispose()
 
 
+def _serve_api(arguments: argparse.Namespace) -> int:
+    model = compile_project(arguments.project)
+    token = os.environ.get(arguments.dev_token_env)
+    if not token:
+        print(
+            "API startup failed: development bearer-token environment variable "
+            f"{arguments.dev_token_env!r} is not set",
+            file=sys.stderr,
+        )
+        return 1
+    if len(token) < 32:
+        print(
+            "API startup failed: development bearer token must contain at least "
+            "32 characters",
+            file=sys.stderr,
+        )
+        return 1
+    if not 1 <= arguments.port <= 65535:
+        print("API startup failed: port must be between 1 and 65535", file=sys.stderr)
+        return 1
+
+    storage = _open_run_storage(arguments, model, purpose="API")
+    if storage is None:
+        return 1
+    try:
+        if arguments.demo:
+            try:
+                from tide.tui.demo import DemoDataError, seed_demo_data
+
+                seed_demo_data(model, storage.repository)
+            except DemoDataError as error:
+                print(f"API demo startup failed: {error}", file=sys.stderr)
+                return 1
+        roles = tuple(arguments.role)
+        if not roles and arguments.demo and model.roles:
+            roles = (max(model.roles, key=lambda role: len(model.roles[role])),)
+        principal = Principal(
+            arguments.principal,
+            roles=frozenset(roles),
+        )
+        records = RecordsService(
+            model,
+            storage.repository,
+            cursor_store=storage.cursor_store,
+        )
+        actions = ActionService(
+            model,
+            records,
+            execution_store=storage.execution_store,
+        )
+        try:
+            from tide.api.server import (
+                DevelopmentTokenAuthenticator,
+                build_fastapi_app,
+            )
+            from tide.runtime.application import (
+                ApplicationRuntimeError,
+                configure_application_runtime,
+            )
+            import uvicorn
+        except ModuleNotFoundError as error:
+            if error.name in {"fastapi", "uvicorn"} or (error.name or "").startswith(
+                ("fastapi.", "uvicorn.")
+            ):
+                print(
+                    "The FastAPI adapter is not installed. Install the 'api' extra "
+                    "(for example: uv sync --extra api).",
+                    file=sys.stderr,
+                )
+                return 1
+            raise
+        try:
+            configure_application_runtime(model, records, actions)
+            app = build_fastapi_app(
+                model,
+                records,
+                DevelopmentTokenAuthenticator(token, principal),
+                actions=actions,
+                base_path=arguments.base_path,
+            )
+        except (ApplicationRuntimeError, ValueError) as error:
+            print(f"API startup failed: {error}", file=sys.stderr)
+            return 1
+
+        print(
+            f"Serving {model.name} at http://{arguments.host}:{arguments.port} "
+            f"(docs: /docs; identity: {principal.identifier}; development auth only)."
+        )
+        uvicorn.run(
+            app,
+            host=arguments.host,
+            port=arguments.port,
+            log_level="info",
+        )
+        return 0
+    finally:
+        storage.dispose()
+
+
 def _launch_tui(
     arguments: argparse.Namespace,
     model: ApplicationModel,
@@ -335,7 +497,7 @@ def _open_run_storage(
     if environment_name is None:
         if arguments.create_schema:
             print(
-                "TUI startup failed: --create-schema requires --database-env",
+                f"{purpose} startup failed: --create-schema requires --database-env",
                 file=sys.stderr,
             )
             return None

@@ -22,6 +22,12 @@ Managed runtime selection also validates durable TIDE cursor, idempotency, and
 audit tables. Legacy deployments never create TIDE objects in the external
 database and currently keep those three forms of runtime state in-process.
 
+`tide serve` follows the same database selection and explicit schema-creation
+rules. The initial development bearer adapter may bind only to loopback and is
+not a production authentication mechanism. Network exposure, even on a trusted
+LAN, requires a later reviewed identity adapter, HTTPS termination, trusted
+proxy configuration, request limits, and production process supervision.
+
 ## Health and lifecycle
 
 Hosted deployments provide separate liveness and readiness checks. Liveness

@@ -126,17 +126,21 @@ application-owned Faker profile and the real secured services.
 - sorting, paging, incremental search, and named filters;
 - basic secured printable invoice with TUI preview, HTML, and PDF;
   **implemented**
-- read-only REST endpoints and OpenAPI for selected entities.
+- opt-in REST list/get/create/update and domain-action routes plus OpenAPI;
+  **implemented with local FastAPI hosting, bearer development identity,
+  opaque pagination, protected-field serialization, ETag concurrency, and
+  action idempotency**
 
 Exit condition: the example application can create, edit, post, find, and print
 an invoice entirely by keyboard or mouse.
 
 ## Milestone 4 - Machine interfaces
 
-- opt-in generated REST create, update, delete, and action routes;
-- required expected-version preconditions for update, delete, and targeted actions;
-- API pagination, filtering, sorting, protected-field representation, and
-  concurrency transport contracts over the implemented service primitives;
+- opt-in generated REST delete routes; create/update/action are implemented;
+- expected-version preconditions for delete; update/action are implemented;
+- API structured filtering/sorting and concurrency transport contracts over
+  the implemented pagination and protected-field primitives;
+- remote service client for Textual and the future Qt renderer;
 - runtime MCP resources and read-only query tools;
 - opt-in MCP domain actions and mutations;
 - shared authentication-to-Principal adapters;

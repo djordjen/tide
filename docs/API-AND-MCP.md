@@ -60,38 +60,54 @@ Filtering, sorting, expansion, and pagination are model-controlled and
 allow-listed. Clients cannot submit arbitrary SQL. API contracts should expose
 stable resource representations rather than leaking persistence internals.
 
-### Current read-only contract preview
+### Current application server
 
-The implemented preview deliberately precedes the FastAPI hosting adapter. It
-generates Pydantic record/page models and an OpenAPI 3.1 document directly from
-the immutable `ApplicationModel`:
+The implemented FastAPI adapter registers secured list/get/create/update and
+exposed domain-action routes from the immutable `ApplicationModel`. It reuses
+the same Pydantic record/page contracts as the standalone OpenAPI exporter and
+adds writable request projections at server startup:
 
 ```bash
 tide api export-openapi applications/invoicing
 tide api export-openapi applications/invoicing --output openapi.json
+tide serve applications/invoicing --demo
 ```
 
-Only an entity's declared `list` and `get` operations appear. `rest: true` is a
-safe shorthand for both read operations; mapping form remains explicit. A
-declared create, update, delete, or action exposure does not produce a mutation
-route in this preview. If `path` is omitted, the default is a namespaced,
-kebab-case resource path such as `crm/person`.
+Only declared operations appear. `rest: true` remains a safe shorthand for
+`list` and `get`; create and update require mapping form. An action route exists
+only when that action declares `expose.rest: true`. Delete is not implemented
+yet even if declared. If `path` is omitted, the default is a namespaced,
+kebab-case resource path such as `crm/person`. The standalone `export-openapi`
+command intentionally remains the dependency-free read-only contract preview;
+the running server's `/openapi.json` includes its mutation schemas and routes.
 
-List previews currently publish the implemented page size and opaque cursor
+List routes publish the implemented page size and opaque cursor
 parameters. The versioned HTTP syntax for structured filtering and sorting is
 still deferred to the machine-interface milestone rather than being guessed by
 the preview.
 
-The preview includes bearer-compatible authentication metadata, but it neither
-starts an HTTP server nor authenticates a user. A future hosting adapter must
-map the identity to `RequestContext` and invoke the same secured services.
+`tide serve` exposes `/docs`, `/openapi.json`, `/health/live`, and
+`/health/ready`. Its initial identity adapter is deliberately development-only:
+it reads one opaque token from a named environment variable, maps that token to
+a principal and roles fixed at server startup, and binds only to a loopback
+interface. HTTP clients cannot select a role through headers or request data.
+Missing, incorrect, and short tokens fail closed. A production network binding
+waits for a reviewed OAuth/OIDC identity adapter and HTTPS deployment contract.
 
 Response schemas keep every model field present and nullable so a protected
 value can be represented as JSON null. Optional `_tide.protected_fields`
 metadata distinguishes protection from a genuine null. Decimal values are JSON
 strings to preserve exact precision; dates and datetimes use standard OpenAPI
-formats. This is the experimental v0.1 preview contract, not yet a stable 1.0
-wire-compatibility promise.
+formats. This is the experimental v0.1 contract, not yet a stable 1.0
+wire-compatibility promise. The standalone exporter remains useful in CI even
+when no FastAPI dependency is installed.
+
+The HTTP runtime serializes protected values as `null` plus
+`_tide.protected_fields`, returns decimals as exact strings, forwards opaque
+principal-bound cursors, and maps authorization/not-found/query failures to a
+stable error envelope. Every CRUD route calls `RecordsService`, and domain
+actions call `ActionService`; the adapter never uses a repository or SQLAlchemy
+connection directly.
 
 Queries use deterministic ordering and opaque continuation cursors. A primary
 key tie-breaker is added when necessary. Expansion and page sizes are bounded
@@ -109,6 +125,20 @@ Generated REST responses publish an ETag, and mutations require the version the
 caller observed. TUI and MCP carry the same expected version through application
 services so remote mutations cannot silently overwrite newer work.
 
+Create request models include only normal writable fields. System-generated,
+action-owned, read-only, and computed fields are rejected before they reach a
+service. `PATCH` models make every writable field optional and apply only fields
+actually present in the JSON body; omitted and protected values are never
+interpreted as null or overwritten. Writable cascaded collections use typed
+nested records; an existing child's identity is optional so the same collection
+may contain updates and new rows.
+
+For an entity with a concurrency token, `GET`, create, update, and action
+responses publish a strong integer ETag such as `"3"`. `PATCH` and targeted
+actions require the corresponding `If-Match` value. Missing preconditions
+return `428`; stale observations return `412`; the repository still performs
+the atomic version check to close the race after authorization.
+
 ## Domain actions
 
 First-class actions map predictably to REST:
@@ -121,6 +151,11 @@ POST /api/v1/orders/{id}/actions/cancel
 The same action may appear as a TUI shortcut, web button, MCP tool, or report
 command. Its handler, permission, validation, confirmation semantics, and audit
 event remain centralized.
+
+An exposed idempotent action additionally requires `Idempotency-Key`. Repeating
+the same principal/action/target/payload key reauthorizes and returns the
+current secured result; reusing a key for a different request or retrying an
+uncertain failed execution fails closed through `ActionService`.
 
 ## Developer MCP server
 

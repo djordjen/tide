@@ -1,4 +1,8 @@
 from tide.runtime.context import Channel, Principal, RequestContext
+from tide.runtime.application import (
+    ApplicationRuntimeError,
+    configure_application_runtime,
+)
 from tide.runtime.errors import (
     ActionDisabled,
     ActionStoreError,
@@ -6,6 +10,7 @@ from tide.runtime.errors import (
     ConcurrencyError,
     CursorStoreError,
     ImmutableFieldError,
+    IdempotencyConflict,
     InvalidQueryCursor,
     NotFoundError,
     RelationshipExpansionLimit,
@@ -15,12 +20,14 @@ from tide.runtime.errors import (
 
 __all__ = [
     "ActionDisabled",
+    "ApplicationRuntimeError",
     "ActionStoreError",
     "AuthorizationError",
     "Channel",
     "ConcurrencyError",
     "CursorStoreError",
     "ImmutableFieldError",
+    "IdempotencyConflict",
     "InvalidQueryCursor",
     "NotFoundError",
     "Principal",
@@ -28,4 +35,5 @@ __all__ = [
     "RequestContext",
     "TideRuntimeError",
     "ValidationFailed",
+    "configure_application_runtime",
 ]

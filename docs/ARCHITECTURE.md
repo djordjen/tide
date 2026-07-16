@@ -6,6 +6,28 @@ Every client invokes the same application services. A Textual screen, REST
 route, MCP tool, report, and future web form may authenticate differently, but
 none implements separate business or authorization rules.
 
+For a server deployment, TUI, Qt GUI, browser, and MCP clients are untrusted
+remote adapters. They authenticate to the TIDE HTTP server and never receive a
+database URL. FastAPI is the transport boundary, not the business layer:
+
+```text
+Remote TUI / Qt / Web / MCP
+            | HTTPS + credentials
+            v
+        FastAPI adapter
+            | RequestContext
+            v
+RecordsService / ActionService / ReportService
+            |
+            v
+ Repository / SQL Server
+```
+
+The current `tide run` Textual adapter remains an in-process trusted-host mode
+and calls services directly. A future remote TUI transport will call the same
+HTTP contracts as Qt and web clients. It must not embed a database driver or
+connection string merely to preserve the existing screen implementation.
+
 ```text
 applications/<name>/ (YAML + Python handlers + overlays)
                          |

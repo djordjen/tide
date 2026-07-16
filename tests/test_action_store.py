@@ -19,7 +19,7 @@ from tide.data import (
     SchemaManagementError,
 )
 from tide.runtime import ActionDisabled, Channel, Principal, RequestContext
-from tide.runtime.errors import IdempotencyConflict
+from tide.runtime.errors import ConcurrencyError, IdempotencyConflict
 from tide.services import (
     ActionAuditEvent,
     ActionExecutionStore,
@@ -90,6 +90,43 @@ def test_in_memory_store_survives_action_service_recreation() -> None:
     assert [event.correlation_id for event in events] == ["first", "replay"]
     assert all(event.idempotency_key_hash for event in events)
     assert all("durable-post-1" not in repr(event) for event in events)
+
+
+def test_action_expected_version_is_checked_before_idempotency_claim() -> None:
+    store = InMemoryActionExecutionStore()
+    model, repository, records = _memory_runtime()
+    created = records.commit(
+        records.create("sales.Invoice", _context("create"), _invoice_values()),
+        _context("create"),
+    )
+    actions = _actions(model, records, store)
+
+    with pytest.raises(ConcurrencyError):
+        actions.execute(
+            "sales.Invoice",
+            "post",
+            created["id"],
+            {},
+            _context("stale"),
+            idempotency_key="stale-post",
+            expected_version=created["version"] - 1,
+        )
+
+    assert store.get_idempotency("stale-post") is None
+    assert repository.get("sales.Invoice", created["id"])["status"] == "draft"
+
+    posted = actions.execute(
+        "sales.Invoice",
+        "post",
+        created["id"],
+        {},
+        _context("current"),
+        idempotency_key="stale-post",
+        expected_version=created["version"],
+    )
+
+    assert posted["status"] == "posted"
+    assert posted["version"] == created["version"] + 1
 
 
 def test_fingerprint_preserves_payload_value_types() -> None:

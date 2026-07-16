@@ -23,6 +23,7 @@ from tide.compiler.normalized import ApplicationModel, NormalizedEntity, Normali
 OPENAPI_VERSION = "3.1.0"
 DEFAULT_BASE_PATH = "/api/v1"
 READ_OPERATIONS = frozenset({"list", "get"})
+REST_OPERATIONS = frozenset({"list", "get", "create", "update", "delete"})
 
 
 class TideProtectionMetadata(BaseModel):
@@ -55,7 +56,7 @@ class OpenApiPreview:
 
 
 @dataclass(frozen=True, slots=True)
-class _RestExposure:
+class RestExposure:
     path: str
     operations: frozenset[str]
 
@@ -75,7 +76,7 @@ def build_openapi_preview(
     """
 
     normalized_base_path = _normalize_base_path(base_path)
-    exposures = _rest_exposures(model)
+    exposures = rest_exposures(model)
     record_models = _build_record_models(model)
     page_models = _build_page_models(record_models, exposures)
     schemas = _component_schemas(record_models, page_models, exposures)
@@ -196,7 +197,7 @@ def _build_record_models(
 
 def _build_page_models(
     record_models: Mapping[str, type[BaseModel]],
-    exposures: Mapping[str, _RestExposure],
+    exposures: Mapping[str, RestExposure],
 ) -> dict[str, type[BaseModel]]:
     pages: dict[str, type[BaseModel]] = {}
     for entity_name, exposure in exposures.items():
@@ -225,7 +226,7 @@ def _build_page_models(
 def _component_schemas(
     record_models: Mapping[str, type[BaseModel]],
     page_models: Mapping[str, type[BaseModel]],
-    exposures: Mapping[str, _RestExposure],
+    exposures: Mapping[str, RestExposure],
 ) -> dict[str, Any]:
     schema_models: list[type[BaseModel]] = []
     for entity_name, exposure in exposures.items():
@@ -248,7 +249,7 @@ def _component_schemas(
 
 def _paths(
     model: ApplicationModel,
-    exposures: Mapping[str, _RestExposure],
+    exposures: Mapping[str, RestExposure],
     base_path: str,
     record_models: Mapping[str, type[BaseModel]],
     page_models: Mapping[str, type[BaseModel]],
@@ -307,8 +308,14 @@ def _paths(
     return paths
 
 
-def _rest_exposures(model: ApplicationModel) -> dict[str, _RestExposure]:
-    result: dict[str, _RestExposure] = {}
+def rest_exposures(
+    model: ApplicationModel,
+    *,
+    allowed_operations: frozenset[str] = READ_OPERATIONS,
+) -> dict[str, RestExposure]:
+    """Return validated REST exposure, restricted to adapter capabilities."""
+
+    result: dict[str, RestExposure] = {}
     claimed_paths: dict[str, str] = {}
     for entity_name, entity in model.entities.items():
         rest = entity.metadata.get("expose", {}).get("rest", False)
@@ -316,10 +323,10 @@ def _rest_exposures(model: ApplicationModel) -> dict[str, _RestExposure]:
             continue
         if rest is True:
             configured_path = None
-            operations = READ_OPERATIONS
+            operations = READ_OPERATIONS & allowed_operations
         elif isinstance(rest, Mapping):
             configured_path = rest.get("path")
-            operations = frozenset(rest.get("operations", ())) & READ_OPERATIONS
+            operations = frozenset(rest.get("operations", ())) & allowed_operations
         else:
             raise ValueError(f"invalid REST exposure for {entity_name}")
         path = _normalize_resource_path(
@@ -332,7 +339,7 @@ def _rest_exposures(model: ApplicationModel) -> dict[str, _RestExposure]:
                 f"REST path {path!r} is shared by {previous} and {entity_name}"
             )
         claimed_paths[path] = entity_name
-        result[entity_name] = _RestExposure(path=path, operations=operations)
+        result[entity_name] = RestExposure(path=path, operations=operations)
     return result
 
 
@@ -394,6 +401,21 @@ def _scalar_annotation(field: NormalizedField) -> Any:
     if constraints:
         return Annotated[annotation, Field(**constraints)]
     return annotation
+
+
+def writable_scalar_annotation(
+    model: ApplicationModel,
+    field: NormalizedField,
+) -> Any:
+    """Return the typed wire annotation for a writable scalar/reference field."""
+
+    if field.metadata["type"] == "reference":
+        if field.target_entity is None:
+            raise ValueError(f"reference field {field.name!r} has no target")
+        return _scalar_annotation(_primary_key(model.entity(field.target_entity)))
+    if field.metadata["type"] == "collection":
+        raise ValueError("collection inputs require a nested writable model")
+    return _scalar_annotation(field)
 
 
 def _identity_parameter(

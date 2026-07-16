@@ -13,6 +13,7 @@ from tide.runtime.context import RequestContext
 from tide.runtime.errors import (
     ActionDisabled,
     ActionStoreError,
+    ConcurrencyError,
     IdempotencyConflict,
     NotFoundError,
     TideRuntimeError,
@@ -63,6 +64,7 @@ class ActionService:
         context: RequestContext,
         *,
         idempotency_key: str | None = None,
+        expected_version: int | None = None,
     ) -> dict[str, Any]:
         entity = self.model.entity(entity_name)
         action = entity.actions.get(action_name)
@@ -103,6 +105,16 @@ class ActionService:
                 outcome = AuditOutcome.REPLAYED
             else:
                 session = self.records.begin_action(entity_name, identity, context)
+                if (
+                    expected_version is not None
+                    and session.expected_version != expected_version
+                ):
+                    raise ConcurrencyError(
+                        expected_version,
+                        session.expected_version,
+                    )
+                if expected_version is not None:
+                    session.expected_version = expected_version
                 condition = action.get("enabled_when")
                 if condition and not bool(
                     evaluate_expression(condition, session.values)

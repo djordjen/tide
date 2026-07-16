@@ -29,13 +29,20 @@ seed = [
 report = [
     "reportlab>=4.4,<5",
 ]
+api = [
+    "fastapi>=0.116,<1",
+    "uvicorn[standard]>=0.35,<1",
+]
 dev = [
     "build>=1.2,<1.5.1",
+    "fastapi>=0.116,<1",
     "Faker>=37.4,<38",
+    "httpx>=0.28,<1",
     "pytest>=8.3,<10",
     "reportlab>=4.4,<5",
     "ruff>=0.15,<1",
     "textual>=8.2,<9",
+    "uvicorn[standard]>=0.35,<1",
 ]
 
 [project.scripts]

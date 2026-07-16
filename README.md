@@ -49,8 +49,13 @@ uv run tide model validate applications/invoicing
 uv run tide model explain sales.Invoice.total --project applications/invoicing
 uv run tide api export-openapi applications/invoicing
 uv run tide run applications/invoicing --demo --page-size 3
+uv run tide serve applications/invoicing --demo
 uv run pytest
 ```
+
+`tide serve` requires a 32-character-or-longer development bearer token in
+`TIDE_API_TOKEN` and binds to loopback. The Windows `start.bat api-demo`
+shortcut generates one for local testing and prints the `/docs` address.
 
 `tide run --database-env` selects a persistent SQLAlchemy repository using the
 `TIDE_DATABASE_URL` environment variable. The first managed-database run may
@@ -189,8 +194,11 @@ create/edit forms, master-detail line editing, validation and concurrency
 feedback, audited posting, invoice-number incremental search, named filters,
 and sortable stored scalar columns through keyboard or mouse controls. Secured
 single-record invoice reporting now provides a terminal preview plus HTML and
-PDF export. REST hosting, MCP, migrations, expanded report queries/grouping,
-and broader lookup-query capabilities remain roadmap work.
+PDF export. A loopback-only FastAPI server hosts secured list/get/create/update
+and Invoice Post routes with typed input, ETag concurrency, idempotency, and
+interactive OpenAPI documentation. REST delete, remote TUI/Qt clients,
+production authentication, MCP, migrations, expanded report
+queries/grouping, and broader lookup-query capabilities remain roadmap work.
 
 Metadata v0.1 is an executable experimental contract. Breaking authoring
 changes require a new `schema_version`; stable 1.0 compatibility is not yet

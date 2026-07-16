@@ -67,6 +67,39 @@ when a different repeatable dataset is useful.
 
 Available commands can be displayed with `start.bat help`.
 
+## Local API
+
+Start the API with isolated demo data:
+
+```powershell
+.\start.bat api-demo
+```
+
+Or use the configured SQL Server database:
+
+```powershell
+.\start.bat api
+```
+
+The shortcut creates an ephemeral development bearer token, prints it in the
+console, and starts the server on `http://127.0.0.1:8000`. Open
+`http://127.0.0.1:8000/docs`, choose **Authorize**, and paste the printed token.
+The token is not a database credential: only the server process receives
+`TIDE_DATABASE_URL`, while HTTP clients receive secured JSON projections.
+
+The interactive contract includes create and partial-update operations for
+Invoices, Customers, and Products plus the Invoice Post action. For versioned
+Invoices, first execute `GET /api/v1/invoices/{id}` and copy its response
+`ETag` into the mutation's `If-Match` header. Posting additionally requires a
+new caller-generated `Idempotency-Key` such as a UUID. Demo-mode mutations are
+discarded when the server stops; SQL Server-mode mutations are persistent and
+pass through the same validation, authorization, concurrency, and action audit
+services as the TUI.
+
+This first identity adapter is deliberately restricted to the local computer.
+Do not change the binding to a network address or expose it through a firewall;
+production network access requires the planned OAuth/OIDC and HTTPS adapter.
+
 ## Previewing and exporting an invoice
 
 In the Invoice workspace, highlight a saved invoice and click **Preview** or

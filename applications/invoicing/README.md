@@ -32,7 +32,16 @@ Validate it from the repository root:
 uv run tide model validate applications/invoicing
 uv run tide model explain sales.Invoice.status --project applications/invoicing
 uv run tide run applications/invoicing --demo --page-size 3
+uv run tide serve applications/invoicing --demo
 ```
+
+The server command additionally requires a development token of at least 32
+characters in `TIDE_API_TOKEN`. On Windows, `start.bat api-demo` generates and
+prints an ephemeral token, starts the loopback-only server, and makes the
+interactive contract available at `http://127.0.0.1:8000/docs`.
+The contract exposes secured list/get/create/update routes for the declared
+entities and the Invoice Post action. Invoice mutations require the `ETag` from
+a prior GET as `If-Match`; Post also requires a unique `Idempotency-Key`.
 
 The `--demo` flag explicitly executes this application's `demo_data.py` and
 loads an in-memory repository; it never changes a database. Omit `--page-size`

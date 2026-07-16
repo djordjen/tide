@@ -140,6 +140,21 @@ TIDE's core consumes a `Principal`; authentication belongs to adapters:
 
 All identities map into the same permission and audit model.
 
+The first FastAPI identity adapter is explicitly local-development-only. A
+bearer token is loaded from server environment, must be at least 32 characters,
+and maps to a principal configured on the server command line. The adapter is
+restricted to loopback hosts. Role headers, query parameters, and request
+bodies are ignored; possession of a token cannot be used to request a more
+privileged role. Production exposure requires HTTPS and a real authentication
+provider that performs the same server-side `Principal` mapping.
+
+HTTP mutation schemas contain only normal writable fields. Partial updates use
+field presence rather than full-object replacement, so absent and protected
+fields are not written. Versioned mutations require a strong `If-Match` ETag
+and repeat the version predicate in persistence; targeted idempotent actions
+also require `Idempotency-Key`. These transport checks supplement rather than
+replace entity, row, field, action, validation, and repository enforcement.
+
 Schema v0.1 is single-tenant per deployment. Multi-user does not imply
 multi-tenant: tenant identifiers must not be added as an informal row filter.
 Multi-tenant support requires an explicit isolation and migration contract.
