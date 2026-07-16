@@ -73,9 +73,22 @@ applications web applications.
 
 ## AI-assisted design
 
-The developer MCP server can expose DesignerService safely. An agent can inspect
-the entity model and presets, propose a structured layout patch, validate it,
-render a preview, and present the YAML diff for approval.
+The developer MCP now exposes read-only project/model/view resources and a
+no-write structured new-application proposal tool. An agent can already express
+entities, relationships, roles, safe state transitions and record/PDF report
+intent without receiving arbitrary filesystem or Python execution authority.
+The proposal returns an approval-required deterministic ID and semantic
+diagnostics. The companion preview tool materializes a deleted candidate,
+generates conventional browse/form/lookup/inline views, compiles it, and runs
+bounded in-memory CRUD/security/action/report/HTML/optional-PDF checks using
+only fixed TIDE templates. It returns exact artifacts, hashes and a diff but
+cannot apply them.
+
+DesignerService will extend the same command/change-set boundary for existing
+applications. An agent will inspect the entity model and presets, propose a
+structured layout patch, validate it, render a preview, and present the exact
+YAML diff for approval. Apply/save remains unavailable until proposal IDs are
+bound to a base fingerprint and comment-preserving diff.
 
 Useful tools include:
 

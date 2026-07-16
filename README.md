@@ -48,8 +48,10 @@ uv sync --extra dev
 uv run tide model validate applications/invoicing
 uv run tide model explain sales.Invoice.total --project applications/invoicing
 uv run tide api export-openapi applications/invoicing
+uv run --extra mcp tide mcp dev applications/invoicing
 uv run tide run applications/invoicing --demo --page-size 3
 uv run tide serve applications/invoicing --demo
+uv run --extra mcp tide serve applications/invoicing --demo --mcp
 uv run --extra client tide api check-server applications/invoicing
 uv run pytest
 ```
@@ -61,6 +63,18 @@ The separate `start.bat api-check` command securely prompts for that printed
 token and verifies authentication plus application/wire compatibility through
 the reusable remote client. `start.bat remote` then runs the same Textual
 workflow through that API without giving the TUI a database connection string.
+`start.bat mcp-demo` mounts authenticated read-only schema/record resources and
+structured search tools at `/mcp`; they reuse the same service authorization,
+protected values, exact types, and principal-bound cursors as REST.
+The separate `tide mcp dev` stdio server exposes compiled project resources and
+can turn an AI-authored sequence of logical TIDE operations into a deterministic
+approval-required application proposal. It can also render that proposal into
+a deleted temporary tree, run the normal compiler plus bounded static contract
+checks, generate default views, and exercise fixed transition/sequence
+templates through isolated in-memory CRUD, authorization, action, report, HTML
+and optional PDF checks. It returns exact artifacts, hashes and a diff, but has
+no apply/workspace-write or arbitrary code/path tool. See
+[AI-assisted application generation](docs/AI-APPLICATION-GENERATION.md).
 For reviewed network deployments, `uv sync --extra api --extra auth` adds OIDC
 discovery/JWKS access-token validation. `tide serve --auth oidc` requires an
 exact issuer and audience, maps external roles explicitly to application roles,
@@ -213,10 +227,16 @@ unencrypted non-loopback URLs. Textual can now opt into this client through
 `tide run --api-url`, including structured browse/search/sort, edit sessions,
 lookups, nested lines, actions, and secured report preview/export without
 database access. Provider-neutral OIDC/JWKS bearer validation and direct TLS
-for network binds now provide the production identity foundation. REST delete,
-interactive identity-provider login/refresh, trusted reverse proxies, MCP,
-migrations, expanded report queries/grouping, and broader lookup-query
-capabilities remain roadmap work.
+for network binds now provide the production identity foundation. Authenticated
+runtime MCP now supplies metadata-opted schema/record resources and bounded
+structured search tools over stateless Streamable HTTP. Local developer MCP now
+provides project inspection, typed generation proposals, isolated compiler-
+checked candidate previews, bounded in-memory runtime/renderer checks and exact
+diffs without apply. REST delete,
+interactive identity-provider login/refresh, trusted reverse proxies, MCP
+mutations/actions, approved developer source application, migrations, expanded
+report queries/grouping, and broader lookup-query capabilities remain roadmap
+work.
 
 Metadata v0.1 is an executable experimental contract. Breaking authoring
 changes require a new `schema_version`; stable 1.0 compatibility is not yet

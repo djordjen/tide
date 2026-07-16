@@ -96,6 +96,56 @@ discarded when the server stops; SQL Server-mode mutations are persistent and
 pass through the same validation, authorization, concurrency, and action audit
 services as the TUI.
 
+## Local runtime MCP
+
+Start the same demo server with its metadata-opted, read-only MCP surface:
+
+```powershell
+.\start.bat mcp-demo
+```
+
+The console prints an ephemeral bearer token. Configure an MCP Inspector or
+other Streamable HTTP client with URL `http://127.0.0.1:8000/mcp` and paste the
+token into its bearer-token setting. The client can discover schema resources,
+record resource templates, and these structured query tools:
+
+```text
+search_catalog_product
+search_crm_customer
+search_sales_invoice
+```
+
+For example, call `search_catalog_product` with `limit: 2`, or filter unit
+prices with `{"field":"unit_price","operator":"gte","value":"200.00"}`.
+The MCP client receives no SQL Server URL. Every resource/tool call uses the
+same server-side row, field, relationship, and query authorization as REST.
+This milestone does not expose create, update, Post Invoice, reports, or
+developer/project-editing tools through MCP.
+
+## Local developer MCP
+
+The developer MCP is a separate stdio process for an MCP-capable AI development
+client. Configure that client to launch this command from the repository root:
+
+```powershell
+uv run --extra mcp tide mcp dev applications/invoicing
+```
+
+Unlike `mcp-demo`, this process does not expose or change business data. It can
+inspect the compiled project, validate structured proposals for a new TIDE
+application, and preview them in a deleted temporary candidate tree. For
+example, an AI can propose Company, Product, Invoice and InvoiceLine entities,
+two roles, a constrained Post state transition and an Invoice PDF report. The
+preview returns compiler/static-check results, generated browse/form/lookup/
+inline views, exact artifacts and a unified diff with fingerprints. It also
+runs fixed TIDE-owned sequence/transition templates through bounded in-memory
+CRUD, authorization, idempotency, report, HTML and optional PDF checks. It runs
+no external command, uses no configured application database, and always
+confirms that no workspace write or persistent candidate occurred.
+There is not yet an apply tool: see
+[AI-assisted application generation](AI-APPLICATION-GENERATION.md) for the
+remaining stale-base and explicit approval flow.
+
 To verify the new reusable remote client, leave the API window running and open
 a second terminal:
 
@@ -129,7 +179,7 @@ address or expose them through a firewall.
 For a reviewed network test, first install the production identity adapter:
 
 ```powershell
-uv sync --extra api --extra auth --extra sqlserver
+uv sync --extra api --extra auth --extra mcp --extra sqlserver
 ```
 
 Then supply the issuer, API audience, provider role mapping, and real PEM
@@ -143,7 +193,9 @@ uv run tide serve applications/invoicing --database-env `
   --oidc-role-map external-sales=sales_clerk `
   --host 0.0.0.0 --port 8443 `
   --ssl-certfile C:\TIDE\tls\server-chain.pem `
-  --ssl-keyfile C:\TIDE\tls\server-key.pem
+  --ssl-keyfile C:\TIDE\tls\server-key.pem `
+  --mcp `
+  --mcp-resource-url https://tide.example.com:8443/mcp
 ```
 
 TIDE validates bearer tokens but does not perform the provider's interactive

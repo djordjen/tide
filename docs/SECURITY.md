@@ -190,6 +190,49 @@ renderer-neutral content rather than raw protected values. Remote clients
 validate the report/application identity, table shape, and safe suggested
 filename before preview or local export.
 
+Runtime MCP is authenticated at the HTTP boundary by the official SDK's bearer
+resource-server middleware. The adapter converts only a successfully validated
+TIDE principal into request-local MCP auth context; clients cannot submit a
+principal, role, permission, or channel. Each resource read and tool call then
+creates a `Channel.MCP` request context and repeats application-service
+authorization. Entity exposure controls protocol existence but does not grant
+entity, row, relationship, field, filter, or sort access.
+
+The implemented MCP surface is read-only and limited to metadata-declared
+schema/record resources and search tools. Schema resources omit fields the
+principal cannot read. Record/query results use the same protected-null
+metadata as REST; query cursors are opaque and principal-bound. The transport
+publishes RFC 9728 protected-resource metadata and uses the canonical MCP
+resource URI as a Host/Origin allow-list for DNS-rebinding protection. A
+non-loopback resource URI must use HTTPS. Runtime MCP mutation, domain-action,
+and report capabilities remain disabled until their separate authorization,
+concurrency, idempotency, and audit contracts are implemented.
+
+Developer MCP is a separate local stdio trust boundary. It receives a project
+root selected by the process launcher, not a path supplied to individual MCP
+tools. Its implemented resources expose compiled, project-relative model
+information; its tools validate/inspect, produce structured no-write proposals,
+or render a proposal into an isolated temporary candidate. Candidate paths are
+framework-derived, confined and collision-checked. The normal compiler parses
+fixed TIDE-owned transition and sequence templates statically. Only after that
+succeeds may those exact templates be imported and executed against new in-
+memory services. The preview checks unauthorized create/action/report denial,
+CRUD, action stamps/idempotency, report construction, HTML and optional PDF.
+It runs no caller command/test and opens no configured application database.
+Counts and relationship depth are bounded. The candidate is deleted before
+exact artifacts, hashes, diff, relative diagnostics and contract-check results
+are returned.
+The proposal schema contains no arbitrary source path, shell command, Python
+handler body, or apply operation. Results require approval and distinguish the
+ephemeral temporary write from a workspace write/persisted candidate. Generated
+timestamp stamps use the server clock and cannot be supplied by the caller.
+Temporary/in-memory isolation is not an OS sandbox; custom Python must never be
+executed through this path. Result flags disclose fixed-template execution,
+in-memory checks, external commands and database access explicitly.
+STDIO stdout is reserved for protocol messages. Remote developer hosting and
+source application remain disabled pending authenticated workspace isolation,
+actual destination/stale-base detection, explicit approval and audit.
+
 Schema v0.1 is single-tenant per deployment. Multi-user does not imply
 multi-tenant: tenant identifiers must not be added as an informal row filter.
 Multi-tenant support requires an explicit isolation and migration contract.

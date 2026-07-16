@@ -143,3 +143,9 @@ report kind binds one required parameter to its entity primary key and permits
 one collection detail band. Report REST delivery is separately deny-by-default
 and requires `expose: {rest: true}`. Richer set-based/grouped queries remain
 outside this contract until they have a bounded SQL-translatable query plan.
+
+Entity MCP exposure is also typed rather than an open capability list. The
+implemented v0.1 values are `resources: [schema, record]` and
+`tools: [search]`. Unknown resource/tool names fail source-schema validation;
+action/report MCP flags remain reserved for later adapters and do not register
+write capabilities today.

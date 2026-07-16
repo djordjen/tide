@@ -5,10 +5,12 @@ features. Designers and alternative renderers follow stable model contracts.
 
 ## Milestone 0 - Contracts and skeleton
 
-Status: **in progress**. The package, CLI, typed v0.1 sources, project discovery,
+Status: **complete**. The package, CLI, typed v0.1 sources, project discovery,
 strict diagnostics, tests, compiler-ready invoicing fixture, and managed SQLite
-schema/persistence skeleton are implemented. The first metadata-driven Textual
-browse shell is runnable; developer MCP remains.
+schema/persistence skeleton are implemented. The metadata-driven Textual browse
+shell is runnable; the local developer MCP provides project resources and
+structured no-write application proposals plus deleted, compiler/runtime-
+checked candidate previews.
 
 - living architecture documentation and decision log;
 - Python package, CLI, configuration, and test skeleton;
@@ -18,17 +20,19 @@ browse shell is runnable; developer MCP remains.
 - basic Textual application shell;
 - SQLite connection;
 - invoicing project fixture;
-- read-only developer MCP skeleton for project information.
+- read-only developer MCP project/model/entity/view resources plus structured
+  approval-required new-application proposals and isolated no-apply previews;
+  **implemented**
 
 Exit condition: `tide model validate` can load a small project and report useful
 source locations and diagnostics.
 
 ## Milestone 1 - Model compiler and expressions
 
-Status: **compiler contract complete; developer MCP pending**. Strict YAML,
+Status: **complete**. Strict YAML,
 normalized immutable entities, two-pass references, typed safe expressions,
 cycle detection, layered view resolution/provenance, static handler checks,
-presets, views, and reports compile.
+presets, views, and reports compile and are inspectable through developer MCP.
 
 - YAML loading with strict scalar behavior;
 - normalized immutable `ApplicationModel`;
@@ -37,7 +41,7 @@ presets, views, and reports compile.
 - safe typed expression AST;
 - local computed fields and cross-field validation;
 - resolved-model and resolved-view explanation;
-- developer MCP resources for entities, views, and diagnostics.
+- developer MCP resources for entities, views, and diagnostics; **implemented**
 
 Exit condition: the compiler resolves Customer, Product, Invoice, and
 InvoiceLine, including references and calculated line totals.
@@ -149,12 +153,16 @@ an invoice entirely by keyboard or mouse.
 - secured renderer-neutral remote report transport with Textual preview and
   local HTML/PDF export; **implemented**
 - reuse the same client/service boundary for the future Qt renderer;
-- runtime MCP resources and read-only query tools;
+- runtime MCP schema/record resources and read-only structured query tools;
+  **implemented with authenticated stateless Streamable HTTP, RFC 9728
+  metadata, DNS-rebinding controls, service reauthorization, exact protected
+  wire values, bounded pages, and principal-bound cursors**
 - opt-in MCP domain actions and mutations;
 - shared authentication-to-Principal adapters; **implemented for local
   development tokens and provider-neutral OIDC/JWKS access tokens**
 - channel-aware audit events;
-- OpenAPI and MCP schema conformance tests.
+- OpenAPI and MCP schema conformance tests; **implemented for the current REST
+  and read-only runtime MCP surfaces**
 
 Exit condition: TUI, REST, and MCP produce equivalent secured outcomes through
 the same services.
@@ -193,6 +201,13 @@ respect every relevant permission.
 
 ## Milestone 7 - TIDE Studio
 
+- structured new-application proposal operations and semantic validation;
+  **implemented without source writes**
+- isolated new-application candidate-tree materialization, normal compiler,
+  generated default views, bounded static and isolated in-memory CRUD/security/
+  action/idempotency/report/HTML/optional-PDF checks, exact artifacts/digests/
+  diff, and proposal/base/candidate fingerprints; **implemented without apply**
+- actual destination/stale-base detection and explicit apply approval;
 - headless DesignerService and command model;
 - undo, redo, validation, source diff, and save;
 - Textual model/view tree and property inspector;

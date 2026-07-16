@@ -46,6 +46,12 @@ Provider-neutral OIDC/JWKS access-token validation and direct TLS are available
 for reviewed network deployments; see
 [REST API and MCP](../../docs/API-AND-MCP.md#current-application-server).
 
+`start.bat mcp-demo` additionally mounts authenticated runtime MCP at
+`http://127.0.0.1:8000/mcp`. It exposes principal-filtered entity schemas,
+record templates, and read-only structured search tools for Customers,
+Products, and Invoices. These calls reuse `RecordsService`; no database URL,
+mutation tool, or project-editing capability is given to the MCP client.
+
 With that server still running, `start.bat remote` prompts for the printed token
 and opens the same Textual workflow as an HTTP client. It supports browse,
 search, filters, sorting, paging, lookups, nested create/edit, and posting while

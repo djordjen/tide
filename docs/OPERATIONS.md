@@ -37,6 +37,37 @@ trusted proxy configuration, request/body limits, token-acquisition flows,
 structured security logging, and production process supervision remain later
 reviewed work.
 
+Runtime MCP is opt-in through `tide serve --mcp` and the separate `mcp` package
+extra. It shares the REST process, persistence, bearer validator, and
+application services, but has its own Streamable HTTP protocol endpoint. Local
+development derives `http://127.0.0.1:<port>/mcp`. Non-loopback deployments
+must declare `--mcp-resource-url` as the externally reachable HTTPS URI; its
+path must match `--mcp-path`. That URI is security-sensitive configuration: it
+is published through Protected Resource Metadata and defines the MCP SDK's
+accepted Host and Origin values.
+
+The current MCP transport is stateless and JSON-response based. Operators must
+send the bearer credential on every request, must not log credentials or opaque
+query cursors, and must configure the identity provider to issue tokens for the
+deployment's reviewed audience/resource. Interactive token acquisition remains
+client/provider work. Mutation/action audit and production request-rate/body
+limits remain prerequisites before enabling future write tools.
+
+`tide mcp dev APPLICATION` is a local stdio development process, not a hosted
+production endpoint. The MCP client launches it with a deployment-selected
+project root. Standard output contains protocol messages only; diagnostics are
+resources/tool results. Candidate preview may create a short-lived operating-
+system temporary tree, compile it and run bounded static contract checks; it
+may then execute only the candidate's fixed TIDE-owned transition/sequence
+templates against fresh in-memory services. This is not an OS sandbox and must
+never be extended to custom/caller code. Entity/report/action counts and nested
+fixture depth are bounded; optional PDF absence is reported as a skipped check.
+The server deletes the tree before returning and never writes the source
+workspace, runs external test/shell commands, connects to the application
+database, accepts caller-selected paths, or applies its returned diff. Apply
+must remain disabled in unattended automation until explicit
+approval, destination/stale-base protection and repository audit ship.
+
 `tide run --api-url` is the database-isolated Textual deployment mode. It reads
 the bearer credential from `TIDE_API_TOKEN` (or the named `--api-token-env`),
 validates the server application/wire contract before opening a screen, and

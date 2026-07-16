@@ -105,7 +105,7 @@ display: "{first_name} {last_name}"
 expose:
   tui: true
   rest: {operations: [list, get, create, update]}
-  mcp: {resources: [schema, record]}
+  mcp: {resources: [schema, record], tools: [search]}
 
 fields:
   id:         {type: integer, primary_key: true}
@@ -118,6 +118,10 @@ fields:
 
 The field identifier is stable application vocabulary. Labels, help text,
 formats, editor hints, and localization are separate facets of the field.
+Runtime MCP exposure is deny-by-default. Schema v0.1 currently accepts only
+the read-only `schema` and `record` resources plus the structured `search`
+tool; mutation and action capabilities cannot be enabled through an arbitrary
+string. Exposure creates protocol vocabulary but grants no permission.
 
 ## Model facets
 

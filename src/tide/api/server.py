@@ -42,6 +42,13 @@ from tide.api.openapi import (
     rest_exposures,
     writable_scalar_annotation,
 )
+from tide.api.wire import (
+    coerce_identity as _coerce_identity,
+    decode_filter_value as _decode_filter_value,
+    decode_wire_value as _decode_wire_value,
+    primary_key as _primary_key,
+    wire_record as _wire_record,
+)
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.runtime import (
@@ -914,65 +921,6 @@ def _get_endpoint(
     return get_record
 
 
-def _wire_record(
-    model: ApplicationModel,
-    entity: NormalizedEntity,
-    values: Mapping[str, Any],
-) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    protected: list[str] = []
-    for field_name, field in entity.fields.items():
-        value = values.get(field_name)
-        if value is PROTECTED:
-            result[field_name] = None
-            protected.append(field_name)
-        elif field.metadata["type"] == "collection" and field.target_entity:
-            target = model.entity(field.target_entity)
-            result[field_name] = [
-                _wire_record(model, target, child)
-                for child in (value or ())
-            ]
-        else:
-            result[field_name] = value
-    if protected:
-        result["_tide"] = {"protected_fields": protected}
-    return result
-
-
-def _coerce_identity(
-    model: ApplicationModel,
-    field: NormalizedField,
-    value: Any,
-) -> Any:
-    field_type = str(field.metadata["type"])
-    if field_type == "reference" and field.target_entity:
-        return _coerce_identity(model, _primary_key(model.entity(field.target_entity)), value)
-    if field_type == "integer":
-        if isinstance(value, int) and not isinstance(value, bool):
-            return value
-        if not isinstance(value, str):
-            raise ValueError
-        if not value or value.strip() != value:
-            raise ValueError
-        return int(value)
-    if field_type in {"string", "choice"}:
-        return str(value)
-    if field_type == "decimal":
-        return value if isinstance(value, Decimal) else Decimal(str(value))
-    raise TypeError
-
-
-def _decode_filter_value(
-    model: ApplicationModel,
-    entity: NormalizedEntity,
-    field_name: str,
-    value: Any,
-) -> Any:
-    if field_name not in entity.fields:
-        raise ValueError(f"unknown query field {field_name!r}")
-    return _decode_wire_value(model, entity.field(field_name), value)
-
-
 def _decode_draft(
     model: ApplicationModel,
     entity: NormalizedEntity,
@@ -987,60 +935,6 @@ def _decode_draft(
         field_name: _decode_wire_value(model, entity.field(field_name), value)
         for field_name, value in values.items()
     }
-
-
-def _decode_wire_value(
-    model: ApplicationModel,
-    field: NormalizedField,
-    value: Any,
-) -> Any:
-    if value is None:
-        return None
-    field_type = str(field.metadata["type"])
-    if field_type == "reference":
-        if field.target_entity is None:
-            raise TypeError
-        return _decode_wire_value(
-            model,
-            _primary_key(model.entity(field.target_entity)),
-            value,
-        )
-    if field_type == "collection":
-        if field.target_entity is None or not isinstance(value, list):
-            raise TypeError
-        target = model.entity(field.target_entity)
-        if not all(isinstance(item, Mapping) for item in value):
-            raise TypeError
-        return [_decode_draft(model, target, item) for item in value]
-    if field_type == "decimal":
-        if not isinstance(value, str):
-            raise TypeError
-        return Decimal(value)
-    if field_type == "date":
-        if not isinstance(value, str):
-            raise TypeError
-        from datetime import date
-
-        return date.fromisoformat(value)
-    if field_type == "datetime":
-        if not isinstance(value, str):
-            raise TypeError
-        from datetime import datetime
-
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if field_type == "integer":
-        if not isinstance(value, int) or isinstance(value, bool):
-            raise TypeError
-        return value
-    if field_type == "boolean":
-        if not isinstance(value, bool):
-            raise TypeError
-        return value
-    if field_type in {"string", "choice"}:
-        if not isinstance(value, str):
-            raise TypeError
-        return value
-    raise TypeError
 
 
 def _coerce_reference_identity(
@@ -1087,12 +981,6 @@ def _wire_value(
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return value
-
-
-def _primary_key(entity: NormalizedEntity) -> NormalizedField:
-    return next(
-        field for field in entity.fields.values() if field.metadata.get("primary_key")
-    )
 
 
 def _identity_annotation(

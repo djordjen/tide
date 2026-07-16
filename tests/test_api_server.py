@@ -635,6 +635,9 @@ def test_tide_serve_builds_non_loopback_oidc_app_with_direct_tls(
             "tide-api",
             "--oidc-role-map",
             "external-sales=sales_clerk",
+            "--mcp",
+            "--mcp-resource-url",
+            "https://tide.example.test:8443/mcp",
         ]
     )
 
@@ -653,9 +656,111 @@ def test_tide_serve_builds_non_loopback_oidc_app_with_direct_tls(
     assert schema["components"]["securitySchemes"]["bearerAuth"][
         "bearerFormat"
     ] == "JWT"
+    hosted_mcp = launched["app"].state.tide_mcp
+    assert hosted_mcp.resource_url == "https://tide.example.test:8443/mcp"
+    assert hosted_mcp.issuer_url == "https://identity.example.test/tenant"
     output = capsys.readouterr().out
     assert "https://0.0.0.0:8443" in output
     assert "OIDC issuer https://identity.example.test/tenant" in output
+    assert "MCP: https://tide.example.test:8443/mcp" in output
+
+
+def test_tide_serve_mounts_read_only_mcp_on_the_local_api(
+    monkeypatch,
+    capsys,
+) -> None:
+    launched: dict[str, Any] = {}
+    monkeypatch.setenv("TEST_TIDE_API_TOKEN", TOKEN)
+
+    def fake_run(app: Any, **configuration: Any) -> None:
+        launched["app"] = app
+        launched["configuration"] = configuration
+
+    monkeypatch.setattr(uvicorn, "run", fake_run)
+
+    result = main(
+        [
+            "serve",
+            str(INVOICING),
+            "--demo",
+            "--dev-token-env",
+            "TEST_TIDE_API_TOKEN",
+            "--role",
+            "sales_clerk",
+            "--port",
+            "8124",
+            "--mcp",
+        ]
+    )
+
+    assert result == 0
+    hosted = launched["app"].state.tide_mcp
+    assert hosted.path == "/mcp"
+    assert hosted.resource_url == "http://127.0.0.1:8124/mcp"
+    assert hosted.issuer_url == "http://127.0.0.1:8124"
+    assert set(hosted.service.exposures) == {
+        "catalog.Product",
+        "crm.Customer",
+        "sales.Invoice",
+    }
+    assert launched["configuration"] == {
+        "host": "127.0.0.1",
+        "port": 8124,
+        "log_level": "info",
+    }
+    assert "MCP: http://127.0.0.1:8124/mcp" in capsys.readouterr().out
+
+
+def test_tide_serve_requires_canonical_resource_url_for_network_mcp(
+    capsys,
+    tmp_path: Path,
+) -> None:
+    certfile = tmp_path / "server-cert.pem"
+    keyfile = tmp_path / "server-key.pem"
+    certfile.write_text("test certificate", encoding="utf-8")
+    keyfile.write_text("test key", encoding="utf-8")
+
+    result = main(
+        [
+            "serve",
+            str(INVOICING),
+            "--demo",
+            "--auth",
+            "oidc",
+            "--host",
+            "0.0.0.0",
+            "--ssl-certfile",
+            str(certfile),
+            "--ssl-keyfile",
+            str(keyfile),
+            "--mcp",
+        ]
+    )
+
+    assert result == 1
+    assert capsys.readouterr().err == (
+        "API startup failed: non-loopback MCP serving requires "
+        "--mcp-resource-url\n"
+    )
+
+
+def test_tide_serve_requires_mcp_resource_path_to_match_endpoint(capsys) -> None:
+    result = main(
+        [
+            "serve",
+            str(INVOICING),
+            "--demo",
+            "--mcp",
+            "--mcp-resource-url",
+            "http://127.0.0.1:8000/not-mcp",
+        ]
+    )
+
+    assert result == 1
+    assert capsys.readouterr().err == (
+        "API startup failed: MCP resource URL must be an absolute HTTP or HTTPS "
+        "URL whose path exactly matches --mcp-path\n"
+    )
 
 
 def _app(role: str | None, *, model: Any | None = None) -> Any:

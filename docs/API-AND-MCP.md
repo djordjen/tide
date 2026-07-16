@@ -248,39 +248,135 @@ uncertain failed execution fails closed through `ActionService`.
 
 ## Developer MCP server
 
-The developer MCP server is an early feature for AI-assisted development. Its
-initial surface should be read-only and project-oriented.
+The first local developer MCP is implemented as a read/propose-only stdio
+server for AI-assisted development:
 
-Candidate resources:
-
-```text
-tide://application
-tide://model
-tide://entities/crm.Person
-tide://views/sales.Invoice.edit
-tide://diagnostics
-tide://openapi
+```bash
+uv sync --extra mcp
+tide mcp dev applications/invoicing
 ```
 
-Candidate tools:
+It intentionally has a different server, transport, identity and capability
+surface from runtime MCP. Its resources are project-oriented:
 
 ```text
-tide_model_validate
-tide_model_explain
+tide://developer/project
+tide://developer/application
+tide://developer/model
+tide://developer/entities/crm.Person
+tide://developer/views/sales.Invoice.edit
+```
+
+Its implemented tools are:
+
+```text
+tide_validate_project
 tide_list_entities
 tide_describe_entity
 tide_get_resolved_view
-tide_preview_migration
 tide_preview_openapi
-tide_run_tests
+tide_propose_application
+tide_preview_application
 ```
 
-Later write tools should operate through structured designer/model commands and
-return a proposed diff. They should not silently rewrite arbitrary files.
+`tide_propose_application` accepts discriminated logical operations for an
+application, entities/fields/relationships, roles, safe state-transition
+workflows, and record/PDF reports. It returns a deterministic proposal ID and
+semantic diagnostics with `approval_required: true` and
+`writes_performed: false`.
+
+`tide_preview_application` deterministically renders the same plan into a
+temporary new-application tree, invokes the normal compiler and bounded static
+contract checks, then runs fixed generated transition/sequence templates only
+against fresh in-memory services. It exercises authorization denial, CRUD,
+idempotent actions, secured report documents, HTML and optional PDF; no caller
+code/command runs and no application database is opened. The tree is deleted
+before exact artifact contents/hashes, a unified diff, relative diagnostics,
+and proposal/base/candidate fingerprints are returned. The result distinguishes
+ephemeral materialization/runtime checks from source or database mutation with
+`workspace_writes_performed: false`, `candidate_persisted: false`, and
+`temporary_candidate_deleted: true`, plus explicit code-execution, external-
+command, database-access and in-memory-check flags.
+
+There are no caller-selected paths, arbitrary Python, apply, workspace-write,
+external-test-execution, or shell tools. See
+[AI-assisted application generation](AI-APPLICATION-GENERATION.md) for the
+remaining stale-base, explicit-approval, apply, and audit stages that must
+precede any future write tool.
 
 ## Runtime MCP server
 
-Runtime MCP lets an authorized AI use a deployed application:
+Runtime MCP lets an authorized AI use a deployed application. The first
+implemented surface is deliberately read-only: entity `schema` and templated
+`record` resources plus bounded structured `search` tools. The developer opts
+each entity in independently:
+
+```yaml
+expose:
+  mcp:
+    resources: [schema, record]
+    tools: [search]
+```
+
+Install the stable v1 SDK line and mount the endpoint beside REST:
+
+```bash
+uv sync --extra api --extra mcp
+tide serve applications/invoicing --demo --role sales_clerk --mcp
+```
+
+The local endpoint is `http://127.0.0.1:8000/mcp` and uses the same development
+token as REST. `start.bat mcp-demo` performs both steps for the invoicing
+example. An MCP Inspector or other Streamable HTTP client supplies that token
+as a Bearer credential. The server uses stateless Streamable HTTP with JSON
+responses and publishes OAuth Protected Resource Metadata at
+`/.well-known/oauth-protected-resource/mcp`.
+
+Generated names and URIs are stable transformations of application and entity
+identifiers:
+
+```text
+tide://runtime/tide_invoicing/entities/catalog.Product/schema
+tide://runtime/tide_invoicing/entities/catalog.Product/records/{identity}
+search_catalog_product
+```
+
+Schema content is rebuilt for the authenticated principal and omits fields the
+principal may not read. Record resources normalize the identity to the target
+primary-key type, call `RecordsService.get()`, and preserve exact decimals,
+dates, nested records, and structured protected-field metadata. Search tools
+accept the same typed field/operator/value filters, ordered sort fields,
+bounded limit, and opaque continuation cursor as REST. Cursors remain bound to
+the principal and effective permissions. Every invocation creates a
+`RequestContext` with `Channel.MCP` and reauthorizes entity, row, relationship,
+field, filter, and sort access through `RecordsService`.
+
+For OIDC hosting, enable both extras and use the production identity/TLS
+configuration documented above. A non-loopback MCP bind additionally requires
+the canonical public resource URI because a wildcard listener is not an OAuth
+resource identifier:
+
+```bash
+tide serve applications/invoicing --database-env \
+  --auth oidc \
+  --oidc-issuer https://identity.example.com/tenant \
+  --oidc-audience tide-mcp \
+  --oidc-role-map external-sales=sales_clerk \
+  --host 0.0.0.0 --port 8443 \
+  --ssl-certfile deployment/server-chain.pem \
+  --ssl-keyfile deployment/server-key.pem \
+  --mcp \
+  --mcp-resource-url https://tide.example.com:8443/mcp
+```
+
+The configured resource URL drives RFC 9728 metadata and an explicit Host and
+Origin allow-list for DNS-rebinding protection. Its path must exactly match
+`--mcp-path`; non-loopback resource URLs require HTTPS. The configured OIDC
+audience must identify this deployment according to the provider's resource
+indicator contract. TIDE remains a resource server: the external provider
+performs login, consent, token issuance, and refresh.
+
+Later runtime surfaces may add capabilities such as:
 
 ```text
 search_people
@@ -291,9 +387,11 @@ post_invoice
 find_overdue_invoices
 ```
 
-Read-only resources and query tools should precede mutations. Domain actions
-are preferable to exposing unrestricted generic writes because they carry
-clear intent, validation, permission, and audit semantics.
+Create/update/action/report tools and resources are not registered by this
+milestone, even when action/report metadata contains `mcp: true`. Domain
+actions will be preferable to unrestricted generic writes because they carry
+clear intent, validation, permission, concurrency, idempotency, and audit
+semantics.
 Retryable actions declare idempotency, and adapters may bind an idempotency key
 to the principal, action, target, and payload.
 
@@ -330,9 +428,8 @@ appropriate.
 ```bash
 tide api describe
 tide api export-openapi
-tide mcp dev
-tide mcp inspect
-tide serve
+tide mcp dev applications/invoicing
+tide serve --mcp
 ```
 
 ## References

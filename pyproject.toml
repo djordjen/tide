@@ -36,6 +36,9 @@ api = [
 client = [
     "httpx>=0.28,<1",
 ]
+mcp = [
+    "mcp>=1.28,<2",
+]
 auth = [
     "httpx>=0.28,<1",
     "PyJWT[crypto]>=2.10,<3",
@@ -45,6 +48,7 @@ dev = [
     "fastapi>=0.116,<1",
     "Faker>=37.4,<38",
     "httpx>=0.28,<1",
+    "mcp>=1.28,<2",
     "PyJWT[crypto]>=2.10,<3",
     "pytest>=8.3,<10",
     "reportlab>=4.4,<5",

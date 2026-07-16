@@ -10,6 +10,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
@@ -286,6 +287,23 @@ def _create_parser() -> argparse.ArgumentParser:
         default=5.0,
         help="OIDC discovery and JWKS timeout in seconds (default: 5)",
     )
+    serve.add_argument(
+        "--mcp",
+        action="store_true",
+        help="mount the opt-in read-only runtime MCP server",
+    )
+    serve.add_argument(
+        "--mcp-path",
+        default="/mcp",
+        help="Streamable HTTP MCP path (default: /mcp)",
+    )
+    serve.add_argument(
+        "--mcp-resource-url",
+        help=(
+            "canonical externally reachable MCP resource URL; required for "
+            "non-loopback serving"
+        ),
+    )
     serve.set_defaults(handler=_serve_api)
 
     database = commands.add_parser("db", help="manage development database data")
@@ -411,6 +429,21 @@ def _create_parser() -> argparse.ArgumentParser:
     )
     check_server.set_defaults(handler=_api_check_server)
 
+    mcp = commands.add_parser("mcp", help="run Model Context Protocol adapters")
+    mcp_commands = mcp.add_subparsers(dest="mcp_command")
+    mcp_dev = mcp_commands.add_parser(
+        "dev",
+        help="run the local read/propose-only developer MCP over stdio",
+    )
+    mcp_dev.add_argument(
+        "project",
+        nargs="?",
+        default=".",
+        metavar="APPLICATION",
+        help="application root or tide.yaml (default: current directory)",
+    )
+    mcp_dev.set_defaults(handler=_mcp_dev)
+
     return parser
 
 
@@ -458,6 +491,11 @@ def _serve_api(arguments: argparse.Namespace) -> int:
             raise ValueError(
                 "non-loopback serving requires --ssl-certfile and --ssl-keyfile"
             )
+        mcp_resource_url, mcp_issuer_url = _server_mcp_configuration(
+            arguments,
+            is_loopback=is_loopback,
+            direct_tls=certfile is not None,
+        )
     except ValueError as error:
         print(f"API startup failed: {error}", file=sys.stderr)
         return 1
@@ -585,13 +623,42 @@ def _serve_api(arguments: argparse.Namespace) -> int:
                 actions=actions,
                 base_path=arguments.base_path,
             )
+            if arguments.mcp:
+                try:
+                    from tide.mcp.runtime import RuntimeMcpService
+                    from tide.mcp.server import (
+                        build_runtime_mcp_server,
+                        mount_runtime_mcp,
+                    )
+                except ModuleNotFoundError as error:
+                    if error.name == "mcp" or (error.name or "").startswith("mcp."):
+                        print(
+                            "The MCP adapter is not installed. Install the 'mcp' "
+                            "extra (for example: uv sync --extra api --extra mcp).",
+                            file=sys.stderr,
+                        )
+                        return 1
+                    raise
+                assert mcp_resource_url is not None
+                assert mcp_issuer_url is not None
+                hosted_mcp = build_runtime_mcp_server(
+                    RuntimeMcpService(model, records),
+                    authenticator,
+                    issuer_url=mcp_issuer_url,
+                    resource_url=mcp_resource_url,
+                    path=arguments.mcp_path,
+                )
+                mount_runtime_mcp(app, hosted_mcp)
         except (ApplicationRuntimeError, ValueError) as error:
             print(f"API startup failed: {error}", file=sys.stderr)
             return 1
         scheme = "https" if certfile is not None else "http"
+        mcp_summary = (
+            f"; MCP: {mcp_resource_url}" if mcp_resource_url is not None else ""
+        )
         print(
             f"Serving {model.name} at {scheme}://{arguments.host}:{arguments.port} "
-            f"(docs: /docs; {identity_summary})."
+            f"(docs: /docs; {identity_summary}{mcp_summary})."
         )
         configuration: dict[str, Any] = {
             "host": arguments.host,
@@ -634,6 +701,68 @@ def _server_tls_configuration(
                 f"{arguments.ssl_keyfile_password_env!r} is not set"
             )
     return certfile, keyfile, password
+
+
+def _server_mcp_configuration(
+    arguments: argparse.Namespace,
+    *,
+    is_loopback: bool,
+    direct_tls: bool,
+) -> tuple[str | None, str | None]:
+    if not arguments.mcp:
+        if arguments.mcp_resource_url is not None:
+            raise ValueError("--mcp-resource-url requires --mcp")
+        return None, None
+    path = arguments.mcp_path.strip()
+    if (
+        not path.startswith("/")
+        or path == "/"
+        or path.endswith("/")
+        or "?" in path
+        or "#" in path
+    ):
+        raise ValueError(
+            "--mcp-path must be an absolute non-root path without a trailing slash"
+        )
+    resource_url = arguments.mcp_resource_url
+    if resource_url is None:
+        if not is_loopback:
+            raise ValueError(
+                "non-loopback MCP serving requires --mcp-resource-url"
+            )
+        host = arguments.host.strip()
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        scheme = "https" if direct_tls else "http"
+        resource_url = f"{scheme}://{host}:{arguments.port}{path}"
+    try:
+        parsed = urlsplit(resource_url)
+        _port = parsed.port
+    except ValueError as error:
+        raise ValueError("MCP resource URL is invalid") from error
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or parsed.path != path
+    ):
+        raise ValueError(
+            "MCP resource URL must be an absolute HTTP or HTTPS URL whose path "
+            "exactly matches --mcp-path"
+        )
+    resource_is_loopback = _is_loopback_host(parsed.hostname)
+    if parsed.scheme != "https" and not resource_is_loopback:
+        raise ValueError("non-loopback MCP resource URLs must use HTTPS")
+    if arguments.auth == "development" and not resource_is_loopback:
+        raise ValueError("development MCP resource URLs must use a loopback host")
+    if arguments.auth == "oidc":
+        issuer_url = arguments.oidc_issuer
+    else:
+        issuer_url = f"{parsed.scheme}://{parsed.netloc}"
+    return resource_url, issuer_url
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -1107,6 +1236,26 @@ def _api_check_server(arguments: argparse.Namespace) -> int:
         f"Connected to {session.application} {session.application_version} as "
         f"{session.principal} ({operations} operation(s), {actions} action(s))."
     )
+    return 0
+
+
+def _mcp_dev(arguments: argparse.Namespace) -> int:
+    try:
+        from tide.mcp.developer import build_developer_mcp_server
+    except ModuleNotFoundError as error:
+        if error.name == "mcp" or (error.name or "").startswith("mcp."):
+            print(
+                "The MCP adapter is not installed. Install the 'mcp' extra "
+                "(for example: uv sync --extra mcp).",
+                file=sys.stderr,
+            )
+            return 1
+        raise
+
+    server = build_developer_mcp_server(arguments.project)
+    # STDIO protocol messages own stdout. Developer status and diagnostics are
+    # available through MCP resources/tools, so this command prints no banner.
+    server.run(transport="stdio")
     return 0
 
 

@@ -33,16 +33,19 @@ decision log rather than being silently assumed in implementation code.
     continuation contracts.
 13. [Action audit and idempotency](AUDIT-AND-IDEMPOTENCY.md) defines durable
     reservations, audit rows, replay, and crash reconciliation.
-14. [Designers and reporting](DESIGNERS-AND-REPORTING.md) describes TIDE Studio,
+14. [AI-assisted application generation](AI-APPLICATION-GENERATION.md) defines
+   developer MCP proposals, isolated runtime-checked candidates, approval, and
+   source-write boundaries.
+15. [Designers and reporting](DESIGNERS-AND-REPORTING.md) describes TIDE Studio,
    view designers, and the banded report model.
-15. [Terminal compatibility](TERMINAL-COMPATIBILITY.md) defines the initial
-    terminal test matrix.
-16. [Operational baseline](OPERATIONS.md) defines deployment, health, logging,
-    backup, and recovery expectations.
-17. [Headless runtime](HEADLESS-RUNTIME.md) documents the executable in-memory
-    application-service contract.
-18. [Roadmap](ROADMAP.md) orders the work into testable vertical slices.
-19. [Decision log](DECISIONS.md) records accepted and unresolved decisions.
+16. [Terminal compatibility](TERMINAL-COMPATIBILITY.md) defines the initial
+   terminal test matrix.
+17. [Operational baseline](OPERATIONS.md) defines deployment, health, logging,
+   backup, and recovery expectations.
+18. [Headless runtime](HEADLESS-RUNTIME.md) documents the executable in-memory
+   application-service contract.
+19. [Roadmap](ROADMAP.md) orders the work into testable vertical slices.
+20. [Decision log](DECISIONS.md) records accepted and unresolved decisions.
 
 ## Status vocabulary
 

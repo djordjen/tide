@@ -52,8 +52,16 @@ class RestExposureSource(SourceModel):
 
 
 class McpExposureSource(SourceModel):
-    resources: tuple[str, ...] = ()
-    tools: tuple[str, ...] = ()
+    resources: tuple[Literal["schema", "record"], ...] = ()
+    tools: tuple[Literal["search"], ...] = ()
+
+    @model_validator(mode="after")
+    def unique_capabilities(self) -> McpExposureSource:
+        if len(set(self.resources)) != len(self.resources):
+            raise ValueError("MCP resources must not be repeated")
+        if len(set(self.tools)) != len(self.tools):
+            raise ValueError("MCP tools must not be repeated")
+        return self
 
 
 class EntityExposureSource(SourceModel):
