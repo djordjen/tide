@@ -27,6 +27,32 @@ It deliberately avoids editable generated code, implicit framework magic, and
 deep abstraction hierarchies. Application structure is declarative; complex
 business behavior remains ordinary Python.
 
+## TUI preview
+
+These captures come from the real Textual client running the bundled invoicing
+application with deterministic demo data. Select an image to open it full size.
+
+[![TIDE invoice browser](docs/images/tide-invoice-browser.svg)](docs/images/tide-invoice-browser.svg)
+
+<table>
+  <tr>
+    <th>Metadata-driven invoice editor</th>
+    <th>Searchable multi-column product lookup</th>
+  </tr>
+  <tr>
+    <td>
+      <a href="docs/images/tide-invoice-editor.svg">
+        <img src="docs/images/tide-invoice-editor.svg" alt="TIDE invoice editor">
+      </a>
+    </td>
+    <td>
+      <a href="docs/images/tide-product-lookup.svg">
+        <img src="docs/images/tide-product-lookup.svg" alt="TIDE searchable product lookup">
+      </a>
+    </td>
+  </tr>
+</table>
+
 ## Initial technology direction
 
 - Python
