@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
 import re
 import secrets
@@ -31,6 +31,7 @@ from tide.api.contracts import (
     TideQueryInput,
     TideReferenceSelectionInput,
     TideReferenceSelectionResult,
+    TideReportDocument,
     TideSessionInfo,
 )
 from tide.api.openapi import (
@@ -57,6 +58,7 @@ from tide.runtime import (
     TideRuntimeError,
     ValidationFailed,
 )
+from tide.reporting import ReportService
 from tide.security import PROTECTED
 from tide.services import ActionService, RecordsService
 
@@ -100,6 +102,7 @@ class TideApiRuntime:
     model: ApplicationModel
     records: RecordsService
     actions: ActionService
+    reports: ReportService
     authenticator: BearerAuthenticator
     base_path: str
 
@@ -110,6 +113,7 @@ def build_fastapi_app(
     authenticator: BearerAuthenticator,
     *,
     actions: ActionService | None = None,
+    reports: ReportService | None = None,
     base_path: str = DEFAULT_BASE_PATH,
 ) -> FastAPI:
     """Build an HTTP adapter over services without granting client database access."""
@@ -117,6 +121,7 @@ def build_fastapi_app(
     preview = build_openapi_preview(model, base_path=base_path)
     exposures = rest_exposures(model, allowed_operations=SERVER_OPERATIONS)
     action_service = actions or ActionService(model, records)
+    report_service = reports or ReportService(model, records)
     create_models, update_models = _build_writable_models(model, exposures)
     app = FastAPI(
         title=f"{model.name} API",
@@ -130,6 +135,7 @@ def build_fastapi_app(
         model,
         records,
         action_service,
+        report_service,
         authenticator,
         base_path,
     )
@@ -307,6 +313,12 @@ def build_fastapi_app(
             schema_version=model.schema_version,
             principal=context.principal.identifier,
             roles=tuple(sorted(context.principal.roles)),
+            reports=tuple(
+                report_name
+                for report_name, report in model.reports.items()
+                if report.get("expose", {}).get("rest") is True
+                and report_service.can_generate(report_name, context)
+            ),
             entities=capabilities,
         )
 
@@ -338,6 +350,34 @@ def build_fastapi_app(
         return TideReferenceSelectionResult(
             values=_wire_draft(model, entity, updated),
         )
+
+    @app.get(
+        f"{base_path.rstrip('/')}/_tide/reports/{{report_name}}/records/{{identity}}",
+        tags=["TIDE"],
+        summary="Build one secured record report",
+        response_model=TideReportDocument,
+        responses=_documented_errors(400, 401, 403, 404, 422),
+    )
+    def record_report(
+        context: RequestContext = Depends(request_context),
+        report_name: str = Path(min_length=1),
+        identity: str = Path(min_length=1),
+    ) -> TideReportDocument:
+        report = model.reports.get(report_name)
+        if report is None or report.get("expose", {}).get("rest") is not True:
+            raise NotFoundError(f"report {report_name!r} was not found")
+        entity = model.entity(str(report["entity"]))
+        primary_key = _primary_key(entity)
+        try:
+            typed_identity = _coerce_identity(model, primary_key, identity)
+        except (TypeError, ValueError, InvalidOperation) as error:
+            raise _bad_request("record identity has an invalid type") from error
+        document = report_service.build_for_record(
+            report_name,
+            typed_identity,
+            context,
+        )
+        return TideReportDocument.model_validate(asdict(document))
 
     for entity_name, exposure in exposures.items():
         entity = model.entity(entity_name)

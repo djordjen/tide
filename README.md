@@ -206,11 +206,10 @@ and typed HTTP client now preserve exact field types, protected values, cursors,
 ETags, and stable errors while rejecting mismatched applications and unsafe
 unencrypted non-loopback URLs. Textual can now opt into this client through
 `tide run --api-url`, including structured browse/search/sort, edit sessions,
-lookups, nested lines, and actions without database access. Remote report
-transport, REST delete, production authentication, MCP, migrations, expanded report
-transport, REST delete, production authentication, MCP, migrations, expanded
-report queries/grouping, and broader lookup-query capabilities remain roadmap
-work.
+lookups, nested lines, actions, and secured report preview/export without
+database access. REST delete, production authentication, MCP, migrations,
+expanded report queries/grouping, and broader lookup-query capabilities remain
+roadmap work.
 
 Metadata v0.1 is an executable experimental contract. Breaking authoring
 changes require a new `schema_version`; stable 1.0 compatibility is not yet

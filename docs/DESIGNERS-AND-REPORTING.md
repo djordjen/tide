@@ -111,6 +111,7 @@ report: sales.invoice
 title: Invoice
 entity: sales.Invoice
 permission: sales.invoice.report
+expose: {rest: true}
 
 parameters:
   invoice_id: {type: integer, required: true}
@@ -148,7 +149,9 @@ runtime can perform an indexed, row-policy-aware `RecordsService.get` instead
 of loading and filtering a table in memory. The compiler validates report
 access, parameter and expression types, root fields, the detail collection,
 detail columns, and named formats. Reports fail closed if any requested field
-is protected.
+is protected. REST delivery is independently opt-in through
+`expose.rest: true`; declaring a report permission alone does not create an
+HTTP route.
 
 ## Report capabilities
 
@@ -186,6 +189,11 @@ print CSS/HTML, while the optional `report` package extra uses ReportLab to
 write A4 PDF directly with Unicode-capable system-font discovery, repeating
 table headings, numeric alignment, and page numbering. Output defaults to
 `output/reports/` below the process working directory.
+
+For remote Textual mode, the server builds this same secured document and
+transports its versioned structure. The client validates it and reuses the
+ordinary preview/HTML/PDF renderers; raw records and database credentials never
+move to the reporting client.
 
 This establishes the adapter boundary without claiming a pixel-perfect report
 engine. Grouping, images, arbitrary result-set reports, configurable page

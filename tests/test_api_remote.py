@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from pathlib import Path
 
@@ -8,7 +9,7 @@ import httpx
 import pytest
 
 from tide import compile_project
-from tide.api.client import TideApiClient
+from tide.api.client import TideApiClient, TideApiClientError
 from tide.api.remote import (
     RemoteActionService,
     RemoteRecordsService,
@@ -20,6 +21,9 @@ from tide.runtime import AuthorizationError, Channel, Principal, RequestContext
 from tide.runtime.application import configure_application_runtime
 from tide.services import ActionService, RecordsService
 from tide.tui import seed_demo_data
+from tide.tui import TideApp
+from tide.tui.report import ReportPreviewScreen
+from textual.widgets import Button
 
 ROOT = Path(__file__).parents[1]
 INVOICING = ROOT / "applications" / "invoicing"
@@ -110,7 +114,7 @@ def test_remote_capabilities_hide_mutations_and_reports_fail_closed() -> None:
             channel=Channel.TUI,
         )
         records = RemoteRecordsService(model, client, session_info)
-        reports = RemoteReportService()
+        reports = RemoteReportService(client, session_info)
 
         assert records.security.can_access_entity(
             model.entity("sales.Invoice"),
@@ -125,8 +129,53 @@ def test_remote_capabilities_hide_mutations_and_reports_fail_closed() -> None:
         assert not reports.can_generate("sales.invoice", context)
         with pytest.raises(AuthorizationError):
             records.begin_edit("sales.Invoice", 1, context)
-        with pytest.raises(ValueError, match="not exposed"):
+        with pytest.raises(TideApiClientError) as denied:
             reports.build_for_record("sales.invoice", 1, context)
+        assert denied.value.status_code == 403
+        assert denied.value.code == "forbidden"
+
+
+def test_remote_textual_preview_uses_the_server_report_document(
+    tmp_path: Path,
+) -> None:
+    model, app = _app("sales_clerk")
+
+    async def exercise() -> None:
+        with _http_client(app) as transport:
+            client = TideApiClient(model, BASE_URL, TOKEN, http_client=transport)
+            session_info = client.connect()
+            context = RequestContext(
+                Principal(
+                    session_info.principal,
+                    roles=frozenset(session_info.roles),
+                ),
+                channel=Channel.TUI,
+            )
+            tide_app = TideApp(
+                model,
+                RemoteRecordsService(model, client, session_info),
+                context,
+                actions=RemoteActionService(client),
+                report_service=RemoteReportService(client, session_info),
+                report_output_directory=tmp_path,
+                page_size=3,
+                source_label="remote report test",
+            )
+            async with tide_app.run_test(size=(120, 36)) as pilot:
+                await pilot.pause()
+                preview = tide_app.query_one("#preview-report", Button)
+                assert preview.display
+                assert not preview.disabled
+
+                await pilot.click("#preview-report")
+                await pilot.pause()
+                assert isinstance(tide_app.screen, ReportPreviewScreen)
+                assert "INV-2026-0001" in tide_app.screen.document.plain_text()
+
+                await pilot.click("#export-html")
+                assert (tmp_path / "invoice-INV-2026-0001.html").is_file()
+
+    asyncio.run(exercise())
 
 
 def _app(role: str) -> tuple[object, object]:
@@ -168,7 +217,8 @@ def _http_client(app: object) -> httpx.Client:
                     request=request,
                 )
 
-        return asyncio.run(send())
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            return executor.submit(asyncio.run, send()).result()
 
     return httpx.Client(
         base_url=BASE_URL,

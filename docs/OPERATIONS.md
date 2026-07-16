@@ -33,7 +33,10 @@ the bearer credential from `TIDE_API_TOKEN` (or the named `--api-token-env`),
 validates the server application/wire contract before opening a screen, and
 refuses unencrypted non-loopback origins. It never reads `TIDE_DATABASE_URL` or
 loads application runtime handlers on the client; those remain server-owned.
-Remote report controls stay disabled until a report transport is configured.
+Remote reports are authorized and constructed on the server; the resulting
+formatted document may be previewed or exported locally by the client. Client
+output directories therefore remain subject to normal workstation filesystem
+permissions and retention policy.
 
 ## Health and lifecycle
 

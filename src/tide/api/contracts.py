@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -19,6 +20,63 @@ TideFilterOperator = Literal[
     "contains",
     "icontains",
 ]
+TideAlignment = Literal["left", "center", "right"]
+
+
+class TideReportValue(BaseModel):
+    """One formatted label/value pair in a report document."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    label: str
+    text: str
+    alignment: TideAlignment = "left"
+
+
+class TideReportColumn(BaseModel):
+    """One renderer-neutral report table column."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str
+    label: str
+    alignment: TideAlignment = "left"
+
+
+class TideReportCell(BaseModel):
+    """One preformatted report table cell."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    text: str
+    alignment: TideAlignment = "left"
+
+
+class TideReportTable(BaseModel):
+    """Renderer-neutral tabular report detail."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    columns: tuple[TideReportColumn, ...]
+    rows: tuple[tuple[TideReportCell, ...], ...]
+
+
+class TideReportDocument(BaseModel):
+    """Versioned wire form of an authorized renderer-neutral report."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    wire_version: Literal["0.1"] = TIDE_WIRE_VERSION
+    report: str
+    title: str
+    application: str
+    generated_at: datetime
+    header_text: tuple[str, ...]
+    record_values: tuple[TideReportValue, ...]
+    detail: TideReportTable
+    footer_values: tuple[TideReportValue, ...]
+    page_footer_template: str
+    suggested_filename: str
 
 
 class TideFilterInput(BaseModel):
@@ -93,4 +151,5 @@ class TideSessionInfo(BaseModel):
     schema_version: str
     principal: str
     roles: tuple[str, ...] = ()
+    reports: tuple[str, ...] = ()
     entities: dict[str, TideEntityCapabilities]

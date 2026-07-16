@@ -3,6 +3,7 @@ report: sales.invoice
 title: Invoice
 entity: sales.Invoice
 permission: sales.invoice.report
+expose: {rest: true}
 
 parameters:
   invoice_id: {type: integer, required: true}

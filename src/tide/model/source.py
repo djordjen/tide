@@ -271,6 +271,11 @@ class ReportBandsSource(SourceModel):
     page_footer: tuple[ReportContentSource, ...] = ()
 
 
+class ReportExposureSource(SourceModel):
+    rest: bool = False
+    mcp: bool = False
+
+
 class ReportSource(SourceModel):
     report: str
     title: str
@@ -278,6 +283,7 @@ class ReportSource(SourceModel):
     kind: Literal["record"] = "record"
     permission: str | None = None
     unrestricted: bool = False
+    expose: ReportExposureSource = Field(default_factory=ReportExposureSource)
     parameters: dict[str, ParameterSource] = Field(default_factory=dict)
     query: QuerySource = Field(default_factory=QuerySource)
     bands: ReportBandsSource

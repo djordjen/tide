@@ -320,7 +320,8 @@ def test_tide_run_remote_builds_tui_without_local_storage(
             captured["actions"] = client
 
     class StubReports:
-        pass
+        def __init__(self, client, session) -> None:
+            captured["reports"] = (client, session)
 
     class StubApp:
         def __init__(self, model, records, context, **configuration) -> None:

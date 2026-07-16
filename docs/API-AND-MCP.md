@@ -171,8 +171,11 @@ used by record/action facades consumed by Textual. Run `tide run
 applications/invoicing --api-url http://127.0.0.1:8000`; the TUI compiles
 presentation metadata locally but performs browse, structured filter/sort,
 lookup selection, create/update, and actions through HTTP. Future Qt clients
-can reuse the same boundary. Reports remain disabled in remote mode until an
-explicit secured report endpoint exists.
+can reuse the same boundary. Authorized record reports are built through
+`ReportService` at `GET /api/v1/_tide/reports/{report}/records/{identity}` and
+returned as a versioned renderer-neutral document. HTML and PDF remain client
+renderers, so report data access and permissions stay server-side without
+forcing a particular presentation technology.
 
 Structured filtering and sorting use `POST /api/v1/{resource}/_query` with a
 typed, read-only query body. This avoids putting search values into access-log

@@ -146,8 +146,9 @@ an invoice entirely by keyboard or mouse.
 - structured remote filtering/sorting plus Textual record/action service
   facades for browse, lookups, drafts, nested commits, concurrency, and
   actions; **implemented**
-- secured remote report transport and the same reusable boundary for the future
-  Qt renderer;
+- secured renderer-neutral remote report transport with Textual preview and
+  local HTML/PDF export; **implemented**
+- reuse the same client/service boundary for the future Qt renderer;
 - runtime MCP resources and read-only query tools;
 - opt-in MCP domain actions and mutations;
 - shared authentication-to-Principal adapters;

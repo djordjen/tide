@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,7 @@ import uvicorn
 
 from tide import compile_project
 from tide.api.server import DevelopmentTokenAuthenticator, build_fastapi_app
+from tide.compiler.normalized import immutable_mapping
 from tide.cli import main
 from tide.data import InMemoryRepository
 from tide.runtime import Principal
@@ -42,6 +44,7 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
         assert live.json() == {"status": "ok"}
         assert docs.status_code == 200
         assert session.status_code == 200
+        assert session.json()["reports"] == ["sales.invoice"]
         invoice_capabilities = session.json()["entities"]["sales.Invoice"]
         assert invoice_capabilities["operations"] == [
             "list",
@@ -104,6 +107,11 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
     assert set(schema["paths"]["/api/v1/_tide/reference-selection"]) == {
         "post"
     }
+    assert set(
+        schema["paths"][
+            "/api/v1/_tide/reports/{report_name}/records/{identity}"
+        ]
+    ) == {"get"}
     assert "/api/v1/invoices/{id}/actions/post" in schema["paths"]
     create_schema = schema["components"]["schemas"]["SalesInvoiceCreateInput"]
     update_schema = schema["components"]["schemas"]["SalesInvoiceUpdateInput"]
@@ -334,6 +342,78 @@ def test_server_posts_with_version_and_idempotency_preconditions() -> None:
     asyncio.run(exercise())
 
 
+def test_server_builds_only_authorized_renderer_neutral_reports() -> None:
+    allowed_app = _app("sales_clerk")
+    denied_app = _app("summary_viewer")
+
+    async def exercise() -> None:
+        async with _client(allowed_app) as client:
+            generated = await client.get(
+                "/api/v1/_tide/reports/sales.invoice/records/1",
+                headers=_authorization(),
+            )
+            unknown = await client.get(
+                "/api/v1/_tide/reports/missing.report/records/1",
+                headers=_authorization(),
+            )
+        async with _client(denied_app) as client:
+            session = await client.get(
+                "/api/v1/_tide/session",
+                headers=_authorization(),
+            )
+            denied = await client.get(
+                "/api/v1/_tide/reports/sales.invoice/records/1",
+                headers=_authorization(),
+            )
+
+        assert generated.status_code == 200
+        document = generated.json()
+        assert document["wire_version"] == "0.1"
+        assert document["report"] == "sales.invoice"
+        assert document["application"] == "TIDE Invoicing"
+        assert document["suggested_filename"] == "invoice-INV-2026-0001"
+        assert document["detail"]["rows"][0][-1] == {
+            "text": "850.00",
+            "alignment": "right",
+        }
+        assert generated.headers["cache-control"] == "no-store"
+        assert unknown.status_code == 404
+        assert unknown.json()["code"] == "not_found"
+        assert session.json()["reports"] == []
+        assert denied.status_code == 403
+        assert denied.json()["code"] == "forbidden"
+
+    asyncio.run(exercise())
+
+
+def test_report_rest_delivery_is_independently_deny_by_default() -> None:
+    model = compile_project(INVOICING)
+    report = dict(model.reports["sales.invoice"])
+    report["expose"] = {"rest": False, "mcp": False}
+    model = replace(
+        model,
+        reports=immutable_mapping({"sales.invoice": report}),
+    )
+    app = _app("sales_clerk", model=model)
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            session = await client.get(
+                "/api/v1/_tide/session",
+                headers=_authorization(),
+            )
+            hidden = await client.get(
+                "/api/v1/_tide/reports/sales.invoice/records/1",
+                headers=_authorization(),
+            )
+
+        assert session.json()["reports"] == []
+        assert hidden.status_code == 404
+        assert hidden.json()["code"] == "not_found"
+
+    asyncio.run(exercise())
+
+
 def test_server_preserves_protected_field_metadata_and_permissions() -> None:
     summary_app = _app("summary_viewer")
     denied_app = _app(None)
@@ -436,8 +516,8 @@ def test_tide_serve_builds_local_app_with_server_assigned_role(
     assert "development auth only" in output
 
 
-def _app(role: str | None) -> Any:
-    model = compile_project(INVOICING)
+def _app(role: str | None, *, model: Any | None = None) -> Any:
+    model = model or compile_project(INVOICING)
     repository = InMemoryRepository()
     assert seed_demo_data(model, repository) == 14
     records = RecordsService(model, repository)

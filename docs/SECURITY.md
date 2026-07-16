@@ -169,6 +169,13 @@ logs. Fields, operators, types, page sizes, cursors, row predicates, and
 projected values are still validated and authorized by `RecordsService` for
 every query.
 
+Report capabilities disclose names only after report-permission evaluation.
+Building a report repeats report, entity, row, relationship, and field
+authorization through `ReportService`; the server returns formatted
+renderer-neutral content rather than raw protected values. Remote clients
+validate the report/application identity, table shape, and safe suggested
+filename before preview or local export.
+
 Schema v0.1 is single-tenant per deployment. Multi-user does not imply
 multi-tenant: tenant identifiers must not be added as an informal row filter.
 Multi-tenant support requires an explicit isolation and migration contract.

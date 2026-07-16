@@ -46,8 +46,8 @@ a prior GET as `If-Match`; Post also requires a unique `Idempotency-Key`.
 With that server still running, `start.bat remote` prompts for the printed token
 and opens the same Textual workflow as an HTTP client. It supports browse,
 search, filters, sorting, paging, lookups, nested create/edit, and posting while
-receiving no database URL. Remote invoice report preview is intentionally
-disabled until reports have an explicit secured API contract.
+receiving no database URL. Invoice report documents are built and authorized
+on the server, then previewed and exported to HTML/PDF by the remote TUI.
 
 The `--demo` flag explicitly executes this application's `demo_data.py` and
 loads an in-memory repository; it never changes a database. Omit `--page-size`

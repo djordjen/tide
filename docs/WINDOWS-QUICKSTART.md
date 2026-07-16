@@ -118,8 +118,9 @@ running and execute:
 Paste the same token when prompted. The remote TUI receives no SQL Server URL
 or database driver access: browse, search, sorting, paging, lookups,
 create/update, nested invoice lines, and posting go through FastAPI and the
-server-side services. Invoice report preview is deliberately unavailable in
-this mode until a secured report endpoint is implemented.
+server-side services. Invoice report data is likewise authorized and formatted
+on the server; Preview and local HTML/PDF export work through the transported
+renderer-neutral document.
 
 This first identity adapter is deliberately restricted to the local computer.
 Do not change the binding to a network address or expose it through a firewall;

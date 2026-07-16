@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Mapping
 
 from tide.api.client import TideApiClient, TideApiClientError
@@ -16,6 +16,7 @@ from tide.runtime import (
     ValidationFailed,
 )
 from tide.runtime.errors import ValidationIssue
+from tide.reporting.document import ReportDocument
 from tide.security import PROTECTED
 from tide.services import QueryPage
 from tide.sessions import RecordSession
@@ -350,17 +351,34 @@ class RemoteActionService:
 
 
 class RemoteReportService:
-    """Fail-closed placeholder until reports receive an explicit HTTP contract."""
+    """ReportService-compatible access to server-authorized report documents."""
+
+    def __init__(
+        self,
+        client: TideApiClient,
+        session: TideSessionInfo,
+    ) -> None:
+        self.client = client
+        self.session = session
 
     def can_generate(
         self,
-        _report_name: str,
+        report_name: str,
         _context: RequestContext,
     ) -> bool:
-        return False
+        return report_name in self.session.reports
 
-    def build_for_record(self, *_arguments: Any, **_keywords: Any) -> Any:
-        raise ValueError("reports are not exposed by the remote TIDE server yet")
+    def build_for_record(
+        self,
+        report_name: str,
+        identity: Any,
+        _context: RequestContext,
+        *,
+        generated_at: datetime | None = None,
+    ) -> ReportDocument:
+        if generated_at is not None:
+            raise ValueError("remote report generation timestamp is server-owned")
+        return self.client.build_report_for_record(report_name, identity)
 
 
 def _mutation_payload(

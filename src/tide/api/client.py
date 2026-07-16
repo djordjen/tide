@@ -17,6 +17,7 @@ from tide.api.contracts import (
     TideQueryInput,
     TideReferenceSelectionInput,
     TideReferenceSelectionResult,
+    TideReportDocument,
     TideSessionInfo,
     TideSortInput,
 )
@@ -24,6 +25,13 @@ from tide.api.openapi import DEFAULT_BASE_PATH, REST_OPERATIONS, rest_exposures
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 from tide.data import QuerySpec
 from tide.runtime import TideRuntimeError
+from tide.reporting.document import (
+    ReportCell,
+    ReportColumn,
+    ReportDocument,
+    ReportTable,
+    ReportValue,
+)
 from tide.security import PROTECTED
 
 
@@ -331,6 +339,78 @@ class TideApiClient:
         )
         return self._record_response(entity, response)
 
+    def build_report_for_record(
+        self,
+        report_name: str,
+        identity: Any,
+    ) -> ReportDocument:
+        """Build an authorized renderer-neutral report on the remote server."""
+
+        report = self.model.reports.get(report_name)
+        if report is None or report.get("expose", {}).get("rest") is not True:
+            raise TideApiContractError(
+                f"report {report_name!r} is not exposed through REST"
+            )
+        response = self._request(
+            "GET",
+            (
+                f"{self.base_path}/_tide/reports/"
+                f"{quote(report_name, safe='')}/records/{_identity_segment(identity)}"
+            ),
+            expected=(200,),
+        )
+        try:
+            wire = TideReportDocument.model_validate(self._json_object(response))
+        except ValidationError as error:
+            raise TideApiContractError(
+                "server returned an invalid report document"
+            ) from error
+        if wire.report != report_name:
+            raise TideApiContractError(
+                "server returned a different report than requested"
+            )
+        if wire.application != self.model.name:
+            raise TideApiContractError(
+                "report application does not match the connected application"
+            )
+        _validate_report_filename(wire.suggested_filename)
+        if wire.generated_at.tzinfo is None or wire.generated_at.utcoffset() is None:
+            raise TideApiContractError("report generation timestamp lacks a timezone")
+        column_count = len(wire.detail.columns)
+        if any(len(row) != column_count for row in wire.detail.rows):
+            raise TideApiContractError(
+                "report detail rows do not match the declared columns"
+            )
+        return ReportDocument(
+            report=wire.report,
+            title=wire.title,
+            application=wire.application,
+            generated_at=wire.generated_at,
+            header_text=wire.header_text,
+            record_values=tuple(
+                ReportValue(value.label, value.text, value.alignment)
+                for value in wire.record_values
+            ),
+            detail=ReportTable(
+                columns=tuple(
+                    ReportColumn(column.name, column.label, column.alignment)
+                    for column in wire.detail.columns
+                ),
+                rows=tuple(
+                    tuple(
+                        ReportCell(cell.text, cell.alignment) for cell in row
+                    )
+                    for row in wire.detail.rows
+                ),
+            ),
+            footer_values=tuple(
+                ReportValue(value.label, value.text, value.alignment)
+                for value in wire.footer_values
+            ),
+            page_footer_template=wire.page_footer_template,
+            suggested_filename=wire.suggested_filename,
+        )
+
     def _resource(self, entity_name: str, operation: str) -> str:
         exposure = self._exposures.get(entity_name)
         if exposure is None or operation not in exposure.operations:
@@ -617,3 +697,19 @@ def _primary_key(entity: NormalizedEntity) -> NormalizedField:
     return next(
         field for field in entity.fields.values() if field.metadata.get("primary_key")
     )
+
+
+def _validate_report_filename(value: str) -> None:
+    if (
+        not value
+        or len(value) > 160
+        or re.fullmatch(r"[A-Za-z0-9._-]+", value) is None
+        or value in {".", ".."}
+    ):
+        raise TideApiContractError("report suggested filename is unsafe")
+    device = value.split(".", 1)[0].upper()
+    if device in {"CON", "PRN", "AUX", "NUL"} or re.fullmatch(
+        r"(?:COM|LPT)[1-9]",
+        device,
+    ):
+        raise TideApiContractError("report suggested filename is unsafe")

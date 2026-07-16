@@ -21,6 +21,7 @@ from tide.data import InMemoryRepository
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.runtime import Principal
 from tide.runtime.application import configure_application_runtime
+from tide.reporting import render_html, render_pdf
 from tide.security import PROTECTED
 from tide.services import ActionService, RecordsService
 from tide.tui import seed_demo_data
@@ -87,6 +88,7 @@ def test_client_round_trips_types_mutations_versions_and_actions() -> None:
             },
             1,
         )
+        report = client.build_report_for_record("sales.invoice", 1)
         product = client.create_record(
             "catalog.Product",
             {
@@ -146,6 +148,11 @@ def test_client_round_trips_types_mutations_versions_and_actions() -> None:
     assert selected_line["product"] == 1
     assert selected_line["description"] == "Consulting hour"
     assert selected_line["unit_price"] == Decimal("85.00")
+    assert report.report == "sales.invoice"
+    assert report.suggested_filename == "invoice-INV-2026-0001"
+    assert report.detail.rows[0][-1].text == "850.00"
+    assert "INV-2026-0001" in render_html(report)
+    assert render_pdf(report).startswith(b"%PDF-")
     assert product.values["unit_price"] == Decimal("29.95")
     assert product.etag is None
     assert created.values["total"] == Decimal("50.00")
@@ -174,6 +181,8 @@ def test_client_restores_protected_values_without_confusing_them_with_null() -> 
                     ),
                 ),
             )
+        with pytest.raises(TideApiClientError) as denied_report:
+            client.build_report_for_record("sales.invoice", 1)
 
     assert session.entities["sales.Invoice"].operations == ("list", "get")
     assert session.entities["sales.Invoice"].writable_fields == ()
@@ -184,6 +193,8 @@ def test_client_restores_protected_values_without_confusing_them_with_null() -> 
     assert invoice.values["posted_at"] is None
     assert protected_query.value.status_code == 403
     assert protected_query.value.code == "forbidden"
+    assert denied_report.value.status_code == 403
+    assert denied_report.value.code == "forbidden"
 
 
 def test_client_fails_closed_for_contract_and_transport_hazards() -> None:

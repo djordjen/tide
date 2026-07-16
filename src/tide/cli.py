@@ -602,7 +602,7 @@ def _launch_remote_tui(
             )
             records = RemoteRecordsService(model, client, session)
             actions = RemoteActionService(client)
-            reports = RemoteReportService()
+            reports = RemoteReportService(client, session)
             TideApp(
                 model,
                 records,

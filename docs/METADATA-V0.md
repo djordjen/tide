@@ -140,5 +140,6 @@ both forms is rejected with `TIDE227`.
 Reports have the same fail-closed access rule as actions: each report declares
 `permission` or explicitly sets `unrestricted: true`. The executable v0.1
 report kind binds one required parameter to its entity primary key and permits
-one collection detail band. Richer set-based/grouped queries remain outside
-this contract until they have a bounded SQL-translatable query plan.
+one collection detail band. Report REST delivery is separately deny-by-default
+and requires `expose: {rest: true}`. Richer set-based/grouped queries remain
+outside this contract until they have a bounded SQL-translatable query plan.
