@@ -31,6 +31,9 @@ authorization; application services are the enforcement boundary.
 | Report image/template resource access | Constrained resource loaders; no arbitrary URL/file access |
 | MCP prompt/tool abuse | Least-privilege principal, explicit exposure, reauthorization, audit |
 | Secret/protected-value leakage | Structured redaction in serialization, errors, logs, and diagnostics |
+| Forged, confused, or replayed bearer type | Exact OIDC issuer/audience, asymmetric algorithm allow-list, signature/expiry/subject validation, required `kid` and accepted `typ` |
+| External identity role escalation | Explicit external-to-application role mapping; ignore unmapped roles; reject malformed role claims |
+| Bearer interception on a network bind | Development auth is loopback-only; non-loopback OIDC serving requires direct TLS certificate and key |
 
 ## Non-goals for v0.1
 

@@ -61,6 +61,11 @@ The separate `start.bat api-check` command securely prompts for that printed
 token and verifies authentication plus application/wire compatibility through
 the reusable remote client. `start.bat remote` then runs the same Textual
 workflow through that API without giving the TUI a database connection string.
+For reviewed network deployments, `uv sync --extra api --extra auth` adds OIDC
+discovery/JWKS access-token validation. `tide serve --auth oidc` requires an
+exact issuer and audience, maps external roles explicitly to application roles,
+and refuses a non-loopback bind unless a TLS certificate and key are supplied.
+See [REST API and MCP](docs/API-AND-MCP.md#current-application-server).
 
 `tide run --database-env` selects a persistent SQLAlchemy repository using the
 `TIDE_DATABASE_URL` environment variable. The first managed-database run may
@@ -207,9 +212,11 @@ ETags, and stable errors while rejecting mismatched applications and unsafe
 unencrypted non-loopback URLs. Textual can now opt into this client through
 `tide run --api-url`, including structured browse/search/sort, edit sessions,
 lookups, nested lines, actions, and secured report preview/export without
-database access. REST delete, production authentication, MCP, migrations,
-expanded report queries/grouping, and broader lookup-query capabilities remain
-roadmap work.
+database access. Provider-neutral OIDC/JWKS bearer validation and direct TLS
+for network binds now provide the production identity foundation. REST delete,
+interactive identity-provider login/refresh, trusted reverse proxies, MCP,
+migrations, expanded report queries/grouping, and broader lookup-query
+capabilities remain roadmap work.
 
 Metadata v0.1 is an executable experimental contract. Breaking authoring
 changes require a new `schema_version`; stable 1.0 compatibility is not yet

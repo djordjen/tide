@@ -67,12 +67,14 @@ decision was first recorded, not when implementation was completed.
 | 2026-07-16 | Remote clients authenticate against a versioned session-capability resource, validate it against their compiled application, and centralize wire types, protected values, cursors, ETags, and errors in a reusable client adapter. Plain HTTP is loopback-only and redirects are not followed. | TUI and future Qt clients need rendering hints without treating them as authority, must fail visibly on dependency/model version drift, and must never leak bearer credentials through an unencrypted origin or redirect. |
 | 2026-07-16 | Remote Textual mode keeps presentation metadata and transient `RecordSession` drafts client-side, but routes structured queries, reference assignments, commits, and actions through service-shaped HTTP facades. Unsupported remote reports fail closed. | Renderers need responsive local form state without receiving database access or duplicating authoritative validation/security; unavailable transports must disable features rather than silently bypass the server. |
 | 2026-07-16 | Remote reports transport a versioned renderer-neutral `ReportDocument`; authorization, secured data loading, formatting, and protected-field checks occur on the server, while Textual performs preview and optional local HTML/PDF rendering. | Raw records must not move to a client merely to generate a report, while renderer-neutral output preserves future Qt/web reuse and avoids coupling the API to one binary export format. |
+| 2026-07-16 | Production bearer authentication uses provider-neutral OIDC discovery and JWKS validation with exact issuer/audience, asymmetric algorithm and token-type allow-lists, required expiry/subject/key ID, and explicit external-to-TIDE role mappings. Development identity stays loopback-only; non-loopback serving requires direct Uvicorn TLS. | TUI, future Qt/web, and automation clients can share a standard identity boundary without database credentials or client-selected roles, while fail-closed validation and encrypted transport precede network exposure. Interactive login/refresh and trusted reverse-proxy configuration remain separate reviewed contracts. |
 
 ## Open decisions
 
 - Comment-preserving round-trip strategy for future designer writes.
 - Compatibility policy and migration tooling for the eventual stable metadata 1.0 contract.
-- Authentication provider and local credential strategy.
+- Interactive browser/desktop login, access-token acquisition, and refresh
+  strategy for individual identity providers.
 - Pagination, keep-together, grouping, image, and configurable page-geometry
   limits for the expanded report engine.
 - Stable identifiers and explicit rename representation for schema evolution.

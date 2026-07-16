@@ -42,6 +42,9 @@ interactive contract available at `http://127.0.0.1:8000/docs`.
 The contract exposes secured list/get/create/update routes for the declared
 entities and the Invoice Post action. Invoice mutations require the `ETag` from
 a prior GET as `If-Match`; Post also requires a unique `Idempotency-Key`.
+Provider-neutral OIDC/JWKS access-token validation and direct TLS are available
+for reviewed network deployments; see
+[REST API and MCP](../../docs/API-AND-MCP.md#current-application-server).
 
 With that server still running, `start.bat remote` prompts for the printed token
 and opens the same Textual workflow as an HTTP client. It supports browse,

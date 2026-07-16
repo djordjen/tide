@@ -122,9 +122,37 @@ server-side services. Invoice report data is likewise authorized and formatted
 on the server; Preview and local HTML/PDF export work through the transported
 renderer-neutral document.
 
-This first identity adapter is deliberately restricted to the local computer.
-Do not change the binding to a network address or expose it through a firewall;
-production network access requires the planned OAuth/OIDC and HTTPS adapter.
+The `api` and `api-demo` shortcuts deliberately use development identity and
+are restricted to the local computer. Do not change their binding to a network
+address or expose them through a firewall.
+
+For a reviewed network test, first install the production identity adapter:
+
+```powershell
+uv sync --extra api --extra auth --extra sqlserver
+```
+
+Then supply the issuer, API audience, provider role mapping, and real PEM
+certificate/key explicitly (replace every example value):
+
+```powershell
+uv run tide serve applications/invoicing --database-env `
+  --auth oidc `
+  --oidc-issuer https://identity.example.com/tenant `
+  --oidc-audience tide-api `
+  --oidc-role-map external-sales=sales_clerk `
+  --host 0.0.0.0 --port 8443 `
+  --ssl-certfile C:\TIDE\tls\server-chain.pem `
+  --ssl-keyfile C:\TIDE\tls\server-key.pem
+```
+
+TIDE validates bearer tokens but does not perform the provider's interactive
+login or token refresh. Set `TIDE_API_TOKEN` to an access token obtained from
+that provider before running `tide api check-server` or `tide run --api-url`
+against the HTTPS origin. Do not put that token or private-key password in a
+batch file. A password-protected key can use
+`--ssl-keyfile-password-env NAME`. Reverse-proxy trust is not implemented yet;
+this command's non-loopback mode therefore requires direct TLS.
 
 ## Previewing and exporting an invoice
 

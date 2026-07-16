@@ -9,6 +9,8 @@ from tide.api.openapi import OpenApiPreview, build_openapi_preview, generate_ope
 __all__ = [
     "BearerAuthenticator",
     "DevelopmentTokenAuthenticator",
+    "OidcDiscoveryError",
+    "OidcJwtAuthenticator",
     "OpenApiPreview",
     "RemoteActionService",
     "RemoteRecordsService",
@@ -27,6 +29,16 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
+    if name in {
+        "OidcDiscoveryError",
+        "OidcJwtAuthenticator",
+    }:
+        from tide.api.auth import OidcDiscoveryError, OidcJwtAuthenticator
+
+        return {
+            "OidcDiscoveryError": OidcDiscoveryError,
+            "OidcJwtAuthenticator": OidcJwtAuthenticator,
+        }[name]
     if name in {
         "RemoteActionService",
         "RemoteRecordsService",

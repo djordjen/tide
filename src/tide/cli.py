@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import ipaddress
 import json
 import os
 import sys
@@ -196,12 +197,32 @@ def _create_parser() -> argparse.ArgumentParser:
         help=f"REST base path (default: {DEFAULT_BASE_PATH})",
     )
     serve.add_argument(
+        "--auth",
+        choices=("development", "oidc"),
+        default="development",
+        help="bearer identity adapter (default: development)",
+    )
+    serve.add_argument(
         "--host",
         default="127.0.0.1",
-        choices=("127.0.0.1", "localhost", "::1"),
-        help="loopback interface for the development identity adapter",
+        help="interface to bind (non-loopback requires OIDC and direct TLS)",
     )
     serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument(
+        "--ssl-certfile",
+        type=Path,
+        help="PEM certificate chain used for direct HTTPS",
+    )
+    serve.add_argument(
+        "--ssl-keyfile",
+        type=Path,
+        help="PEM private key used for direct HTTPS",
+    )
+    serve.add_argument(
+        "--ssl-keyfile-password-env",
+        metavar="NAME",
+        help="read the encrypted private-key password from environment variable NAME",
+    )
     serve.add_argument(
         "--dev-token-env",
         default="TIDE_API_TOKEN",
@@ -218,6 +239,52 @@ def _create_parser() -> argparse.ArgumentParser:
         "--principal",
         default="development:api",
         help="server-assigned development principal identifier",
+    )
+    serve.add_argument(
+        "--oidc-issuer",
+        help="exact HTTPS issuer URL used for OIDC discovery and token validation",
+    )
+    serve.add_argument(
+        "--oidc-audience",
+        help="required access-token audience for this TIDE server",
+    )
+    serve.add_argument(
+        "--oidc-role-claim",
+        default="roles",
+        help="dot-separated claim containing external roles (default: roles)",
+    )
+    serve.add_argument(
+        "--oidc-role-map",
+        action="append",
+        default=[],
+        metavar="EXTERNAL=TIDE_ROLE",
+        help="map an external role to an application role; repeat as needed",
+    )
+    serve.add_argument(
+        "--oidc-algorithm",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="accepted asymmetric JWT algorithm; repeat (default: RS256)",
+    )
+    serve.add_argument(
+        "--oidc-token-type",
+        action="append",
+        default=[],
+        metavar="TYPE",
+        help="accepted JWT typ header; repeat (defaults: at+jwt and JWT)",
+    )
+    serve.add_argument(
+        "--oidc-leeway",
+        type=float,
+        default=30.0,
+        help="JWT clock-skew leeway in seconds (default: 30)",
+    )
+    serve.add_argument(
+        "--oidc-timeout",
+        type=float,
+        default=5.0,
+        help="OIDC discovery and JWKS timeout in seconds (default: 5)",
     )
     serve.set_defaults(handler=_serve_api)
 
@@ -376,24 +443,116 @@ def _run_tui(arguments: argparse.Namespace) -> int:
 
 def _serve_api(arguments: argparse.Namespace) -> int:
     model = compile_project(arguments.project)
-    token = os.environ.get(arguments.dev_token_env)
-    if not token:
-        print(
-            "API startup failed: development bearer-token environment variable "
-            f"{arguments.dev_token_env!r} is not set",
-            file=sys.stderr,
-        )
-        return 1
-    if len(token) < 32:
-        print(
-            "API startup failed: development bearer token must contain at least "
-            "32 characters",
-            file=sys.stderr,
-        )
-        return 1
     if not 1 <= arguments.port <= 65535:
         print("API startup failed: port must be between 1 and 65535", file=sys.stderr)
         return 1
+
+    try:
+        certfile, keyfile, keyfile_password = _server_tls_configuration(arguments)
+        is_loopback = _is_loopback_host(arguments.host)
+        if arguments.auth == "development" and not is_loopback:
+            raise ValueError(
+                "development authentication may listen only on a loopback interface"
+            )
+        if arguments.auth == "oidc" and not is_loopback and certfile is None:
+            raise ValueError(
+                "non-loopback serving requires --ssl-certfile and --ssl-keyfile"
+            )
+    except ValueError as error:
+        print(f"API startup failed: {error}", file=sys.stderr)
+        return 1
+
+    try:
+        from tide.api.server import (
+            DevelopmentTokenAuthenticator,
+            build_fastapi_app,
+        )
+        from tide.runtime.application import (
+            ApplicationRuntimeError,
+            configure_application_runtime,
+        )
+        import uvicorn
+    except ModuleNotFoundError as error:
+        if error.name in {"fastapi", "uvicorn"} or (error.name or "").startswith(
+            ("fastapi.", "uvicorn.")
+        ):
+            print(
+                "The FastAPI adapter is not installed. Install the 'api' extra "
+                "(for example: uv sync --extra api).",
+                file=sys.stderr,
+            )
+            return 1
+        raise
+
+    identity_summary: str
+    if arguments.auth == "development":
+        token = os.environ.get(arguments.dev_token_env)
+        if not token:
+            print(
+                "API startup failed: development bearer-token environment variable "
+                f"{arguments.dev_token_env!r} is not set",
+                file=sys.stderr,
+            )
+            return 1
+        if len(token) < 32:
+            print(
+                "API startup failed: development bearer token must contain at least "
+                "32 characters",
+                file=sys.stderr,
+            )
+            return 1
+        roles = tuple(arguments.role)
+        if not roles and arguments.demo and model.roles:
+            roles = (max(model.roles, key=lambda role: len(model.roles[role])),)
+        principal = Principal(arguments.principal, roles=frozenset(roles))
+        authenticator: Any = DevelopmentTokenAuthenticator(token, principal)
+        identity_summary = (
+            f"identity: {principal.identifier}; development auth only"
+        )
+    else:
+        if arguments.role or arguments.principal != "development:api":
+            print(
+                "API startup failed: --role and --principal apply only to "
+                "development authentication",
+                file=sys.stderr,
+            )
+            return 1
+        if not arguments.oidc_issuer or not arguments.oidc_audience:
+            print(
+                "API startup failed: OIDC authentication requires --oidc-issuer "
+                "and --oidc-audience",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            from tide.api.auth import OidcJwtAuthenticator
+
+            role_map = _parse_oidc_role_map(arguments.oidc_role_map, model)
+            authenticator = OidcJwtAuthenticator.from_discovery(
+                issuer=arguments.oidc_issuer,
+                audience=arguments.oidc_audience,
+                role_claim=arguments.oidc_role_claim,
+                role_map=role_map,
+                algorithms=tuple(arguments.oidc_algorithm) or ("RS256",),
+                token_types=tuple(arguments.oidc_token_type) or ("at+jwt", "JWT"),
+                leeway=arguments.oidc_leeway,
+                timeout=arguments.oidc_timeout,
+            )
+        except ModuleNotFoundError as error:
+            if error.name in {"httpx", "jwt", "cryptography"} or (
+                error.name or ""
+            ).startswith(("httpx.", "jwt.", "cryptography.")):
+                print(
+                    "The OIDC adapter is not installed. Install the 'auth' extra "
+                    "(for example: uv sync --extra api --extra auth).",
+                    file=sys.stderr,
+                )
+                return 1
+            raise
+        except ValueError as error:
+            print(f"API startup failed: {error}", file=sys.stderr)
+            return 1
+        identity_summary = f"identity: OIDC issuer {arguments.oidc_issuer}"
 
     storage = _open_run_storage(arguments, model, purpose="API")
     if storage is None:
@@ -407,13 +566,6 @@ def _serve_api(arguments: argparse.Namespace) -> int:
             except DemoDataError as error:
                 print(f"API demo startup failed: {error}", file=sys.stderr)
                 return 1
-        roles = tuple(arguments.role)
-        if not roles and arguments.demo and model.roles:
-            roles = (max(model.roles, key=lambda role: len(model.roles[role])),)
-        principal = Principal(
-            arguments.principal,
-            roles=frozenset(roles),
-        )
         records = RecordsService(
             model,
             storage.repository,
@@ -425,52 +577,98 @@ def _serve_api(arguments: argparse.Namespace) -> int:
             execution_store=storage.execution_store,
         )
         try:
-            from tide.api.server import (
-                DevelopmentTokenAuthenticator,
-                build_fastapi_app,
-            )
-            from tide.runtime.application import (
-                ApplicationRuntimeError,
-                configure_application_runtime,
-            )
-            import uvicorn
-        except ModuleNotFoundError as error:
-            if error.name in {"fastapi", "uvicorn"} or (error.name or "").startswith(
-                ("fastapi.", "uvicorn.")
-            ):
-                print(
-                    "The FastAPI adapter is not installed. Install the 'api' extra "
-                    "(for example: uv sync --extra api).",
-                    file=sys.stderr,
-                )
-                return 1
-            raise
-        try:
             configure_application_runtime(model, records, actions)
             app = build_fastapi_app(
                 model,
                 records,
-                DevelopmentTokenAuthenticator(token, principal),
+                authenticator,
                 actions=actions,
                 base_path=arguments.base_path,
             )
         except (ApplicationRuntimeError, ValueError) as error:
             print(f"API startup failed: {error}", file=sys.stderr)
             return 1
-
+        scheme = "https" if certfile is not None else "http"
         print(
-            f"Serving {model.name} at http://{arguments.host}:{arguments.port} "
-            f"(docs: /docs; identity: {principal.identifier}; development auth only)."
+            f"Serving {model.name} at {scheme}://{arguments.host}:{arguments.port} "
+            f"(docs: /docs; {identity_summary})."
         )
-        uvicorn.run(
-            app,
-            host=arguments.host,
-            port=arguments.port,
-            log_level="info",
-        )
+        configuration: dict[str, Any] = {
+            "host": arguments.host,
+            "port": arguments.port,
+            "log_level": "info",
+        }
+        if certfile is not None and keyfile is not None:
+            configuration.update(
+                ssl_certfile=str(certfile),
+                ssl_keyfile=str(keyfile),
+            )
+            if keyfile_password is not None:
+                configuration["ssl_keyfile_password"] = keyfile_password
+        uvicorn.run(app, **configuration)
         return 0
     finally:
         storage.dispose()
+
+
+def _server_tls_configuration(
+    arguments: argparse.Namespace,
+) -> tuple[Path | None, Path | None, str | None]:
+    certfile = arguments.ssl_certfile
+    keyfile = arguments.ssl_keyfile
+    if (certfile is None) != (keyfile is None):
+        raise ValueError("--ssl-certfile and --ssl-keyfile must be supplied together")
+    if arguments.ssl_keyfile_password_env and keyfile is None:
+        raise ValueError(
+            "--ssl-keyfile-password-env requires --ssl-certfile and --ssl-keyfile"
+        )
+    for label, path in (("certificate", certfile), ("private key", keyfile)):
+        if path is not None and not path.is_file():
+            raise ValueError(f"TLS {label} file does not exist: {path}")
+    password = None
+    if arguments.ssl_keyfile_password_env:
+        password = os.environ.get(arguments.ssl_keyfile_password_env)
+        if not password:
+            raise ValueError(
+                "TLS private-key password environment variable "
+                f"{arguments.ssl_keyfile_password_env!r} is not set"
+            )
+    return certfile, keyfile, password
+
+
+def _is_loopback_host(host: str) -> bool:
+    value = host.strip()
+    if value.lower() == "localhost":
+        return True
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1]
+    try:
+        return ipaddress.ip_address(value).is_loopback
+    except ValueError:
+        return False
+
+
+def _parse_oidc_role_map(
+    values: list[str],
+    model: ApplicationModel,
+) -> dict[str, str]:
+    mappings: dict[str, str] = {}
+    for value in values:
+        external, separator, tide_role = value.partition("=")
+        external = external.strip()
+        tide_role = tide_role.strip()
+        if not separator or not external or not tide_role:
+            raise ValueError(
+                "OIDC role mappings must use EXTERNAL=TIDE_ROLE"
+            )
+        if external in mappings:
+            raise ValueError(f"duplicate OIDC role mapping for {external!r}")
+        if tide_role not in model.roles:
+            raise ValueError(
+                f"OIDC role mapping targets unknown application role {tide_role!r}"
+            )
+        mappings[external] = tide_role
+    return mappings
 
 
 def _launch_tui(

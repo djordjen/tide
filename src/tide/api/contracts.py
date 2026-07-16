@@ -149,6 +149,7 @@ class TideSessionInfo(BaseModel):
     application: str
     application_version: str
     schema_version: str
+    authentication: str
     principal: str
     roles: tuple[str, ...] = ()
     reports: tuple[str, ...] = ()

@@ -9,6 +9,7 @@ import httpx
 import uvicorn
 
 from tide import compile_project
+from tide.api.auth import OidcJwtAuthenticator
 from tide.api.server import DevelopmentTokenAuthenticator, build_fastapi_app
 from tide.compiler.normalized import immutable_mapping
 from tide.cli import main
@@ -44,6 +45,7 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
         assert live.json() == {"status": "ok"}
         assert docs.status_code == 200
         assert session.status_code == 200
+        assert session.json()["authentication"] == "development-bearer"
         assert session.json()["reports"] == ["sales.invoice"]
         invoice_capabilities = session.json()["entities"]["sales.Invoice"]
         assert invoice_capabilities["operations"] == [
@@ -514,6 +516,146 @@ def test_tide_serve_builds_local_app_with_server_assigned_role(
     output = capsys.readouterr().out
     assert TOKEN not in output
     assert "development auth only" in output
+
+
+def test_tide_serve_rejects_development_authentication_off_loopback(
+    capsys,
+) -> None:
+    result = main(
+        ["serve", str(INVOICING), "--demo", "--host", "0.0.0.0"]
+    )
+
+    assert result == 1
+    assert capsys.readouterr().err == (
+        "API startup failed: development authentication may listen only on a "
+        "loopback interface\n"
+    )
+
+
+def test_tide_serve_requires_direct_tls_for_non_loopback_oidc(capsys) -> None:
+    result = main(
+        [
+            "serve",
+            str(INVOICING),
+            "--demo",
+            "--auth",
+            "oidc",
+            "--host",
+            "0.0.0.0",
+        ]
+    )
+
+    assert result == 1
+    assert capsys.readouterr().err == (
+        "API startup failed: non-loopback serving requires --ssl-certfile and "
+        "--ssl-keyfile\n"
+    )
+
+
+def test_tide_serve_rejects_unknown_oidc_role_mapping(capsys) -> None:
+    result = main(
+        [
+            "serve",
+            str(INVOICING),
+            "--demo",
+            "--auth",
+            "oidc",
+            "--oidc-issuer",
+            "https://identity.example.test/tenant",
+            "--oidc-audience",
+            "tide-api",
+            "--oidc-role-map",
+            "external-sales=not-an-application-role",
+        ]
+    )
+
+    assert result == 1
+    assert "unknown application role 'not-an-application-role'" in (
+        capsys.readouterr().err
+    )
+
+
+def test_tide_serve_builds_non_loopback_oidc_app_with_direct_tls(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    launched: dict[str, Any] = {}
+    discovery: dict[str, Any] = {}
+    certfile = tmp_path / "server-cert.pem"
+    keyfile = tmp_path / "server-key.pem"
+    certfile.write_text("test certificate", encoding="utf-8")
+    keyfile.write_text("test key", encoding="utf-8")
+
+    class TestOidcAuthenticator:
+        authentication_type = "oidc-jwt"
+        production = True
+
+        def authenticate(self, credential: str) -> Principal | None:
+            if credential == "valid-token":
+                return Principal(
+                    "oidc:test-user",
+                    roles=frozenset({"sales_clerk"}),
+                )
+            return None
+
+    def fake_discovery(cls: Any, **configuration: Any) -> Any:
+        discovery.update(configuration)
+        return TestOidcAuthenticator()
+
+    def fake_run(app: Any, **configuration: Any) -> None:
+        launched["app"] = app
+        launched["configuration"] = configuration
+
+    monkeypatch.setattr(
+        OidcJwtAuthenticator,
+        "from_discovery",
+        classmethod(fake_discovery),
+    )
+    monkeypatch.setattr(uvicorn, "run", fake_run)
+
+    result = main(
+        [
+            "serve",
+            str(INVOICING),
+            "--demo",
+            "--auth",
+            "oidc",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "8443",
+            "--ssl-certfile",
+            str(certfile),
+            "--ssl-keyfile",
+            str(keyfile),
+            "--oidc-issuer",
+            "https://identity.example.test/tenant",
+            "--oidc-audience",
+            "tide-api",
+            "--oidc-role-map",
+            "external-sales=sales_clerk",
+        ]
+    )
+
+    assert result == 0
+    assert discovery["role_map"] == {"external-sales": "sales_clerk"}
+    assert discovery["algorithms"] == ("RS256",)
+    assert launched["configuration"] == {
+        "host": "0.0.0.0",
+        "port": 8443,
+        "log_level": "info",
+        "ssl_certfile": str(certfile),
+        "ssl_keyfile": str(keyfile),
+    }
+    schema = launched["app"].openapi()
+    assert schema["x-tide"]["authentication"] == "oidc-jwt"
+    assert schema["components"]["securitySchemes"]["bearerAuth"][
+        "bearerFormat"
+    ] == "JWT"
+    output = capsys.readouterr().out
+    assert "https://0.0.0.0:8443" in output
+    assert "OIDC issuer https://identity.example.test/tenant" in output
 
 
 def _app(role: str | None, *, model: Any | None = None) -> Any:

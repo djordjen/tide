@@ -88,18 +88,63 @@ limited to its dependency-free list/get contract.
 
 `tide serve` exposes `/docs`, `/openapi.json`, `/health/live`, and
 `/health/ready`. The authenticated `/api/v1/_tide/session` resource publishes
-the wire version, application identity, principal identifier, and only those
-server-assigned roles, directly exposed operations, nested-draft operations,
-readable/writable fields, and exposed actions available to that principal
-through this server. It is capability information for rendering
+the wire version, application identity, authentication type, principal
+identifier, and only those server-assigned roles, directly exposed operations,
+nested-draft operations, readable/writable fields, and exposed actions
+available to that principal through this server. It is capability information for rendering
 and early feedback, never a replacement for per-request authorization.
 
-Its initial identity adapter is deliberately development-only:
+The development identity adapter is deliberately local-only:
 it reads one opaque token from a named environment variable, maps that token to
 a principal and roles fixed at server startup, and binds only to a loopback
 interface. HTTP clients cannot select a role through headers or request data.
-Missing, incorrect, and short tokens fail closed. A production network binding
-waits for a reviewed OAuth/OIDC identity adapter and HTTPS deployment contract.
+Missing, incorrect, and short tokens fail closed.
+
+The production identity adapter validates access tokens issued by an OpenID
+Provider. Install it separately from the API host:
+
+```bash
+uv sync --extra api --extra auth
+```
+
+At startup, TIDE retrieves the issuer's standard discovery document over
+HTTPS, requires its `issuer` to exactly match configuration, and obtains the
+HTTPS JWKS location. Each request then requires a key ID, an accepted token
+type, a configured asymmetric signing algorithm, and valid `iss`, `aud`,
+`exp`, and non-empty `sub` claims. The default algorithm is `RS256`; the
+accepted `typ` values are `at+jwt` and `JWT`. Clock-skew tolerance defaults to
+30 seconds. Symmetric algorithms are deliberately not accepted.
+
+External roles never become TIDE roles by name or claim alone. Each permitted
+mapping is explicit, and its target must exist in the compiled application:
+
+```bash
+tide serve applications/invoicing --database-env \
+  --auth oidc \
+  --oidc-issuer https://identity.example.com/tenant \
+  --oidc-audience tide-api \
+  --oidc-role-claim realm_access.roles \
+  --oidc-role-map external-sales=sales_clerk \
+  --oidc-role-map external-audit=auditor \
+  --host 0.0.0.0 --port 8443 \
+  --ssl-certfile deployment/server-chain.pem \
+  --ssl-keyfile deployment/server-key.pem
+```
+
+Role claims must be arrays of strings. Unmapped roles are ignored, while a
+malformed claim fails authentication. Repeat `--oidc-algorithm` or
+`--oidc-token-type` only where the identity provider's reviewed contract
+requires additional values. An encrypted key password is read without display
+through `--ssl-keyfile-password-env NAME`.
+
+Development authentication cannot bind outside loopback. OIDC may run over
+plain HTTP only on loopback; any non-loopback binding requires a certificate
+and key so Uvicorn terminates TLS directly. A reverse-proxy trust contract is
+not implemented yet, so forwarding headers are not an alternative to these
+checks. TIDE validates bearer tokens but does not implement an authorization
+code login, acquire tokens, or refresh them; TUI, Qt, web, and automation
+clients obtain an access token from the chosen provider and send it through the
+same API boundary.
 
 Response schemas keep every model field present and nullable so a protected
 value can be represented as JSON null. Optional `_tide.protected_fields`
@@ -295,3 +340,6 @@ tide serve
 - [Model Context Protocol documentation](https://modelcontextprotocol.io/)
 - [Official MCP Python SDK](https://py.sdk.modelcontextprotocol.io/)
 - [FastAPI documentation](https://fastapi.tiangolo.com/)
+- [OpenID Connect Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html)
+- [JSON Web Token Best Current Practices (RFC 8725)](https://www.rfc-editor.org/rfc/rfc8725)
+- [Uvicorn HTTPS settings](https://www.uvicorn.org/settings/#https)

@@ -44,6 +44,7 @@ def test_client_connects_and_reports_server_authorized_capabilities() -> None:
     assert session.application == "TIDE Invoicing"
     assert session.application_version == "0.1.0"
     assert session.schema_version == "0.1"
+    assert session.authentication == "development-bearer"
     assert session.entities["sales.Invoice"].operations == (
         "list",
         "get",

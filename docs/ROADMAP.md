@@ -127,9 +127,9 @@ application-owned Faker profile and the real secured services.
 - basic secured printable invoice with TUI preview, HTML, and PDF;
   **implemented**
 - opt-in REST list/get/create/update and domain-action routes plus OpenAPI;
-  **implemented with local FastAPI hosting, bearer development identity,
-  opaque pagination, protected-field serialization, ETag concurrency, and
-  action idempotency**
+  **implemented with FastAPI hosting, local development and OIDC/JWKS bearer
+  identity, direct TLS enforcement for non-loopback binds, opaque pagination,
+  protected-field serialization, ETag concurrency, and action idempotency**
 
 Exit condition: the example application can create, edit, post, find, and print
 an invoice entirely by keyboard or mouse.
@@ -151,7 +151,8 @@ an invoice entirely by keyboard or mouse.
 - reuse the same client/service boundary for the future Qt renderer;
 - runtime MCP resources and read-only query tools;
 - opt-in MCP domain actions and mutations;
-- shared authentication-to-Principal adapters;
+- shared authentication-to-Principal adapters; **implemented for local
+  development tokens and provider-neutral OIDC/JWKS access tokens**
 - channel-aware audit events;
 - OpenAPI and MCP schema conformance tests.
 

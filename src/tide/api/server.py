@@ -75,6 +75,9 @@ class TideEmptyActionPayload(BaseModel):
 class BearerAuthenticator(Protocol):
     """Map a bearer credential to a server-controlled principal."""
 
+    authentication_type: str
+    production: bool
+
     def authenticate(self, credential: str) -> Principal | None: ...
 
 
@@ -84,6 +87,9 @@ class DevelopmentTokenAuthenticator:
 
     token: str
     principal: Principal
+
+    authentication_type = "development-bearer"
+    production = False
 
     def __post_init__(self) -> None:
         if len(self.token) < 32:
@@ -140,7 +146,7 @@ def build_fastapi_app(
         base_path,
     )
     bearer = HTTPBearer(
-        bearerFormat="opaque",
+        bearerFormat=("JWT" if authenticator.authentication_type == "oidc-jwt" else "opaque"),
         scheme_name="bearerAuth",
         description=(
             "Bearer credentials are mapped to a Principal by server configuration; "
@@ -311,6 +317,7 @@ def build_fastapi_app(
             application=model.name,
             application_version=model.version,
             schema_version=model.schema_version,
+            authentication=authenticator.authentication_type,
             principal=context.principal.identifier,
             roles=tuple(sorted(context.principal.roles)),
             reports=tuple(
@@ -521,7 +528,7 @@ def build_fastapi_app(
             "read_only": False,
             "wire_version": TIDE_WIRE_VERSION,
             "schema_version": model.schema_version,
-            "authentication": "development-bearer",
+            "authentication": authenticator.authentication_type,
         }
         return schema
 

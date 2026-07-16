@@ -1,7 +1,8 @@
 # Operational Baseline
 
-**Status: Runtime database selection, action audit, and shared cursor
-persistence are executable; the wider production contract remains proposed.**
+**Status: Runtime database selection, OIDC bearer validation with direct TLS,
+action audit, and shared cursor persistence are executable; the wider
+production contract remains proposed.**
 These requirements should be built alongside persistence rather than added
 after machine mutations ship.
 
@@ -23,10 +24,18 @@ audit tables. Legacy deployments never create TIDE objects in the external
 database and currently keep those three forms of runtime state in-process.
 
 `tide serve` follows the same database selection and explicit schema-creation
-rules. The initial development bearer adapter may bind only to loopback and is
-not a production authentication mechanism. Network exposure, even on a trusted
-LAN, requires a later reviewed identity adapter, HTTPS termination, trusted
-proxy configuration, request limits, and production process supervision.
+rules. The development bearer adapter may bind only to loopback and is not a
+production authentication mechanism. The OIDC adapter validates an exact
+HTTPS issuer, audience, signature, expiry, subject, token type, and explicit
+external-role mappings. A non-loopback bind requires Uvicorn to terminate HTTPS
+from a supplied certificate and key. Private-key passwords may be read from a
+named environment variable and are never printed.
+
+This direct-TLS contract does not yet trust reverse-proxy forwarding headers.
+Deployments must not remove the TLS check merely because a proxy is present;
+trusted proxy configuration, request/body limits, token-acquisition flows,
+structured security logging, and production process supervision remain later
+reviewed work.
 
 `tide run --api-url` is the database-isolated Textual deployment mode. It reads
 the bearer credential from `TIDE_API_TOKEN` (or the named `--api-token-env`),

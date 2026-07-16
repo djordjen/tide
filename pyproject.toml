@@ -36,11 +36,16 @@ api = [
 client = [
     "httpx>=0.28,<1",
 ]
+auth = [
+    "httpx>=0.28,<1",
+    "PyJWT[crypto]>=2.10,<3",
+]
 dev = [
     "build>=1.2,<1.5.1",
     "fastapi>=0.116,<1",
     "Faker>=37.4,<38",
     "httpx>=0.28,<1",
+    "PyJWT[crypto]>=2.10,<3",
     "pytest>=8.3,<10",
     "reportlab>=4.4,<5",
     "ruff>=0.15,<1",

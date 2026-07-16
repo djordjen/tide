@@ -140,13 +140,27 @@ TIDE's core consumes a `Principal`; authentication belongs to adapters:
 
 All identities map into the same permission and audit model.
 
-The first FastAPI identity adapter is explicitly local-development-only. A
-bearer token is loaded from server environment, must be at least 32 characters,
-and maps to a principal configured on the server command line. The adapter is
-restricted to loopback hosts. Role headers, query parameters, and request
-bodies are ignored; possession of a token cannot be used to request a more
-privileged role. Production exposure requires HTTPS and a real authentication
-provider that performs the same server-side `Principal` mapping.
+The development FastAPI identity adapter loads a bearer token from server
+environment, requires at least 32 characters, and maps it to a principal
+configured on the server command line. It is restricted to loopback hosts.
+Role headers, query parameters, and request bodies are ignored; possession of a
+token cannot be used to request a more privileged role.
+
+The OIDC adapter discovers one exact HTTPS issuer and its HTTPS JWKS endpoint.
+It accepts only explicitly configured asymmetric algorithms and token types,
+requires a key ID, verifies signature, issuer, audience, expiry and subject,
+and applies clock leeway owned by the deployment. External role claims must be
+arrays of strings and grant only roles listed in explicit external-to-TIDE
+mappings. Unknown external roles are ignored. Key retrieval, discovery, claim,
+or signature failures deny authentication. Non-loopback serving additionally
+requires direct TLS certificate and key configuration; development identity is
+never permitted there.
+
+This is bearer validation, not an interactive login implementation. Access
+token issuance, user consent, MFA, refresh, revocation policy, and provider
+configuration remain the identity provider's responsibility. Trusted reverse
+proxy handling, request limits, structured security logging, and production
+process supervision remain separate deployment work.
 
 HTTP mutation schemas contain only normal writable fields. Partial updates use
 field presence rather than full-object replacement, so absent and protected
