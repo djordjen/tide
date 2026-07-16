@@ -33,6 +33,9 @@ api = [
     "fastapi>=0.116,<1",
     "uvicorn[standard]>=0.35,<1",
 ]
+client = [
+    "httpx>=0.28,<1",
+]
 dev = [
     "build>=1.2,<1.5.1",
     "fastapi>=0.116,<1",

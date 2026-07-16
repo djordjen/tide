@@ -49,13 +49,20 @@ class SecurityEngine:
         return self.has_permission(context, permissions.get(operation))
 
     def authorize_action(self, entity: NormalizedEntity, action: Mapping[str, Any], context: RequestContext) -> None:
-        if action.get("unrestricted") is True:
-            return
-        permission = action.get("permission")
-        if not permission or not self.has_permission(context, permission):
+        if not self.can_execute_action(action, context):
             raise AuthorizationError(
                 f"{context.principal.identifier!r} may not execute this action on {entity.name}"
             )
+
+    def can_execute_action(
+        self,
+        action: Mapping[str, Any],
+        context: RequestContext,
+    ) -> bool:
+        return bool(
+            action.get("unrestricted") is True
+            or self.has_permission(context, action.get("permission"))
+        )
 
     def authorize_report(
         self,

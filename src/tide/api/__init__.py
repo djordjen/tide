@@ -10,6 +10,16 @@ __all__ = [
     "BearerAuthenticator",
     "DevelopmentTokenAuthenticator",
     "OpenApiPreview",
+    "RemoteActionService",
+    "RemoteRecordsService",
+    "RemoteReportService",
+    "RemoteSecurityView",
+    "TideApiClient",
+    "TideApiClientError",
+    "TideApiContractError",
+    "TideApiPage",
+    "TideApiRecord",
+    "TideApiTransportError",
     "build_fastapi_app",
     "build_openapi_preview",
     "generate_openapi",
@@ -17,6 +27,50 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
+    if name in {
+        "RemoteActionService",
+        "RemoteRecordsService",
+        "RemoteReportService",
+        "RemoteSecurityView",
+    }:
+        from tide.api.remote import (
+            RemoteActionService,
+            RemoteRecordsService,
+            RemoteReportService,
+            RemoteSecurityView,
+        )
+
+        return {
+            "RemoteActionService": RemoteActionService,
+            "RemoteRecordsService": RemoteRecordsService,
+            "RemoteReportService": RemoteReportService,
+            "RemoteSecurityView": RemoteSecurityView,
+        }[name]
+    if name in {
+        "TideApiClient",
+        "TideApiClientError",
+        "TideApiContractError",
+        "TideApiPage",
+        "TideApiRecord",
+        "TideApiTransportError",
+    }:
+        from tide.api.client import (
+            TideApiClient,
+            TideApiClientError,
+            TideApiContractError,
+            TideApiPage,
+            TideApiRecord,
+            TideApiTransportError,
+        )
+
+        return {
+            "TideApiClient": TideApiClient,
+            "TideApiClientError": TideApiClientError,
+            "TideApiContractError": TideApiContractError,
+            "TideApiPage": TideApiPage,
+            "TideApiRecord": TideApiRecord,
+            "TideApiTransportError": TideApiTransportError,
+        }[name]
     if name in {
         "BearerAuthenticator",
         "DevelopmentTokenAuthenticator",

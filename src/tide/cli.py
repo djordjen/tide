@@ -121,6 +121,10 @@ def _create_parser() -> argparse.ArgumentParser:
             "(default name: TIDE_DATABASE_URL)"
         ),
     )
+    data_source.add_argument(
+        "--api-url",
+        help="use a remote TIDE application server instead of local persistence",
+    )
     run.add_argument(
         "--create-schema",
         action="store_true",
@@ -135,6 +139,23 @@ def _create_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--principal", default="local:user", help="principal identifier")
     run.add_argument("--page-size", type=int, help="override the view page size")
+    run.add_argument(
+        "--api-base-path",
+        default=DEFAULT_BASE_PATH,
+        help=f"remote REST base path (default: {DEFAULT_BASE_PATH})",
+    )
+    run.add_argument(
+        "--api-token-env",
+        default="TIDE_API_TOKEN",
+        metavar="NAME",
+        help="read the remote bearer token from environment variable NAME",
+    )
+    run.add_argument(
+        "--api-timeout",
+        type=float,
+        default=10.0,
+        help="remote request timeout in seconds (default: 10)",
+    )
     run.set_defaults(handler=_run_tui)
 
     serve = commands.add_parser(
@@ -294,11 +315,56 @@ def _create_parser() -> argparse.ArgumentParser:
     export_openapi.add_argument("--output", type=Path)
     export_openapi.set_defaults(handler=_api_export_openapi)
 
+    check_server = api_commands.add_parser(
+        "check-server",
+        help="authenticate and verify a remote TIDE application contract",
+    )
+    check_server.add_argument(
+        "project",
+        nargs="?",
+        default=".",
+        metavar="APPLICATION",
+        help="application root or tide.yaml (default: current directory)",
+    )
+    check_server.add_argument(
+        "--url",
+        default="http://127.0.0.1:8000",
+        help="TIDE server origin (default: http://127.0.0.1:8000)",
+    )
+    check_server.add_argument(
+        "--base-path",
+        default=DEFAULT_BASE_PATH,
+        help=f"REST base path (default: {DEFAULT_BASE_PATH})",
+    )
+    check_server.add_argument(
+        "--token-env",
+        default="TIDE_API_TOKEN",
+        metavar="NAME",
+        help="read the bearer token from environment variable NAME",
+    )
+    check_server.set_defaults(handler=_api_check_server)
+
     return parser
 
 
 def _run_tui(arguments: argparse.Namespace) -> int:
     model = compile_project(arguments.project)
+    if arguments.api_url:
+        if arguments.role or arguments.principal != "local:user":
+            print(
+                "TUI remote startup failed: --role and --principal are assigned "
+                "by the API server",
+                file=sys.stderr,
+            )
+            return 1
+        if arguments.create_schema:
+            print(
+                "TUI remote startup failed: --create-schema cannot be used with "
+                "--api-url",
+                file=sys.stderr,
+            )
+            return 1
+        return _launch_remote_tui(arguments, model)
     storage = _open_run_storage(arguments, model)
     if storage is None:
         return 1
@@ -471,6 +537,84 @@ def _launch_tui(
         ).run()
     except ValueError as error:
         print(f"TUI startup failed: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _launch_remote_tui(
+    arguments: argparse.Namespace,
+    model: ApplicationModel,
+) -> int:
+    token = os.environ.get(arguments.api_token_env)
+    if not token:
+        print(
+            "TUI remote startup failed: bearer-token environment variable "
+            f"{arguments.api_token_env!r} is not set",
+            file=sys.stderr,
+        )
+        return 1
+    if arguments.api_timeout <= 0:
+        print(
+            "TUI remote startup failed: --api-timeout must be positive",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        from tide.api.client import TideApiClient
+        from tide.api.remote import (
+            RemoteActionService,
+            RemoteRecordsService,
+            RemoteReportService,
+        )
+        from tide.tui import TideApp
+    except ModuleNotFoundError as error:
+        if error.name == "httpx" or (error.name or "").startswith("httpx."):
+            print(
+                "The TIDE API client is not installed. Install the 'client' extra "
+                "(for example: uv sync --extra client).",
+                file=sys.stderr,
+            )
+            return 1
+        if error.name == "textual" or (error.name or "").startswith("textual."):
+            print(
+                "The Textual adapter is not installed. Install the 'tui' extra "
+                "(for example: uv sync --extra tui).",
+                file=sys.stderr,
+            )
+            return 1
+        raise
+
+    try:
+        with TideApiClient(
+            model,
+            arguments.api_url,
+            token,
+            base_path=arguments.api_base_path,
+            timeout=arguments.api_timeout,
+        ) as client:
+            session = client.connect()
+            context = RequestContext(
+                principal=Principal(
+                    session.principal,
+                    roles=frozenset(session.roles),
+                ),
+                channel=Channel.TUI,
+            )
+            records = RemoteRecordsService(model, client, session)
+            actions = RemoteActionService(client)
+            reports = RemoteReportService()
+            TideApp(
+                model,
+                records,
+                context,
+                actions=actions,
+                view_name=arguments.view,
+                page_size=arguments.page_size,
+                source_label=f"remote API {arguments.api_url}",
+                report_service=reports,
+            ).run()
+    except (TideRuntimeError, ValueError) as error:
+        print(f"TUI remote startup failed: {error}", file=sys.stderr)
         return 1
     return 0
 
@@ -718,6 +862,53 @@ def _api_export_openapi(arguments: argparse.Namespace) -> int:
         arguments.output.write_text(text, encoding="utf-8")
     else:
         print(text, end="")
+    return 0
+
+
+def _api_check_server(arguments: argparse.Namespace) -> int:
+    model = compile_project(arguments.project)
+    token = os.environ.get(arguments.token_env)
+    if not token:
+        print(
+            "API check failed: bearer-token environment variable "
+            f"{arguments.token_env!r} is not set",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        from tide.api.client import TideApiClient
+    except ModuleNotFoundError as error:
+        if error.name == "httpx" or (error.name or "").startswith("httpx."):
+            print(
+                "The TIDE API client is not installed. Install the 'client' extra "
+                "(for example: uv sync --extra client).",
+                file=sys.stderr,
+            )
+            return 1
+        raise
+
+    try:
+        with TideApiClient(
+            model,
+            arguments.url,
+            token,
+            base_path=arguments.base_path,
+        ) as client:
+            session = client.connect()
+    except (TideRuntimeError, ValueError) as error:
+        print(f"API check failed: {error}", file=sys.stderr)
+        return 1
+
+    operations = sum(
+        len(capabilities.operations) for capabilities in session.entities.values()
+    )
+    actions = sum(
+        len(capabilities.actions) for capabilities in session.entities.values()
+    )
+    print(
+        f"Connected to {session.application} {session.application_version} as "
+        f"{session.principal} ({operations} operation(s), {actions} action(s))."
+    )
     return 0
 
 

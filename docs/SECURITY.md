@@ -155,6 +155,20 @@ and repeat the version predicate in persistence; targeted idempotent actions
 also require `Idempotency-Key`. These transport checks supplement rather than
 replace entity, row, field, action, validation, and repository enforcement.
 
+Authenticated clients may retrieve a session capability document for UI
+composition and compatibility checks. It contains no database configuration or
+bearer credential. Capabilities are advisory snapshots: every later list, get,
+mutation, and action request is independently authorized, including row and
+field policy evaluation. The reference client refuses plain HTTP except on a
+loopback host and does not follow redirects, preventing bearer forwarding to a
+different or unencrypted origin.
+
+Structured filter and sort values use authenticated JSON request bodies rather
+than query-string URLs, reducing accidental disclosure in ordinary access
+logs. Fields, operators, types, page sizes, cursors, row predicates, and
+projected values are still validated and authorized by `RecordsService` for
+every query.
+
 Schema v0.1 is single-tenant per deployment. Multi-user does not imply
 multi-tenant: tenant identifiers must not be added as an informal row filter.
 Multi-tenant support requires an explicit isolation and migration contract.

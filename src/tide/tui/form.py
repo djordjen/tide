@@ -512,6 +512,7 @@ class RecordEditScreen(Screen[Any]):
                 {},
                 self.context,
                 idempotency_key=f"tui:{uuid4()}",
+                expected_version=self.session.expected_version,
             )
         except ValidationFailed as error:
             self._show_validation(error)
@@ -970,10 +971,9 @@ class RecordEditScreen(Screen[Any]):
         post = self.entity.actions.get("post")
         can_post = False
         if post is not None:
-            permission = post.get("permission")
-            can_post = bool(
-                post.get("unrestricted") is True
-                or self.records.security.has_permission(self.context, permission)
+            can_post = self.records.security.can_execute_action(
+                post,
+                self.context,
             )
             condition = post.get("enabled_when")
             if condition:

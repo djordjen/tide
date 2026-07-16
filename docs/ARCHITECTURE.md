@@ -23,10 +23,20 @@ RecordsService / ActionService / ReportService
  Repository / SQL Server
 ```
 
-The current `tide run` Textual adapter remains an in-process trusted-host mode
-and calls services directly. A future remote TUI transport will call the same
-HTTP contracts as Qt and web clients. It must not embed a database driver or
-connection string merely to preserve the existing screen implementation.
+The default `tide run` Textual adapter remains an in-process trusted-host mode
+and calls services directly. Its opt-in `--api-url` mode calls the same HTTP
+contracts intended for Qt and web clients and never embeds a database driver or
+connection string.
+
+The remote client validates an authenticated session
+capability document against the locally compiled model before transferring
+records. It owns JSON/TIDE type conversion, protected-value reconstruction,
+opaque cursors, ETags, idempotency headers, and stable transport errors.
+Record/action facades present this client behind the interfaces already
+consumed by Textual; widgets do not construct URLs or authorize operations.
+Local edit drafts remain `RecordSession` objects, while every load, lookup
+assignment, commit, and action crosses the authenticated service boundary. The
+same split is intended for Qt.
 
 ```text
 applications/<name>/ (YAML + Python handlers + overlays)

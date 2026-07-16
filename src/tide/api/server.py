@@ -25,6 +25,14 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
+from tide.api.contracts import (
+    TIDE_WIRE_VERSION,
+    TideEntityCapabilities,
+    TideQueryInput,
+    TideReferenceSelectionInput,
+    TideReferenceSelectionResult,
+    TideSessionInfo,
+)
 from tide.api.openapi import (
     DEFAULT_BASE_PATH,
     REST_OPERATIONS,
@@ -34,7 +42,7 @@ from tide.api.openapi import (
     writable_scalar_annotation,
 )
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
-from tide.data import QuerySpec
+from tide.data import FilterCondition, QuerySpec, SortField
 from tide.runtime import (
     AuthorizationError,
     ActionDisabled,
@@ -220,6 +228,117 @@ def build_fastapi_app(
             "version": model.version,
         }
 
+    @app.get(
+        f"{base_path.rstrip('/')}/_tide/session",
+        tags=["TIDE"],
+        summary="Authenticated client capabilities",
+        response_model=TideSessionInfo,
+        responses=_documented_errors(401),
+    )
+    def session_info(
+        context: RequestContext = Depends(request_context),
+    ) -> TideSessionInfo:
+        capabilities: dict[str, TideEntityCapabilities] = {}
+        for entity_name, entity in model.entities.items():
+            exposure = exposures.get(entity_name)
+            operations = tuple(
+                operation
+                for operation in ("list", "get", "create", "update")
+                if exposure is not None
+                and operation in exposure.operations
+                and _operation_allowed(records, entity, operation, context)
+            )
+            draft_operations = tuple(
+                operation
+                for operation in ("create", "update")
+                if _nested_operation_allowed(
+                    records,
+                    exposures,
+                    entity_name,
+                    operation,
+                    context,
+                )
+            )
+            readable_fields = (
+                tuple(
+                    field_name
+                    for field_name in entity.fields
+                    if records.security.can_read_field(
+                        entity_name,
+                        field_name,
+                        context,
+                    )
+                )
+                if "get" in operations or draft_operations
+                else ()
+            )
+            writable_fields = (
+                tuple(
+                    field_name
+                    for field_name, field in entity.fields.items()
+                    if _field_is_api_writable(field, "update")
+                    and records.security.can_write_field(
+                        entity_name,
+                        field_name,
+                        context,
+                    )
+                )
+                if {"create", "update"} & (set(operations) | set(draft_operations))
+                else ()
+            )
+            allowed_actions = tuple(
+                action_name
+                for action_name, action in entity.actions.items()
+                if entity_name in exposures
+                and "get" in operations
+                and action.get("expose", {}).get("rest") is True
+                and records.security.can_execute_action(action, context)
+            )
+            capabilities[entity_name] = TideEntityCapabilities(
+                operations=operations,
+                draft_operations=draft_operations,
+                readable_fields=readable_fields,
+                writable_fields=writable_fields,
+                actions=allowed_actions,
+            )
+        return TideSessionInfo(
+            application=model.name,
+            application_version=model.version,
+            schema_version=model.schema_version,
+            principal=context.principal.identifier,
+            roles=tuple(sorted(context.principal.roles)),
+            entities=capabilities,
+        )
+
+    @app.post(
+        f"{base_path.rstrip('/')}/_tide/reference-selection",
+        tags=["TIDE"],
+        summary="Apply a secured reference selection to a draft",
+        response_model=TideReferenceSelectionResult,
+        responses=_documented_errors(400, 401, 403, 409, 422),
+    )
+    def reference_selection(
+        payload: TideReferenceSelectionInput,
+        context: RequestContext = Depends(request_context),
+    ) -> TideReferenceSelectionResult:
+        try:
+            entity = model.entity(payload.entity)
+            values = _decode_draft(model, entity, payload.values)
+            field = entity.field(payload.field)
+            identity = _coerce_reference_identity(model, field, payload.identity)
+        except (KeyError, TypeError, ValueError, InvalidOperation) as error:
+            raise _bad_request("reference-selection payload is invalid") from error
+        updated = records.apply_reference_selection(
+            entity.name,
+            field.name,
+            values,
+            identity,
+            context,
+        )
+        return TideReferenceSelectionResult(
+            values=_wire_draft(model, entity, updated),
+        )
+
     for entity_name, exposure in exposures.items():
         entity = model.entity(entity_name)
         resource_path = f"{base_path.rstrip('/')}/{exposure.path}"
@@ -239,6 +358,25 @@ def build_fastapi_app(
                 response_model_by_alias=True,
                 name=f"List {entity.label}",
                 operation_id=f"list{preview.record_models[entity_name].__name__.removesuffix('Record')}",
+                tags=[tag],
+                responses=_documented_errors(400, 401, 403, 422),
+            )
+            query_endpoint = _query_endpoint(
+                records,
+                entity,
+                preview.page_models[entity_name],
+                request_context,
+            )
+            app.add_api_route(
+                f"{resource_path}/_query",
+                query_endpoint,
+                methods=["POST"],
+                response_model=preview.page_models[entity_name],
+                response_model_by_alias=True,
+                name=f"Query {entity.label}",
+                operation_id=(
+                    f"query{preview.record_models[entity_name].__name__.removesuffix('Record')}"
+                ),
                 tags=[tag],
                 responses=_documented_errors(400, 401, 403, 422),
             )
@@ -341,6 +479,7 @@ def build_fastapi_app(
         schema["x-tide"] = {
             "runtime": True,
             "read_only": False,
+            "wire_version": TIDE_WIRE_VERSION,
             "schema_version": model.schema_version,
             "authentication": "development-bearer",
         }
@@ -644,6 +783,60 @@ def _list_endpoint(
     return list_records
 
 
+def _query_endpoint(
+    records: RecordsService,
+    entity: NormalizedEntity,
+    page_model: type[BaseModel],
+    context_dependency: Any,
+) -> Any:
+    def query_records(
+        payload: TideQueryInput,
+        context: RequestContext = Depends(context_dependency),
+    ) -> BaseModel:
+        try:
+            filters = tuple(
+                FilterCondition(
+                    item.field,
+                    item.operator,
+                    _decode_filter_value(
+                        records.model,
+                        entity,
+                        item.field,
+                        item.value,
+                    ),
+                )
+                for item in payload.filters
+            )
+            sort = tuple(
+                SortField(item.field, descending=item.descending)
+                for item in payload.sort
+            )
+            page = records.query_page(
+                entity.name,
+                QuerySpec(
+                    filters=filters,
+                    sort=sort,
+                    limit=payload.limit,
+                    cursor=payload.cursor,
+                ),
+                context,
+            )
+        except (KeyError, TypeError, ValueError, InvalidOperation) as error:
+            raise _bad_request(str(error) or "structured query is invalid") from error
+        return page_model.model_validate(
+            {
+                "records": [
+                    _wire_record(records.model, entity, record)
+                    for record in page.records
+                ],
+                "next_cursor": page.next_cursor,
+            }
+        )
+
+    query_records.__name__ = f"query_{entity.name.replace('.', '_')}"
+    return query_records
+
+
 def _get_endpoint(
     records: RecordsService,
     entity: NormalizedEntity,
@@ -720,6 +913,133 @@ def _coerce_identity(
     if field_type == "decimal":
         return value if isinstance(value, Decimal) else Decimal(str(value))
     raise TypeError
+
+
+def _decode_filter_value(
+    model: ApplicationModel,
+    entity: NormalizedEntity,
+    field_name: str,
+    value: Any,
+) -> Any:
+    if field_name not in entity.fields:
+        raise ValueError(f"unknown query field {field_name!r}")
+    return _decode_wire_value(model, entity.field(field_name), value)
+
+
+def _decode_draft(
+    model: ApplicationModel,
+    entity: NormalizedEntity,
+    values: Mapping[str, Any],
+) -> dict[str, Any]:
+    unknown = set(values) - set(entity.fields)
+    if unknown:
+        raise ValueError(
+            f"unknown draft field(s): {', '.join(sorted(unknown))}"
+        )
+    return {
+        field_name: _decode_wire_value(model, entity.field(field_name), value)
+        for field_name, value in values.items()
+    }
+
+
+def _decode_wire_value(
+    model: ApplicationModel,
+    field: NormalizedField,
+    value: Any,
+) -> Any:
+    if value is None:
+        return None
+    field_type = str(field.metadata["type"])
+    if field_type == "reference":
+        if field.target_entity is None:
+            raise TypeError
+        return _decode_wire_value(
+            model,
+            _primary_key(model.entity(field.target_entity)),
+            value,
+        )
+    if field_type == "collection":
+        if field.target_entity is None or not isinstance(value, list):
+            raise TypeError
+        target = model.entity(field.target_entity)
+        if not all(isinstance(item, Mapping) for item in value):
+            raise TypeError
+        return [_decode_draft(model, target, item) for item in value]
+    if field_type == "decimal":
+        if not isinstance(value, str):
+            raise TypeError
+        return Decimal(value)
+    if field_type == "date":
+        if not isinstance(value, str):
+            raise TypeError
+        from datetime import date
+
+        return date.fromisoformat(value)
+    if field_type == "datetime":
+        if not isinstance(value, str):
+            raise TypeError
+        from datetime import datetime
+
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if field_type == "integer":
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise TypeError
+        return value
+    if field_type == "boolean":
+        if not isinstance(value, bool):
+            raise TypeError
+        return value
+    if field_type in {"string", "choice"}:
+        if not isinstance(value, str):
+            raise TypeError
+        return value
+    raise TypeError
+
+
+def _coerce_reference_identity(
+    model: ApplicationModel,
+    field: NormalizedField,
+    value: Any,
+) -> Any:
+    if field.metadata["type"] != "reference" or field.target_entity is None:
+        raise ValueError(f"field {field.name!r} is not a reference")
+    return _decode_wire_value(
+        model,
+        _primary_key(model.entity(field.target_entity)),
+        value,
+    )
+
+
+def _wire_draft(
+    model: ApplicationModel,
+    entity: NormalizedEntity,
+    values: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        field_name: _wire_value(model, entity.field(field_name), value)
+        for field_name, value in values.items()
+        if field_name in entity.fields and value is not PROTECTED
+    }
+
+
+def _wire_value(
+    model: ApplicationModel,
+    field: NormalizedField,
+    value: Any,
+) -> Any:
+    if value is None:
+        return None
+    field_type = str(field.metadata["type"])
+    if field_type == "collection":
+        if field.target_entity is None:
+            raise TypeError
+        target = model.entity(field.target_entity)
+        return [_wire_draft(model, target, item) for item in value]
+    if isinstance(value, Decimal):
+        return str(value)
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value
 
 
 def _primary_key(entity: NormalizedEntity) -> NormalizedField:
@@ -841,6 +1161,52 @@ def _version_field(entity: NormalizedEntity) -> NormalizedField | None:
         ),
         None,
     )
+
+
+def _operation_allowed(
+    records: RecordsService,
+    entity: NormalizedEntity,
+    operation: str,
+    context: RequestContext,
+) -> bool:
+    security_operation = "read" if operation == "get" else operation
+    if not records.security.can_access_entity(entity, security_operation, context):
+        return False
+    return not (
+        operation == "update"
+        and not records.security.can_access_entity(entity, "read", context)
+    )
+
+
+def _nested_operation_allowed(
+    records: RecordsService,
+    exposures: Mapping[str, Any],
+    target_name: str,
+    operation: str,
+    context: RequestContext,
+) -> bool:
+    target = records.model.entity(target_name)
+    if not _operation_allowed(records, target, operation, context):
+        return False
+    for parent_name, exposure in exposures.items():
+        if operation not in exposure.operations:
+            continue
+        parent = records.model.entity(parent_name)
+        if not _operation_allowed(records, parent, operation, context):
+            continue
+        for field_name, field in parent.fields.items():
+            if (
+                field.metadata["type"] == "collection"
+                and field.target_entity == target_name
+                and operation in field.metadata.get("cascade", ())
+                and records.security.can_write_field(
+                    parent_name,
+                    field_name,
+                    context,
+                )
+            ):
+                return True
+    return False
 
 
 def _input_field_description(field: NormalizedField, mode: str) -> str | None:

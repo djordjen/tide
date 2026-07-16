@@ -503,6 +503,10 @@ class RecordsService:
                 f"{entity.name} record"
             ) from error
         session.identity = stored[_primary_key(entity)]
+        version_field = _version_field(entity)
+        session.expected_version = (
+            stored.get(version_field) if version_field is not None else None
+        )
         session.mark_committed(stored)
         return self._project(entity, stored, context)
 

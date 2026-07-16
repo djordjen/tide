@@ -414,6 +414,7 @@ def test_optimistic_concurrency_rejects_stale_session(runtime) -> None:
     first.set("currency", "USD")
     updated = records.commit(first, clerk)
     assert updated["version"] == 2
+    assert first.expected_version == 2
 
     stale.set("currency", "GBP")
     with pytest.raises(ConcurrencyError) as caught:

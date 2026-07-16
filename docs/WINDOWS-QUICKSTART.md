@@ -96,6 +96,31 @@ discarded when the server stops; SQL Server-mode mutations are persistent and
 pass through the same validation, authorization, concurrency, and action audit
 services as the TUI.
 
+To verify the new reusable remote client, leave the API window running and open
+a second terminal:
+
+```powershell
+.\start.bat api-check
+```
+
+Paste the token printed by the API window when prompted. Input is hidden. The
+check authenticates, verifies that the local invoicing model exactly matches
+the server application and wire versions, and reports the number of available
+operations/actions. It never needs `TIDE_DATABASE_URL`.
+
+To run the Textual application as a genuine API client, leave the API window
+running and execute:
+
+```powershell
+.\start.bat remote
+```
+
+Paste the same token when prompted. The remote TUI receives no SQL Server URL
+or database driver access: browse, search, sorting, paging, lookups,
+create/update, nested invoice lines, and posting go through FastAPI and the
+server-side services. Invoice report preview is deliberately unavailable in
+this mode until a secured report endpoint is implemented.
+
 This first identity adapter is deliberately restricted to the local computer.
 Do not change the binding to a network address or expose it through a firewall;
 production network access requires the planned OAuth/OIDC and HTTPS adapter.

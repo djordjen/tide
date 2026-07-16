@@ -50,12 +50,17 @@ uv run tide model explain sales.Invoice.total --project applications/invoicing
 uv run tide api export-openapi applications/invoicing
 uv run tide run applications/invoicing --demo --page-size 3
 uv run tide serve applications/invoicing --demo
+uv run --extra client tide api check-server applications/invoicing
 uv run pytest
 ```
 
 `tide serve` requires a 32-character-or-longer development bearer token in
 `TIDE_API_TOKEN` and binds to loopback. The Windows `start.bat api-demo`
 shortcut generates one for local testing and prints the `/docs` address.
+The separate `start.bat api-check` command securely prompts for that printed
+token and verifies authentication plus application/wire compatibility through
+the reusable remote client. `start.bat remote` then runs the same Textual
+workflow through that API without giving the TUI a database connection string.
 
 `tide run --database-env` selects a persistent SQLAlchemy repository using the
 `TIDE_DATABASE_URL` environment variable. The first managed-database run may
@@ -196,9 +201,16 @@ and sortable stored scalar columns through keyboard or mouse controls. Secured
 single-record invoice reporting now provides a terminal preview plus HTML and
 PDF export. A loopback-only FastAPI server hosts secured list/get/create/update
 and Invoice Post routes with typed input, ETag concurrency, idempotency, and
-interactive OpenAPI documentation. REST delete, remote TUI/Qt clients,
-production authentication, MCP, migrations, expanded report
-queries/grouping, and broader lookup-query capabilities remain roadmap work.
+interactive OpenAPI documentation. An authenticated session-capability contract
+and typed HTTP client now preserve exact field types, protected values, cursors,
+ETags, and stable errors while rejecting mismatched applications and unsafe
+unencrypted non-loopback URLs. Textual can now opt into this client through
+`tide run --api-url`, including structured browse/search/sort, edit sessions,
+lookups, nested lines, and actions without database access. Remote report
+transport, REST delete, production authentication, MCP, migrations, expanded report
+transport, REST delete, production authentication, MCP, migrations, expanded
+report queries/grouping, and broader lookup-query capabilities remain roadmap
+work.
 
 Metadata v0.1 is an executable experimental contract. Breaking authoring
 changes require a new `schema_version`; stable 1.0 compatibility is not yet

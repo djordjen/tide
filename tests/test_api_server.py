@@ -29,6 +29,10 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
             live = await client.get("/health/live")
             docs = await client.get("/docs")
             missing = await client.get("/api/v1/invoices")
+            session = await client.get(
+                "/api/v1/_tide/session",
+                headers=_authorization(),
+            )
             incorrect = await client.get(
                 "/api/v1/invoices",
                 headers={"Authorization": "Bearer incorrect-token-value"},
@@ -37,6 +41,33 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
         assert live.status_code == 200
         assert live.json() == {"status": "ok"}
         assert docs.status_code == 200
+        assert session.status_code == 200
+        invoice_capabilities = session.json()["entities"]["sales.Invoice"]
+        assert invoice_capabilities["operations"] == [
+            "list",
+            "get",
+            "create",
+            "update",
+        ]
+        assert set(invoice_capabilities["readable_fields"]) == {
+            "id",
+            "number",
+            "invoice_date",
+            "customer",
+            "currency",
+            "status",
+            "lines",
+            "posted_at",
+            "version",
+            "total",
+        }
+        assert set(invoice_capabilities["writable_fields"]) == {
+            "invoice_date",
+            "customer",
+            "currency",
+            "lines",
+        }
+        assert invoice_capabilities["actions"] == ["post"]
         for response in (missing, incorrect):
             assert response.status_code == 401
             assert response.json() == {
@@ -53,6 +84,7 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
     assert schema["x-tide"] == {
         "runtime": True,
         "read_only": False,
+        "wire_version": "0.1",
         "schema_version": "0.1",
         "authentication": "development-bearer",
     }
@@ -68,6 +100,10 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
     assert set(schema["paths"]["/api/v1/invoices"]) == {"get", "post"}
     assert "/api/v1/invoices/{id}" in schema["paths"]
     assert set(schema["paths"]["/api/v1/invoices/{id}"]) == {"get", "patch"}
+    assert set(schema["paths"]["/api/v1/invoices/_query"]) == {"post"}
+    assert set(schema["paths"]["/api/v1/_tide/reference-selection"]) == {
+        "post"
+    }
     assert "/api/v1/invoices/{id}/actions/post" in schema["paths"]
     create_schema = schema["components"]["schemas"]["SalesInvoiceCreateInput"]
     update_schema = schema["components"]["schemas"]["SalesInvoiceUpdateInput"]

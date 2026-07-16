@@ -11,6 +11,8 @@ if /I "%~1"=="seed" goto seed
 if /I "%~1"=="demo" goto demo
 if /I "%~1"=="api" goto api
 if /I "%~1"=="api-demo" goto api_demo
+if /I "%~1"=="api-check" goto api_check
+if /I "%~1"=="remote" goto remote
 if /I "%~1"=="help" goto help
 if not "%~1"=="" goto unknown
 
@@ -35,14 +37,35 @@ goto finish
 :api
 call :prepare_api_token
 echo Starting the API against SQL Server...
-uv run tide serve applications/invoicing --database-env --role sales_clerk --port 8000
+uv run --extra api --extra client --extra sqlserver tide serve applications/invoicing --database-env --role sales_clerk --port 8000
 goto finish
 
 :api_demo
 call :prepare_api_token
 echo Starting the API with isolated demo data...
-uv run tide serve applications/invoicing --demo --role sales_clerk --port 8000
+uv run --extra api --extra client tide serve applications/invoicing --demo --role sales_clerk --port 8000
 goto finish
+
+:api_check
+call :read_api_token
+if errorlevel 1 goto finish
+.venv\Scripts\tide.exe api check-server applications/invoicing --url http://127.0.0.1:8000
+goto finish
+
+:remote
+call :read_api_token
+if errorlevel 1 goto finish
+.venv\Scripts\tide.exe run applications/invoicing --api-url http://127.0.0.1:8000 --page-size 5
+goto finish
+
+:read_api_token
+set "TIDE_API_TOKEN="
+for /f "delims=" %%I in ('powershell -NoProfile -Command "$s = Read-Host 'Paste API token' -AsSecureString; [System.Net.NetworkCredential]::new('', $s).Password"') do set "TIDE_API_TOKEN=%%I"
+if not defined TIDE_API_TOKEN (
+    echo No API token was entered.
+    exit /b 1
+)
+exit /b 0
 
 :prepare_api_token
 if not defined TIDE_API_TOKEN for /f "delims=" %%I in ('powershell -NoProfile -Command "[guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')"') do set "TIDE_API_TOKEN=%%I"
@@ -63,6 +86,8 @@ echo   start.bat seed   Seed an empty initialized database with fake data
 echo   start.bat demo   Start isolated in-memory demo data
 echo   start.bat api    Start local API against SQL Server
 echo   start.bat api-demo Start local API with demo data
+echo   start.bat api-check Verify the running API and remote client contract
+echo   start.bat remote Start the TUI as an API client with no database access
 echo   start.bat help   Show this help
 exit /b 0
 

@@ -140,7 +140,14 @@ an invoice entirely by keyboard or mouse.
 - expected-version preconditions for delete; update/action are implemented;
 - API structured filtering/sorting and concurrency transport contracts over
   the implemented pagination and protected-field primitives;
-- remote service client for Textual and the future Qt renderer;
+- typed remote HTTP client, authenticated session capabilities, application
+  compatibility checks, exact wire-type/protection conversion, and a CLI
+  connectivity check; **implemented**
+- structured remote filtering/sorting plus Textual record/action service
+  facades for browse, lookups, drafts, nested commits, concurrency, and
+  actions; **implemented**
+- secured remote report transport and the same reusable boundary for the future
+  Qt renderer;
 - runtime MCP resources and read-only query tools;
 - opt-in MCP domain actions and mutations;
 - shared authentication-to-Principal adapters;

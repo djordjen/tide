@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from sqlalchemy import create_engine
 
@@ -135,6 +136,88 @@ def test_api_export_openapi_reports_invalid_base_path(capsys) -> None:
     )
 
 
+def test_api_check_server_requires_token_environment(monkeypatch, capsys) -> None:
+    monkeypatch.delenv("MISSING_TIDE_API_TOKEN", raising=False)
+
+    result = main(
+        [
+            "api",
+            "check-server",
+            str(INVOICING),
+            "--token-env",
+            "MISSING_TIDE_API_TOKEN",
+        ]
+    )
+
+    assert result == 1
+    assert capsys.readouterr().err == (
+        "API check failed: bearer-token environment variable "
+        "'MISSING_TIDE_API_TOKEN' is not set\n"
+    )
+
+
+def test_api_check_server_reports_compatible_authenticated_session(
+    monkeypatch,
+    capsys,
+) -> None:
+    captured: dict[str, object] = {}
+    token = "check-server-secret-token"
+    monkeypatch.setenv("CHECK_TIDE_API_TOKEN", token)
+
+    class StubClient:
+        def __init__(self, model, url, received_token, *, base_path) -> None:
+            captured.update(
+                model=model,
+                url=url,
+                token=received_token,
+                base_path=base_path,
+            )
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc) -> None:
+            return None
+
+        def connect(self):
+            return SimpleNamespace(
+                application="TIDE Invoicing",
+                application_version="0.1.0",
+                principal="api:test",
+                entities={
+                    "sales.Invoice": SimpleNamespace(
+                        operations=("list", "get", "create", "update"),
+                        actions=("post",),
+                    )
+                },
+            )
+
+    monkeypatch.setattr("tide.api.client.TideApiClient", StubClient)
+
+    result = main(
+        [
+            "api",
+            "check-server",
+            str(INVOICING),
+            "--url",
+            "https://tide.example.test",
+            "--token-env",
+            "CHECK_TIDE_API_TOKEN",
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert result == 0
+    assert output == (
+        "Connected to TIDE Invoicing 0.1.0 as api:test "
+        "(4 operation(s), 1 action(s)).\n"
+    )
+    assert captured["url"] == "https://tide.example.test"
+    assert captured["token"] == token
+    assert captured["base_path"] == "/api/v1"
+    assert token not in output
+
+
 def test_tide_run_database_requires_configured_environment_variable(
     monkeypatch,
     capsys,
@@ -163,6 +246,160 @@ def test_tide_run_create_schema_requires_database_selection(capsys) -> None:
     assert result == 1
     assert capsys.readouterr().err == (
         "TUI startup failed: --create-schema requires --database-env\n"
+    )
+
+
+def test_tide_run_remote_requires_token_without_echoing_url_secrets(
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.delenv("MISSING_REMOTE_TOKEN", raising=False)
+
+    result = main(
+        [
+            "run",
+            str(INVOICING),
+            "--api-url",
+            "http://127.0.0.1:8000",
+            "--api-token-env",
+            "MISSING_REMOTE_TOKEN",
+        ]
+    )
+
+    assert result == 1
+    assert capsys.readouterr().err == (
+        "TUI remote startup failed: bearer-token environment variable "
+        "'MISSING_REMOTE_TOKEN' is not set\n"
+    )
+
+
+def test_tide_run_remote_builds_tui_without_local_storage(
+    monkeypatch,
+    capsys,
+) -> None:
+    captured: dict[str, object] = {}
+    token = "remote-tui-secret-token"
+    monkeypatch.setenv("REMOTE_TIDE_TOKEN", token)
+
+    class StubClient:
+        def __init__(
+            self,
+            model,
+            url,
+            received_token,
+            *,
+            base_path,
+            timeout,
+        ) -> None:
+            captured.update(
+                model=model,
+                url=url,
+                token=received_token,
+                base_path=base_path,
+                timeout=timeout,
+            )
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc) -> None:
+            return None
+
+        def connect(self):
+            return SimpleNamespace(
+                principal="api:remote-user",
+                roles=("sales_clerk",),
+            )
+
+    class StubRecords:
+        def __init__(self, model, client, session) -> None:
+            captured["records"] = (model, client, session)
+
+    class StubActions:
+        def __init__(self, client) -> None:
+            captured["actions"] = client
+
+    class StubReports:
+        pass
+
+    class StubApp:
+        def __init__(self, model, records, context, **configuration) -> None:
+            captured["app"] = (model, records, context, configuration)
+
+        def run(self) -> None:
+            captured["ran"] = True
+
+    monkeypatch.setattr("tide.api.client.TideApiClient", StubClient)
+    monkeypatch.setattr("tide.api.remote.RemoteRecordsService", StubRecords)
+    monkeypatch.setattr("tide.api.remote.RemoteActionService", StubActions)
+    monkeypatch.setattr("tide.api.remote.RemoteReportService", StubReports)
+    monkeypatch.setattr("tide.tui.TideApp", StubApp)
+
+    result = main(
+        [
+            "run",
+            str(INVOICING),
+            "--api-url",
+            "http://127.0.0.1:8767",
+            "--api-token-env",
+            "REMOTE_TIDE_TOKEN",
+            "--api-timeout",
+            "7.5",
+            "--page-size",
+            "4",
+        ]
+    )
+
+    assert result == 0
+    assert captured["url"] == "http://127.0.0.1:8767"
+    assert captured["token"] == token
+    assert captured["base_path"] == "/api/v1"
+    assert captured["timeout"] == 7.5
+    assert captured["ran"] is True
+    _model, _records, context, configuration = captured["app"]
+    assert context.principal.identifier == "api:remote-user"
+    assert context.principal.roles == frozenset({"sales_clerk"})
+    assert configuration["source_label"] == (
+        "remote API http://127.0.0.1:8767"
+    )
+    assert configuration["page_size"] == 4
+    assert token not in capsys.readouterr().out
+
+
+def test_tide_run_remote_rejects_schema_creation(capsys) -> None:
+    result = main(
+        [
+            "run",
+            str(INVOICING),
+            "--api-url",
+            "http://127.0.0.1:8000",
+            "--create-schema",
+        ]
+    )
+
+    assert result == 1
+    assert capsys.readouterr().err == (
+        "TUI remote startup failed: --create-schema cannot be used with "
+        "--api-url\n"
+    )
+
+
+def test_tide_run_remote_rejects_client_selected_identity(capsys) -> None:
+    result = main(
+        [
+            "run",
+            str(INVOICING),
+            "--api-url",
+            "http://127.0.0.1:8000",
+            "--role",
+            "sales_clerk",
+        ]
+    )
+
+    assert result == 1
+    assert capsys.readouterr().err == (
+        "TUI remote startup failed: --role and --principal are assigned by the "
+        "API server\n"
     )
 
 

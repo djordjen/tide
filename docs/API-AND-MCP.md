@@ -81,13 +81,20 @@ kebab-case resource path such as `crm/person`. The standalone `export-openapi`
 command intentionally remains the dependency-free read-only contract preview;
 the running server's `/openapi.json` includes its mutation schemas and routes.
 
-List routes publish the implemented page size and opaque cursor
-parameters. The versioned HTTP syntax for structured filtering and sorting is
-still deferred to the machine-interface milestone rather than being guessed by
-the preview.
+GET list routes publish the implemented page size and opaque cursor parameters.
+The runtime additionally publishes typed read-only `POST .../_query` routes for
+structured filtering and sorting; the standalone preview remains intentionally
+limited to its dependency-free list/get contract.
 
 `tide serve` exposes `/docs`, `/openapi.json`, `/health/live`, and
-`/health/ready`. Its initial identity adapter is deliberately development-only:
+`/health/ready`. The authenticated `/api/v1/_tide/session` resource publishes
+the wire version, application identity, principal identifier, and only those
+server-assigned roles, directly exposed operations, nested-draft operations,
+readable/writable fields, and exposed actions available to that principal
+through this server. It is capability information for rendering
+and early feedback, never a replacement for per-request authorization.
+
+Its initial identity adapter is deliberately development-only:
 it reads one opaque token from a named environment variable, maps that token to
 a principal and roles fixed at server startup, and binds only to a loopback
 interface. HTTP clients cannot select a role through headers or request data.
@@ -138,6 +145,40 @@ responses publish a strong integer ETag such as `"3"`. `PATCH` and targeted
 actions require the corresponding `If-Match` value. Missing preconditions
 return `428`; stale observations return `412`; the repository still performs
 the atomic version check to close the race after authorization.
+
+### Remote client foundation
+
+Install the optional client adapter and verify a running server with the same
+compiled application:
+
+```bash
+uv sync --extra client
+tide api check-server applications/invoicing --url http://127.0.0.1:8000
+```
+
+The command reads its bearer token from `TIDE_API_TOKEN` by default. The
+reusable synchronous `TideApiClient` first authenticates against the session
+resource and refuses application name/version, schema-version, or wire-version
+mismatches. It converts wire decimals, dates, datetimes, nested records, and
+protected-null metadata back into TIDE values; it carries opaque cursors and
+strong ETags without interpreting them. Server error envelopes become stable
+client exceptions without copying credentials into exception text.
+
+Plain HTTP is accepted only for `localhost`, `127.0.0.1`, and `::1`; remote
+origins require HTTPS so bearer credentials cannot be sent over an
+unencrypted network. Redirects are not followed. This is the transport
+used by record/action facades consumed by Textual. Run `tide run
+applications/invoicing --api-url http://127.0.0.1:8000`; the TUI compiles
+presentation metadata locally but performs browse, structured filter/sort,
+lookup selection, create/update, and actions through HTTP. Future Qt clients
+can reuse the same boundary. Reports remain disabled in remote mode until an
+explicit secured report endpoint exists.
+
+Structured filtering and sorting use `POST /api/v1/{resource}/_query` with a
+typed, read-only query body. This avoids putting search values into access-log
+URLs while preserving the same allow-listed field/operator/type validation,
+row policies, protected projections, deterministic ordering, bounded page
+size, and principal-bound cursors as local service calls.
 
 ## Domain actions
 
