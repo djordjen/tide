@@ -116,8 +116,8 @@ After managed tables are initialized, an empty development database can be
 filled through the real validation/action services:
 
 ```powershell
-uv run tide db seed applications/invoicing --database-env --customers 25 --products 20 --invoices 100 --random-seed 20260716
+uv run --extra seed --extra sqlserver tide db seed applications/invoicing --database-env --customers 25 --products 20 --invoices 100 --random-seed 20260716
 ```
 
-This requires the `seed` extra (included by the documented development setup)
-and refuses a non-empty database.
+This requests both the `seed` and SQL Server extras and refuses a non-empty
+database. The Windows `start.bat seed` shortcut uses the same dependencies.

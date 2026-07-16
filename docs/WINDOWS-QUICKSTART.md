@@ -10,8 +10,10 @@ named `TIDE` on `localhost:1433` using Windows integrated security.
    database exists.
 2. Install Microsoft ODBC Driver 17 for SQL Server, or edit `start.bat` if this
    host uses another installed driver.
-3. Install the project and SQL Server Python dependencies from a terminal in
-   the repository:
+3. Install `uv`. The batch file requests the exact Python extras required by
+   each mode, so the first double-click automatically prepares `textual` and
+   `pyodbc`. To download all development and SQL Server dependencies in
+   advance, run:
 
    ```powershell
    uv sync --extra dev --extra sqlserver
@@ -21,6 +23,13 @@ The batch file sets `TIDE_DATABASE_URL` only for itself and the TIDE process it
 starts. It does not modify the Windows user or system environment, and the value
 disappears when the shortcut exits. Integrated security means the included URL
 does not contain a username or password.
+
+The default and `init` modes use
+`uv run --extra tui --extra sqlserver`; `seed` additionally requests the
+`seed` extra. Therefore a previously created `.venv` that lacks `pyodbc` is
+repaired on launch instead of failing with the optional-dependency message.
+The Microsoft ODBC driver remains a system installation and cannot be supplied
+by Python packaging.
 
 ## First managed start
 

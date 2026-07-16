@@ -18,21 +18,21 @@ if /I "%~1"=="help" goto help
 if not "%~1"=="" goto unknown
 
 :start
-uv run tide run applications/invoicing --database-env --role sales_clerk --page-size 5
+uv run --extra tui --extra sqlserver tide run applications/invoicing --database-env --role sales_clerk --page-size 5
 goto finish
 
 :initialize
 echo Initializing the managed TIDE database and starting the application...
-uv run tide run applications/invoicing --database-env --create-schema --role sales_clerk --page-size 5
+uv run --extra tui --extra sqlserver tide run applications/invoicing --database-env --create-schema --role sales_clerk --page-size 5
 goto finish
 
 :demo
-uv run tide run applications/invoicing --demo --page-size 5
+uv run --extra tui tide run applications/invoicing --demo --page-size 5
 goto finish
 
 :seed
 echo Seeding the empty managed TIDE database with deterministic fake data...
-uv run tide db seed applications/invoicing --database-env --customers 25 --products 20 --invoices 100 --random-seed 20260716
+uv run --extra seed --extra sqlserver tide db seed applications/invoicing --database-env --customers 25 --products 20 --invoices 100 --random-seed 20260716
 goto finish
 
 :api
@@ -57,13 +57,13 @@ goto finish
 :api_check
 call :read_api_token
 if errorlevel 1 goto finish
-.venv\Scripts\tide.exe api check-server applications/invoicing --url http://127.0.0.1:8000
+uv run --extra client tide api check-server applications/invoicing --url http://127.0.0.1:8000
 goto finish
 
 :remote
 call :read_api_token
 if errorlevel 1 goto finish
-.venv\Scripts\tide.exe run applications/invoicing --api-url http://127.0.0.1:8000 --page-size 5
+uv run --extra tui --extra client tide run applications/invoicing --api-url http://127.0.0.1:8000 --page-size 5
 goto finish
 
 :read_api_token
