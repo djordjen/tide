@@ -56,6 +56,11 @@ Unit Price and Quantity in the right. Its focus order follows that same
 sequence: down the left column first and then down the right.
 Integer and decimal values are right-aligned in browse, line-item, and lookup
 tables so values of different widths share a common numeric edge.
+Invoice quantities and prices use metadata numeric masks that limit fractional
+entry to their declared scale and complete fixed decimal places on leaving the
+field. Customer and Product codes demonstrate regular-expression masks; these
+rules are enforced through the shared services as well as reflected in the TUI
+and OpenAPI contract.
 The workspace selector opens Invoices, Customers, or Products. Customer and
 Product forms support secured create/edit operations. Customer and Product
 lookups also expose **New** (Ctrl+N) when authorized; the nested form uses

@@ -99,6 +99,10 @@ class SelectionSource(SourceModel):
     assign: dict[str, SelectionAssignmentSource]
 
 
+class EditMaskSource(SourceModel):
+    regex: str = Field(min_length=1)
+
+
 class FieldSource(SourceModel):
     type: FieldType
     label: str | None = None
@@ -118,6 +122,7 @@ class FieldSource(SourceModel):
     default_factory: Literal["today"] | None = None
     server_default: Any = None
     format: str | None = None
+    edit_mask: str | EditMaskSource | None = None
     validation: str | tuple[str, ...] | None = None
     choices: tuple[str, ...] = ()
     target: str | None = None

@@ -284,6 +284,57 @@ def test_commit_rejects_non_boolean_flags(runtime) -> None:
     )
 
 
+def test_commit_enforces_decimal_scale_and_precision(runtime) -> None:
+    _, _, records, _ = runtime
+    clerk = context("user:clerk", "sales_clerk")
+    too_precise = invoice_values()
+    too_precise["lines"][0]["unit_price"] = "4.201"
+
+    with pytest.raises(ValidationFailed) as caught:
+        records.commit(records.create("sales.Invoice", clerk, too_precise), clerk)
+
+    assert any(
+        issue.rule == "scale" and issue.fields == ("unit_price",)
+        for issue in caught.value.issues
+    )
+
+    too_large = records.create(
+        "catalog.Product",
+        clerk,
+        {
+            "code": "HUGE",
+            "name": "Too large",
+            "unit_price": "12345678901.00",
+            "active": True,
+        },
+    )
+    with pytest.raises(ValidationFailed) as caught:
+        records.commit(too_large, clerk)
+
+    assert any(
+        issue.rule == "precision" and issue.fields == ("unit_price",)
+        for issue in caught.value.issues
+    )
+
+
+def test_commit_enforces_regular_expression_edit_masks(runtime) -> None:
+    _, _, records, _ = runtime
+    clerk = context("user:clerk", "sales_clerk")
+    customer = records.create(
+        "crm.Customer",
+        clerk,
+        {"code": "lowercase", "name": "Invalid code", "active": True},
+    )
+
+    with pytest.raises(ValidationFailed) as caught:
+        records.commit(customer, clerk)
+
+    assert any(
+        issue.rule == "edit_mask" and issue.fields == ("code",)
+        for issue in caught.value.issues
+    )
+
+
 def test_commit_rejects_reference_with_wrong_identity_type(runtime) -> None:
     _, _, records, _ = runtime
     clerk = context("user:clerk", "sales_clerk")

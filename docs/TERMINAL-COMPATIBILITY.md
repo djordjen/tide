@@ -49,6 +49,10 @@ explicit two-column layout controls widget placement and focus order without
 changing the collection table columns. Browse, inline collection, and lookup
 tables derive alignment from field types: integer and decimal columns are
 right-aligned, while other field types remain left-aligned.
+Numeric edit-mask coverage verifies that invalid extra decimal digits are
+blocked during entry and fixed decimal places are completed on focus loss.
+Regular-expression masks validate completed string values and remain backed by
+the same service-side rule used by non-terminal adapters.
 
 SSH tests should include noticeable latency and interrupted connections.
 `RecordSession` retains unsaved edits until the user explicitly cancels or the

@@ -179,6 +179,7 @@ def _build_record_models(
                 extra="forbid",
                 frozen=True,
                 populate_by_name=True,
+                regex_engine="python-re",
             ),
             __module__=__name__,
             **fields,
@@ -367,6 +368,9 @@ def _scalar_annotation(field: NormalizedField) -> Any:
             constraints["min_length"] = 1
         if metadata.get("length") is not None:
             constraints["max_length"] = metadata["length"]
+        edit_mask = metadata.get("edit_mask")
+        if isinstance(edit_mask, Mapping):
+            constraints["pattern"] = rf"^(?:{edit_mask['regex']})$"
         annotation: Any = str
     elif field_type == "choice":
         choices = tuple(metadata.get("choices", ()))

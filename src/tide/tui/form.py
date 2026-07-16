@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
+import re
 from typing import Any, Mapping
 from uuid import uuid4
 
@@ -12,6 +13,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Grid, Horizontal, Vertical
 from textual.screen import Screen
+from textual.validation import Regex
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Select, Static
 
 from tide.compiler.expressions import evaluate_expression
@@ -54,6 +56,63 @@ class DateInput(Input):
             return
         self.value = _format_date(current + timedelta(days=days))
         self.cursor_position = len(self.value)
+
+
+class NumericMaskedInput(Input):
+    """Numeric input that admits partial typing states and limits decimal places."""
+
+    def __init__(
+        self,
+        *,
+        value: str,
+        mask: str,
+        precision: int | None,
+        scale: int | None,
+        id: str,
+        classes: str,
+    ) -> None:
+        match = re.fullmatch(r"0(?:([.,])(0+))?", mask)
+        if match is None:  # Compiler validation makes this defensive only.
+            raise ValueError(f"invalid numeric edit mask {mask!r}")
+        self.decimal_separator = match.group(1)
+        self.decimal_places = len(match.group(2) or "")
+        integer_digits = (
+            max(1, precision - int(scale or 0)) if precision is not None else None
+        )
+        integer_part = rf"\d{{0,{integer_digits}}}" if integer_digits else r"\d*"
+        fractional_part = (
+            rf"(?:{re.escape(self.decimal_separator)}\d{{0,{self.decimal_places}}})?"
+            if self.decimal_separator is not None
+            else ""
+        )
+        super().__init__(
+            value=value,
+            restrict=rf"-?{integer_part}{fractional_part}",
+            max_length=(
+                1
+                + integer_digits
+                + (1 + self.decimal_places if self.decimal_separator else 0)
+                if integer_digits is not None
+                else 0
+            ),
+            id=id,
+            classes=classes,
+        )
+
+    def on_blur(self) -> None:
+        raw = self.value.strip()
+        if raw in {"", "-", ".", ",", "-.", "-,"}:
+            return
+        normalized = raw.replace(self.decimal_separator or ".", ".")
+        try:
+            value = Decimal(normalized)
+        except InvalidOperation:
+            return
+        formatted = f"{value:.{self.decimal_places}f}"
+        if self.decimal_separator == ",":
+            formatted = formatted.replace(".", ",")
+        self.value = formatted
+        self.cursor_position = len(formatted)
 
 
 class FormSelect(Select[Any]):
@@ -587,12 +646,35 @@ class RecordEditScreen(Screen[Any]):
                 classes="editable-value",
                 compact=True,
             )
-        input_type = DateInput if field_type == "date" else Input
-        editor = input_type(
-            value=_input_text(field, value),
-            id=widget_id,
-            classes="editable-value",
-        )
+        edit_mask = field.metadata.get("edit_mask")
+        if isinstance(edit_mask, str):
+            editor = NumericMaskedInput(
+                value=_input_text(field, value),
+                mask=edit_mask,
+                precision=field.metadata.get("precision"),
+                scale=field.metadata.get("scale"),
+                id=widget_id,
+                classes="editable-value",
+            )
+        else:
+            validators = (
+                Regex(
+                    str(edit_mask["regex"]),
+                    failure_description=f"{_field_label(field)} has an invalid format",
+                )
+                if isinstance(edit_mask, Mapping)
+                else None
+            )
+            input_type = DateInput if field_type == "date" else Input
+            editor = input_type(
+                value=_input_text(field, value),
+                validators=validators,
+                validate_on=("blur", "submitted"),
+                valid_empty=not field.metadata.get("required", False),
+                max_length=int(field.metadata.get("length") or 0),
+                id=widget_id,
+                classes="editable-value",
+            )
         if field_type == "date":
             editor.tooltip = "DD.MM.YYYY; use + or - to change one day"
         return editor
@@ -1036,7 +1118,7 @@ def _editor_value(field: NormalizedField, editor: Editor) -> Any:
         if field_type == "integer":
             return int(raw)
         if field_type == "decimal":
-            return Decimal(raw)
+            return Decimal(raw.replace(",", "."))
     except ValueError:
         return raw
     except InvalidOperation:

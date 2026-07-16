@@ -618,6 +618,35 @@ def _validate_entities(
                     document,
                     (*field_path, "choices"),
                 )
+            if field.type == "decimal":
+                if field.precision == 0:
+                    _add(
+                        diagnostics,
+                        "TIDE243",
+                        "decimal precision must be positive",
+                        document,
+                        (*field_path, "precision"),
+                    )
+                if (
+                    field.precision is not None
+                    and field.scale is not None
+                    and field.scale > field.precision
+                ):
+                    _add(
+                        diagnostics,
+                        "TIDE243",
+                        "decimal scale cannot exceed precision",
+                        document,
+                        (*field_path, "scale"),
+                    )
+            elif field.precision is not None or field.scale is not None:
+                _add(
+                    diagnostics,
+                    "TIDE243",
+                    "precision and scale apply only to decimal fields",
+                    document,
+                    field_path,
+                )
             if field.format and field.format not in formats:
                 _add(
                     diagnostics,
@@ -626,6 +655,8 @@ def _validate_entities(
                     document,
                     (*field_path, "format"),
                 )
+            if field.edit_mask is not None:
+                _validate_edit_mask(field, document, field_path, diagnostics)
             if field.write in {"action_only", "system"} and not field.readonly:
                 _add(
                     diagnostics,
@@ -750,6 +781,74 @@ def _is_persisted_field(field: Any) -> bool:
     if field.type == "collection":
         return False
     return field.computed is None or field.computed.materialization != "virtual"
+
+
+def _validate_edit_mask(
+    field: FieldSource,
+    document: SourceDocument,
+    field_path: tuple[str, ...],
+    diagnostics: list[Diagnostic],
+) -> None:
+    mask = field.edit_mask
+    if isinstance(mask, str):
+        match = re.fullmatch(r"0(?:([.,])(0+))?", mask)
+        if field.type not in {"integer", "decimal"} or match is None:
+            _add(
+                diagnostics,
+                "TIDE243",
+                "typed edit masks use 0, 0.00, or 0,00 on numeric fields",
+                document,
+                (*field_path, "edit_mask"),
+            )
+            return
+        fractional_digits = len(match.group(2) or "")
+        if field.type == "integer" and fractional_digits:
+            _add(
+                diagnostics,
+                "TIDE243",
+                "integer edit masks cannot contain fractional digits",
+                document,
+                (*field_path, "edit_mask"),
+            )
+        if field.type == "decimal":
+            if field.scale is None:
+                _add(
+                    diagnostics,
+                    "TIDE243",
+                    "decimal edit masks require a declared scale",
+                    document,
+                    (*field_path, "edit_mask"),
+                )
+            elif fractional_digits > field.scale:
+                _add(
+                    diagnostics,
+                    "TIDE243",
+                    f"edit mask has {fractional_digits} decimal places but field "
+                    f"scale is {field.scale}",
+                    document,
+                    (*field_path, "edit_mask"),
+                )
+        return
+
+    if field.type != "string":
+        _add(
+            diagnostics,
+            "TIDE243",
+            "regular-expression edit masks require a string field",
+            document,
+            (*field_path, "edit_mask"),
+        )
+        return
+    try:
+        re.compile(mask.regex)
+    except re.error as error:
+        _add(
+            diagnostics,
+            "TIDE243",
+            f"invalid edit-mask regular expression: {error}",
+            document,
+            (*field_path, "edit_mask", "regex"),
+        )
 
 
 def _validate_computed_cycles(

@@ -24,7 +24,7 @@ from tide.tui import (
     configure_application_runtime,
     seed_demo_data,
 )
-from tide.tui.form import RecordEditScreen
+from tide.tui.form import NumericMaskedInput, RecordEditScreen
 from tide.tui.lookup import LookupField, LookupScreen
 
 ROOT = Path(__file__).parents[1]
@@ -468,7 +468,16 @@ def test_textual_lookup_creates_product_and_preserves_invoice_draft() -> None:
             )
             product_form.query_one("#field-code", Input).value = "TRAIN"
             product_form.query_one("#field-name", Input).value = "Training day"
-            product_form.query_one("#field-unit_price", Input).value = "350.00"
+            price = product_form.query_one(
+                "#field-unit_price", NumericMaskedInput
+            )
+            price.value = "350.00"
+            price.focus()
+            await pilot.press("end", "1")
+            assert price.value == "350.00"
+            price.value = "350."
+            await pilot.press("tab")
+            assert price.value == "350.00"
             await pilot.click("#save-form")
             await pilot.pause()
 

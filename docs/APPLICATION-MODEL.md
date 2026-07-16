@@ -125,8 +125,10 @@ A field may contribute to several projections without mixing their concerns:
 
 - storage: type, length, precision, nullability, indexes, and uniqueness;
 - semantics: label, help, display format, and reference meaning;
-- validation: local constraints and named validation rules;
-- presentation: preferred editor, width, alignment, and view defaults;
+- validation: local constraints, edit-mask contracts, and named validation
+  rules;
+- presentation: preferred editor, width, alignment, input feedback, and view
+  defaults;
 - API: read/write representation and exposure policy;
 - security: read and write permission requirements;
 - reporting: formatting and aggregation behavior.

@@ -7,6 +7,7 @@ from copy import deepcopy
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
+import re
 from typing import Any, Callable, Mapping
 
 from tide.compiler.expressions import evaluate_expression
@@ -694,6 +695,22 @@ class RecordsService:
                 issues.append(ValidationIssue("maximum", f"{field_name} exceeds its maximum", (field_name,)))
             if value is not None and metadata["type"] == "choice" and value not in metadata.get("choices", ()):
                 issues.append(ValidationIssue("choice", f"{field_name} has an invalid choice", (field_name,)))
+            if value is not None and metadata["type"] == "decimal":
+                issues.extend(_decimal_shape_issues(field_name, value, metadata))
+            edit_mask = metadata.get("edit_mask")
+            if (
+                value is not None
+                and metadata["type"] == "string"
+                and isinstance(edit_mask, Mapping)
+                and re.fullmatch(str(edit_mask["regex"]), value) is None
+            ):
+                issues.append(
+                    ValidationIssue(
+                        "edit_mask",
+                        f"{field_name} does not match its required format",
+                        (field_name,),
+                    )
+                )
             if metadata["type"] == "collection" and field.target_entity:
                 inverse = metadata.get("inverse")
                 for item in value or []:
@@ -1032,6 +1049,47 @@ def _coerce_scalar(field_type: str, value: Any) -> tuple[Any, bool]:
     if field_type == "datetime":
         return value, isinstance(value, datetime)
     return value, True
+
+
+def _decimal_shape_issues(
+    field_name: str,
+    value: Decimal,
+    metadata: Mapping[str, Any],
+) -> list[ValidationIssue]:
+    digits, exponent = value.as_tuple().digits, value.as_tuple().exponent
+    if not isinstance(exponent, int):
+        return [
+            ValidationIssue(
+                "decimal",
+                f"{field_name} must be a finite decimal value",
+                (field_name,),
+            )
+        ]
+    issues: list[ValidationIssue] = []
+    fractional_digits = max(-exponent, 0)
+    scale = metadata.get("scale")
+    if scale is not None and fractional_digits > int(scale):
+        issues.append(
+            ValidationIssue(
+                "scale",
+                f"{field_name} allows at most {scale} decimal places",
+                (field_name,),
+            )
+        )
+    precision = metadata.get("precision")
+    if precision is not None:
+        integer_digits = 0 if value.is_zero() else max(len(digits) + exponent, 0)
+        allowed_integer_digits = int(precision) - int(scale or 0)
+        if integer_digits > allowed_integer_digits:
+            issues.append(
+                ValidationIssue(
+                    "precision",
+                    f"{field_name} allows at most {allowed_integer_digits} "
+                    "integer digits",
+                    (field_name,),
+                )
+            )
+    return issues
 
 
 def _normalize_filter(

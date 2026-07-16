@@ -54,6 +54,10 @@ def test_preview_generates_typed_pydantic_record_and_page_models() -> None:
     }
     assert invoice["properties"]["total"]["anyOf"][0]["type"] == "string"
     assert invoice["properties"]["invoice_date"]["anyOf"][0]["format"] == "date"
+    product = schemas["CatalogProductRecord"]
+    assert product["properties"]["code"]["anyOf"][0]["pattern"] == (
+        "^(?:[A-Z][A-Z0-9-]{0,29})$"
+    )
     assert invoice["properties"]["_tide"]["anyOf"][0] == {
         "$ref": "#/components/schemas/TideProtectionMetadata"
     }

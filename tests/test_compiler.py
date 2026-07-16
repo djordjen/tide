@@ -39,6 +39,12 @@ def test_invoicing_fixture_compiles_to_immutable_model() -> None:
         "from": "unit_price",
         "overwrite": "always",
     }
+    assert model.entity("sales.InvoiceLine").field("quantity").metadata[
+        "edit_mask"
+    ] == "0.000"
+    assert model.entity("catalog.Product").field("code").metadata["edit_mask"] == {
+        "regex": "[A-Z][A-Z0-9-]{0,29}"
+    }
     assert model.diagnostics == ()
     resolved = model.views["sales.Invoice.edit"]
     assert resolved.data["settings"]["label_width"] == 18
@@ -312,6 +318,49 @@ def test_lookup_editor_and_selection_assignments_are_validated(tmp_path: Path) -
         "inline editor layout repeats fields: product",
         "inline editor layout omits editable fields: quantity",
     } <= layout_messages
+
+
+def test_edit_masks_are_compiler_validated(tmp_path: Path) -> None:
+    project = tmp_path / "invalid-masks"
+    models = project / "models"
+    models.mkdir(parents=True)
+    (project / "tide.yaml").write_text(
+        "\n".join(
+            [
+                'schema_version: "0.1"',
+                "application: {name: Invalid Masks, version: 0.1.0}",
+                "model: {paths: [models]}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (models / "thing.yaml").write_text(
+        "\n".join(
+            [
+                "entity: demo.Thing",
+                "fields:",
+                "  id: {type: integer, primary_key: true}",
+                '  amount: {type: decimal, precision: 6, scale: 2, edit_mask: "0.000"}',
+                '  count: {type: integer, edit_mask: "0.00"}',
+                '  name: {type: string, edit_mask: {regex: "["}}',
+                '  occurred_on: {type: date, edit_mask: "0.00"}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(project)
+
+    mask_messages = {
+        diagnostic.message
+        for diagnostic in caught.value.diagnostics
+        if diagnostic.code == "TIDE243"
+    }
+    assert any("scale is 2" in message for message in mask_messages)
+    assert "integer edit masks cannot contain fractional digits" in mask_messages
+    assert any("invalid edit-mask regular expression" in message for message in mask_messages)
+    assert any("typed edit masks" in message for message in mask_messages)
 
 
 def test_project_discovery_cannot_escape_project_root(tmp_path: Path) -> None:

@@ -17,7 +17,19 @@ permissions:
 
 fields:
   id:         {type: integer, primary_key: true}
-  code:       {type: string, length: 30, required: true, unique: true}
+  code:
+    type: string
+    length: 30
+    required: true
+    unique: true
+    edit_mask: {regex: "[A-Z][A-Z0-9-]{0,29}"}
   name:       {type: string, length: 120, required: true, searchable: true}
-  unit_price: {type: decimal, precision: 12, scale: 2, required: true, minimum: 0, format: money}
+  unit_price:
+    type: decimal
+    precision: 12
+    scale: 2
+    required: true
+    minimum: 0
+    format: money
+    edit_mask: "0.00"
   active:     {type: boolean, default: true}

@@ -91,7 +91,8 @@ invoice-number incremental search, simple compiled named filters, and sortable
 columns are executable through keyboard or clickable controls. Forms use
 compact, visually distinct editable/read-only fields, localized date parsing,
 model-owned today defaults, keyboard date stepping, column-first Tab traversal,
-and Enter-to-advance data entry. Product references now support a secured,
+Enter-to-advance data entry, and typed numeric/string edit masks backed by
+service validation. Product references now support a secured,
 case-insensitive, multi-column lookup window and declarative selection values
 that copy description and unit price into the editable line draft. Inline
 editor layout and keyboard order are now developer-controlled independently of
@@ -114,6 +115,8 @@ application-owned Faker profile and the real secured services.
   schema creation and legacy no-DDL behavior;
 - deterministic, empty-database-only Faker development seeding;
 - parsing, formatting, and validation feedback;
+- compiler-validated numeric and regular-expression edit masks, with shared
+  service enforcement; **implemented for Textual and OpenAPI contracts**
 - computed line and invoice totals;
 - Post Invoice action and immutable posted invoices;
 - configurable keyboard shortcuts and mouse-aware controls;

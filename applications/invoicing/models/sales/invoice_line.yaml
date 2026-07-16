@@ -13,6 +13,7 @@ fields:
   line_number:
     type: integer
     required: true
+    edit_mask: "0"
     immutable_when: "invoice.status != 'draft'"
 
   description:
@@ -27,6 +28,7 @@ fields:
     scale: 3
     required: true
     minimum: 0.001
+    edit_mask: "0.000"
     immutable_when: "invoice.status != 'draft'"
 
   unit_price:
@@ -35,6 +37,7 @@ fields:
     scale: 2
     required: true
     format: money
+    edit_mask: "0.00"
     immutable_when: "invoice.status != 'draft'"
 
   invoice:

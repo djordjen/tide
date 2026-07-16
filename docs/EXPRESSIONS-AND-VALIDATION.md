@@ -67,6 +67,12 @@ Collection `sum`, `average`, `min`, and `max` ignore null items consistently
 with SQL aggregates. `sum` returns zero when no non-null values exist;
 `average`, `min`, and `max` return null.
 
+Declared decimal precision and scale are enforced before commit. TIDE rejects
+extra integral or fractional digits instead of rounding them implicitly, so
+every adapter observes the same storage-safe value contract. A numeric
+`edit_mask` such as `"0.00"` can prevent common entry mistakes in a renderer,
+but does not weaken or replace that service check.
+
 ## Computed fields
 
 The field name supplies the assignment target:
@@ -133,6 +139,18 @@ Simple constraints remain field properties:
 ```yaml
 quantity: {type: decimal, required: true, minimum: 0.01}
 ```
+
+String fields may also declare a completed-value regular-expression contract:
+
+```yaml
+code:
+  type: string
+  length: 30
+  edit_mask: {regex: "[A-Z][A-Z0-9-]{0,29}"}
+```
+
+This rule is enforced at commit for TUI, API, and future GUI callers, and is
+also exposed as an OpenAPI `pattern` where applicable.
 
 Cross-field and conditional rules are explicit:
 

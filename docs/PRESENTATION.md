@@ -177,6 +177,37 @@ A format can influence TUI forms, browses, reports, parsing, and exports. REST
 normally returns a machine-readable raw value rather than the formatted display
 string.
 
+## Edit masks
+
+Field-level edit masks constrain input independently of display formatting:
+
+```yaml
+fields:
+  unit_price:
+    type: decimal
+    precision: 12
+    scale: 2
+    edit_mask: "0.00"
+
+  code:
+    type: string
+    length: 30
+    edit_mask: {regex: "[A-Z][A-Z0-9-]{0,29}"}
+```
+
+The numeric picture `0.00` allows one decimal separator and at most two
+fractional digits; on leaving the Textual editor, an entered trailing separator
+is padded to the fixed number of places. `0` is the corresponding integer
+picture. A comma may be used in the picture for applications that prefer a
+comma decimal separator.
+
+Regular expressions validate the completed value rather than trying to infer
+which partial keystrokes might eventually become valid. The compiler checks
+the expression, `RecordsService` enforces it for every adapter, and OpenAPI
+publishes it as the string schema pattern. A renderer may additionally show
+validation while the user edits. Numeric precision and scale are likewise
+enforced by services; a mask improves entry but never replaces validation.
+
 ## Actions and keymaps
 
 Views present first-class actions rather than implementing commands locally.

@@ -59,6 +59,9 @@ The v0.1 compiler checks:
 - action-only/system fields being read-only to adapters;
 - typed dynamic defaults (`default_factory: today` for date fields), mutually
   exclusive with literal `default` values;
+- decimal precision/scale consistency and edit-mask compatibility: numeric
+  picture masks must match their field type and declared scale, while regular
+  expression masks are limited to string fields (`TIDE243`);
 - collection views and report entity references;
 - reference editor modes, lookup-view target compatibility, and type-safe
   `on_select` draft assignments;
@@ -76,6 +79,12 @@ scalar field must declare `column`, and every persisted reference must declare
 its existing foreign-key column through `storage`. Missing mappings are
 `TIDE228` and `TIDE229` errors. Collections and virtual computed fields are not
 persisted and therefore do not require column mappings.
+
+Numeric `precision` and `scale` are model constraints, not display hints.
+Record services reject values that exceed either limit. `edit_mask` may add a
+renderer-neutral input contract: numeric fields accept a picture such as
+`"0.00"`, while string fields accept `{regex: "..."}`. Adapters may provide
+earlier feedback, but service validation remains authoritative.
 
 JSON Schema can be exported for each source-file kind:
 
