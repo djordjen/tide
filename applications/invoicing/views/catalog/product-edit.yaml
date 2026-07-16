@@ -1,0 +1,12 @@
+# TIDE application metadata.
+view: catalog.Product.edit
+entity: catalog.Product
+kind: form
+mode: overlay
+extends: standard_form
+
+layout:
+  - group: Product
+    rows:
+      - [code, unit_price]
+      - [name, active]

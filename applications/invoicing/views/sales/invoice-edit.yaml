@@ -22,6 +22,13 @@ layout:
     rows:
       - [posted_at, posted_by, version]
 
+fields:
+  customer:
+    editor: lookup
+    lookup_view: crm.Customer.lookup
+    allow_create: true
+    create_view: crm.Customer.edit
+
 surfaces:
   tui:
     minimum_width: 100

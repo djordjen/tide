@@ -65,6 +65,9 @@ The v0.1 compiler checks:
 - explicit inline-editor layouts: each row has at most two fields, every
   editable column appears exactly once, and computed, read-only, or hidden
   fields cannot be placed in the editor;
+- lookup record creation declarations: `allow_create: true` requires a form
+  `create_view` for the referenced TUI-exposed entity with declared create
+  access (`TIDE242`);
 - explicit physical table and persisted-column mappings for legacy databases.
 
 `database.mode` is either `managed` (the default) or `legacy`. Legacy entities

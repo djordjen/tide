@@ -986,7 +986,6 @@ def _validate_views(
                     document,
                     ("fields", field_name, "editor"),
                 )
-                continue
             if editor is not None and field.type != "reference":
                 _add(
                     diagnostics,
@@ -995,7 +994,6 @@ def _validate_views(
                     document,
                     ("fields", field_name, "editor"),
                 )
-                continue
             lookup_view = configuration.get("lookup_view", field.lookup_view)
             if editor == "lookup" and not lookup_view:
                 _add(
@@ -1024,6 +1022,71 @@ def _validate_views(
                         ("fields", field_name, "lookup_view"),
                         diagnostics,
                     )
+            allow_create = configuration.get("allow_create", False)
+            create_view = configuration.get("create_view")
+            if not isinstance(allow_create, bool):
+                _add(
+                    diagnostics,
+                    "TIDE242",
+                    "allow_create must be true or false",
+                    document,
+                    ("fields", field_name, "allow_create"),
+                )
+            elif allow_create:
+                if field.type != "reference" or field.target not in entities:
+                    _add(
+                        diagnostics,
+                        "TIDE242",
+                        "lookup record creation requires a reference field",
+                        document,
+                        ("fields", field_name, "allow_create"),
+                    )
+                elif not isinstance(create_view, str):
+                    _add(
+                        diagnostics,
+                        "TIDE242",
+                        "allow_create requires a create_view",
+                        document,
+                        ("fields", field_name, "create_view"),
+                    )
+                else:
+                    target_view = views.get(create_view)
+                    target_entity = (
+                        target_view.entity
+                        or _infer_view_entity(create_view, entities)
+                        if target_view is not None
+                        else None
+                    )
+                    if (
+                        target_view is None
+                        or _view_kind(target_view) != "form"
+                        or target_entity != field.target
+                    ):
+                        _add(
+                            diagnostics,
+                            "TIDE242",
+                            f"create_view {create_view!r} must be a form for "
+                            f"{field.target}",
+                            document,
+                            ("fields", field_name, "create_view"),
+                        )
+                    target = entities[field.target]
+                    if not target.expose.tui or not target.permissions.create:
+                        _add(
+                            diagnostics,
+                            "TIDE242",
+                            f"target entity {field.target} must expose TUI creation",
+                            document,
+                            ("fields", field_name, "allow_create"),
+                        )
+            elif create_view is not None:
+                _add(
+                    diagnostics,
+                    "TIDE242",
+                    "create_view requires allow_create: true",
+                    document,
+                    ("fields", field_name, "create_view"),
+                )
         for filter_name, filter_ in view.filters.items():
             _validate_expression_at(
                 filter_.criteria,

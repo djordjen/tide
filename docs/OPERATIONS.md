@@ -1,8 +1,9 @@
 # Operational Baseline
 
-**Status: Action audit and shared cursor persistence are executable; the wider
-production contract remains proposed.** These requirements should be built
-alongside persistence rather than added after machine mutations ship.
+**Status: Runtime database selection, action audit, and shared cursor
+persistence are executable; the wider production contract remains proposed.**
+These requirements should be built alongside persistence rather than added
+after machine mutations ship.
 
 ## Configuration and secrets
 
@@ -10,6 +11,16 @@ Deployment configuration is typed and layered from explicit configuration
 files and environment variables. Production database URLs, signing material,
 credentials, and tokens never belong in portable application metadata or CLI
 output. Startup reports missing configuration by name without echoing values.
+
+The Textual runtime selects persistence explicitly with `--database-env`. The
+option reads a SQLAlchemy URL from the named environment variable, defaulting
+to `TIDE_DATABASE_URL` when no name follows the option. `--create-schema` is a
+separate, deliberate operation and is accepted only when the application
+declares `database.mode: managed`; startup otherwise performs compatibility
+validation without DDL.
+Managed runtime selection also validates durable TIDE cursor, idempotency, and
+audit tables. Legacy deployments never create TIDE objects in the external
+database and currently keep those three forms of runtime state in-process.
 
 ## Health and lifecycle
 

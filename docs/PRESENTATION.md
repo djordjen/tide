@@ -134,6 +134,23 @@ Reference fields use compact selectors by default; `editor: lookup` opens a
 secured, case-insensitive, multi-column search window. Keyboard bindings and
 buttons invoke the same service operations.
 
+A lookup may allow nested record creation without closing the parent draft:
+
+```yaml
+fields:
+  product:
+    editor: lookup
+    allow_create: true
+    create_view: catalog.Product.edit
+```
+
+The compiler requires the create view to be a form for the referenced entity.
+At runtime, **New** is available only when the current principal has entity
+create access. **Save & Select** commits the independent lookup record, closes
+the nested form and lookup, selects the new reference, and applies the normal
+`on_select` assignments. Cancelling the parent draft does not remove the newly
+created master record.
+
 ## Semantic formats
 
 Formats centralize Clarion picture-like behavior:

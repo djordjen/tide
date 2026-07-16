@@ -1,0 +1,14 @@
+# TIDE application metadata.
+view: crm.Customer.browse
+entity: crm.Customer
+kind: browse
+mode: overlay
+extends: standard_browse
+
+columns: [code, name, email, active]
+search: [code, name, email]
+
+fields:
+  code: {width: 14}
+  name: {width: 32}
+  email: {width: 36}

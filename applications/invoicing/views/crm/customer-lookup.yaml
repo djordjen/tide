@@ -1,0 +1,13 @@
+# TIDE application metadata.
+view: crm.Customer.lookup
+entity: crm.Customer
+kind: lookup
+mode: overlay
+
+columns: [code, name, email]
+search: [code, name, email]
+
+settings:
+  page_size: 20
+  incremental_search: true
+  close_after_selection: true

@@ -1,0 +1,12 @@
+# TIDE application metadata.
+view: crm.Customer.edit
+entity: crm.Customer
+kind: form
+mode: overlay
+extends: standard_form
+
+layout:
+  - group: Customer
+    rows:
+      - [code, email]
+      - [name, active]

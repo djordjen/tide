@@ -71,7 +71,7 @@ class FormSelect(Select[Any]):
 Editor = Input | Select[Any] | LookupField
 
 
-class RecordEditScreen(Screen[bool]):
+class RecordEditScreen(Screen[Any]):
     """Edit one record and its first metadata-defined inline collection."""
 
     ENABLE_COMMAND_PALETTE = False
@@ -226,6 +226,8 @@ class RecordEditScreen(Screen[bool]):
         context: RequestContext,
         view: ResolvedView,
         session: RecordSession,
+        *,
+        select_after_save: bool = False,
     ) -> None:
         super().__init__()
         self.model = model
@@ -234,6 +236,7 @@ class RecordEditScreen(Screen[bool]):
         self.context = context
         self.view = view
         self.session = session
+        self.select_after_save = select_after_save
         self.entity = model.entity(session.entity)
         self.scalar_fields = _form_fields(view, self.entity)
         self.collection_name, self.inline_view = _collection_view(model, view)
@@ -277,11 +280,23 @@ class RecordEditScreen(Screen[bool]):
         self._line_editors: dict[str, Editor] = {}
         self._load_reference_options()
         self.title = model.name
+        entity_label = self.entity.label.removesuffix("s") or self.entity.label
         self.sub_title = (
-            f"New {self.entity.label}"
+            f"New {entity_label}"
             if session.is_new
-            else f"Edit {self.entity.label}"
+            else f"Edit {entity_label}"
         )
+
+    def check_action(
+        self,
+        action: str,
+        parameters: tuple[object, ...],
+    ) -> bool | None:
+        if action == "post" and "post" not in self.entity.actions:
+            return False
+        if action in {"add_line", "apply_line"} and self.collection_name is None:
+            return False
+        return super().check_action(action, parameters)
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -343,8 +358,13 @@ class RecordEditScreen(Screen[bool]):
             yield Static("", id="action-spacer")
             with Horizontal(id="record-actions"):
                 yield Button("Cancel", id="cancel-form")
-                yield Button("Save", id="save-form", variant="primary")
-                yield Button("Post", id="post-record", variant="success")
+                yield Button(
+                    "Save & Select" if self.select_after_save else "Save",
+                    id="save-form",
+                    variant="primary",
+                )
+                if "post" in self.entity.actions:
+                    yield Button("Post", id="post-record", variant="success")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -406,7 +426,7 @@ class RecordEditScreen(Screen[bool]):
         if not self._collect_form():
             return
         try:
-            self.records.commit(self.session, self.context)
+            stored = self.records.commit(self.session, self.context)
         except ValidationFailed as error:
             self._show_validation(error)
             return
@@ -414,7 +434,7 @@ class RecordEditScreen(Screen[bool]):
             self._show_error(error)
             return
         self.notify("Record saved.", severity="information")
-        self.dismiss(True)
+        self.dismiss(stored if self.select_after_save else True)
 
     def action_post(self) -> None:
         if self.query_one("#post-record", Button).disabled:
@@ -558,6 +578,15 @@ class RecordEditScreen(Screen[bool]):
                 classes="editable-value",
                 compact=True,
             )
+        if field_type == "boolean":
+            return FormSelect(
+                (("Yes", True), ("No", False)),
+                value=value if value is not None else Select.NULL,
+                allow_blank=not field.metadata.get("required", False),
+                id=widget_id,
+                classes="editable-value",
+                compact=True,
+            )
         input_type = DateInput if field_type == "date" else Input
         editor = input_type(
             value=_input_text(field, value),
@@ -672,8 +701,10 @@ class RecordEditScreen(Screen[bool]):
             LookupScreen(
                 self.model,
                 self.records,
+                self.actions,
                 self.context,
                 self.model.views[lookup_name],
+                create_view=self._reference_create_view(field.name, prefix),
             ),
             lambda result: self._lookup_selected(editor, entity, field, prefix, result),
         )
@@ -762,6 +793,17 @@ class RecordEditScreen(Screen[bool]):
         configuration = self._reference_configuration(field.name, prefix)
         value = configuration.get("lookup_view", field.metadata.get("lookup_view"))
         return str(value) if value else None
+
+    def _reference_create_view(
+        self,
+        field_name: str,
+        prefix: str,
+    ) -> ResolvedView | None:
+        configuration = self._reference_configuration(field_name, prefix)
+        if configuration.get("allow_create") is not True:
+            return None
+        create_name = configuration.get("create_view")
+        return self.model.views.get(str(create_name)) if create_name else None
 
     def _reference_configuration(
         self,
@@ -857,7 +899,9 @@ class RecordEditScreen(Screen[bool]):
                 if self.collection_name is not None:
                     values[self.collection_name] = deepcopy(self.lines)
                 can_post = can_post and bool(evaluate_expression(condition, values))
-        self.query_one("#post-record", Button).disabled = not can_post
+        post_buttons = list(self.query("#post-record"))
+        if post_buttons:
+            post_buttons[0].disabled = not can_post
         if self.collection_name is not None:
             collection_editable = self._collection_is_editable()
             self.query_one("#add-line", Button).disabled = not collection_editable

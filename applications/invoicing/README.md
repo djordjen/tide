@@ -56,6 +56,10 @@ Unit Price and Quantity in the right. Its focus order follows that same
 sequence: down the left column first and then down the right.
 Integer and decimal values are right-aligned in browse, line-item, and lookup
 tables so values of different widths share a common numeric edge.
+The workspace selector opens Invoices, Customers, or Products. Customer and
+Product forms support secured create/edit operations. Customer and Product
+lookups also expose **New** (Ctrl+N) when authorized; the nested form uses
+**Save & Select**, preserving the unsaved invoice and applying Product defaults.
 The browse search applies incrementally to invoice numbers. The filter selector
 exposes **Draft invoices** and **High-value invoices** from view metadata, and
 the sort selector or eligible column headers toggle secured ascending and
@@ -67,5 +71,17 @@ application's ordinary Python generators and action handlers with the shared
 TIDE services.
 
 Deployment-specific database URLs and credentials remain intentionally absent.
-Microsoft SQL Server is the first multi-user deployment target; selecting a
-deployment repository from `tide run` remains the next adapter slice.
+Microsoft SQL Server is the first multi-user deployment target. Set
+`TIDE_DATABASE_URL` outside the application and run with `--database-env` to
+select it; add `--create-schema` only for the first explicitly managed setup.
+See [the SQL Server runtime instructions](../../docs/SQL-SERVER.md#run-the-tui-against-sql-server).
+
+After managed tables are initialized, an empty development database can be
+filled through the real validation/action services:
+
+```powershell
+uv run tide db seed applications/invoicing --database-env --customers 25 --products 20 --invoices 100 --random-seed 20260716
+```
+
+This requires the `seed` extra (included by the documented development setup)
+and refuses a non-empty database.

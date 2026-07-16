@@ -22,7 +22,7 @@ def test_invoicing_fixture_compiles_to_immutable_model() -> None:
         "sales.Invoice",
         "sales.InvoiceLine",
     }
-    assert len(model.views) == 4
+    assert len(model.views) == 9
     assert set(model.presets) == {"master_detail", "standard_browse", "standard_form"}
     assert "sales.invoice.post" in model.permissions
     assert "sales.invoice.write" not in model.roles["auditor"]
@@ -45,11 +45,21 @@ def test_invoicing_fixture_compiles_to_immutable_model() -> None:
     assert resolved.origins["settings.label_width"].layer == "application defaults"
     assert resolved.origins["settings.show_action_bar"].layer == "preset:standard_form"
     assert resolved.origins["surfaces.tui.minimum_width"].layer == "view overlay"
+    assert resolved.data["fields"]["customer"] == {
+        "editor": "lookup",
+        "lookup_view": "crm.Customer.lookup",
+        "allow_create": True,
+        "create_view": "crm.Customer.edit",
+    }
     lookup = model.views["catalog.Product.lookup"]
     assert lookup.kind == "lookup"
     assert lookup.data["columns"] == ("code", "name", "unit_price")
     inline = model.views["sales.InvoiceLine.inline_edit"]
     assert inline.data["fields"]["product"]["editor"] == "lookup"
+    assert inline.data["fields"]["product"]["allow_create"] is True
+    assert inline.data["fields"]["product"]["create_view"] == (
+        "catalog.Product.edit"
+    )
     assert inline.data["layout"][0]["rows"] == (
         ("line_number", "unit_price"),
         ("product", "quantity"),
@@ -281,7 +291,7 @@ def test_lookup_editor_and_selection_assignments_are_validated(tmp_path: Path) -
                 '  - rows:',
                 '      - [product, product, unit_price]',
                 'fields:',
-                '  product: {editor: grid}',
+                '  product: {editor: grid, allow_create: true}',
             ]
         ),
         encoding="utf-8",
@@ -291,7 +301,7 @@ def test_lookup_editor_and_selection_assignments_are_validated(tmp_path: Path) -
         compile_project(project)
 
     codes = {diagnostic.code for diagnostic in caught.value.diagnostics}
-    assert {"TIDE219", "TIDE238", "TIDE239", "TIDE241"} <= codes
+    assert {"TIDE219", "TIDE238", "TIDE239", "TIDE241", "TIDE242"} <= codes
     layout_messages = {
         diagnostic.message
         for diagnostic in caught.value.diagnostics

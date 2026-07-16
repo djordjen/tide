@@ -4,6 +4,9 @@ base: generated.browse
 mode: overlay
 extends: standard_browse
 
+settings:
+  default: true
+
 columns: [number, invoice_date, customer, status, total]
 search: [number, customer]
 

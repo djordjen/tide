@@ -1,0 +1,14 @@
+# TIDE application metadata.
+view: catalog.Product.browse
+entity: catalog.Product
+kind: browse
+mode: overlay
+extends: standard_browse
+
+columns: [code, name, unit_price, active]
+search: [code, name]
+
+fields:
+  code: {width: 14}
+  name: {width: 36}
+  unit_price: {width: 14}

@@ -6,11 +6,17 @@ from decimal import Decimal
 from pathlib import Path
 
 from rich.text import Text
+from sqlalchemy import create_engine, inspect
 from textual.widgets import Button, DataTable, Input, Select, Static
 
 from tide import compile_project
 from tide.cli import main
-from tide.data import InMemoryRepository
+from tide.data import (
+    InMemoryRepository,
+    SQLAlchemyActionExecutionStore,
+    SQLAlchemyCursorStore,
+    SQLAlchemyRepository,
+)
 from tide.runtime import Channel, Principal, RequestContext
 from tide.services import ActionService, AuditOutcome, RecordsService
 from tide.tui import (
@@ -155,6 +161,89 @@ def test_tide_run_demo_constructs_textual_app(monkeypatch) -> None:
     assert len(app.records.repository.all("sales.Invoice")) == 8
 
 
+def test_tide_run_database_constructs_durable_runtime(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "tide.db"
+    database_url = f"sqlite+pysqlite:///{database.as_posix()}"
+    monkeypatch.setenv("TIDE_DATABASE_URL", database_url)
+    launched: list[TideApp] = []
+    monkeypatch.setattr(TideApp, "run", lambda self: launched.append(self))
+
+    base_arguments = [
+        "run",
+        str(INVOICING),
+        "--database-env",
+        "--role",
+        "sales_clerk",
+    ]
+    result = main([*base_arguments, "--create-schema"])
+    restarted = main(base_arguments)
+
+    assert result == 0
+    assert restarted == 0
+    assert len(launched) == 2
+    app = launched[0]
+    assert isinstance(app.records.repository, SQLAlchemyRepository)
+    assert isinstance(app.records.cursor_store, SQLAlchemyCursorStore)
+    assert isinstance(app.actions.execution_store, SQLAlchemyActionExecutionStore)
+    assert app.context.principal.roles == frozenset({"sales_clerk"})
+    assert app.source_label == "database via TIDE_DATABASE_URL (durable state)"
+
+    engine = create_engine(database_url)
+    try:
+        assert set(inspect(engine).get_table_names()) == {
+            "catalog_product",
+            "crm_customer",
+            "sales_invoice",
+            "sales_invoice_line",
+            "tide_action_audit",
+            "tide_action_idempotency",
+            "tide_query_cursor",
+        }
+    finally:
+        engine.dispose()
+
+
+def test_textual_workspace_switches_to_customer_management() -> None:
+    app = _demo_app(page_size=3)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            workspace = app.query_one("#browse-view", Select)
+            assert workspace.value == "sales.Invoice.browse"
+
+            workspace.value = "crm.Customer.browse"
+            await pilot.pause()
+            assert app.entity.name == "crm.Customer"
+            assert app.view.name == "crm.Customer.browse"
+            customer_table = app.query_one("#records", DataTable)
+            assert customer_table.row_count == 3
+            assert customer_table.ordered_columns[1].width == 32
+
+            browse = app.screen
+            await pilot.click("#create-record")
+            await pilot.pause()
+            form = app.screen
+            assert isinstance(form, RecordEditScreen)
+            assert form.entity.name == "crm.Customer"
+            form.query_one("#field-code", Input).value = "NOVA"
+            form.query_one("#field-name", Input).value = "Nova Customer"
+            form.query_one("#field-email", Input).value = "office@nova.example"
+            await pilot.click("#save-form")
+            await pilot.pause()
+
+            assert app.screen is browse
+            assert app.records.repository.get("crm.Customer", 4)["name"] == (
+                "Nova Customer"
+            )
+            assert app.query_one("#records", DataTable).row_count == 3
+
+    asyncio.run(exercise())
+
+
 def test_textual_invoice_edit_saves_header_and_line_transactionally() -> None:
     app = _demo_app(page_size=3)
 
@@ -261,22 +350,21 @@ def test_textual_form_focuses_columns_and_enter_advances() -> None:
             assert screen.focused is not None
             assert screen.focused.id == "field-currency"
 
-            customer = screen.query_one("#field-customer", Select)
+            customer = screen.query_one("#field-customer", LookupField)
             customer.focus()
             await pilot.press("enter")
-            assert not customer.expanded
             assert screen.focused is not None
             assert screen.focused.id == "field-invoice_date"
 
             customer.focus()
             await pilot.press("space")
-            assert customer.expanded
-            await pilot.press("up", "enter")
             await pilot.pause()
-            assert not customer.expanded
+            assert isinstance(app.screen, LookupScreen)
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app.screen is screen
             assert screen.focused is not None
             assert screen.focused.id == "field-customer"
-            assert customer.value == 1
 
     asyncio.run(exercise())
 
@@ -350,6 +438,63 @@ def test_textual_product_lookup_search_and_selection_defaults() -> None:
     asyncio.run(exercise())
 
 
+def test_textual_lookup_creates_product_and_preserves_invoice_draft() -> None:
+    app = _demo_app(page_size=3)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.open_record(2)
+            await pilot.pause()
+            invoice = app.screen
+            assert isinstance(invoice, RecordEditScreen)
+            invoice.query_one("#field-currency", Input).value = "GBP"
+
+            product = invoice.query_one("#line-product", LookupField)
+            product.focus()
+            await pilot.press("space")
+            await pilot.pause()
+            lookup = app.screen
+            assert isinstance(lookup, LookupScreen)
+            assert not lookup.query_one("#create-lookup-record", Button).disabled
+
+            await pilot.click("#create-lookup-record")
+            await pilot.pause()
+            product_form = app.screen
+            assert isinstance(product_form, RecordEditScreen)
+            assert product_form.entity.name == "catalog.Product"
+            assert str(product_form.query_one("#save-form", Button).label) == (
+                "Save & Select"
+            )
+            product_form.query_one("#field-code", Input).value = "TRAIN"
+            product_form.query_one("#field-name", Input).value = "Training day"
+            product_form.query_one("#field-unit_price", Input).value = "350.00"
+            await pilot.click("#save-form")
+            await pilot.pause()
+
+            assert app.screen is invoice
+            assert invoice.query_one("#field-currency", Input).value == "GBP"
+            assert product.value == 4
+            assert invoice.query_one("#line-description", Input).value == (
+                "Training day"
+            )
+            assert invoice.query_one("#line-unit_price", Input).value == "350.00"
+            assert app.records.repository.get("catalog.Product", 4)["code"] == (
+                "TRAIN"
+            )
+
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app.records.repository.get("sales.Invoice", 2)["currency"] == (
+                "EUR"
+            )
+            assert app.records.repository.get("catalog.Product", 4)["name"] == (
+                "Training day"
+            )
+
+    asyncio.run(exercise())
+
+
 def test_textual_invoice_post_uses_registered_action_and_audit() -> None:
     app = _demo_app(page_size=3)
 
@@ -399,7 +544,10 @@ def test_textual_invoice_create_uses_generator_and_inline_line_editor() -> None:
             assert date_editor.value == date.today().strftime("%d.%m.%Y")
 
             date_editor.value = "20.07.2026"
-            screen.query_one("#field-customer", Select).value = 1
+            screen.query_one("#field-customer", LookupField).set_selection(
+                1,
+                "ADRIA - Adria Consulting",
+            )
             screen.action_add_line()
             screen.query_one("#line-product", LookupField).set_selection(
                 1,

@@ -95,14 +95,24 @@ and Enter-to-advance data entry. Product references now support a secured,
 case-insensitive, multi-column lookup window and declarative selection values
 that copy description and unit price into the editable line draft. Inline
 editor layout and keyboard order are now developer-controlled independently of
-the collection table. Printing and deployment-repository selection remain.
+the collection table. `tide run` can now select and validate a persistent
+SQLAlchemy deployment repository from secret-safe environment configuration,
+including durable framework state for managed databases. Printing remains.
+The same TUI now navigates Invoice, Customer, and Product workspaces, supports
+secured master-data create/edit forms, and can create a missing reference from
+inside a lookup with **Save & Select** while preserving the invoice draft.
+Managed development databases can be populated deterministically through an
+application-owned Faker profile and the real secured services.
 
 - generated browse, edit, and lookup views;
 - view-level field ordering for form and inline editor controls, independent of
   collection-table column order (for example, Product before Description in
   InvoiceLine details); **implemented for the Textual invoice workflow**
-- Customer and Product lookups;
+- Customer and Product browse/edit workspaces and create-enabled lookups;
 - transactional Invoice/InvoiceLine master-detail editing;
+- selectable in-memory or SQLAlchemy runtime persistence, with explicit managed
+  schema creation and legacy no-DDL behavior;
+- deterministic, empty-database-only Faker development seeding;
 - parsing, formatting, and validation feedback;
 - computed line and invoice totals;
 - Post Invoice action and immutable posted invoices;

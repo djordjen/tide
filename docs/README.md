@@ -14,33 +14,35 @@ decision log rather than being silently assumed in implementation code.
    no-DDL contract for externally owned schemas.
 5. [Microsoft SQL Server](SQL-SERVER.md) defines the first multi-user dialect,
    driver, connection, and test contract.
-6. [Compilation and application layout](COMPILATION-AND-LAYOUT.md) distinguishes
+6. [Windows quick start](WINDOWS-QUICKSTART.md) documents the repository
+   shortcut, local SQL Server initialization, and normal/demo launch modes.
+7. [Compilation and application layout](COMPILATION-AND-LAYOUT.md) distinguishes
    metadata compilation from bytecode/native compilation and fixes the
    runtime/application directory boundary.
-7. [Metadata contract v0.1](METADATA-V0.md) defines what the current compiler
+8. [Metadata contract v0.1](METADATA-V0.md) defines what the current compiler
    accepts and diagnoses.
-8. [Presentation model](PRESENTATION.md) defines generated views, presets,
+9. [Presentation model](PRESENTATION.md) defines generated views, presets,
    overlays, formats, and renderer-specific settings.
-9. [Expressions and validation](EXPRESSIONS-AND-VALIDATION.md) defines computed
+10. [Expressions and validation](EXPRESSIONS-AND-VALIDATION.md) defines computed
    fields, criteria, filters, action conditions, and validation.
-10. [Security](SECURITY.md) and the [threat model](THREAT-MODEL.md) define the
+11. [Security](SECURITY.md) and the [threat model](THREAT-MODEL.md) define the
    permission model, protected values, boundaries, and baseline controls.
-11. [REST API and MCP](API-AND-MCP.md),
+12. [REST API and MCP](API-AND-MCP.md),
     [query and concurrency](QUERY-AND-CONCURRENCY.md), and
     [shared cursor storage](CURSOR-STORAGE.md) define machine-facing query and
     continuation contracts.
-12. [Action audit and idempotency](AUDIT-AND-IDEMPOTENCY.md) defines durable
+13. [Action audit and idempotency](AUDIT-AND-IDEMPOTENCY.md) defines durable
     reservations, audit rows, replay, and crash reconciliation.
-13. [Designers and reporting](DESIGNERS-AND-REPORTING.md) describes TIDE Studio,
+14. [Designers and reporting](DESIGNERS-AND-REPORTING.md) describes TIDE Studio,
    view designers, and the banded report model.
-14. [Terminal compatibility](TERMINAL-COMPATIBILITY.md) defines the initial
+15. [Terminal compatibility](TERMINAL-COMPATIBILITY.md) defines the initial
     terminal test matrix.
-15. [Operational baseline](OPERATIONS.md) defines deployment, health, logging,
+16. [Operational baseline](OPERATIONS.md) defines deployment, health, logging,
     backup, and recovery expectations.
-16. [Headless runtime](HEADLESS-RUNTIME.md) documents the executable in-memory
+17. [Headless runtime](HEADLESS-RUNTIME.md) documents the executable in-memory
     application-service contract.
-17. [Roadmap](ROADMAP.md) orders the work into testable vertical slices.
-18. [Decision log](DECISIONS.md) records accepted and unresolved decisions.
+18. [Roadmap](ROADMAP.md) orders the work into testable vertical slices.
+19. [Decision log](DECISIONS.md) records accepted and unresolved decisions.
 
 ## Status vocabulary
 

@@ -17,6 +17,7 @@ roles:
       - crm.customer.read
       - crm.customer.write
       - catalog.product.read
+      - catalog.product.write
       - sales.invoice.read
       - sales.invoice.write
       - sales.invoice.post

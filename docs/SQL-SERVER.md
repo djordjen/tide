@@ -58,6 +58,33 @@ SQLAlchemy `Engine` remains supported when a deployment needs custom pooling,
 authentication, or `fast_executemany` settings. String/URL construction enables
 connection pre-ping for SQL Server.
 
+## Run the TUI against SQL Server
+
+`tide run` reads its deployment URL from an environment variable. For the local
+`TIDE` database on port 1433 with Windows integrated security and ODBC Driver
+17, a development session can use:
+
+```powershell
+$env:TIDE_DATABASE_URL = "mssql+pyodbc://@localhost:1433/TIDE?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes&Encrypt=no"
+uv run tide run applications/invoicing --database-env --create-schema --role sales_clerk
+```
+
+`--database-env` without a name reads `TIDE_DATABASE_URL`. On this first
+managed run, `--create-schema` explicitly creates missing application tables
+and TIDE-owned cursor, idempotency, and audit tables. It does not seed demo
+records. Later launches omit schema creation:
+
+```powershell
+uv run tide run applications/invoicing --database-env --role sales_clerk
+```
+
+The environment value is never printed by TIDE. Use encrypted connections and
+normal certificate validation for networked deployments; `Encrypt=no` above is
+only for the previously certified local development instance. Legacy-mode
+applications reject `--create-schema`, validate their declared mappings, and
+keep framework cursor/action state in-process so the external schema remains
+unchanged.
+
 ## Current portability contract
 
 The normal test suite compiles managed schema and secured queries with the

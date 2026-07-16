@@ -61,6 +61,11 @@ class TideApp(App[None]):
         padding: 0 1;
     }
 
+    #browse-view {
+        width: 22;
+        margin-right: 1;
+    }
+
     #search-query {
         width: 1fr;
     }
@@ -127,35 +132,25 @@ class TideApp(App[None]):
         self.records = records
         self.actions = actions or ActionService(model, records)
         self.context = context
+        accessible_views = tuple(
+            view
+            for view in model.views.values()
+            if view.kind == "browse"
+            and self.records.security.can_access_entity(
+                model.entity(view.entity),
+                "list",
+                context,
+            )
+        )
         self.view = _select_browse_view(model, view_name)
-        self.entity = model.entity(self.view.entity)
-        self.form_view = select_form_view(model, self.entity.name)
-        self.search_field = _search_field(self.view, self.entity)
-        self.named_filters = _named_filters(self.view)
-        self.columns = _browse_columns(self.view, self.entity)
-        self.sort_fields = _sortable_fields(self.columns, self.entity)
-        self._create_allowed = bool(
-            self.form_view is not None
-            and self.records.security.can_access_entity(
-                self.entity,
-                "create",
-                self.context,
-            )
+        if self.view not in accessible_views:
+            raise ValueError(f"TUI view {self.view.name!r} is not accessible")
+        self.browse_views = (
+            self.view,
+            *(view for view in accessible_views if view is not self.view),
         )
-        self._edit_allowed = bool(
-            self.form_view is not None
-            and self.records.security.can_access_entity(
-                self.entity,
-                "update",
-                self.context,
-            )
-        )
-        configured_page_size = int(
-            self.view.data.get("settings", {}).get("page_size", 25)
-        )
-        self.page_size = page_size if page_size is not None else configured_page_size
-        if self.page_size < 1 or self.page_size > 500:
-            raise ValueError("TUI page size must be between 1 and 500")
+        self._page_size_override = page_size
+        self._configure_browse_view(self.view)
         self.source_label = source_label
         self.title = model.name
         self.sub_title = self.entity.label
@@ -182,10 +177,19 @@ class TideApp(App[None]):
         roles = ", ".join(sorted(self.context.principal.roles)) or "no role"
         yield Header(show_clock=False)
         yield Static(
-            f"{self.view.name}  ·  {self.context.principal.identifier}  ·  {roles}",
+            self._context_text(roles),
             id="browse-context",
         )
         with Horizontal(id="browse-query"):
+            yield Select(
+                tuple(
+                    (self.model.entity(view.entity).label, view.name)
+                    for view in self.browse_views
+                ),
+                value=self.view.name,
+                allow_blank=False,
+                id="browse-view",
+            )
             yield Input(
                 placeholder=(
                     f"Search {_field_label(self.entity.field(self.search_field))}…"
@@ -200,7 +204,7 @@ class TideApp(App[None]):
                     (str(filter_data["label"]), filter_name)
                     for filter_name, filter_data in self.named_filters.items()
                 ),
-                prompt="All invoices",
+                prompt="All records",
                 allow_blank=True,
                 id="named-filter",
                 disabled=not bool(self.named_filters),
@@ -234,11 +238,7 @@ class TideApp(App[None]):
 
     def on_mount(self) -> None:
         table = self.query_one("#records", DataTable)
-        for field_name in self.columns:
-            field = self.entity.field(field_name)
-            table.add_column(
-                table_label(field, _field_label(field)), key=field_name
-            )
+        self._add_table_columns(table)
         table.cursor_type = "row"
         table.zebra_stripes = bool(
             self.view.data.get("settings", {}).get("zebra_stripes", True)
@@ -277,7 +277,9 @@ class TideApp(App[None]):
         if self._syncing_query_controls:
             return
         value = None if event.value is Select.NULL else str(event.value)
-        if event.select.id == "named-filter" and value != self._filter_name:
+        if event.select.id == "browse-view" and value != self.view.name:
+            self._activate_browse_view(value)
+        elif event.select.id == "named-filter" and value != self._filter_name:
             self._filter_name = value
             self._restart_query()
         elif event.select.id == "sort-field" and value != self._sort_field:
@@ -410,6 +412,119 @@ class TideApp(App[None]):
         self._reference_cache.clear()
         self._load_page()
 
+    def _configure_browse_view(self, view: ResolvedView) -> None:
+        self.view = view
+        self.entity = self.model.entity(view.entity)
+        self.form_view = select_form_view(self.model, self.entity.name)
+        self.search_field = _search_field(view, self.entity)
+        self.named_filters = _named_filters(view)
+        self.columns = _browse_columns(view, self.entity)
+        self.sort_fields = _sortable_fields(self.columns, self.entity)
+        self._create_allowed = bool(
+            self.form_view is not None
+            and self.records.security.can_access_entity(
+                self.entity,
+                "create",
+                self.context,
+            )
+        )
+        self._edit_allowed = bool(
+            self.form_view is not None
+            and self.records.security.can_access_entity(
+                self.entity,
+                "update",
+                self.context,
+            )
+        )
+        configured_page_size = int(view.data.get("settings", {}).get("page_size", 25))
+        self.page_size = (
+            self._page_size_override
+            if self._page_size_override is not None
+            else configured_page_size
+        )
+        if self.page_size < 1 or self.page_size > 500:
+            raise ValueError("TUI page size must be between 1 and 500")
+
+    def _activate_browse_view(self, view_name: str | None) -> None:
+        view = next(
+            (candidate for candidate in self.browse_views if candidate.name == view_name),
+            None,
+        )
+        if view is None:
+            self.notify(f"Workspace {view_name!r} is not accessible.", severity="error")
+            return
+        self._configure_browse_view(view)
+        self.sub_title = self.entity.label
+        self._page_cursors = [None]
+        self._page_index = 0
+        self._next_cursor = None
+        self._current_records = ()
+        self._reference_cache.clear()
+        self._search_text = ""
+        self._filter_name = None
+        self._sort_field = None
+        self._sort_descending = False
+
+        self._syncing_query_controls = True
+        try:
+            with self.prevent(Input.Changed, Select.Changed):
+                roles = ", ".join(sorted(self.context.principal.roles)) or "no role"
+                self.query_one("#browse-context", Static).update(
+                    self._context_text(roles)
+                )
+                search = self.query_one("#search-query", Input)
+                search.value = ""
+                search.placeholder = (
+                    f"Search {_field_label(self.entity.field(self.search_field))}…"
+                    if self.search_field is not None
+                    else "Search is not configured"
+                )
+                search.disabled = self.search_field is None
+                filters = self.query_one("#named-filter", Select)
+                filters.set_options(
+                    tuple(
+                        (str(data["label"]), name)
+                        for name, data in self.named_filters.items()
+                    )
+                )
+                filters.value = Select.NULL
+                filters.disabled = not bool(self.named_filters)
+                sorts = self.query_one("#sort-field", Select)
+                sorts.set_options(
+                    tuple(
+                        (_field_label(self.entity.field(name)), name)
+                        for name in self.sort_fields
+                    )
+                )
+                sorts.value = Select.NULL
+            self.query_one("#create-record", Button).disabled = not self._create_allowed
+            self.query_one("#edit-record", Button).disabled = True
+            table = self.query_one("#records", DataTable)
+            table.clear(columns=True)
+            self._add_table_columns(table)
+        finally:
+            self._syncing_query_controls = False
+        self._update_sort_controls()
+        self._load_page()
+
+    def _add_table_columns(self, table: DataTable[Any]) -> None:
+        for field_name in self.columns:
+            field = self.entity.field(field_name)
+            configuration = self.view.data.get("fields", {}).get(field_name, {})
+            configured_width = configuration.get("width")
+            table.add_column(
+                table_label(field, _field_label(field)),
+                key=field_name,
+                width=(
+                    int(configured_width)
+                    if isinstance(configured_width, int) and configured_width > 0
+                    else None
+                ),
+            )
+
+    def _context_text(self, roles: str) -> str:
+        return f"{self.view.name}  ·  {self.context.principal.identifier}  ·  {roles}"
+
     def _load_page(self) -> None:
         table = self.query_one("#records", DataTable)
         status = self.query_one("#browse-status", Static)
@@ -461,6 +576,7 @@ class TideApp(App[None]):
             self.query_one("#edit-record", Button).disabled = not (
                 page.records and self._edit_allowed
             )
+            table.refresh(layout=True)
         except (TideRuntimeError, ValueError) as error:
             self._current_records = ()
             self._next_cursor = None
@@ -495,13 +611,18 @@ class TideApp(App[None]):
     def _sync_query_controls(self) -> None:
         self._syncing_query_controls = True
         try:
-            self.query_one("#search-query", Input).value = self._search_text
-            self.query_one("#named-filter", Select).value = (
-                self._filter_name if self._filter_name is not None else Select.NULL
-            )
-            self.query_one("#sort-field", Select).value = (
-                self._sort_field if self._sort_field is not None else Select.NULL
-            )
+            with self.prevent(Input.Changed, Select.Changed):
+                self.query_one("#search-query", Input).value = self._search_text
+                self.query_one("#named-filter", Select).value = (
+                    self._filter_name
+                    if self._filter_name is not None
+                    else Select.NULL
+                )
+                self.query_one("#sort-field", Select).value = (
+                    self._sort_field
+                    if self._sort_field is not None
+                    else Select.NULL
+                )
         finally:
             self._syncing_query_controls = False
 
@@ -591,9 +712,16 @@ def _select_browse_view(
         if view.kind != "browse":
             raise ValueError(f"TUI view {view_name!r} is not a browse view")
         return view
+    browse_views = tuple(
+        candidate for candidate in model.views.values() if candidate.kind == "browse"
+    )
     view = next(
-        (candidate for candidate in model.views.values() if candidate.kind == "browse"),
-        None,
+        (
+            candidate
+            for candidate in browse_views
+            if candidate.data.get("settings", {}).get("default") is True
+        ),
+        browse_views[0] if browse_views else None,
     )
     if view is None:
         raise ValueError("application does not define a browse view")

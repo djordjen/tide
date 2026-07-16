@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Mapping
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -22,7 +22,7 @@ from tide.compiler.normalized import (
 )
 from tide.runtime import RequestContext, TideRuntimeError
 from tide.security import PROTECTED
-from tide.services import RecordsService
+from tide.services import ActionService, RecordsService
 from tide.tui.table import table_cell, table_label
 
 
@@ -139,21 +139,37 @@ class LookupScreen(ModalScreen[dict[str, Any] | None]):
     }
     """
 
-    BINDINGS = [Binding("escape", "cancel_lookup", "Cancel")]
+    BINDINGS = [
+        Binding("ctrl+n", "create_record", "New"),
+        Binding("escape", "cancel_lookup", "Cancel"),
+    ]
 
     def __init__(
         self,
         model: ApplicationModel,
         records: RecordsService,
+        actions: ActionService,
         context: RequestContext,
         view: ResolvedView,
+        *,
+        create_view: ResolvedView | None = None,
     ) -> None:
         super().__init__()
         self.model = model
         self.records = records
+        self.actions = actions
         self.context = context
         self.view = view
         self.entity = model.entity(view.entity)
+        self.create_view = create_view
+        self.can_create = bool(
+            create_view is not None
+            and self.records.security.can_access_entity(
+                self.entity,
+                "create",
+                context,
+            )
+        )
         self.columns = _lookup_columns(view, self.entity)
         self.search_fields = _lookup_search_fields(view, self.entity)
         self.page_size = max(
@@ -176,6 +192,12 @@ class LookupScreen(ModalScreen[dict[str, Any] | None]):
             yield DataTable(id="lookup-results")
             yield Static("", id="lookup-status")
             with Horizontal(id="lookup-actions"):
+                yield Button(
+                    "New",
+                    id="create-lookup-record",
+                    disabled=not self.can_create,
+                    variant="success",
+                )
                 yield Button("Cancel", id="cancel-lookup")
                 yield Button("Select", id="select-lookup", variant="primary")
 
@@ -210,6 +232,8 @@ class LookupScreen(ModalScreen[dict[str, Any] | None]):
             self.action_cancel_lookup()
         elif event.button.id == "select-lookup":
             self.action_select_lookup()
+        elif event.button.id == "create-lookup-record":
+            self.action_create_record()
 
     def action_cancel_lookup(self) -> None:
         self.dismiss(None)
@@ -219,6 +243,33 @@ class LookupScreen(ModalScreen[dict[str, Any] | None]):
             return
         row = self.query_one("#lookup-results", DataTable).cursor_row
         self.dismiss(dict(self._records[max(0, min(row, len(self._records) - 1))]))
+
+    def action_create_record(self) -> None:
+        if not self.can_create or self.create_view is None:
+            return
+        try:
+            session = self.records.create(self.entity.name, self.context)
+        except TideRuntimeError as error:
+            self.notify(str(error), severity="error")
+            return
+        from tide.tui.form import RecordEditScreen
+
+        self.app.push_screen(
+            RecordEditScreen(
+                self.model,
+                self.records,
+                self.actions,
+                self.context,
+                self.create_view,
+                session,
+                select_after_save=True,
+            ),
+            self._record_created,
+        )
+
+    def _record_created(self, result: Any) -> None:
+        if isinstance(result, Mapping):
+            self.dismiss(dict(result))
 
     def _reload(self) -> None:
         search_text = self.query_one("#lookup-search", Input).value
@@ -238,7 +289,10 @@ class LookupScreen(ModalScreen[dict[str, Any] | None]):
         else:
             noun = "match" if len(self._records) == 1 else "matches"
             suffix = f" for {search_text!r}" if search_text else ""
-            status.update(f"{len(self._records)} {noun}{suffix}  ·  Enter selects")
+            action_hint = "  ·  Ctrl+N creates" if self.can_create else ""
+            status.update(
+                f"{len(self._records)} {noun}{suffix}  ·  Enter selects{action_hint}"
+            )
         table.clear()
         for index, record in enumerate(self._records):
             table.add_row(

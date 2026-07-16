@@ -15,7 +15,10 @@ layout:
 
 fields:
   line_number: {width: 6}
-  product: {editor: lookup}
+  product:
+    editor: lookup
+    allow_create: true
+    create_view: catalog.Product.edit
   description: {width: 32}
   quantity: {width: 10}
   unit_price: {width: 14}

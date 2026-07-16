@@ -52,6 +52,12 @@ uv run tide run applications/invoicing --demo --page-size 3
 uv run pytest
 ```
 
+`tide run --database-env` selects a persistent SQLAlchemy repository using the
+`TIDE_DATABASE_URL` environment variable. The first managed-database run may
+add `--create-schema`; later runs omit it. Database URLs and credentials remain
+outside application metadata and command output. See
+[Microsoft SQL Server](docs/SQL-SERVER.md#run-the-tui-against-sql-server).
+
 Here, "compiler" means a **metadata compiler**, not native executable or Python
 bytecode compilation. It turns an application's YAML into a validated,
 resolved, immutable `ApplicationModel`; production still runs the ordinary
@@ -76,7 +82,12 @@ a storage-neutral lifecycle with in-memory and explicitly managed SQLAlchemy
 implementations; interrupted reservations fail closed instead of executing a
 handler twice. The initial Textual adapter now interprets resolved browse and
 form metadata for secured create/edit, inline InvoiceLine editing, validation,
-cancel/save, optimistic-concurrency feedback, and audited invoice posting.
+cancel/save, optimistic-concurrency feedback, and audited invoice posting. It
+can now select an explicitly configured SQLAlchemy deployment repository;
+managed deployments use durable cursor, idempotency, and action-audit stores.
+The invoicing TUI also provides Invoice, Customer, and Product workspaces,
+nested create-and-select lookups, and an explicit deterministic Faker seeder for
+empty managed development databases.
 
 ## Repository layout
 
@@ -121,6 +132,7 @@ Start with [the documentation index](docs/README.md). Important documents are:
 - [Application model](docs/APPLICATION-MODEL.md)
 - [Legacy databases](docs/LEGACY-DATABASES.md)
 - [Microsoft SQL Server](docs/SQL-SERVER.md)
+- [Windows quick start](docs/WINDOWS-QUICKSTART.md)
 - [Compilation and application layout](docs/COMPILATION-AND-LAYOUT.md)
 - [Metadata contract v0.1](docs/METADATA-V0.md)
 - [Presentation model](docs/PRESENTATION.md)

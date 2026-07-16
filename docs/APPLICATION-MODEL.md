@@ -224,6 +224,8 @@ fields:
   product:
     editor: lookup
     lookup_view: catalog.Product.lookup
+    allow_create: true
+    create_view: catalog.Product.edit
 ```
 
 The `lookup_view` may instead live on the reference field when every view uses
@@ -237,6 +239,29 @@ kind: lookup
 columns: [code, name, unit_price]
 search: [code, name]
 ```
+
+`allow_create` is a presentation capability, not a permission grant. The
+compiler requires `create_view` to resolve to a form for the referenced entity;
+the runtime shows **New** only when the principal also has entity create access.
+Nested creation commits the referenced record independently, then returns it to
+the parent draft through the ordinary lookup-selection and `on_select` path.
+
+Workflow invariants remain developer-owned entity metadata. For example:
+
+```yaml
+invoice_date:
+  type: date
+  immutable_when: "status != 'draft'"
+
+status:
+  type: choice
+  readonly: true
+  write: action_only
+```
+
+The compiler validates these expressions and every adapter consumes the same
+normalized model. `RecordsService` enforces the rule again on commit, so a TUI,
+future Qt client, REST endpoint, or MCP tool cannot bypass a disabled editor.
 
 A reference may copy secured target values into writable draft fields when a
 record is selected:
