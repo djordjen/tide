@@ -46,7 +46,9 @@ selection overlays. Reference lookup coverage includes modal multi-column
 tables, incremental case-insensitive search, keyboard selection, and
 selection-driven draft values. Inline-editor coverage also verifies that an
 explicit two-column layout controls widget placement and focus order without
-changing the collection table columns.
+changing the collection table columns. Browse, inline collection, and lookup
+tables derive alignment from field types: integer and decimal columns are
+right-aligned, while other field types remain left-aligned.
 
 SSH tests should include noticeable latency and interrupted connections.
 `RecordSession` retains unsaved edits until the user explicitly cancels or the

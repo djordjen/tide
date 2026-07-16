@@ -24,6 +24,7 @@ from tide.compiler.normalized import (
 from tide.data import QuerySpec
 from tide.runtime import RequestContext, TideRuntimeError, ValidationFailed
 from tide.security import PROTECTED
+from tide.tui.table import table_cell, table_label
 from tide.services import ActionService, RecordsService
 from tide.sessions.record_session import RecordSession, SessionState
 from tide.tui.lookup import LookupField, LookupScreen
@@ -350,8 +351,9 @@ class RecordEditScreen(Screen[bool]):
         if self.collection_name is not None:
             table = self.query_one("#collection-records", DataTable)
             for field_name in self.line_fields:
+                field = self.collection_entity.field(field_name)
                 table.add_column(
-                    _field_label(self.collection_entity.field(field_name)),
+                    table_label(field, _field_label(field)),
                     key=field_name,
                 )
             table.cursor_type = "row"
@@ -596,9 +598,12 @@ class RecordEditScreen(Screen[bool]):
         for index, line in enumerate(self.lines):
             table.add_row(
                 *(
-                    self._format_value(
+                    table_cell(
                         self.collection_entity.field(field_name),
-                        line.get(field_name),
+                        self._format_value(
+                            self.collection_entity.field(field_name),
+                            line.get(field_name),
+                        ),
                     )
                     for field_name in self.line_fields
                 ),

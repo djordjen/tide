@@ -54,6 +54,8 @@ The line table keeps its reporting-oriented column order, while the explicit
 line editor places Line Number, Product, and Description in the left column and
 Unit Price and Quantity in the right. Its focus order follows that same
 sequence: down the left column first and then down the right.
+Integer and decimal values are right-aligned in browse, line-item, and lookup
+tables so values of different widths share a common numeric edge.
 The browse search applies incrementally to invoice numbers. The filter selector
 exposes **Draft invoices** and **High-value invoices** from view metadata, and
 the sort selector or eligible column headers toggle secured ascending and

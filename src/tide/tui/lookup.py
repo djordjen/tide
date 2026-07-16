@@ -23,6 +23,7 @@ from tide.compiler.normalized import (
 from tide.runtime import RequestContext, TideRuntimeError
 from tide.security import PROTECTED
 from tide.services import RecordsService
+from tide.tui.table import table_cell, table_label
 
 
 class LookupField(Static, can_focus=True):
@@ -181,7 +182,8 @@ class LookupScreen(ModalScreen[dict[str, Any] | None]):
     def on_mount(self) -> None:
         table = self.query_one("#lookup-results", DataTable)
         for field_name in self.columns:
-            table.add_column(_field_label(self.entity.field(field_name)), key=field_name)
+            field = self.entity.field(field_name)
+            table.add_column(table_label(field, _field_label(field)), key=field_name)
         table.cursor_type = "row"
         table.zebra_stripes = True
         self._reload()
@@ -241,7 +243,12 @@ class LookupScreen(ModalScreen[dict[str, Any] | None]):
         for index, record in enumerate(self._records):
             table.add_row(
                 *(
-                    _format_value(self.entity.field(field_name), record.get(field_name))
+                    table_cell(
+                        self.entity.field(field_name),
+                        _format_value(
+                            self.entity.field(field_name), record.get(field_name)
+                        ),
+                    )
                     for field_name in self.columns
                 ),
                 key=f"lookup-{index}",

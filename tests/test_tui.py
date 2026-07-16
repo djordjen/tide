@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 
+from rich.text import Text
 from textual.widgets import Button, DataTable, Input, Select, Static
 
 from tide import compile_project
@@ -32,13 +33,17 @@ def test_textual_invoice_browse_pages_by_keyboard_and_mouse() -> None:
             await pilot.pause()
             table = app.query_one("#records", DataTable)
             assert table.row_count == 3
-            assert table.get_row_at(0) == [
+            row = table.get_row_at(0)
+            assert [str(value) for value in row] == [
                 "INV-2026-0001",
                 "01.07.2026",
                 "ADRIA - Adria Consulting",
                 "Posted",
                 "850.00",
             ]
+            assert isinstance(row[-1], Text)
+            assert row[-1].justify == "right"
+            assert table.ordered_columns[-1].label.justify == "right"
             assert app.page_number == 1
             assert app.query_one("#previous-page", Button).disabled
             assert not app.query_one("#next-page", Button).disabled
@@ -117,11 +122,11 @@ def test_textual_browse_search_named_filters_and_sorting() -> None:
             await pilot.click("#clear-query")
             app.query_one("#sort-field", Select).value = "total"
             await pilot.pause()
-            assert table.get_row_at(0)[-1] == "240.00"
+            assert str(table.get_row_at(0)[-1]) == "240.00"
 
             await pilot.click("#sort-direction")
             await pilot.pause()
-            assert table.get_row_at(0)[-1] == "2,400.00"
+            assert str(table.get_row_at(0)[-1]) == "2,400.00"
             assert str(table.ordered_columns[-1].label).endswith("↓")
 
     asyncio.run(exercise())
@@ -179,7 +184,15 @@ def test_textual_invoice_edit_saves_header_and_line_transactionally() -> None:
             screen.query_one("#field-currency", Input).value = "USD"
             screen.query_one("#line-quantity", Input).value = "3"
             screen.action_apply_line()
-            assert screen.query_one("#collection-records", DataTable).get_row_at(0)[-1] == "720.00"
+            line_row = screen.query_one(
+                "#collection-records", DataTable
+            ).get_row_at(0)
+            assert str(line_row[-1]) == "720.00"
+            assert all(
+                isinstance(line_row[index], Text)
+                and line_row[index].justify == "right"
+                for index in (0, 3, 4, 5)
+            )
 
             await pilot.click("#save-form")
             await pilot.pause()
@@ -312,7 +325,14 @@ def test_textual_product_lookup_search_and_selection_defaults() -> None:
             search.value = "annual"
             await pilot.pause()
             assert results.row_count == 1
-            assert results.get_row_at(0) == ["LIC", "Annual license", "1,200.00"]
+            result_row = results.get_row_at(0)
+            assert [str(value) for value in result_row] == [
+                "LIC",
+                "Annual license",
+                "1,200.00",
+            ]
+            assert isinstance(result_row[-1], Text)
+            assert result_row[-1].justify == "right"
 
             search.focus()
             await pilot.press("enter")
@@ -323,9 +343,9 @@ def test_textual_product_lookup_search_and_selection_defaults() -> None:
             assert form.query_one("#line-unit_price", Input).value == "1200.00"
 
             form.action_apply_line()
-            assert form.query_one("#collection-records", DataTable).get_row_at(0)[
-                -1
-            ] == "2,400.00"
+            assert str(
+                form.query_one("#collection-records", DataTable).get_row_at(0)[-1]
+            ) == "2,400.00"
 
     asyncio.run(exercise())
 

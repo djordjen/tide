@@ -8,7 +8,6 @@ from decimal import Decimal
 import re
 from typing import Any, Mapping
 
-from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
@@ -23,6 +22,7 @@ from tide.compiler.normalized import (
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.runtime import RequestContext, TideRuntimeError
 from tide.security import PROTECTED
+from tide.tui.table import table_cell, table_label
 from tide.services import ActionService, RecordsService
 from tide.tui.form import RecordEditScreen, select_form_view
 
@@ -235,8 +235,9 @@ class TideApp(App[None]):
     def on_mount(self) -> None:
         table = self.query_one("#records", DataTable)
         for field_name in self.columns:
+            field = self.entity.field(field_name)
             table.add_column(
-                _field_label(self.entity.field(field_name)), key=field_name
+                table_label(field, _field_label(field)), key=field_name
             )
         table.cursor_type = "row"
         table.zebra_stripes = bool(
@@ -439,7 +440,12 @@ class TideApp(App[None]):
             for record in page.records:
                 table.add_row(
                     *(
-                        self._format_value(self.entity.field(field_name), record)
+                        table_cell(
+                            self.entity.field(field_name),
+                            self._format_value(
+                                self.entity.field(field_name), record
+                            ),
+                        )
                         for field_name in self.columns
                     ),
                     key=str(record[primary_key]),
@@ -508,8 +514,10 @@ class TideApp(App[None]):
             indicator = ""
             if field_name == self._sort_field:
                 indicator = " ↓" if self._sort_descending else " ↑"
-            table.ordered_columns[index].label = Text(
-                f"{_field_label(self.entity.field(field_name))}{indicator}"
+            field = self.entity.field(field_name)
+            table.ordered_columns[index].label = table_label(
+                field,
+                f"{_field_label(field)}{indicator}",
             )
             table.refresh_column(index)
         table.refresh(layout=True)
