@@ -85,7 +85,7 @@ def compile_project(project: str | Path = ".") -> ApplicationModel:
             if parsed_defaults:
                 defaults_source, defaults_document = parsed_defaults
 
-    formats: set[str] = set()
+    formats: dict[str, dict[str, Any]] = {}
     if project_source.presentation.formats:
         formats_file = _resolve_config_file(root, project_source.presentation.formats, project_document, ("presentation", "formats"), diagnostics)
         if formats_file:
@@ -121,7 +121,7 @@ def compile_project(project: str | Path = ".") -> ApplicationModel:
     _validate_entities(
         entities,
         entity_documents,
-        formats,
+        set(formats),
         dependency_map,
         diagnostics,
         root,
@@ -135,7 +135,7 @@ def compile_project(project: str | Path = ".") -> ApplicationModel:
         presets,
         diagnostics,
     )
-    _validate_reports(reports, report_documents, entities, diagnostics)
+    _validate_reports(reports, report_documents, entities, set(formats), diagnostics)
     permissions, roles, row_policies, field_policies = _validate_security(
         security_items,
         entities,
@@ -211,6 +211,7 @@ def compile_project(project: str | Path = ".") -> ApplicationModel:
                 for name, report in sorted(reports.items())
             }
         ),
+        formats=immutable_mapping(formats),
         presets=frozenset(presets),
         permissions=frozenset(permissions),
         roles=immutable_mapping(roles),
@@ -1510,6 +1511,7 @@ def _validate_reports(
     reports: dict[str, ReportSource],
     documents: dict[str, SourceDocument],
     entities: dict[str, EntitySource],
+    formats: set[str],
     diagnostics: list[Diagnostic],
 ) -> None:
     for report_name, report in reports.items():
@@ -1524,6 +1526,14 @@ def _validate_reports(
                 ("entity",),
             )
             continue
+        if report.permission is None and not report.unrestricted:
+            _add(
+                diagnostics,
+                "TIDE256",
+                "reports require a permission or unrestricted: true",
+                document,
+                ("permission",),
+            )
         parameters = {name: parameter.type for name, parameter in report.parameters.items()}
         if report.query.criteria:
             _validate_expression_at(
@@ -1536,17 +1546,121 @@ def _validate_reports(
                 parameters=parameters,
                 expected_type="boolean",
             )
-        for path, expression in _find_key(report.bands, "expression", ("bands",)):
-            _validate_expression_at(
-                expression,
-                entity,
-                entities,
-                document,
-                path,
+        primary_key = next(
+            (name for name, field in entity.fields.items() if field.primary_key),
+            None,
+        )
+        parameter_name = (
+            _record_report_parameter(report.query.criteria, primary_key)
+            if report.query.criteria and primary_key
+            else None
+        )
+        if parameter_name is None or parameter_name not in report.parameters:
+            _add(
                 diagnostics,
-                parameters=parameters,
-                globals_={"page_number": "integer", "page_count": "integer"},
+                "TIDE252",
+                "record reports require query criteria '<primary_key> == $parameter'",
+                document,
+                ("query", "criteria"),
             )
+        elif not report.parameters[parameter_name].required:
+            _add(
+                diagnostics,
+                "TIDE252",
+                f"record identity parameter {parameter_name!r} must be required",
+                document,
+                ("parameters", parameter_name, "required"),
+            )
+
+        for band_name in (
+            "report_header",
+            "record_header",
+            "report_footer",
+            "page_footer",
+        ):
+            items = getattr(report.bands, band_name)
+            for index, item in enumerate(items):
+                item_path = ("bands", band_name, index)
+                if item.field is not None:
+                    report_field = entity.fields.get(item.field)
+                    if report_field is None:
+                        _add(
+                            diagnostics,
+                            "TIDE254",
+                            f"unknown report field {item.field!r}",
+                            document,
+                            (*item_path, "field"),
+                        )
+                    elif report_field.type == "collection":
+                        _add(
+                            diagnostics,
+                            "TIDE254",
+                            "collection fields belong in the report detail band",
+                            document,
+                            (*item_path, "field"),
+                        )
+                if item.format is not None and item.format not in formats:
+                    _add(
+                        diagnostics,
+                        "TIDE255",
+                        f"unknown report format {item.format!r}",
+                        document,
+                        (*item_path, "format"),
+                    )
+                if item.expression is not None:
+                    _validate_expression_at(
+                        item.expression,
+                        entity,
+                        entities,
+                        document,
+                        (*item_path, "expression"),
+                        diagnostics,
+                        parameters=parameters,
+                        globals_=(
+                            {"page_number": "integer", "page_count": "integer"}
+                            if band_name == "page_footer"
+                            else {}
+                        ),
+                        expected_type=("string" if band_name == "page_footer" else None),
+                    )
+
+        detail = report.bands.detail
+        source = entity.fields.get(detail.source)
+        detail_path = ("bands", "detail")
+        if source is None or source.type != "collection" or source.target not in entities:
+            _add(
+                diagnostics,
+                "TIDE253",
+                f"report detail source {detail.source!r} must be a collection field",
+                document,
+                (*detail_path, "source"),
+            )
+            continue
+        target = entities[source.target]
+        for index, column in enumerate(detail.columns):
+            if column not in target.fields:
+                _add(
+                    diagnostics,
+                    "TIDE254",
+                    f"unknown report detail field {column!r}",
+                    document,
+                    (*detail_path, "columns", index),
+                )
+
+
+def _record_report_parameter(criteria: str, primary_key: str) -> str | None:
+    identifier = r"([A-Za-z_][A-Za-z0-9_]*)"
+    field_first = re.fullmatch(
+        rf"\s*{re.escape(primary_key)}\s*==\s*\${identifier}\s*",
+        criteria,
+    )
+    if field_first is not None:
+        return field_first.group(1)
+    parameter_first = re.fullmatch(
+        rf"\s*\${identifier}\s*==\s*{re.escape(primary_key)}\s*",
+        criteria,
+    )
+    return parameter_first.group(1) if parameter_first is not None else None
 
 
 def _validate_security(

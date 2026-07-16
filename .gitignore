@@ -13,3 +13,5 @@ __pycache__/
 .uv-cache/
 build/
 dist/
+output/
+tmp/

@@ -98,7 +98,9 @@ that copy description and unit price into the editable line draft. Inline
 editor layout and keyboard order are now developer-controlled independently of
 the collection table. `tide run` can now select and validate a persistent
 SQLAlchemy deployment repository from secret-safe environment configuration,
-including durable framework state for managed databases. Printing remains.
+including durable framework state for managed databases. A compiler-validated,
+secured record-report service now drives TUI invoice preview plus standalone
+HTML and A4 PDF export.
 The same TUI now navigates Invoice, Customer, and Product workspaces, supports
 secured master-data create/edit forms, and can create a missing reference from
 inside a lookup with **Save & Select** while preserving the invoice draft.
@@ -122,7 +124,8 @@ application-owned Faker profile and the real secured services.
 - configurable keyboard shortcuts and mouse-aware controls;
 - terminal compatibility checks at the documented viewport/Unicode/color matrix;
 - sorting, paging, incremental search, and named filters;
-- basic secured printable invoice;
+- basic secured printable invoice with TUI preview, HTML, and PDF;
+  **implemented**
 - read-only REST endpoints and OpenAPI for selected entities.
 
 Exit condition: the example application can create, edit, post, find, and print

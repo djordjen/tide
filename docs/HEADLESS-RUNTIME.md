@@ -12,7 +12,7 @@ synchronous SQLAlchemy Core repository.
 RequestContext + Principal
           |
           v
-RecordsService / ActionService
+RecordsService / ActionService / ReportService
           |
  security | validation | computed fields | version checks
           v
@@ -48,6 +48,8 @@ The runtime currently provides:
 - bounded, allow-listed filtering and deterministic sorting;
 - opaque, principal-bound keyset pagination with expiring cursors;
 - policy-aware collection hydration with explicit depth and item limits.
+- compiler-validated, fail-closed record reports that build immutable secured
+  documents for terminal, HTML, and optional PDF renderers.
 
 The same compiled model can also produce a read-only OpenAPI 3.1 preview and
 its generated Pydantic record/page models without importing FastAPI:

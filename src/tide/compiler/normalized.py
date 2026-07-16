@@ -93,6 +93,7 @@ class ApplicationModel:
     entities: Mapping[str, NormalizedEntity]
     views: Mapping[str, ResolvedView]
     reports: Mapping[str, Mapping[str, Any]]
+    formats: Mapping[str, Mapping[str, Any]]
     presets: frozenset[str]
     permissions: frozenset[str]
     roles: Mapping[str, tuple[str, ...]]
@@ -113,6 +114,7 @@ class ApplicationModel:
                 name: view.as_dict() for name, view in self.views.items()
             },
             "reports": deep_thaw(self.reports),
+            "formats": deep_thaw(self.formats),
             "presets": sorted(self.presets),
             "permissions": sorted(self.permissions),
             "roles": {name: list(grants) for name, grants in self.roles.items()},

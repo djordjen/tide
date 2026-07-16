@@ -57,6 +57,27 @@ class SecurityEngine:
                 f"{context.principal.identifier!r} may not execute this action on {entity.name}"
             )
 
+    def authorize_report(
+        self,
+        report_name: str,
+        report: Mapping[str, Any],
+        context: RequestContext,
+    ) -> None:
+        if not self.can_access_report(report, context):
+            raise AuthorizationError(
+                f"{context.principal.identifier!r} may not generate report {report_name}"
+            )
+
+    def can_access_report(
+        self,
+        report: Mapping[str, Any],
+        context: RequestContext,
+    ) -> bool:
+        return bool(
+            report.get("unrestricted") is True
+            or self.has_permission(context, report.get("permission"))
+        )
+
     def can_read_field(self, entity: str, field: str, context: RequestContext) -> bool:
         return self._can_read_field(entity, field, context, frozenset())
 

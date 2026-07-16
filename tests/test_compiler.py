@@ -24,6 +24,7 @@ def test_invoicing_fixture_compiles_to_immutable_model() -> None:
     }
     assert len(model.views) == 9
     assert set(model.presets) == {"master_detail", "standard_browse", "standard_form"}
+    assert model.formats["money"]["decimal_places"] == 2
     assert "sales.invoice.post" in model.permissions
     assert "sales.invoice.write" not in model.roles["auditor"]
     assert model.entity("sales.Invoice").field("total").dependencies == ("lines.total",)
@@ -45,6 +46,9 @@ def test_invoicing_fixture_compiles_to_immutable_model() -> None:
     assert model.entity("catalog.Product").field("code").metadata["edit_mask"] == {
         "regex": "[A-Z][A-Z0-9-]{0,29}"
     }
+    assert model.reports["sales.invoice"]["bands"]["record_header"][0]["field"] == (
+        "number"
+    )
     assert model.diagnostics == ()
     resolved = model.views["sales.Invoice.edit"]
     assert resolved.data["settings"]["label_width"] == 18
@@ -361,6 +365,70 @@ def test_edit_masks_are_compiler_validated(tmp_path: Path) -> None:
     assert "integer edit masks cannot contain fractional digits" in mask_messages
     assert any("invalid edit-mask regular expression" in message for message in mask_messages)
     assert any("typed edit masks" in message for message in mask_messages)
+
+
+def test_record_report_contract_is_compiler_validated(tmp_path: Path) -> None:
+    project = tmp_path / "invalid-report"
+    (project / "models").mkdir(parents=True)
+    (project / "reports").mkdir()
+    (project / "tide.yaml").write_text(
+        "\n".join(
+            [
+                'schema_version: "0.1"',
+                "application: {name: Invalid Report, version: 0.1.0}",
+                "model: {paths: [models]}",
+                "reports: {paths: [reports]}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (project / "models" / "root.yaml").write_text(
+        "\n".join(
+            [
+                "entity: demo.Root",
+                "fields:",
+                "  id: {type: integer, primary_key: true}",
+                "  name: {type: string}",
+                "  lines: {type: collection, target: demo.Line, inverse: root}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (project / "models" / "line.yaml").write_text(
+        "\n".join(
+            [
+                "entity: demo.Line",
+                "fields:",
+                "  id: {type: integer, primary_key: true}",
+                "  root: {type: reference, target: demo.Root, storage: root_id, inverse: lines}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (project / "reports" / "broken.yaml").write_text(
+        "\n".join(
+            [
+                "report: demo.broken",
+                "title: Broken",
+                "entity: demo.Root",
+                "parameters:",
+                "  identity: {type: integer, required: false}",
+                'query: {criteria: "name == $identity"}',
+                "bands:",
+                "  record_header:",
+                "    - {field: missing, format: missing_format}",
+                "    - {field: lines}",
+                "  detail: {source: name, columns: [missing]}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(project)
+
+    codes = {diagnostic.code for diagnostic in caught.value.diagnostics}
+    assert {"TIDE252", "TIDE253", "TIDE254", "TIDE255", "TIDE256"} <= codes
 
 
 def test_project_discovery_cannot_escape_project_root(tmp_path: Path) -> None:

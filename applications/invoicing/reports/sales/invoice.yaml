@@ -15,9 +15,19 @@ bands:
     - text: Invoice
       style: report_title
 
+  record_header:
+    - field: number
+      label: Invoice number
+    - field: invoice_date
+      label: Invoice date
+    - field: customer
+      label: Customer
+    - field: status
+      label: Status
+
   detail:
     source: lines
-    columns: [product, description, quantity, unit_price, total]
+    columns: [line_number, product, description, quantity, unit_price, total]
 
   report_footer:
     - field: total

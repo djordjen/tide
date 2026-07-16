@@ -33,7 +33,7 @@ business behavior remains ordinary Python.
 - PostgreSQL as a later certified dialect
 - FastAPI for generated REST/OpenAPI
 - the official Python MCP SDK
-- Jinja2 plus an HTML/PDF renderer for initial reports
+- standard-library print HTML plus optional ReportLab PDF rendering
 - pytest
 
 These are adapters around TIDE's application core, not the definition of the
@@ -87,7 +87,9 @@ can now select an explicitly configured SQLAlchemy deployment repository;
 managed deployments use durable cursor, idempotency, and action-audit stores.
 The invoicing TUI also provides Invoice, Customer, and Product workspaces,
 nested create-and-select lookups, and an explicit deterministic Faker seeder for
-empty managed development databases.
+empty managed development databases. The selected Invoice can now be rendered
+through a secured report service into a Textual preview, standalone HTML, or an
+A4 PDF with shared field formats.
 
 ## Repository layout
 
@@ -185,9 +187,10 @@ first metadata-driven Textual invoicing workflow is runnable with
 application-owned demo data, secured reference display, opaque paging,
 create/edit forms, master-detail line editing, validation and concurrency
 feedback, audited posting, invoice-number incremental search, named filters,
-and sortable stored scalar columns through keyboard or mouse controls. Reference
-lookup search, REST hosting, MCP, migrations, and report rendering remain
-roadmap work.
+and sortable stored scalar columns through keyboard or mouse controls. Secured
+single-record invoice reporting now provides a terminal preview plus HTML and
+PDF export. REST hosting, MCP, migrations, expanded report queries/grouping,
+and broader lookup-query capabilities remain roadmap work.
 
 Metadata v0.1 is an executable experimental contract. Breaking authoring
 changes require a new `schema_version`; stable 1.0 compatibility is not yet

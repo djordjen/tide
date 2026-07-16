@@ -9,7 +9,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class SourceModel(BaseModel):
@@ -232,7 +232,7 @@ class PresetDocumentSource(SourceModel):
 
 
 class ParameterSource(SourceModel):
-    type: str
+    type: Literal["string", "integer", "decimal", "boolean", "date", "datetime"]
     required: bool = False
     default: Any = None
 
@@ -242,14 +242,51 @@ class QuerySource(SourceModel):
     sort: tuple[str, ...] = ()
 
 
+class ReportContentSource(SourceModel):
+    text: str | None = None
+    field: str | None = None
+    expression: str | None = None
+    label: str | None = None
+    format: str | None = None
+    style: str | None = None
+
+    @model_validator(mode="after")
+    def exactly_one_value_source(self) -> ReportContentSource:
+        sources = (self.text, self.field, self.expression)
+        if sum(value is not None for value in sources) != 1:
+            raise ValueError("report content requires exactly one of text, field, or expression")
+        return self
+
+
+class ReportDetailSource(SourceModel):
+    source: str = Field(min_length=1)
+    columns: tuple[str, ...] = Field(min_length=1)
+
+
+class ReportBandsSource(SourceModel):
+    report_header: tuple[ReportContentSource, ...] = ()
+    record_header: tuple[ReportContentSource, ...] = ()
+    detail: ReportDetailSource
+    report_footer: tuple[ReportContentSource, ...] = ()
+    page_footer: tuple[ReportContentSource, ...] = ()
+
+
 class ReportSource(SourceModel):
     report: str
     title: str
     entity: str
+    kind: Literal["record"] = "record"
     permission: str | None = None
+    unrestricted: bool = False
     parameters: dict[str, ParameterSource] = Field(default_factory=dict)
     query: QuerySource = Field(default_factory=QuerySource)
-    bands: dict[str, Any]
+    bands: ReportBandsSource
+
+    @model_validator(mode="after")
+    def explicit_access(self) -> ReportSource:
+        if self.permission is not None and self.unrestricted:
+            raise ValueError("report cannot declare both permission and unrestricted access")
+        return self
 
 
 class PresentationDefaultsSource(SourceModel):

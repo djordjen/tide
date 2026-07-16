@@ -62,7 +62,9 @@ The v0.1 compiler checks:
 - decimal precision/scale consistency and edit-mask compatibility: numeric
   picture masks must match their field type and declared scale, while regular
   expression masks are limited to string fields (`TIDE243`);
-- collection views and report entity references;
+- collection views plus record-report access, primary-key parameter queries,
+  typed expressions, root fields, detail collections/columns, and named formats
+  (`TIDE251-256`);
 - reference editor modes, lookup-view target compatibility, and type-safe
   `on_select` draft assignments;
 - explicit inline-editor layouts: each row has at most two fields, every
@@ -134,3 +136,9 @@ successful `tide model validate` prints warnings and includes them in the
 `--json` output under `warnings`. `TIDE226` is an error: every action must
 declare a `permission` or explicitly opt into `unrestricted: true`. Declaring
 both forms is rejected with `TIDE227`.
+
+Reports have the same fail-closed access rule as actions: each report declares
+`permission` or explicitly sets `unrestricted: true`. The executable v0.1
+report kind binds one required parameter to its entity primary key and permits
+one collection detail band. Richer set-based/grouped queries remain outside
+this contract until they have a bounded SQL-translatable query plan.

@@ -73,7 +73,7 @@ records.get(entity, identity, context)
 records.begin_edit(entity, identity, context)
 records.commit(record_session, context)
 actions.execute(action, target, payload, context)
-reports.render(report, parameters, context)
+reports.build(report, parameters, context)
 ```
 
 Adapters may provide transport concerns such as HTTP serialization or terminal
@@ -170,7 +170,7 @@ src/tide/
     model/            Typed metadata and normalized model
     compiler/         Loading, merging, reference resolution, diagnostics
     expressions/      Typed expression AST and evaluators
-    services/         Query, record, action, and report services
+    services/         Query, record, and action services
     runtime/          Lifecycle, context, events, configuration
     sessions/         RecordSession, transactions, concurrency
     security/         Principals, permissions, policies, redaction
@@ -181,7 +181,7 @@ src/tide/
         textual/      Terminal UI
         rest/         FastAPI and OpenAPI
         mcp/          Developer and runtime MCP servers
-        reporting/    Report renderers and exports
+    reporting/        Secured report documents, HTML, and PDF renderers
     designer/         Headless designer command service
     cli/              Project and runtime commands
 ```

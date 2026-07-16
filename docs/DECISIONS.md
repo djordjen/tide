@@ -62,13 +62,15 @@ decision was first recorded, not when implementation was completed.
 | 2026-07-16 | Development fake-data profiles are application-owned Python providers invoked only by an explicit `tide db seed` command against an empty managed database; generated records pass through secured services and real actions. | Faker can supply realistic repeatable fixtures without putting business-specific generation in the framework or allowing normal startup to mutate persistent data. |
 | 2026-07-16 | Reference views may declare `allow_create` plus a compiler-validated target form; nested **Save & Select** commits the master record independently and applies it to the preserved parent draft only when runtime create authorization succeeds. | Business data entry often discovers missing master data mid-transaction, while permissions, reusable adapter semantics, and explicit transaction boundaries must remain intact. |
 | 2026-07-16 | Decimal precision/scale and completed-value regular-expression masks are authoritative service contracts; renderers may add typed numeric masks and early feedback without owning validation. | TUI, future Qt/web clients, and APIs must accept and reject the same values, while each surface remains free to provide an idiomatic editing control. |
+| 2026-07-16 | The first executable report kind is a compiler-validated single-record query that builds an immutable secured `ReportDocument`; Textual previews it, standard Python writes print HTML, and the optional ReportLab adapter writes A4 PDF. | Primary-key retrieval stays indexed and row-policy-aware on SQL Server and legacy databases, protected fields fail closed, and future GUI/web surfaces can reuse report semantics without depending on Textual or a browser-to-PDF process. |
 
 ## Open decisions
 
 - Comment-preserving round-trip strategy for future designer writes.
 - Compatibility policy and migration tooling for the eventual stable metadata 1.0 contract.
 - Authentication provider and local credential strategy.
-- Initial HTML/PDF rendering engine and pagination limits.
+- Pagination, keep-together, grouping, image, and configurable page-geometry
+  limits for the expanded report engine.
 - Stable identifiers and explicit rename representation for schema evolution.
 - Exact representation of protected fields in versioned REST contracts.
 - Whether direct many-to-many syntax belongs in the first stable model.

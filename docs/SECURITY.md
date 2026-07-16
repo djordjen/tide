@@ -18,6 +18,14 @@ Every action must declare a `permission` or explicitly set
 `unrestricted` only waives the action-specific permission; entity read access,
 row policy, field policy, preconditions, validation, and auditing still apply.
 
+Reports likewise require a declared permission or explicit
+`unrestricted: true`. `ReportService` rechecks that access, loads the root
+record through `RecordsService`, and consumes only its secured projection.
+Requested protected fields, collections, and computed values fail the report
+instead of being printed as placeholders or nulls. Reference display values
+are resolved through secured target reads and fall back only to an already
+authorized raw reference identifier.
+
 ## Permission dimensions
 
 TIDE distinguishes:

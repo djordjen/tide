@@ -67,6 +67,15 @@ when a different repeatable dataset is useful.
 
 Available commands can be displayed with `start.bat help`.
 
+## Previewing and exporting an invoice
+
+In the Invoice workspace, highlight a saved invoice and click **Preview** or
+press `V`. The report preview offers **Export HTML** and **Export PDF**. When
+started through `start.bat`, exported files are placed in the repository's
+`output\reports` directory. The documented `uv sync --extra dev --extra
+sqlserver` installation includes ReportLab; a minimal production installation
+can add `--extra report` when PDF output is required.
+
 ## Changing the connection
 
 Edit this quoted line near the top of `start.bat`:

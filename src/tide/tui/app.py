@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 from datetime import date, datetime
 from decimal import Decimal
+from pathlib import Path
 import re
 from typing import Any, Mapping
 
@@ -21,10 +22,12 @@ from tide.compiler.normalized import (
 )
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.runtime import RequestContext, TideRuntimeError
+from tide.reporting import ReportService
 from tide.security import PROTECTED
 from tide.tui.table import table_cell, table_label
 from tide.services import ActionService, RecordsService
 from tide.tui.form import RecordEditScreen, select_form_view
+from tide.tui.report import ReportPreviewScreen
 
 
 class TideApp(App[None]):
@@ -113,6 +116,7 @@ class TideApp(App[None]):
         Binding("p", "previous_page", "Previous"),
         Binding("n", "next_page", "Next"),
         Binding("r", "reload", "Refresh"),
+        Binding("v", "preview_report", "Preview"),
         Binding("q", "quit", "Quit"),
     ]
 
@@ -126,11 +130,17 @@ class TideApp(App[None]):
         view_name: str | None = None,
         page_size: int | None = None,
         source_label: str = "in-memory",
+        report_service: ReportService | None = None,
+        report_output_directory: str | Path | None = None,
     ) -> None:
         super().__init__()
         self.model = model
         self.records = records
         self.actions = actions or ActionService(model, records)
+        self.report_service = report_service or ReportService(model, records)
+        self.report_output_directory = Path(
+            report_output_directory or Path.cwd() / "output" / "reports"
+        )
         self.context = context
         accessible_views = tuple(
             view
@@ -228,6 +238,7 @@ class TideApp(App[None]):
                 variant="success",
             )
             yield Button("Edit", id="edit-record", disabled=True)
+            yield Button("Preview", id="preview-report", disabled=True)
             yield Button("Previous", id="previous-page", disabled=True)
             yield Button("Next", id="next-page", disabled=True, variant="primary")
             yield Button("Refresh", id="refresh-page")
@@ -255,6 +266,8 @@ class TideApp(App[None]):
             self.action_reload()
         elif event.button.id == "edit-record":
             self.action_edit_record()
+        elif event.button.id == "preview-report":
+            self.action_preview_report()
         elif event.button.id == "create-record":
             self.action_create_record()
         elif event.button.id == "sort-direction":
@@ -324,6 +337,25 @@ class TideApp(App[None]):
             self.notify(str(error), severity="error")
             return
         self._open_form(session)
+
+    def action_preview_report(self) -> None:
+        report_name = self._active_report()
+        table = self.query_one("#records", DataTable)
+        if report_name is None or not self._current_records or table.cursor_row < 0:
+            return
+        identity = self._current_records[table.cursor_row][_primary_key(self.entity)]
+        try:
+            document = self.report_service.build_for_record(
+                report_name,
+                identity,
+                self.context,
+            )
+        except (TideRuntimeError, ValueError) as error:
+            self.notify(f"Report preview failed: {error}", severity="error")
+            return
+        self.push_screen(
+            ReportPreviewScreen(document, self.report_output_directory)
+        )
 
     def open_record(self, identity: Any) -> None:
         if self.form_view is None:
@@ -570,12 +602,13 @@ class TideApp(App[None]):
             status.update(
                 f"Page {self.page_number}  ·  {count} {noun}  ·  "
                 f"{self.source_label}{self._query_summary()}  ·  "
-                "C create  E edit  P/N page  R refresh"
+                "C create  E edit  V preview  P/N page  R refresh"
             )
             self._update_navigation()
             self.query_one("#edit-record", Button).disabled = not (
                 page.records and self._edit_allowed
             )
+            self._update_report_control(bool(page.records))
             table.refresh(layout=True)
         except (TideRuntimeError, ValueError) as error:
             self._current_records = ()
@@ -584,6 +617,26 @@ class TideApp(App[None]):
             status.update(f"Unable to load {self.entity.label}: {error}")
             self._update_navigation(force_disabled=True)
             self.query_one("#edit-record", Button).disabled = True
+            self._update_report_control(False)
+
+    def _active_report(self) -> str | None:
+        return next(
+            (
+                name
+                for name, report in self.model.reports.items()
+                if report["entity"] == self.entity.name
+                and self.report_service.can_generate(name, self.context)
+            ),
+            None,
+        )
+
+    def _update_report_control(self, has_records: bool) -> None:
+        buttons = list(self.query("#preview-report"))
+        if not buttons:
+            return
+        report_name = self._active_report()
+        buttons[0].display = report_name is not None
+        buttons[0].disabled = report_name is None or not has_records
 
     def _query_filters(self) -> tuple[FilterCondition, ...]:
         filters: list[FilterCondition] = []

@@ -70,6 +70,13 @@ exposes **Draft invoices** and **High-value invoices** from view metadata, and
 the sort selector or eligible column headers toggle secured ascending and
 descending queries. **Clear** restores the default browse query.
 
+On the Invoice workspace, select a saved invoice and choose **Preview** or
+press `V`. The preview is built from the secured `sales.invoice` report and can
+export standalone HTML or A4 PDF. Files are written to `output/reports/` below
+the directory from which TIDE was started. The sales clerk and auditor roles
+have report access; a role without `sales.invoice.report` does not see the
+preview action.
+
 Running an application may also execute its fixed `runtime.py` file. That file
 does not implement persistence or UI behavior; it explicitly registers the
 application's ordinary Python generators and action handlers with the shared

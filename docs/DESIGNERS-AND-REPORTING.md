@@ -110,6 +110,7 @@ An initial invoice report may look like:
 report: sales.invoice
 title: Invoice
 entity: sales.Invoice
+permission: sales.invoice.report
 
 parameters:
   invoice_id: {type: integer, required: true}
@@ -119,9 +120,14 @@ query:
 
 bands:
   report_header:
-    - image: company_logo
     - text: Invoice
       style: report_title
+
+  record_header:
+    - field: number
+      label: Invoice number
+    - field: customer
+      label: Customer
 
   detail:
     source: lines
@@ -136,20 +142,26 @@ bands:
     - expression: "'Page ' + page_number"
 ```
 
-The exact syntax will evolve with the expression and presentation models.
+The executable v0.1 subset is intentionally a secured `kind: record` report.
+Its query must bind the entity primary key to one required parameter, so the
+runtime can perform an indexed, row-policy-aware `RecordsService.get` instead
+of loading and filtering a table in memory. The compiler validates report
+access, parameter and expression types, root fields, the detail collection,
+detail columns, and named formats. Reports fail closed if any requested field
+is protected.
 
 ## Report capabilities
 
 The intended progression includes:
 
-- parameters with validation;
+- typed required parameters with validation; **implemented for record reports**
 - sorting, filtering, grouping, and totals;
-- shared formats and computed expressions;
+- shared formats and computed expressions; **implemented**
 - page size, orientation, and margins;
-- repeating headers and footers;
+- repeating table headers and numbered page footers; **implemented in PDF**
 - page breaks and keep-together behavior;
 - tables, text, images, and later barcodes;
-- HTML preview and PDF output;
+- standalone HTML output, native A4 PDF output, and TUI preview; **implemented**
 - controlled CSV and spreadsheet export;
 - subreports after the core band model is stable.
 
@@ -159,14 +171,22 @@ and property editing.
 
 ## Reporting security
 
-Reports request data through secured query and report services. They may not
+Reports request data through secured record and report services. They may not
 create unrestricted SQLAlchemy sessions. Entity, row, field, report, and export
 permissions all apply. Protected fields and computed-field inference rules
-remain active, and report execution is audited.
+remain active. Durable report/export audit is still a future operational
+contract and is not implied by the initial renderer.
 
 ## Initial rendering strategy
 
-The first renderer may create HTML from templates and convert it to PDF. This is
-appropriate for proving parameters, groups, totals, permissions, and previews.
-The project should evaluate pagination, repeating bands, and keep-together
-behavior before promising a pixel-perfect report engine.
+`ReportService` first creates an immutable, renderer-neutral `ReportDocument`
+containing only authorized, already formatted values. Textual renders that
+document as a terminal preview. A standard-library renderer writes standalone
+print CSS/HTML, while the optional `report` package extra uses ReportLab to
+write A4 PDF directly with Unicode-capable system-font discovery, repeating
+table headings, numeric alignment, and page numbering. Output defaults to
+`output/reports/` below the process working directory.
+
+This establishes the adapter boundary without claiming a pixel-perfect report
+engine. Grouping, images, arbitrary result-set reports, configurable page
+geometry, keep-together controls, and durable report audit remain later work.

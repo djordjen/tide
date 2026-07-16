@@ -26,6 +26,7 @@ from tide.tui import (
 )
 from tide.tui.form import NumericMaskedInput, RecordEditScreen
 from tide.tui.lookup import LookupField, LookupScreen
+from tide.tui.report import ReportPreviewScreen
 
 ROOT = Path(__file__).parents[1]
 INVOICING = ROOT / "applications" / "invoicing"
@@ -90,6 +91,39 @@ def test_textual_reference_display_fails_closed_without_target_access() -> None:
             assert "Adria Consulting" not in repr(row)
             assert app.query_one("#create-record", Button).disabled
             assert app.query_one("#edit-record", Button).disabled
+            assert not app.query_one("#preview-report", Button).display
+
+    asyncio.run(exercise())
+
+
+def test_textual_invoice_report_preview_and_exports(tmp_path: Path) -> None:
+    app = _demo_app(page_size=3, report_output_directory=tmp_path)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 36)) as pilot:
+            await pilot.pause()
+            preview_button = app.query_one("#preview-report", Button)
+            assert preview_button.display
+            assert not preview_button.disabled
+
+            await pilot.click("#preview-report")
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, ReportPreviewScreen)
+            assert "INV-2026-0001" in screen.document.plain_text()
+            assert "CONS - Consulting hour" in screen.document.plain_text()
+
+            await pilot.click("#export-html")
+            await pilot.click("#export-pdf")
+            await pilot.pause()
+            assert (tmp_path / "invoice-INV-2026-0001.html").is_file()
+            assert (tmp_path / "invoice-INV-2026-0001.pdf").read_bytes().startswith(
+                b"%PDF-"
+            )
+
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, ReportPreviewScreen)
 
     asyncio.run(exercise())
 
@@ -656,7 +690,12 @@ def test_textual_validation_feedback_and_cancel_preserve_record() -> None:
     asyncio.run(exercise())
 
 
-def _demo_app(*, page_size: int, role: str = "sales_clerk") -> TideApp:
+def _demo_app(
+    *,
+    page_size: int,
+    role: str = "sales_clerk",
+    report_output_directory: Path | None = None,
+) -> TideApp:
     model = compile_project(INVOICING)
     repository = InMemoryRepository()
     assert seed_demo_data(model, repository) == 14
@@ -674,4 +713,5 @@ def _demo_app(*, page_size: int, role: str = "sales_clerk") -> TideApp:
         actions=actions,
         page_size=page_size,
         source_label="demo data",
+        report_output_directory=report_output_directory,
     )

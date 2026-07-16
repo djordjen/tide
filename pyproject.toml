@@ -26,10 +26,14 @@ sqlserver = [
 seed = [
     "Faker>=37.4,<38",
 ]
+report = [
+    "reportlab>=4.4,<5",
+]
 dev = [
     "build>=1.2,<1.5.1",
     "Faker>=37.4,<38",
     "pytest>=8.3,<10",
+    "reportlab>=4.4,<5",
     "ruff>=0.15,<1",
     "textual>=8.2,<9",
 ]
