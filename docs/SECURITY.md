@@ -240,10 +240,36 @@ Apply regenerates and revalidates the candidate, takes an exclusive lock,
 stages and byte-checks every artifact, recompiles the staged tree, publishes by
 same-filesystem rename, and records `.tide-apply.json`. Failures clean TIDE-
 owned staging and lock files; a successful target prevents replay. Existing-
-application editing and MCP-side apply remain disabled pending a host-level
-human-approval contract, comment-preserving changes and conflict handling.
+application save uses the separate boundary below. MCP-side apply/save remains
+disabled pending a host-level human-approval transport.
 Remote developer hosting additionally requires authenticated workspace
 isolation, repository authorization, proposal ownership, quotas and audit.
+
+The headless DesignerService is a separate no-write boundary for existing
+applications. It accepts only discriminated commands over a project selected by
+the host, resolves semantic identities or canonical existing YAML paths, and
+bounds paths, JSON values, batches, history, file count and source bytes. It
+round-trips changed YAML in memory, copies only YAML/Python source into a
+framework temporary directory, and invokes the static compiler there. It does
+not import application Python, run external commands, open the application
+database, create arbitrary paths, or save source files. Snapshots disclose the
+exact diff, fingerprints, diagnostics, temporary cleanup and no-write/no-
+execution flags.
+
+The separate local DesignerSaveService accepts only an already bounded session.
+Preparation rereads and fingerprints the complete live YAML/Python source tree,
+rejects stale, invalid, no-op and source-inventory-changing candidates, and
+binds a deterministic approval to the canonical project path, base, candidate,
+changed-file hashes and diff. Save requires that exact approval, takes an
+exclusive application lock, stages and recompiles the complete candidate,
+rechecks the live tree and each target digest, and replaces existing YAML files
+only. Python, new files, deletions, symlinks, arbitrary paths and unsafe receipt
+directories are refused. Originals remain in the sibling stage until all
+same-filesystem replacements succeed; ordinary failures roll back in reverse
+order. The receipt is published under `.tide/designer/` after the replacements.
+An incomplete rollback preserves the lock and recovery tree for inspection.
+Abrupt-process recovery automation and remote/MCP approval transport remain
+separate future security work.
 
 Schema v0.1 is single-tenant per deployment. Multi-user does not imply
 multi-tenant: tenant identifiers must not be added as an informal row filter.

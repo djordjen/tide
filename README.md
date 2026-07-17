@@ -111,6 +111,13 @@ local `tide app apply` command can bind those values to an absent destination,
 require the exact interactive approval challenge, and atomically publish a new
 application with an audit receipt; it never edits an existing application. See
 [AI-assisted application generation](docs/AI-APPLICATION-GENERATION.md).
+Existing applications now have a headless DesignerService with typed property/
+order commands, atomic in-memory batches, compiler validation, exact comment-
+preserving diffs and bounded undo/redo. `tide designer preview` remains no-
+write; the separate interactive `tide designer save` command binds approval to
+the canonical project path, live base, candidate and diff before transactionally
+replacing only approved YAML files and recording a receipt. See
+[Designers and reporting](docs/DESIGNERS-AND-REPORTING.md).
 For reviewed network deployments, `uv sync --extra api --extra auth` adds OIDC
 discovery/JWKS access-token validation. `tide serve --auth oidc` requires an
 exact issuer and audience, maps external roles explicitly to application roles,
@@ -269,11 +276,15 @@ structured search tools over stateless Streamable HTTP. Local developer MCP now
 provides project inspection, typed generation proposals, isolated compiler-
 checked candidate previews, bounded in-memory runtime/renderer checks and exact
 diffs without MCP-side apply. The separate local CLI now provides candidate-
-bound interactive approval and atomic new-application publication. REST delete,
+bound interactive approval and atomic new-application publication. A comment-
+preserving headless DesignerService now provides typed existing-application
+edits, validation, diff and undo/redo. A separate local DesignerSaveService now
+adds stale-base-bound interactive approval, per-file atomic replacement,
+rollback and receipts for existing YAML sources. REST delete,
 interactive identity-provider login/refresh, trusted reverse proxies, MCP
-mutations/actions, existing-application designer writes, migrations, expanded
-report queries/grouping, and broader lookup-query capabilities remain roadmap
-work.
+mutations/actions, developer-MCP designer/save tools, process-crash recovery
+automation, migrations, expanded report queries/grouping, and broader lookup-
+query capabilities remain roadmap work.
 
 Metadata v0.1 is an executable experimental contract. Breaking authoring
 changes require a new `schema_version`; stable 1.0 compatibility is not yet

@@ -18,6 +18,70 @@ ROOT = Path(__file__).parents[1]
 INVOICING = ROOT / "applications" / "invoicing"
 
 
+def test_designer_preview_json_prepares_save_without_writing(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    project, changes = _write_designer_cli_fixture(tmp_path)
+    before = (project / "models" / "item.yaml").read_bytes()
+
+    result = main(["designer", "preview", str(project), str(changes), "--json"])
+    output = json.loads(capsys.readouterr().out)
+
+    assert result == 0
+    assert output["ready"] is True
+    assert output["writes_performed"] is False
+    assert output["changed_files"] == ["models/item.yaml"]
+    assert output["approval_prompt"].startswith("SAVE tide-designer-approval-")
+    assert (project / "models" / "item.yaml").read_bytes() == before
+    assert not (project / ".tide").exists()
+
+
+def test_designer_save_requires_exact_interactive_confirmation(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    project, changes = _write_designer_cli_fixture(tmp_path)
+    before = (project / "models" / "item.yaml").read_bytes()
+    monkeypatch.setattr("builtins.input", lambda _prompt: "no")
+
+    result = main(["designer", "save", str(project), str(changes)])
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert "Exact candidate diff:" in captured.out
+    assert "cancelled; no files were written" in captured.err
+    assert (project / "models" / "item.yaml").read_bytes() == before
+
+
+def test_designer_save_publishes_exact_approved_candidate(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    project, changes = _write_designer_cli_fixture(tmp_path)
+    preview_result = main(["designer", "preview", str(project), str(changes), "--json"])
+    preview = json.loads(capsys.readouterr().out)
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda _prompt: preview["approval_prompt"],
+    )
+
+    result = main(["designer", "save", str(project), str(changes)])
+
+    captured = capsys.readouterr()
+    assert preview_result == 0
+    assert result == 0
+    assert "Saved 1 YAML source file(s)" in captured.out
+    assert "Stock items" in (project / "models" / "item.yaml").read_text(
+        encoding="utf-8"
+    )
+    receipt = project / preview["receipt_path"]
+    assert receipt.is_file()
+    assert compile_project(project).name == "Designer CLI Fixture"
+
+
 def test_app_preview_json_prepares_approval_without_writing(
     tmp_path: Path,
     capsys,
@@ -608,3 +672,78 @@ def _write_generation_plan(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return path
+
+
+def _write_designer_cli_fixture(tmp_path: Path) -> tuple[Path, Path]:
+    project = tmp_path / "designer-application"
+    (project / "models").mkdir(parents=True)
+    (project / "views").mkdir()
+    (project / "security").mkdir()
+    (project / "tide.yaml").write_text(
+        """schema_version: "0.1"
+application:
+  name: Designer CLI Fixture
+  version: 0.1.0
+model:
+  paths: [models]
+views:
+  paths: [views]
+security:
+  paths: [security]
+""",
+        encoding="utf-8",
+    )
+    (project / "models" / "item.yaml").write_text(
+        """entity: core.Item
+label: "Items"
+display: "{name}"
+expose:
+  tui: true
+permissions:
+  list: core.item.read
+  read: core.item.read
+fields:
+  id:
+    type: integer
+    primary_key: true
+  name:
+    type: string
+    required: true
+""",
+        encoding="utf-8",
+    )
+    (project / "views" / "item-browse.yaml").write_text(
+        """view: core.item.browse
+entity: core.Item
+kind: browse
+columns: [id, name]
+""",
+        encoding="utf-8",
+    )
+    (project / "security" / "policies.yaml").write_text(
+        """permissions:
+  - core.item.read
+roles:
+  reader:
+    grants: [core.item.read]
+""",
+        encoding="utf-8",
+    )
+    changes = tmp_path / "designer-changes.json"
+    changes.write_text(
+        json.dumps(
+            {
+                "label": "Rename the entity",
+                "commands": [
+                    {
+                        "operation": "set_value",
+                        "target": {"kind": "entity", "name": "core.Item"},
+                        "path": ["label"],
+                        "value": "Stock items",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return project, changes

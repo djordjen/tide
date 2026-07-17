@@ -165,6 +165,27 @@ The second command prints the exact diff and requires the complete displayed
 edits or replaces an existing application. See
 [AI-assisted application generation](AI-APPLICATION-GENERATION.md).
 
+To preview a structured edit to an existing application, save a
+`DesignerCommandBatch` as `changes.json` and run:
+
+```powershell
+uv run tide designer preview applications/invoicing changes.json
+uv run tide designer preview applications/invoicing changes.json --json
+```
+
+Both commands are read-only. To persist that exact candidate locally, run:
+
+```powershell
+uv run tide designer save applications/invoicing changes.json
+```
+
+The save command prints the exact YAML diff and requires the complete displayed
+`SAVE tide-designer-approval-...` challenge. It refuses a stale base, changed
+candidate, invalid model, new/deleted source file, Python replacement, or
+another active save. Approved YAML replacements are staged, recompiled,
+rollback-protected, and recorded under `.tide/designer/`. Developer MCP itself
+still cannot invoke this save boundary.
+
 To verify the new reusable remote client, leave the API window running and open
 a second terminal:
 

@@ -211,8 +211,15 @@ respect every relevant permission.
   interactive local apply, atomic new-tree publication, failure cleanup, and
   an approval/artifact receipt; **implemented for new applications; developer
   MCP remains no-write pending a host-level human-approval contract**
-- headless DesignerService and command model;
-- undo, redo, validation, source diff, and save;
+- headless DesignerService and command model; **implemented with semantic
+  document references, bounded typed property/order/sequence commands and
+  atomic command batches**
+- undo, redo, validation, source diff, and save; **implemented through exact
+  comment-preserving candidates plus a separate local save service with live-
+  base checks, exact interactive approval, exclusive locking, staged compiler
+  verification, per-file atomic replacement, rollback and receipts**
+- interrupted-save recovery command and developer MCP Designer tools with a
+  real host-level human-approval transport;
 - Textual model/view tree and property inspector;
 - structural TUI view designer;
 - role and terminal-size previews;

@@ -32,6 +32,13 @@ from tide.development import (
     ApplicationApplyPreparation,
     ApplicationApplyService,
     ApplicationGenerationPlan,
+    DesignerCommandBatch,
+    DesignerError,
+    DesignerSaveApproval,
+    DesignerSaveError,
+    DesignerSavePreparation,
+    DesignerSaveService,
+    DesignerService,
 )
 from tide.model.source import (
     EntitySource,
@@ -390,6 +397,50 @@ def _create_parser() -> argparse.ArgumentParser:
         help="workspace containing applications/ (default: current directory)",
     )
     application_apply.set_defaults(handler=_app_apply)
+
+    designer = commands.add_parser(
+        "designer",
+        help="preview and explicitly save structured application edits",
+    )
+    designer_commands = designer.add_subparsers(dest="designer_command")
+    designer_preview = designer_commands.add_parser(
+        "preview",
+        help="apply commands in memory and prepare an exact save challenge",
+    )
+    designer_preview.add_argument(
+        "project",
+        metavar="APPLICATION",
+        help="application root or tide.yaml",
+    )
+    designer_preview.add_argument(
+        "changes",
+        type=Path,
+        metavar="CHANGES.json",
+        help="structured Designer command batch",
+    )
+    designer_preview.add_argument(
+        "--json",
+        action="store_true",
+        help="emit the save preparation as structured JSON",
+    )
+    designer_preview.set_defaults(handler=_designer_preview)
+
+    designer_save = designer_commands.add_parser(
+        "save",
+        help="interactively approve and save an exact Designer candidate",
+    )
+    designer_save.add_argument(
+        "project",
+        metavar="APPLICATION",
+        help="application root or tide.yaml",
+    )
+    designer_save.add_argument(
+        "changes",
+        type=Path,
+        metavar="CHANGES.json",
+        help="structured Designer command batch",
+    )
+    designer_save.set_defaults(handler=_designer_save)
 
     model = commands.add_parser("model", help="validate and inspect the application model")
     model_commands = model.add_subparsers(dest="model_command")
@@ -1248,6 +1299,118 @@ def _load_application_plan(path: Path) -> ApplicationGenerationPlan:
             "TIDEAPPLY008",
             f"the application plan does not match the structured schema: {error}",
         ) from error
+
+
+def _designer_preview(arguments: argparse.Namespace) -> int:
+    try:
+        batch = _load_designer_batch(arguments.changes)
+        session = DesignerService(arguments.project).open_session()
+        session.execute_batch(batch)
+        preparation = DesignerSaveService().prepare(session)
+    except (DesignerError, DesignerSaveError) as error:
+        if arguments.json:
+            _print_json(
+                {
+                    "ready": False,
+                    "writes_performed": False,
+                    "blockers": [{"code": error.code, "message": error.message}],
+                }
+            )
+        else:
+            print(f"Designer preview failed: {error}", file=sys.stderr)
+        return 1
+
+    if arguments.json:
+        _print_json(preparation.model_dump(mode="json"))
+    else:
+        _print_designer_preparation(preparation)
+    return 0 if preparation.ready else 1
+
+
+def _designer_save(arguments: argparse.Namespace) -> int:
+    try:
+        batch = _load_designer_batch(arguments.changes)
+        session = DesignerService(arguments.project).open_session()
+        session.execute_batch(batch)
+        service = DesignerSaveService()
+        preparation = service.prepare(session)
+    except (DesignerError, DesignerSaveError) as error:
+        print(f"Designer save failed: {error}", file=sys.stderr)
+        return 1
+
+    _print_designer_preparation(preparation)
+    if not preparation.ready or preparation.approval_prompt is None:
+        print("Designer save refused; no source files were written.", file=sys.stderr)
+        return 1
+
+    print(
+        "\nThis command replaces only the listed YAML source files. "
+        "It rechecks the live application before writing."
+    )
+    try:
+        response = input(
+            f"Type exactly {preparation.approval_prompt!r} to save: "
+        ).strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\nDesigner save cancelled; no files were written.", file=sys.stderr)
+        return 1
+    if response != preparation.approval_prompt:
+        print("Designer save cancelled; no files were written.", file=sys.stderr)
+        return 1
+
+    try:
+        approval = DesignerSaveApproval.from_preparation(preparation)
+        result = service.save(session, approval)
+    except (DesignerSaveError, ValueError) as error:
+        print(f"Designer save failed: {error}", file=sys.stderr)
+        return 1
+    print(
+        f"Saved {len(result.changed_files)} YAML source file(s) in "
+        f"{result.project_path}."
+    )
+    print(f"Approval receipt: {result.receipt_path}")
+    print(f"Candidate fingerprint: {result.candidate_fingerprint}")
+    return 0
+
+
+def _load_designer_batch(path: Path) -> DesignerCommandBatch:
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as error:
+        raise DesignerSaveError(
+            "TIDEDSAVE008",
+            f"the Designer command batch could not be read: {error}",
+        ) from error
+    except json.JSONDecodeError as error:
+        raise DesignerSaveError(
+            "TIDEDSAVE008",
+            f"the Designer command batch is not valid JSON at line {error.lineno}",
+        ) from error
+    try:
+        return DesignerCommandBatch.model_validate(document)
+    except ValidationError as error:
+        raise DesignerSaveError(
+            "TIDEDSAVE008",
+            f"the Designer command batch does not match its schema: {error}",
+        ) from error
+
+
+def _print_designer_preparation(
+    preparation: DesignerSavePreparation,
+) -> None:
+    print(preparation.summary)
+    print(f"Application: {preparation.project}")
+    print(f"Project path: {preparation.project_path}")
+    print(f"Base: {preparation.base_state} ({preparation.base_fingerprint})")
+    print(f"Candidate: {preparation.candidate_id}")
+    print(f"Candidate fingerprint: {preparation.candidate_fingerprint}")
+    if preparation.changed_files:
+        print("Changed YAML: " + ", ".join(preparation.changed_files))
+    for blocker in preparation.blockers:
+        print(f"{blocker.code}: {blocker.message}", file=sys.stderr)
+    if preparation.diff:
+        print("\nExact candidate diff:\n")
+        print(preparation.diff.rstrip())
 
 
 def _print_application_preparation(

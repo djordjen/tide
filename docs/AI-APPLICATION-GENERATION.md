@@ -174,6 +174,49 @@ The developer MCP itself remains read/propose/preview-only. A future MCP apply
 tool must obtain a real host-level human approval and then call this service;
 it must not manufacture an approval merely because it can read preview output.
 
+## Existing-application Designer save flow
+
+Existing applications use a different local boundary. A host supplies an
+application path and a JSON `DesignerCommandBatch`, for example:
+
+```json
+{
+  "label": "Rename the customer label",
+  "commands": [
+    {
+      "operation": "set_value",
+      "target": {"kind": "entity", "name": "sales.Customer"},
+      "path": ["label"],
+      "value": "Customers and prospects"
+    }
+  ]
+}
+```
+
+The local commands are:
+
+```bash
+uv run tide designer preview applications/invoicing changes.json
+uv run tide designer preview applications/invoicing changes.json --json
+uv run tide designer save applications/invoicing changes.json
+```
+
+Preview opens an in-memory session, applies the structured commands, compiles
+the exact candidate, and returns its diagnostics, artifacts, hashes and source
+diff without writing. Save repeats that preparation and requires the complete
+`SAVE tide-designer-approval-...` challenge. Approval is bound to the canonical
+project path, project file, original live-source fingerprint, exact candidate,
+changed-artifact hashes and diff hash; it cannot be reused for another project
+or changed session.
+
+After approval, TIDE takes an exclusive application lock, rechecks the complete
+live source, stages and recompiles the candidate, rechecks each changed YAML
+file immediately before replacement, and uses same-filesystem file replacement
+with reverse-order rollback. It writes a receipt under `.tide/designer/` only
+after the approved files have been replaced. The command cannot add or delete
+source files and cannot replace Python. Developer MCP still has no designer-save
+tool; preview visibility alone is not save authority.
+
 ## Approval stages
 
 The new-application flow now covers all eight stages:
@@ -201,9 +244,13 @@ The new-application flow now covers all eight stages:
 The preview base fingerprint identifies an empty logical tree at
 `applications/<application-id>`; local approval preparation now checks that the
 actual destination is absent before binding it. Editing an existing application
-still needs a comment-preserving round-trip strategy, stable model paths,
-conflict handling, and explicit rename/delete semantics. Until those contracts
-exist, TIDE applies new applications only.
+now has a no-write headless DesignerService with comment-preserving round-trip
+YAML, stable semantic document/model paths, typed set/remove/rename/order/
+sequence commands, atomic batches, compiler diagnostics, exact diffs and
+bounded undo/redo. The separate local DesignerSaveService now supplies stale-
+base conflict handling, candidate-bound approval, per-file atomic replacement,
+rollback and a receipt for existing YAML files. Developer MCP remains no-write
+until a host-level approval transport is designed.
 
 Custom business logic remains ordinary trusted Python, but AI generation does
 not use an unrestricted Python-writing tool. The current state-transition code

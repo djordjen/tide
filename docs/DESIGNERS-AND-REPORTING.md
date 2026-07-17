@@ -19,25 +19,69 @@ Textual designer ----+
 Web designer --------+
                      |
 Developer MCP -------+
+
+Local approval host ----> DesignerSaveService --> approved YAML replacement
 ```
 
-Candidate commands are:
+The implemented first command vocabulary is:
 
 ```text
-add_node
-move_node
-set_property
-remove_override
-validate_view
-preview_view
+set_value
+remove_value
+rename_key
+reorder_mapping
+insert_sequence_item
+move_sequence_item
 undo
 redo
-save
 ```
 
-Commands operate on stable model paths and produce diagnostics and diffs. This
-supports undo/redo, source control, AI assistance, and multiple designer
-frontends without duplicating editing rules.
+Commands address project, entity, view, and report documents by semantic
+identity, with a canonical existing-source reference for security,
+presentation, and other YAML documents. A bounded atomic batch forms one undo
+entry, allowing a field rename and its dependent view/reference changes to be
+validated together. Mapping order and sequence commands preserve the authoring
+order required by forms and layouts.
+
+`DesignerService` now opens a process-local working tree, applies these typed
+commands only in memory, recompiles the exact candidate in a temporary
+directory, and returns compiler diagnostics, fingerprints, changed files and a
+unified source diff. Invalid intermediate states remain visible and undoable.
+Undo/redo history, command batches, path depth, source count, and source bytes
+are bounded. No command runs application Python, opens the configured database,
+or writes an application source file.
+
+Round-trip YAML editing preserves comments, quotes, flow/block style and key
+order so a one-property command does not replace an entire human-authored file.
+
+### Approved save boundary
+
+`DesignerSaveService.prepare()` is a no-write operation. It re-evaluates the
+current session, rereads the live application, refuses an invalid/no-op/stale
+candidate, and accepts replacements only when the source inventory is unchanged
+and every changed file is YAML. Its deterministic approval challenge binds:
+
+- the canonical application path and project file;
+- the exact original source-tree fingerprint;
+- the candidate ID and complete candidate fingerprint;
+- each changed file's before/after hash and byte count;
+- the exact unified-diff hash.
+
+The interactive `tide designer save APPLICATION CHANGES.json` command has no
+non-interactive confirmation switch. After the user types the complete `SAVE
+tide-designer-approval-...` challenge, save reacquires and validates all bound
+values, takes an exclusive application lock, stages the complete bounded source
+tree, verifies its bytes and compiles it again. It then rechecks the live tree
+and each affected YAML digest immediately before mutation.
+
+Changed files use same-filesystem atomic replacement under that lock. Originals
+are kept in the private sibling staging directory until all replacements and
+the `.tide/designer/<approval-id>.json` receipt succeed. A normal failure rolls
+the changed set back in reverse order and removes TIDE-owned temporary state.
+If rollback itself is incomplete, TIDE deliberately preserves the lock and
+recovery directory instead of hiding a partial result. Recovery automation for
+an abrupt process or machine failure remains future work; source control and
+the preserved original files are the current recovery boundary.
 
 ## TUI view designer
 
@@ -84,11 +128,13 @@ bounded in-memory CRUD/security/action/report/HTML/optional-PDF checks using
 only fixed TIDE templates. It returns exact artifacts, hashes and a diff but
 cannot apply them.
 
-DesignerService will extend the same command/change-set boundary for existing
-applications. An agent will inspect the entity model and presets, propose a
-structured layout patch, validate it, render a preview, and present the exact
-YAML diff for approval. Apply/save remains unavailable until proposal IDs are
-bound to a base fingerprint and comment-preserving diff.
+DesignerService now extends the structured command/change-set boundary to an
+in-memory copy of an existing application. An agent can inspect an entity or
+view, propose typed property/order changes, compile them, undo/redo them, and
+present the exact comment-preserving YAML diff. The local DesignerSaveService
+can persist the same structured batch only after a freshly checked base and
+candidate-bound human approval. Developer MCP intentionally does not expose
+that save capability yet.
 
 Useful tools include:
 
