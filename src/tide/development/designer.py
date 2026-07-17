@@ -155,6 +155,24 @@ class DesignerMoveSequenceItemCommand(DesignerCommandModel):
         return _validate_model_path(value)
 
 
+class DesignerReplaceDocumentSourceCommand(DesignerCommandModel):
+    """Replace one existing YAML document in the in-memory candidate."""
+
+    operation: Literal["replace_document_source"] = "replace_document_source"
+    source: str = Field(min_length=1)
+
+    @field_validator("source")
+    @classmethod
+    def bounded_utf8_source(cls, value: str) -> str:
+        if "\x00" in value:
+            raise ValueError("designer YAML source must not contain NUL bytes")
+        if len(value.encode("utf-8")) > MAX_DESIGNER_SOURCE_BYTES:
+            raise ValueError(
+                "designer YAML source exceeds the 16 MiB project-source limit"
+            )
+        return value
+
+
 DesignerCommand = Annotated[
     Union[
         DesignerSetValueCommand,
@@ -163,6 +181,7 @@ DesignerCommand = Annotated[
         DesignerReorderMappingCommand,
         DesignerInsertSequenceItemCommand,
         DesignerMoveSequenceItemCommand,
+        DesignerReplaceDocumentSourceCommand,
     ],
     Field(discriminator="operation"),
 ]
@@ -601,6 +620,27 @@ def _apply_command(
     index = _index_documents(files, project_file)
     relative = _resolve_document(command.target, index)
     document = _load_round_trip_yaml(relative, files[relative])
+    if isinstance(command, DesignerReplaceDocumentSourceCommand):
+        replacement = command.source.encode("utf-8")
+        candidate_document = _load_round_trip_yaml(relative, replacement)
+        if _document_identity(document, relative, project_file) != _document_identity(
+            candidate_document,
+            relative,
+            project_file,
+        ):
+            raise DesignerError(
+                "TIDEDES012",
+                "expert YAML editing cannot change a document's semantic identity",
+            )
+        total_bytes = sum(len(content) for content in files.values())
+        total_bytes += len(replacement) - len(files[relative])
+        if total_bytes > MAX_DESIGNER_SOURCE_BYTES:
+            raise DesignerError(
+                "TIDEDES002",
+                "project source exceeds the 16 MiB designer preview limit",
+            )
+        files[relative] = replacement
+        return
     if isinstance(command, DesignerSetValueCommand):
         parent, part = _resolve_parent(document, command.path)
         _set_child(parent, part, _round_trip_value(command.value), command.path)
@@ -627,6 +667,23 @@ def _apply_command(
     else:  # pragma: no cover - discriminated union is exhaustive
         raise DesignerError("TIDEDES009", "unsupported designer command")
     files[relative] = _dump_round_trip_yaml(document, files[relative])
+
+
+def _document_identity(
+    document: Any,
+    relative: str,
+    project_file: str,
+) -> tuple[str, str | None]:
+    if not isinstance(document, Mapping):
+        return "source", None
+    if relative == project_file:
+        version = document.get("schema_version")
+        return "project", version if isinstance(version, str) else None
+    for kind in ("entity", "view", "report"):
+        name = document.get(kind)
+        if isinstance(name, str) and name:
+            return kind, name
+    return "source", None
 
 
 def _load_round_trip_yaml(relative: str, content: bytes) -> Any:

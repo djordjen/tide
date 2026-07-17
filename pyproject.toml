@@ -21,6 +21,9 @@ dependencies = [
 tui = [
     "textual>=8.2,<9",
 ]
+studio = [
+    "textual[syntax]>=8.2,<9",
+]
 sqlserver = [
     "pyodbc>=5.3,<6",
 ]
@@ -54,7 +57,7 @@ dev = [
     "pytest>=8.3,<10",
     "reportlab>=4.4,<5",
     "ruff>=0.15,<1",
-    "textual>=8.2,<9",
+    "textual[syntax]>=8.2,<9",
     "uvicorn[standard]>=0.35,<1",
 ]
 

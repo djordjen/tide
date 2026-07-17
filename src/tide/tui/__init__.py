@@ -11,6 +11,7 @@ from typing import Any
 __all__ = [
     "ApplicationRuntimeError",
     "DemoDataError",
+    "StudioApp",
     "TideApp",
     "configure_application_runtime",
     "seed_demo_data",
@@ -18,6 +19,10 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
+    if name == "StudioApp":
+        from tide.tui.studio import StudioApp
+
+        return StudioApp
     if name == "TideApp":
         from tide.tui.app import TideApp
 

@@ -218,8 +218,33 @@ respect every relevant permission.
   comment-preserving candidates plus a separate local save service with live-
   base checks, exact interactive approval, exclusive locking, staged compiler
   verification, per-file atomic replacement, rollback and receipts**
-- interrupted-save recovery journal and explicit recovery command;
-- Textual model/view tree and property inspector;
+- interrupted-save recovery journal, OS-lock ownership detection, hash-derived
+  rollback/finalize preview, exact approval and resumable recovery command;
+  **implemented**
+- Textual application/entity/view/report/source tree, nested typed scalar
+  property editing, locked structural/identity rows, compiler validation,
+  undo/redo, diagnostics, exact unified-diff review and line-numbered YAML
+  preview; **implemented in memory as the separate `tide studio` developer
+  screen; approved persistence is not connected yet**
+- schema-aware property editors generated from the authoritative metadata
+  contract: dropdowns for `Literal`/enumerated values such as field type, view
+  kind and delete behavior plus Boolean selection; **initial schema-derived
+  choice/Boolean controls implemented**; richer numeric controls,
+  path/reference selectors, descriptions and required/conditional-property
+  hints remain;
+- terminal-theme-aware YAML syntax coloring using Textual's optional syntax
+  support and YAML parser with a plain-text fallback; **implemented for the
+  YAML source view through the `studio` extra**; dedicated unified-diff coloring
+  remains;
+- source-panel search with `Ctrl+F`, case-insensitive next/previous match
+  navigation, visible match counts and selection highlighting across YAML,
+  diff and diagnostics; **implemented**;
+- explicit expert YAML edit mode backed by a bounded whole-document Designer
+  command: edit only the in-memory candidate, parse strict YAML, recompile,
+  show diagnostics and exact diff, participate in undo/redo, and retain the
+  same approval-required persistence boundary; never write directly from the
+  text widget; **implemented with apply/cancel controls, `Ctrl+S`/`Esc`, stable
+  document-identity enforcement and shared history**;
 - structural TUI view designer;
 - role and terminal-size previews;
 - developer MCP designer tools;

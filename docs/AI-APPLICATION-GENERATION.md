@@ -217,6 +217,30 @@ after the approved files have been replaced. The command cannot add or delete
 source files and cannot replace Python. Developer MCP still has no designer-save
 tool; preview visibility alone is not save authority.
 
+Before replacing any source, save writes a structured lock record and an fsynced
+transaction journal. The journal records the prepared candidate, the current
+artifact and whether its original has moved to backup; it is atomically updated
+around every replacement. The operating-system byte lock remains held for the
+whole live operation, so recovery will not mistake a running save for a crashed
+one.
+
+If the process is interrupted, recovery is also split into preview and explicit
+approval:
+
+```bash
+uv run tide designer recover applications/invoicing --preview
+uv run tide designer recover applications/invoicing --preview --json
+uv run tide designer recover applications/invoicing
+```
+
+Recovery reconstructs the approved candidate from staged, installed and
+recovery-discarded files, verifies unchanged sources, lock, journal, receipt and
+all available hashes, and then issues a separate `RECOVER
+tide-designer-recovery-...` challenge. Without a matching save receipt it can
+only restore verified base backups. With a matching receipt and complete
+candidate it finalizes cleanup instead of undoing a successful save. Ambiguous,
+externally edited, unsafe, malformed or still-locked evidence fails closed.
+
 ## Approval stages
 
 The new-application flow now covers all eight stages:
@@ -249,8 +273,9 @@ YAML, stable semantic document/model paths, typed set/remove/rename/order/
 sequence commands, atomic batches, compiler diagnostics, exact diffs and
 bounded undo/redo. The separate local DesignerSaveService now supplies stale-
 base conflict handling, candidate-bound approval, per-file atomic replacement,
-rollback and a receipt for existing YAML files. Developer MCP remains no-write
-until a host-level approval transport is designed.
+rollback, durable phase journaling, explicit interruption recovery and a receipt
+for existing YAML files. Developer MCP remains no-write until a host-level
+approval transport is designed.
 
 Custom business logic remains ordinary trusted Python, but AI generation does
 not use an unrestricted Python-writing tool. The current state-transition code

@@ -9,6 +9,7 @@ set "TIDE_DATABASE_URL=mssql+pyodbc://@localhost:1433/TIDE?driver=ODBC+Driver+17
 if /I "%~1"=="init" goto initialize
 if /I "%~1"=="seed" goto seed
 if /I "%~1"=="demo" goto demo
+if /I "%~1"=="studio" goto studio
 if /I "%~1"=="api" goto api
 if /I "%~1"=="api-demo" goto api_demo
 if /I "%~1"=="mcp-demo" goto mcp_demo
@@ -28,6 +29,11 @@ goto finish
 
 :demo
 uv run --extra tui tide run applications/invoicing --demo --page-size 5
+goto finish
+
+:studio
+echo Starting TIDE Studio with in-memory property editing...
+uv run --extra studio tide studio applications/invoicing
 goto finish
 
 :seed
@@ -92,6 +98,7 @@ echo   start.bat init   Create missing managed tables, then start SQL Server mod
 echo   start.bat        Start normally against the existing SQL Server database
 echo   start.bat seed   Seed an empty initialized database with fake data
 echo   start.bat demo   Start isolated in-memory demo data
+echo   start.bat studio Inspect and edit application metadata in memory
 echo   start.bat api    Start local API against SQL Server
 echo   start.bat api-demo Start local API with demo data
 echo   start.bat mcp-demo Start local API plus read-only runtime MCP

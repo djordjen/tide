@@ -17,6 +17,7 @@ from tide.development.designer import (
     DesignerInsertSequenceItemCommand,
     DesignerMoveSequenceItemCommand,
     DesignerRemoveValueCommand,
+    DesignerReplaceDocumentSourceCommand,
     DesignerRenameKeyCommand,
     DesignerReorderMappingCommand,
     DesignerService,
@@ -31,6 +32,15 @@ from tide.development.designer_save import (
     DesignerSavePreparation,
     DesignerSaveResult,
     DesignerSaveService,
+)
+from tide.development.designer_recovery import (
+    DesignerRecoveryApproval,
+    DesignerRecoveryArtifact,
+    DesignerRecoveryError,
+    DesignerRecoveryIssue,
+    DesignerRecoveryPreparation,
+    DesignerRecoveryResult,
+    DesignerRecoveryService,
 )
 from tide.development.generation import (
     ApplicationGenerationPlan,
@@ -57,6 +67,16 @@ from tide.development.project import (
     DeveloperProjectValidation,
 )
 from tide.development.seed import FakeDataError, seed_fake_data
+from tide.development.studio import (
+    StudioDocumentDetails,
+    StudioDocumentGroup,
+    StudioDocumentNode,
+    StudioError,
+    StudioProperty,
+    StudioService,
+    StudioSessionState,
+    StudioWorkspace,
+)
 
 __all__ = [
     "ApplicationApplyApproval",
@@ -87,8 +107,16 @@ __all__ = [
     "DesignerInsertSequenceItemCommand",
     "DesignerMoveSequenceItemCommand",
     "DesignerRemoveValueCommand",
+    "DesignerReplaceDocumentSourceCommand",
     "DesignerRenameKeyCommand",
     "DesignerReorderMappingCommand",
+    "DesignerRecoveryApproval",
+    "DesignerRecoveryArtifact",
+    "DesignerRecoveryError",
+    "DesignerRecoveryIssue",
+    "DesignerRecoveryPreparation",
+    "DesignerRecoveryResult",
+    "DesignerRecoveryService",
     "DesignerSaveApproval",
     "DesignerSaveArtifact",
     "DesignerSaveError",
@@ -106,5 +134,13 @@ __all__ = [
     "GenerationIssue",
     "PlannedField",
     "PlannedSequenceNumber",
+    "StudioDocumentDetails",
+    "StudioDocumentGroup",
+    "StudioDocumentNode",
+    "StudioError",
+    "StudioProperty",
+    "StudioService",
+    "StudioSessionState",
+    "StudioWorkspace",
     "seed_fake_data",
 ]

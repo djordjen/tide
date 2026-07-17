@@ -32,6 +32,7 @@ rename_key
 reorder_mapping
 insert_sequence_item
 move_sequence_item
+replace_document_source
 undo
 redo
 ```
@@ -42,6 +43,12 @@ presentation, and other YAML documents. A bounded atomic batch forms one undo
 entry, allowing a field rename and its dependent view/reference changes to be
 validated together. Mapping order and sequence commands preserve the authoring
 order required by forms and layouts.
+
+`replace_document_source` is the bounded expert-editor command. It accepts one
+existing YAML document, rejects malformed or duplicate-key YAML, enforces the
+same total-source byte limit, and preserves the document's semantic identity
+(`schema_version`, entity, view, or report name). It therefore cannot turn a
+single-file source edit into an unsafe partial rename.
 
 `DesignerService` now opens a process-local working tree, applies these typed
 commands only in memory, recompiles the exact candidate in a temporary
@@ -79,9 +86,99 @@ are kept in the private sibling staging directory until all replacements and
 the `.tide/designer/<approval-id>.json` receipt succeed. A normal failure rolls
 the changed set back in reverse order and removes TIDE-owned temporary state.
 If rollback itself is incomplete, TIDE deliberately preserves the lock and
-recovery directory instead of hiding a partial result. Recovery automation for
-an abrupt process or machine failure remains future work; source control and
-the preserved original files are the current recovery boundary.
+recovery directory instead of hiding a partial result.
+
+### Interrupted-save recovery
+
+Every save now creates a structured lock record before staging and holds a
+cross-platform operating-system byte lock until it finishes. Candidate files
+are flushed before mutation. An atomically replaced, fsynced
+`transaction.json` in the sibling stage records the transaction identity,
+project/candidate/artifact hashes, receipt path, completed files, active file,
+and whether its backup has moved. A process interruption releases the OS lock
+but leaves the structured lock and stage discoverable.
+
+`tide designer recover APPLICATION --preview` acquires that OS lock and performs
+no writes. It validates canonical paths and identifiers before following them,
+then derives the only safe action from actual bytes:
+
+- **rollback** when every changed target is still at its base, missing with a
+  verified base backup, or contains the verified candidate with its base backup;
+- **finalize** only when the exact save receipt exists and the complete live
+  tree matches the candidate fingerprint;
+- **refuse** for active saves, unrelated source drift, malformed records,
+  symlinks, unexpected hashes, missing required backups, or mixed evidence.
+
+Interactive recovery requires the exact evidence-bound `RECOVER
+tide-designer-recovery-...` challenge. Rollback is reverse ordered and
+idempotent, so another interruption can be previewed and resumed. Recovery
+recompiles and fingerprints the complete restored/finalized tree before deleting
+the stage and lock. It never rolls a receipted candidate back merely because
+cleanup was interrupted, and it never guesses how to resolve corrupted evidence.
+
+## Textual Studio shell
+
+The first visible Studio adapter is executable with:
+
+```powershell
+uv run --extra studio tide studio applications/invoicing
+```
+
+On Windows, `start.bat studio` opens the same screen. This Studio process is
+separate from `tide run`: it is developer tooling for application metadata,
+not the generated business application.
+
+The Textual shell shows a semantic Application, Entities, Views and Reports
+tree plus every YAML source file. Moving the tree selection updates a nested
+property inspector and a line-numbered full-source preview. Scalar leaves such
+as `application.name`, `label`, `fields.number.length`, Boolean settings and
+sequence values can be edited with their existing YAML type. Mapping/sequence
+containers, `schema_version`, and semantic `entity`/`view`/`report` identities
+are visibly locked; those identities require a future cross-document rename
+operation rather than a single unsafe property replacement.
+
+Enter or **Apply in memory** sends a typed `set_value` command to the bounded
+`DesignerService` session and recompiles the complete candidate. A valid or
+invalid result remains inspectable. **Changes** shows the exact unified diff,
+**Diagnostics** shows compiler messages, and Undo/Redo use the shared Designer
+history. Shortcuts are `Ctrl+Z`, `Ctrl+Y`, `Ctrl+D`, and `Q`. `R` reloads clean
+sessions but refuses to silently discard pending edits.
+
+Studio still performs no application-source write, executes no application
+Python, and does not open the configured database. Closing it discards the
+process-local candidate. The next persistence slice will pass this same session
+through the already separate preparation, exact approval, transactional save,
+and recovery boundary; this screen does not weaken or bypass that boundary.
+
+### Editor ergonomics
+
+Studio does not present every scalar as an unstructured text box. The property
+descriptor now derives editor metadata from the same Pydantic/source JSON
+Schema used by the compiler. `Literal` and enumerated values become dropdowns—
+for example `fields.id.type`, view `kind`, `on_delete`, write ownership and
+editor kinds—and Boolean values use a true/false selector. These choices are
+not copied into the Textual adapter, so future Qt, Web and AI clients can reuse
+the same contract. Richer numeric controls, path/reference selectors, help text
+and conditional-property hints remain planned.
+
+The lower panel now enables terminal-theme-aware YAML syntax coloring when the
+`studio` optional dependency is installed. It uses Textual's syntax support and
+tree-sitter YAML parser while retaining a plain-text fallback for minimal `tui`
+installations. `Ctrl+F` opens case-insensitive search over the current YAML,
+unified diff or diagnostics. Enter/Next and Previous wrap through matches,
+show the current/total count and select the active occurrence. Dedicated diff
+token coloring remains planned.
+
+The explicit **Edit YAML** mode makes the current source buffer editable for
+experienced developers. **Apply YAML** or `Ctrl+S` sends the buffer through the
+bounded `replace_document_source` command; `Esc` cancels and restores the
+session source. Applying requires strict YAML, preserves the selected
+document's semantic identity, updates only the process-local candidate, runs
+the compiler, opens the exact diff, and joins the same undo/redo history.
+Malformed YAML leaves the editor open so it can be corrected or cancelled.
+Search remains available while editing. Persistence still requires the
+separate candidate-bound approval/save workflow: the text widget has no direct
+file-write authority.
 
 ## TUI view designer
 

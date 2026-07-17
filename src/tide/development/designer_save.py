@@ -5,11 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
-import json
 import os
 from pathlib import Path, PurePosixPath
+from secrets import token_hex
 import shutil
-from tempfile import mkdtemp
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -28,6 +27,16 @@ from tide.development.designer import (
     _write_project_sources,
 )
 from tide.diagnostics import CompilationFailed
+from tide.development.designer_transaction import (
+    _DesignerTransactionJournal,
+    _DesignerTransactionLock,
+    _DesignerTransactionReceipt,
+    _TransactionArtifact,
+    _TransactionLockBusy,
+    _TransactionLockHandle,
+    _model_bytes,
+    _write_transaction_record,
+)
 
 
 class DesignerSaveModel(BaseModel):
@@ -172,25 +181,50 @@ class DesignerSaveService:
         state = inspection.state
         root = state.root
         lock_path = root / self.lock_name
+        transaction_id = "tide-designer-save-" + token_hex(16)
+        stage_name = f".{root.name}.{transaction_id}"
         stage: Path | None = None
-        lock_acquired = False
+        lock_handle: _TransactionLockHandle | None = None
+        journal: _DesignerTransactionJournal | None = None
+        journal_path: Path | None = None
         replacements: list[_Replacement] = []
         preserve_recovery = False
         receipt_path = root / str(preparation.receipt_path)
         created_directories: list[Path] = []
+        transaction_artifacts = tuple(
+            _TransactionArtifact.model_validate(artifact.model_dump())
+            for artifact in preparation.artifacts
+        )
+        lock_record = _DesignerTransactionLock(
+            transaction_id=transaction_id,
+            approval_id=approval.approval_id,
+            project_path=approval.project_path,
+            project_file=approval.project_file,
+            base_fingerprint=approval.base_fingerprint,
+            candidate_id=approval.candidate_id,
+            candidate_fingerprint=approval.candidate_fingerprint,
+            change_fingerprint=approval.change_fingerprint,
+            diff_sha256=approval.diff_sha256,
+            receipt_path=str(preparation.receipt_path),
+            stage_name=stage_name,
+            artifacts=transaction_artifacts,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
         try:
-            self._acquire_lock(lock_path, approval)
-            lock_acquired = True
+            try:
+                lock_handle = _TransactionLockHandle.create(lock_path, lock_record)
+            except _TransactionLockBusy as error:
+                raise DesignerSaveError(
+                    "TIDEDSAVE006",
+                    "another Designer save owns the application lock",
+                ) from error
             self._assert_live_base(state, approval.base_fingerprint)
-            stage = Path(
-                mkdtemp(
-                    prefix=f".{root.name}.tide-designer-save-",
-                    dir=root.parent,
-                )
-            )
+            stage = root.parent / stage_name
+            stage.mkdir()
             candidate_root = stage / "candidate"
             candidate_root.mkdir()
             _write_project_sources(candidate_root, state.working_files)
+            self._flush_staged_sources(candidate_root, state.working_files)
             self._verify_staged_candidate(candidate_root, state, approval)
             self._assert_live_base(state, approval.base_fingerprint)
 
@@ -205,6 +239,16 @@ class DesignerSaveService:
                     "the Designer save receipt already exists",
                 )
 
+            journal = _DesignerTransactionJournal.model_validate(
+                {
+                    **lock_record.model_dump(mode="json"),
+                    "phase": "prepared",
+                }
+            )
+            journal_path = stage / "transaction.json"
+            _write_transaction_record(journal_path, journal)
+            _save_checkpoint("prepared", stage)
+
             backup_root = stage / "backup"
             for artifact in preparation.artifacts:
                 relative = _validated_source_path(artifact.path)
@@ -215,38 +259,57 @@ class DesignerSaveService:
                 self._assert_artifact_base(target, artifact)
                 shutil.copystat(target, candidate, follow_symlinks=False)
                 replacement = _Replacement(artifact.path, target, backup)
+                journal = journal.model_copy(
+                    update={
+                        "phase": "replacing",
+                        "active_path": artifact.path,
+                        "active_step": "before_backup",
+                    }
+                )
+                _write_transaction_record(journal_path, journal)
+                _save_checkpoint(f"before_backup:{artifact.path}", stage)
                 _replace_file(target, backup)
                 replacements.append(replacement)
+                journal = journal.model_copy(update={"active_step": "backup_moved"})
+                _write_transaction_record(journal_path, journal)
+                _save_checkpoint(f"after_backup:{artifact.path}", stage)
                 _replace_file(candidate, target)
+                journal = journal.model_copy(
+                    update={
+                        "active_path": None,
+                        "active_step": None,
+                        "completed_paths": (*journal.completed_paths, artifact.path),
+                    }
+                )
+                _write_transaction_record(journal_path, journal)
+                _save_checkpoint(f"after_install:{artifact.path}", stage)
 
             saved_at = datetime.now(timezone.utc).isoformat()
-            receipt = {
-                "schema_version": "1",
-                "operation": "existing_application_designer_save",
-                "workspace_writes_performed": True,
-                "approval_id": approval.approval_id,
-                "project": preparation.project,
-                "project_file": approval.project_file,
-                "base_fingerprint": approval.base_fingerprint,
-                "candidate_id": approval.candidate_id,
-                "candidate_fingerprint": approval.candidate_fingerprint,
-                "change_fingerprint": approval.change_fingerprint,
-                "diff_sha256": approval.diff_sha256,
-                "artifacts": [
-                    artifact.model_dump(mode="json")
-                    for artifact in preparation.artifacts
-                ],
-                "transaction": "exclusive-lock-atomic-file-replace-with-rollback",
-                "saved_at": saved_at,
-            }
-            staged_receipt = stage / "receipt.json"
-            staged_receipt.write_text(
-                json.dumps(receipt, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-                newline="\n",
+            journal = journal.model_copy(
+                update={
+                    "phase": "publishing_receipt",
+                    "active_path": None,
+                    "active_step": None,
+                }
             )
+            _write_transaction_record(journal_path, journal)
+            receipt = _DesignerTransactionReceipt(
+                approval_id=approval.approval_id,
+                project=preparation.project,
+                project_file=approval.project_file,
+                base_fingerprint=approval.base_fingerprint,
+                candidate_id=approval.candidate_id,
+                candidate_fingerprint=approval.candidate_fingerprint,
+                change_fingerprint=approval.change_fingerprint,
+                diff_sha256=approval.diff_sha256,
+                artifacts=transaction_artifacts,
+                saved_at=saved_at,
+            )
+            staged_receipt = stage / "receipt.json"
+            staged_receipt.write_bytes(_model_bytes(receipt))
             _fsync_file(staged_receipt)
             _replace_file(staged_receipt, receipt_path)
+            _save_checkpoint("after_receipt", stage)
 
             session._mark_saved(
                 approval.candidate_fingerprint,
@@ -267,6 +330,7 @@ class DesignerSaveService:
             )
         except DesignerSaveError:
             if replacements:
+                self._mark_rolling_back(journal_path, journal)
                 errors = self._rollback(replacements, stage)
                 if errors:
                     preserve_recovery = True
@@ -278,6 +342,7 @@ class DesignerSaveService:
             raise
         except (OSError, ValueError) as error:
             if replacements:
+                self._mark_rolling_back(journal_path, journal)
                 errors = self._rollback(replacements, stage)
                 if errors:
                     preserve_recovery = True
@@ -290,13 +355,35 @@ class DesignerSaveService:
                 "TIDEDSAVE007",
                 f"Designer save failed: {type(error).__name__}",
             ) from error
+        except BaseException:
+            preserve_recovery = bool(
+                journal_path is not None and journal_path.is_file()
+            )
+            raise
         finally:
+            cleanup_error: OSError | None = None
             if stage is not None and stage.exists() and not preserve_recovery:
-                shutil.rmtree(stage, ignore_errors=True)
-            if lock_acquired and not preserve_recovery:
-                lock_path.unlink(missing_ok=True)
+                try:
+                    _remove_stage(stage)
+                except OSError as error:
+                    preserve_recovery = True
+                    cleanup_error = error
+            if lock_handle is not None:
+                lock_handle.close()
+            if lock_handle is not None and not preserve_recovery:
+                try:
+                    lock_path.unlink(missing_ok=True)
+                except OSError as error:
+                    preserve_recovery = True
+                    cleanup_error = error
             if not replacements or not preserve_recovery:
                 self._remove_empty_directories(created_directories)
+            if cleanup_error is not None:
+                raise DesignerSaveError(
+                    "TIDEDSAVE010",
+                    "Designer save reached a consistent source state but cleanup "
+                    "is incomplete; preserved recovery evidence",
+                ) from cleanup_error
 
     def _inspect(self, session: DesignerSession) -> _Inspection:
         state = session._capture_save_state()
@@ -453,20 +540,25 @@ class DesignerSaveService:
             )
 
     @staticmethod
-    def _acquire_lock(lock_path: Path, approval: DesignerSaveApproval) -> None:
+    def _mark_rolling_back(
+        journal_path: Path | None,
+        journal: _DesignerTransactionJournal | None,
+    ) -> None:
+        if journal_path is None or journal is None:
+            return
         try:
-            descriptor = os.open(
-                lock_path,
-                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-                0o600,
+            _write_transaction_record(
+                journal_path,
+                journal.model_copy(
+                    update={
+                        "phase": "rolling_back",
+                        "active_path": None,
+                        "active_step": None,
+                    }
+                ),
             )
-        except FileExistsError as error:
-            raise DesignerSaveError(
-                "TIDEDSAVE006",
-                "another Designer save owns the application lock",
-            ) from error
-        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as lock:
-            lock.write(approval.approval_id + "\n")
+        except OSError:
+            pass
 
     @staticmethod
     def _assert_live_base(
@@ -516,6 +608,14 @@ class DesignerSaveService:
                 "TIDEDSAVE005",
                 "the staged Designer candidate no longer compiles",
             ) from error
+
+    @staticmethod
+    def _flush_staged_sources(
+        candidate_root: Path,
+        files: dict[str, bytes],
+    ) -> None:
+        for relative in files:
+            _fsync_file(candidate_root / PurePosixPath(relative))
 
     @staticmethod
     def _assert_artifact_base(
@@ -672,6 +772,18 @@ def _text_hash(content: str) -> str:
 
 def _replace_file(source: Path, destination: Path) -> None:
     os.replace(source, destination)
+
+
+def _save_checkpoint(_name: str, _stage: Path) -> None:
+    """Test seam for emulating process loss after a durable save phase."""
+
+
+def _remove_stage(stage: Path) -> None:
+    cleanup = stage.with_name(stage.name + ".cleanup")
+    if os.path.lexists(cleanup):
+        raise OSError("Designer cleanup directory already exists")
+    os.replace(stage, cleanup)
+    shutil.rmtree(cleanup)
 
 
 def _fsync_file(path: Path) -> None:

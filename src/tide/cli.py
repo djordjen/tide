@@ -34,11 +34,16 @@ from tide.development import (
     ApplicationGenerationPlan,
     DesignerCommandBatch,
     DesignerError,
+    DesignerRecoveryApproval,
+    DesignerRecoveryError,
+    DesignerRecoveryPreparation,
+    DesignerRecoveryService,
     DesignerSaveApproval,
     DesignerSaveError,
     DesignerSavePreparation,
     DesignerSaveService,
     DesignerService,
+    StudioService,
 )
 from tide.model.source import (
     EntitySource,
@@ -173,6 +178,19 @@ def _create_parser() -> argparse.ArgumentParser:
         help="remote request timeout in seconds (default: 10)",
     )
     run.set_defaults(handler=_run_tui)
+
+    studio = commands.add_parser(
+        "studio",
+        help="inspect and edit an in-memory application-metadata candidate",
+    )
+    studio.add_argument(
+        "project",
+        nargs="?",
+        default=".",
+        metavar="APPLICATION",
+        help="application root or tide.yaml (default: current directory)",
+    )
+    studio.set_defaults(handler=_run_studio)
 
     serve = commands.add_parser(
         "serve",
@@ -442,6 +460,27 @@ def _create_parser() -> argparse.ArgumentParser:
     )
     designer_save.set_defaults(handler=_designer_save)
 
+    designer_recover = designer_commands.add_parser(
+        "recover",
+        help="inspect or explicitly recover an interrupted Designer save",
+    )
+    designer_recover.add_argument(
+        "project",
+        metavar="APPLICATION",
+        help="application root or tide.yaml",
+    )
+    designer_recover.add_argument(
+        "--preview",
+        action="store_true",
+        help="inspect recovery evidence without changing files",
+    )
+    designer_recover.add_argument(
+        "--json",
+        action="store_true",
+        help="emit a read-only recovery preview as structured JSON",
+    )
+    designer_recover.set_defaults(handler=_designer_recover)
+
     model = commands.add_parser("model", help="validate and inspect the application model")
     model_commands = model.add_subparsers(dest="model_command")
 
@@ -576,6 +615,28 @@ def _run_tui(arguments: argparse.Namespace) -> int:
         return _launch_tui(arguments, model, storage)
     finally:
         storage.dispose()
+
+
+def _run_studio(arguments: argparse.Namespace) -> int:
+    try:
+        service = StudioService(arguments.project)
+    except DesignerError as error:
+        print(f"Studio startup failed: {error}", file=sys.stderr)
+        return 1
+    try:
+        from tide.tui import StudioApp
+    except ModuleNotFoundError as error:
+        if error.name == "textual" or (error.name or "").startswith("textual."):
+            print(
+                "TIDE Studio requires the Textual adapter. Install the 'tui' extra "
+                "or the syntax-enabled 'studio' extra "
+                "(for example: uv sync --extra studio).",
+                file=sys.stderr,
+            )
+            return 1
+        raise
+    StudioApp(service).run()
+    return 0
 
 
 def _serve_api(arguments: argparse.Namespace) -> int:
@@ -1393,6 +1454,87 @@ def _load_designer_batch(path: Path) -> DesignerCommandBatch:
             "TIDEDSAVE008",
             f"the Designer command batch does not match its schema: {error}",
         ) from error
+
+
+def _designer_recover(arguments: argparse.Namespace) -> int:
+    try:
+        service = DesignerRecoveryService(arguments.project)
+        preparation = service.prepare()
+    except DesignerRecoveryError as error:
+        if arguments.json:
+            _print_json(
+                {
+                    "ready": False,
+                    "recovery_required": True,
+                    "writes_performed": False,
+                    "blockers": [{"code": error.code, "message": error.message}],
+                }
+            )
+        else:
+            print(f"Designer recovery failed: {error}", file=sys.stderr)
+        return 1
+
+    if arguments.json:
+        _print_json(preparation.model_dump(mode="json"))
+        if not preparation.recovery_required:
+            return 0
+        return 0 if preparation.ready else 1
+
+    _print_designer_recovery_preparation(preparation)
+    if arguments.preview or not preparation.recovery_required:
+        return 0 if preparation.ready or not preparation.recovery_required else 1
+    if not preparation.ready or preparation.approval_prompt is None:
+        print("Designer recovery refused; no files were changed.", file=sys.stderr)
+        return 1
+
+    print(
+        "\nRecovery uses the displayed file hashes to either restore the original "
+        "YAML set or finalize an already receipted save."
+    )
+    try:
+        response = input(
+            f"Type exactly {preparation.approval_prompt!r} to recover: "
+        ).strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\nDesigner recovery cancelled; no files were changed.", file=sys.stderr)
+        return 1
+    if response != preparation.approval_prompt:
+        print("Designer recovery cancelled; no files were changed.", file=sys.stderr)
+        return 1
+
+    try:
+        approval = DesignerRecoveryApproval.from_preparation(preparation)
+        result = service.recover(approval)
+    except (DesignerRecoveryError, ValueError) as error:
+        print(f"Designer recovery failed: {error}", file=sys.stderr)
+        return 1
+    print(
+        f"Designer transaction {result.transaction_id} recovered by "
+        f"{result.recovery_action}."
+    )
+    print(f"Restored YAML files: {result.restored_files}")
+    return 0
+
+
+def _print_designer_recovery_preparation(
+    preparation: DesignerRecoveryPreparation,
+) -> None:
+    print(preparation.summary)
+    print(f"Project path: {preparation.project_path}")
+    if preparation.transaction_id is not None:
+        print(f"Transaction: {preparation.transaction_id}")
+    if preparation.recovery_action is not None:
+        print(f"Recovery action: {preparation.recovery_action}")
+    if preparation.journal_phase is not None:
+        print(f"Last durable phase: {preparation.journal_phase}")
+    for artifact in preparation.artifacts:
+        print(
+            f"{artifact.path}: target={artifact.target_state}, "
+            f"backup={artifact.backup_state}, "
+            f"candidate={artifact.candidate_state}"
+        )
+    for blocker in preparation.blockers:
+        print(f"{blocker.code}: {blocker.message}", file=sys.stderr)
 
 
 def _print_designer_preparation(

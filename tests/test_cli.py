@@ -13,9 +13,20 @@ from tide.data import (
     SQLAlchemyCursorStore,
     SQLAlchemyRepository,
 )
+from tide.development import (
+    DesignerCommandBatch,
+    DesignerSaveApproval,
+    DesignerSaveService,
+    DesignerService,
+)
+from tide.development import designer_save as designer_save_module
 
 ROOT = Path(__file__).parents[1]
 INVOICING = ROOT / "applications" / "invoicing"
+
+
+class _SimulatedCliProcessLoss(BaseException):
+    pass
 
 
 def test_designer_preview_json_prepares_save_without_writing(
@@ -80,6 +91,91 @@ def test_designer_save_publishes_exact_approved_candidate(
     receipt = project / preview["receipt_path"]
     assert receipt.is_file()
     assert compile_project(project).name == "Designer CLI Fixture"
+
+
+def test_designer_recovery_preview_reports_no_interruption(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    project, _changes = _write_designer_cli_fixture(tmp_path)
+
+    result = main(
+        ["designer", "recover", str(project), "--preview", "--json"]
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert result == 0
+    assert output["ready"] is False
+    assert output["recovery_required"] is False
+    assert output["writes_performed"] is False
+
+
+def test_designer_recovery_preview_is_read_only(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    project, changes = _write_designer_cli_fixture(tmp_path)
+    _interrupt_designer_cli_save(project, changes, monkeypatch)
+    interrupted = (project / "models" / "item.yaml").read_bytes()
+
+    result = main(
+        ["designer", "recover", str(project), "--preview", "--json"]
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert result == 0
+    assert output["ready"] is True
+    assert output["recovery_action"] == "rollback"
+    assert output["approval_prompt"].startswith(
+        "RECOVER tide-designer-recovery-"
+    )
+    assert (project / "models" / "item.yaml").read_bytes() == interrupted
+
+
+def test_designer_recovery_requires_exact_interactive_confirmation(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    project, changes = _write_designer_cli_fixture(tmp_path)
+    _interrupt_designer_cli_save(project, changes, monkeypatch)
+    monkeypatch.setattr("builtins.input", lambda _prompt: "no")
+
+    result = main(["designer", "recover", str(project)])
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert "cancelled; no files were changed" in captured.err
+    assert (project / DesignerSaveService.lock_name).exists()
+
+
+def test_designer_recovery_restores_after_exact_confirmation(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    project, changes = _write_designer_cli_fixture(tmp_path)
+    _interrupt_designer_cli_save(project, changes, monkeypatch)
+    preview_result = main(
+        ["designer", "recover", str(project), "--preview", "--json"]
+    )
+    preview = json.loads(capsys.readouterr().out)
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda _prompt: preview["approval_prompt"],
+    )
+
+    result = main(["designer", "recover", str(project)])
+
+    captured = capsys.readouterr()
+    assert preview_result == 0
+    assert result == 0
+    assert "recovered by rollback" in captured.out
+    assert 'label: "Items"' in (
+        project / "models" / "item.yaml"
+    ).read_text(encoding="utf-8")
+    assert not (project / DesignerSaveService.lock_name).exists()
 
 
 def test_app_preview_json_prepares_approval_without_writing(
@@ -747,3 +843,33 @@ roles:
         encoding="utf-8",
     )
     return project, changes
+
+
+def _interrupt_designer_cli_save(
+    project: Path,
+    changes: Path,
+    monkeypatch,
+) -> None:
+    batch = DesignerCommandBatch.model_validate_json(
+        changes.read_text(encoding="utf-8")
+    )
+    session = DesignerService(project).open_session()
+    session.execute_batch(batch)
+    service = DesignerSaveService()
+    preparation = service.prepare(session)
+
+    def interrupt(name: str, _stage: Path) -> None:
+        if name == "after_install:models/item.yaml":
+            raise _SimulatedCliProcessLoss()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(designer_save_module, "_save_checkpoint", interrupt)
+        try:
+            service.save(
+                session,
+                DesignerSaveApproval.from_preparation(preparation),
+            )
+        except _SimulatedCliProcessLoss:
+            pass
+        else:  # pragma: no cover - defensive test helper
+            raise AssertionError("Designer save interruption was not reached")

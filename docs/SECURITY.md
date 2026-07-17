@@ -256,6 +256,13 @@ database, create arbitrary paths, or save source files. Snapshots disclose the
 exact diff, fingerprints, diagnostics, temporary cleanup and no-write/no-
 execution flags.
 
+Studio's expert source editor uses the same no-write boundary. Its
+`replace_document_source` command accepts only one already selected YAML file,
+rejects malformed/duplicate-key YAML and oversized candidates, and requires
+the replacement to retain the original project/entity/view/report identity.
+Applying the text only changes the bounded session and recompiles its temporary
+candidate; the Textual widget has no save or arbitrary-path capability.
+
 The separate local DesignerSaveService accepts only an already bounded session.
 Preparation rereads and fingerprints the complete live YAML/Python source tree,
 rejects stale, invalid, no-op and source-inventory-changing candidates, and
@@ -268,8 +275,20 @@ directories are refused. Originals remain in the sibling stage until all
 same-filesystem replacements succeed; ordinary failures roll back in reverse
 order. The receipt is published under `.tide/designer/` after the replacements.
 An incomplete rollback preserves the lock and recovery tree for inspection.
-Abrupt-process recovery automation and remote/MCP approval transport remain
-separate future security work.
+
+The lock is now a strict transaction record held by a cross-platform OS byte
+lock for the complete active save. Recovery cannot acquire it while the writer
+is alive. Before mutation, TIDE flushes the staged sources and writes an fsynced
+journal; atomic journal updates bracket each backup and candidate replacement.
+After an interruption, read-only recovery preparation validates identifiers and
+canonical paths before access, reconciles the journal with the lock, checks the
+receipt, reconstructs the candidate from its permitted locations, verifies
+unchanged sources and classifies every target/backup by its bound hash. Exact
+human approval binds the resulting evidence fingerprint and action. Recovery
+can only restore verified base backups or finalize a fully receipted candidate;
+ambiguous/external/tampered evidence fails closed. Recovery itself is reverse-
+ordered, fingerprinted, recompiled and resumable. Remote/MCP recovery approval
+transport remains separate future security work.
 
 Schema v0.1 is single-tenant per deployment. Multi-user does not imply
 multi-tenant: tenant identifiers must not be added as an informal row filter.

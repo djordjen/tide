@@ -12,6 +12,7 @@ from tide.development import (
     DesignerError,
     DesignerMoveSequenceItemCommand,
     DesignerRemoveValueCommand,
+    DesignerReplaceDocumentSourceCommand,
     DesignerRenameKeyCommand,
     DesignerReorderMappingCommand,
     DesignerService,
@@ -30,6 +31,7 @@ def test_designer_command_union_has_a_discriminated_json_schema() -> None:
         "reorder_mapping",
         "insert_sequence_item",
         "move_sequence_item",
+        "replace_document_source",
     }
 
 
@@ -220,6 +222,57 @@ def test_source_reference_can_address_non_semantic_yaml(tmp_path: Path) -> None:
     assert changed.valid is True
     assert changed.changed_files == ("security/policies.yaml",)
     assert "core.item.read" in session.document(target).content
+
+
+def test_replace_document_source_is_exact_in_memory_and_undoable(
+    tmp_path: Path,
+) -> None:
+    project = _write_project(tmp_path)
+    before = _source_bytes(project)
+    session = DesignerService(project).open_session()
+    original = session.document(_entity()).content
+    replacement = original.replace('label: "Items"', 'label: "Expert items"')
+
+    changed = session.execute(
+        DesignerReplaceDocumentSourceCommand(
+            target=_entity(),
+            source=replacement,
+        )
+    )
+
+    assert changed.valid
+    assert changed.dirty
+    assert changed.can_undo
+    assert '+label: "Expert items"' in changed.diff
+    assert session.document(_entity()).content == replacement
+    assert session.undo().dirty is False
+    assert session.document(_entity()).content == original
+    assert _source_bytes(project) == before
+
+
+def test_replace_document_source_rejects_malformed_yaml_and_identity_change(
+    tmp_path: Path,
+) -> None:
+    session = DesignerService(_write_project(tmp_path)).open_session()
+    original = session.document(_entity()).content
+
+    with pytest.raises(DesignerError, match="TIDEDES003"):
+        session.execute(
+            DesignerReplaceDocumentSourceCommand(
+                target=_entity(),
+                source="entity: [\n",
+            )
+        )
+    with pytest.raises(DesignerError, match="TIDEDES012"):
+        session.execute(
+            DesignerReplaceDocumentSourceCommand(
+                target=_entity(),
+                source=original.replace("core.Item", "core.Renamed", 1),
+            )
+        )
+
+    assert session.snapshot().dirty is False
+    assert session.document(_entity()).content == original
 
 
 def test_source_reference_rejects_path_escape() -> None:

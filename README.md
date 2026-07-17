@@ -82,6 +82,7 @@ uv run tide api export-openapi applications/invoicing
 uv run --extra mcp tide mcp dev applications/invoicing
 uv run tide app preview plan.json --workspace .
 uv run tide app apply plan.json --workspace .
+uv run --extra studio tide studio applications/invoicing
 uv run tide run applications/invoicing --demo --page-size 3
 uv run tide serve applications/invoicing --demo
 uv run --extra mcp tide serve applications/invoicing --demo --mcp
@@ -116,8 +117,27 @@ order commands, atomic in-memory batches, compiler validation, exact comment-
 preserving diffs and bounded undo/redo. `tide designer preview` remains no-
 write; the separate interactive `tide designer save` command binds approval to
 the canonical project path, live base, candidate and diff before transactionally
-replacing only approved YAML files and recording a receipt. See
+replacing only approved YAML files and recording a receipt. Saves now retain an
+OS-owned lock plus a durable phase journal until cleanup. The read-only
+`tide designer recover --preview` command inspects actual hashes; explicitly
+approved recovery either restores the original YAML set or finalizes an already
+receipted save. See
 [Designers and reporting](docs/DESIGNERS-AND-REPORTING.md).
+The first visible TIDE Studio slice can now be opened with `tide studio`. It is
+a separate Textual developer screen with an application/entity/view/report/
+source tree, nested scalar property inspector, YAML source, compiler diagnostics
+and exact unified-diff views. Editable scalar leaves use typed in-memory
+Designer commands. Schema `Literal` values such as field type and Boolean
+properties use generated selection controls. The YAML source is syntax-colored
+through the `studio` extra, and `Ctrl+F` searches YAML, diff, or diagnostics
+with highlighted next/previous matches. **Edit YAML** provides an explicit
+expert buffer; `Ctrl+S` applies strict YAML to the in-memory candidate, `Esc`
+cancels it, and semantic identity changes are refused. Container,
+schema-version and semantic identity property rows remain locked. Apply, undo
+and redo recompile the candidate without writing source or opening the
+application database. On Windows,
+`start.bat studio` opens the bundled invoicing project directly. Closing Studio
+discards the candidate; approved persistence remains a separate workflow.
 For reviewed network deployments, `uv sync --extra api --extra auth` adds OIDC
 discovery/JWKS access-token validation. `tide serve --auth oidc` requires an
 exact issuer and audience, maps external roles explicitly to application roles,
@@ -234,6 +254,7 @@ tide view explain sales.Invoice.edit
 tide api export-openapi
 tide db diff
 tide db migrate
+tide studio
 tide run
 tide serve
 tide report preview sales.invoice
@@ -280,11 +301,17 @@ bound interactive approval and atomic new-application publication. A comment-
 preserving headless DesignerService now provides typed existing-application
 edits, validation, diff and undo/redo. A separate local DesignerSaveService now
 adds stale-base-bound interactive approval, per-file atomic replacement,
-rollback and receipts for existing YAML sources. REST delete,
-interactive identity-provider login/refresh, trusted reverse proxies, MCP
-mutations/actions, developer-MCP designer/save tools, process-crash recovery
-automation, migrations, expanded report queries/grouping, and broader lookup-
-query capabilities remain roadmap work.
+rollback, durable interruption recovery and receipts for existing YAML sources.
+The first Textual Studio shell now exposes the semantic document tree, typed
+in-memory scalar property editing, validation, undo/redo, diagnostics, exact
+diff review, schema-derived selection controls, searchable previews and
+syntax-colored YAML plus a bounded expert YAML apply/cancel mode on top of that
+same headless service.
+REST delete, interactive identity-provider login/refresh, trusted reverse
+proxies, MCP
+mutations/actions, developer-MCP designer/save tools, migrations, expanded
+report queries/grouping, and broader lookup-query capabilities remain roadmap
+work.
 
 Metadata v0.1 is an executable experimental contract. Breaking authoring
 changes require a new `schema_version`; stable 1.0 compatibility is not yet

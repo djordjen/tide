@@ -26,10 +26,12 @@ does not contain a username or password.
 
 The default and `init` modes use
 `uv run --extra tui --extra sqlserver`; `seed` additionally requests the
-`seed` extra. Therefore a previously created `.venv` that lacks `pyodbc` is
-repaired on launch instead of failing with the optional-dependency message.
-The Microsoft ODBC driver remains a system installation and cannot be supplied
-by Python packaging.
+`seed` extra. Studio uses `uv run --extra studio`, which includes Textual's
+syntax support and YAML parser. Therefore a previously created `.venv` that
+lacks `pyodbc` or Studio syntax packages is repaired by its relevant launch
+mode instead of failing with the optional-dependency message. The Microsoft
+ODBC driver remains a system installation and cannot be supplied by Python
+packaging.
 
 ## First managed start
 
@@ -60,6 +62,39 @@ To use the isolated in-memory sample instead of SQL Server:
 ```powershell
 .\start.bat demo
 ```
+
+To browse the application definition instead of running the business
+application:
+
+```powershell
+.\start.bat studio
+```
+
+This opens TIDE Studio. Its left tree contains the application manifest,
+entities, views, report, and YAML source files; selecting one shows its nested
+properties and complete YAML source. Select an **Editable** scalar row, enter a
+value and press Enter or **Apply in memory**. The candidate is immediately
+recompiled. Use **Changes** for the exact diff, **Diagnostics** for validation
+messages, and Undo/Redo or `Ctrl+Z`/`Ctrl+Y` for history. Schema-defined choices
+such as field type and Boolean values appear as selectors. YAML source uses
+syntax colors. `Ctrl+F` searches the current YAML/diff/diagnostic view; Enter or
+Next and Previous move through highlighted matches. `Ctrl+D` opens Changes and
+`Q` exits. `R` reloads only when there are no pending edits.
+
+For a source-level change, select a document and choose **Edit YAML**. The lower
+panel becomes writable while the tree and property editor are locked to that
+document. Choose **Apply YAML** or press `Ctrl+S` to parse and compile the whole
+buffer into the in-memory candidate; the exact Changes view opens on success.
+Press `Esc` or **Cancel edit** to discard the raw buffer. Malformed YAML remains
+open for correction, while changing an entity/view/report identity is refused
+because renames require an atomic cross-document command. `Ctrl+F` also works
+inside the expert editor.
+
+These edits remain process-local and are discarded when Studio closes. Studio
+does not use `TIDE_DATABASE_URL`, connect to SQL Server, execute application
+Python, or write YAML. **Apply YAML** means apply to the process-local candidate,
+not save to disk. Persisting a candidate will be connected later through the
+separate preview/approval/save workflow documented below.
 
 To fill an empty initialized SQL Server database with deterministic development
 data, run this once after `start.bat init` has created the tables:
@@ -185,6 +220,27 @@ candidate, invalid model, new/deleted source file, Python replacement, or
 another active save. Approved YAML replacements are staged, recompiled,
 rollback-protected, and recorded under `.tide/designer/`. Developer MCP itself
 still cannot invoke this save boundary.
+
+If Windows, the terminal, or TIDE closes during the small multi-file replacement
+window, inspect the retained transaction without changing it:
+
+```powershell
+uv run tide designer recover applications/invoicing --preview
+uv run tide designer recover applications/invoicing --preview --json
+```
+
+If preview reports a safe rollback or finalize action, run:
+
+```powershell
+uv run tide designer recover applications/invoicing
+```
+
+Type the complete `RECOVER tide-designer-recovery-...` challenge. Recovery will
+not run while the original save still owns its OS lock. It restores only hash-
+verified originals, or cleans up an already successful save only when its
+receipt and candidate match. If it reports ambiguous or malformed evidence,
+leave the lock/stage in place and inspect the files or source control rather
+than deleting them manually.
 
 To verify the new reusable remote client, leave the API window running and open
 a second terminal:
