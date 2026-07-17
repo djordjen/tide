@@ -218,8 +218,7 @@ respect every relevant permission.
   comment-preserving candidates plus a separate local save service with live-
   base checks, exact interactive approval, exclusive locking, staged compiler
   verification, per-file atomic replacement, rollback and receipts**
-- interrupted-save recovery command and developer MCP Designer tools with a
-  real host-level human-approval transport;
+- interrupted-save recovery journal and explicit recovery command;
 - Textual model/view tree and property inspector;
 - structural TUI view designer;
 - role and terminal-size previews;
