@@ -80,6 +80,8 @@ uv run tide model validate applications/invoicing
 uv run tide model explain sales.Invoice.total --project applications/invoicing
 uv run tide api export-openapi applications/invoicing
 uv run --extra mcp tide mcp dev applications/invoicing
+uv run tide app preview plan.json --workspace .
+uv run tide app apply plan.json --workspace .
 uv run tide run applications/invoicing --demo --page-size 3
 uv run tide serve applications/invoicing --demo
 uv run --extra mcp tide serve applications/invoicing --demo --mcp
@@ -104,7 +106,10 @@ a deleted temporary tree, run the normal compiler plus bounded static contract
 checks, generate default views, and exercise fixed transition/sequence
 templates through isolated in-memory CRUD, authorization, action, report, HTML
 and optional PDF checks. It returns exact artifacts, hashes and a diff, but has
-no apply/workspace-write or arbitrary code/path tool. See
+no MCP-side apply/workspace-write or arbitrary code/path tool. An explicit
+local `tide app apply` command can bind those values to an absent destination,
+require the exact interactive approval challenge, and atomically publish a new
+application with an audit receipt; it never edits an existing application. See
 [AI-assisted application generation](docs/AI-APPLICATION-GENERATION.md).
 For reviewed network deployments, `uv sync --extra api --extra auth` adds OIDC
 discovery/JWKS access-token validation. `tide serve --auth oidc` requires an
@@ -263,9 +268,10 @@ runtime MCP now supplies metadata-opted schema/record resources and bounded
 structured search tools over stateless Streamable HTTP. Local developer MCP now
 provides project inspection, typed generation proposals, isolated compiler-
 checked candidate previews, bounded in-memory runtime/renderer checks and exact
-diffs without apply. REST delete,
+diffs without MCP-side apply. The separate local CLI now provides candidate-
+bound interactive approval and atomic new-application publication. REST delete,
 interactive identity-provider login/refresh, trusted reverse proxies, MCP
-mutations/actions, approved developer source application, migrations, expanded
+mutations/actions, existing-application designer writes, migrations, expanded
 report queries/grouping, and broader lookup-query capabilities remain roadmap
 work.
 

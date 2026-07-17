@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from tide.api.openapi import DEFAULT_BASE_PATH, generate_openapi
@@ -25,6 +25,13 @@ from tide.data import (
     SQLAlchemyActionExecutionStore,
     SQLAlchemyCursorStore,
     SQLAlchemyRepository,
+)
+from tide.development import (
+    ApplicationApplyApproval,
+    ApplicationApplyError,
+    ApplicationApplyPreparation,
+    ApplicationApplyService,
+    ApplicationGenerationPlan,
 )
 from tide.model.source import (
     EntitySource,
@@ -337,6 +344,52 @@ def _create_parser() -> argparse.ArgumentParser:
     seed.add_argument("--locale", default="en_US")
     seed.add_argument("--role", default="sales_clerk")
     seed.set_defaults(handler=_db_seed, create_schema=False)
+
+    application = commands.add_parser(
+        "app",
+        help="preview and explicitly apply generated applications",
+    )
+    application_commands = application.add_subparsers(dest="application_command")
+    application_preview = application_commands.add_parser(
+        "preview",
+        help="validate an application plan and prepare an approval challenge",
+    )
+    application_preview.add_argument(
+        "plan",
+        type=Path,
+        metavar="PLAN.json",
+        help="structured application generation plan",
+    )
+    application_preview.add_argument(
+        "--workspace",
+        type=Path,
+        default=Path("."),
+        help="workspace containing applications/ (default: current directory)",
+    )
+    application_preview.add_argument(
+        "--json",
+        action="store_true",
+        help="emit the approval preparation as structured JSON",
+    )
+    application_preview.set_defaults(handler=_app_preview)
+
+    application_apply = application_commands.add_parser(
+        "apply",
+        help="interactively approve and atomically publish a new application",
+    )
+    application_apply.add_argument(
+        "plan",
+        type=Path,
+        metavar="PLAN.json",
+        help="structured application generation plan",
+    )
+    application_apply.add_argument(
+        "--workspace",
+        type=Path,
+        default=Path("."),
+        help="workspace containing applications/ (default: current directory)",
+    )
+    application_apply.set_defaults(handler=_app_apply)
 
     model = commands.add_parser("model", help="validate and inspect the application model")
     model_commands = model.add_subparsers(dest="model_command")
@@ -1106,6 +1159,123 @@ def _db_seed(arguments: argparse.Namespace) -> int:
         f"Fake-data seeding complete ({summary}; seed={arguments.random_seed})."
     )
     return 0
+
+
+def _app_preview(arguments: argparse.Namespace) -> int:
+    try:
+        plan = _load_application_plan(arguments.plan)
+    except ApplicationApplyError as error:
+        if arguments.json:
+            _print_json(
+                {
+                    "ready": False,
+                    "writes_performed": False,
+                    "blockers": [{"code": error.code, "message": error.message}],
+                }
+            )
+        else:
+            print(f"Application preview failed: {error}", file=sys.stderr)
+        return 1
+
+    preparation = ApplicationApplyService(arguments.workspace).prepare(plan)
+    if arguments.json:
+        _print_json(preparation.model_dump(mode="json"))
+    else:
+        _print_application_preparation(preparation)
+    return 0 if preparation.ready else 1
+
+
+def _app_apply(arguments: argparse.Namespace) -> int:
+    try:
+        plan = _load_application_plan(arguments.plan)
+        service = ApplicationApplyService(arguments.workspace)
+        preparation = service.prepare(plan)
+    except ApplicationApplyError as error:
+        print(f"Application apply failed: {error}", file=sys.stderr)
+        return 1
+
+    _print_application_preparation(preparation)
+    if not preparation.ready or preparation.approval_prompt is None:
+        print("Application apply refused; no files were written.", file=sys.stderr)
+        return 1
+
+    print(
+        "\nThis command creates a new application source tree. It never overwrites "
+        "an existing application."
+    )
+    try:
+        response = input(
+            f"Type exactly {preparation.approval_prompt!r} to publish: "
+        ).strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\nApplication apply cancelled; no files were written.", file=sys.stderr)
+        return 1
+    if response != preparation.approval_prompt:
+        print("Application apply cancelled; no files were written.", file=sys.stderr)
+        return 1
+
+    try:
+        approval = ApplicationApplyApproval.from_preparation(preparation)
+        result = service.apply(plan, approval)
+    except (ApplicationApplyError, ValueError) as error:
+        print(f"Application apply failed: {error}", file=sys.stderr)
+        return 1
+    print(
+        f"Applied {result.artifact_count} generated artifacts to {result.target_path}."
+    )
+    print(f"Approval receipt: {result.receipt_path}")
+    print(f"Candidate fingerprint: {result.candidate_fingerprint}")
+    return 0
+
+
+def _load_application_plan(path: Path) -> ApplicationGenerationPlan:
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as error:
+        raise ApplicationApplyError(
+            "TIDEAPPLY008",
+            f"the application plan could not be read: {error}",
+        ) from error
+    except json.JSONDecodeError as error:
+        raise ApplicationApplyError(
+            "TIDEAPPLY008",
+            f"the application plan is not valid JSON at line {error.lineno}",
+        ) from error
+    try:
+        return ApplicationGenerationPlan.model_validate(document)
+    except ValidationError as error:
+        raise ApplicationApplyError(
+            "TIDEAPPLY008",
+            f"the application plan does not match the structured schema: {error}",
+        ) from error
+
+
+def _print_application_preparation(
+    preparation: ApplicationApplyPreparation,
+) -> None:
+    print(preparation.summary)
+    if preparation.application_id is not None:
+        print(f"Application: {preparation.application_id}")
+    if preparation.target_path is not None:
+        print(
+            f"Destination: {preparation.target_path} ({preparation.destination_state})"
+        )
+    print(f"Proposal: {preparation.proposal_id}")
+    if preparation.candidate_id is not None:
+        print(f"Candidate: {preparation.candidate_id}")
+    if preparation.candidate_fingerprint is not None:
+        print(f"Candidate fingerprint: {preparation.candidate_fingerprint}")
+    if preparation.base_fingerprint is not None:
+        print(f"Base fingerprint: {preparation.base_fingerprint}")
+    passed = sum(check.status == "passed" for check in preparation.checks)
+    failed = sum(check.status == "failed" for check in preparation.checks)
+    skipped = sum(check.status == "skipped" for check in preparation.checks)
+    print(f"Checks: {passed} passed, {failed} failed, {skipped} skipped")
+    for blocker in preparation.blockers:
+        print(f"{blocker.code}: {blocker.message}", file=sys.stderr)
+    if preparation.diff:
+        print("\nExact candidate diff:\n")
+        print(preparation.diff.rstrip())
 
 
 def _model_validate(arguments: argparse.Namespace) -> int:

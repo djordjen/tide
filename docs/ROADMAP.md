@@ -207,7 +207,10 @@ respect every relevant permission.
   generated default views, bounded static and isolated in-memory CRUD/security/
   action/idempotency/report/HTML/optional-PDF checks, exact artifacts/digests/
   diff, and proposal/base/candidate fingerprints; **implemented without apply**
-- actual destination/stale-base detection and explicit apply approval;
+- actual destination/stale-base detection, candidate-bound approval challenge,
+  interactive local apply, atomic new-tree publication, failure cleanup, and
+  an approval/artifact receipt; **implemented for new applications; developer
+  MCP remains no-write pending a host-level human-approval contract**
 - headless DesignerService and command model;
 - undo, redo, validation, source diff, and save;
 - Textual model/view tree and property inspector;

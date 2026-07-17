@@ -18,6 +18,82 @@ ROOT = Path(__file__).parents[1]
 INVOICING = ROOT / "applications" / "invoicing"
 
 
+def test_app_preview_json_prepares_approval_without_writing(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    plan = _write_generation_plan(tmp_path)
+
+    result = main(
+        [
+            "app",
+            "preview",
+            str(plan),
+            "--workspace",
+            str(tmp_path),
+            "--json",
+        ]
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert result == 0
+    assert output["ready"] is True
+    assert output["writes_performed"] is False
+    assert output["target_path"] == "applications/generated-cli-app"
+    assert output["approval_prompt"].startswith("APPLY tide-approval-")
+    assert not (tmp_path / "applications").exists()
+
+
+def test_app_apply_requires_exact_interactive_confirmation(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    plan = _write_generation_plan(tmp_path)
+    monkeypatch.setattr("builtins.input", lambda _prompt: "no")
+
+    result = main(["app", "apply", str(plan), "--workspace", str(tmp_path)])
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert "Exact candidate diff:" in captured.out
+    assert "cancelled; no files were written" in captured.err
+    assert not (tmp_path / "applications").exists()
+
+
+def test_app_apply_publishes_after_exact_interactive_confirmation(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    plan = _write_generation_plan(tmp_path)
+    preview_result = main(
+        [
+            "app",
+            "preview",
+            str(plan),
+            "--workspace",
+            str(tmp_path),
+            "--json",
+        ]
+    )
+    preview = json.loads(capsys.readouterr().out)
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda _prompt: preview["approval_prompt"],
+    )
+
+    result = main(["app", "apply", str(plan), "--workspace", str(tmp_path)])
+
+    captured = capsys.readouterr()
+    target = tmp_path / "applications" / "generated-cli-app"
+    assert preview_result == 0
+    assert result == 0
+    assert "Applied" in captured.out
+    assert "applications/generated-cli-app/.tide-apply.json" in captured.out
+    assert compile_project(target).name == "Generated CLI App"
+
+
 def test_model_validate_json(capsys) -> None:
     result = main(["model", "validate", str(INVOICING), "--json"])
     output = json.loads(capsys.readouterr().out)
@@ -496,3 +572,39 @@ def test_db_seed_populates_empty_managed_database_deterministically(
     )
     assert repeated == 1
     assert "database is not empty" in capsys.readouterr().err
+
+
+def _write_generation_plan(tmp_path: Path) -> Path:
+    path = tmp_path / "plan.json"
+    path.write_text(
+        json.dumps(
+            {
+                "operations": [
+                    {
+                        "operation": "create_application",
+                        "application_id": "generated-cli-app",
+                        "name": "Generated CLI App",
+                    },
+                    {
+                        "operation": "define_entity",
+                        "entity": "core.Item",
+                        "display": "{name}",
+                        "fields": [
+                            {
+                                "name": "id",
+                                "type": "integer",
+                                "primary_key": True,
+                            },
+                            {
+                                "name": "name",
+                                "type": "string",
+                                "required": True,
+                            },
+                        ],
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path

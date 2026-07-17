@@ -229,9 +229,21 @@ timestamp stamps use the server clock and cannot be supplied by the caller.
 Temporary/in-memory isolation is not an OS sandbox; custom Python must never be
 executed through this path. Result flags disclose fixed-template execution,
 in-memory checks, external commands and database access explicitly.
-STDIO stdout is reserved for protocol messages. Remote developer hosting and
-source application remain disabled pending authenticated workspace isolation,
-actual destination/stale-base detection, explicit approval and audit.
+STDIO stdout is reserved for protocol messages.
+
+The separate local application-approval service accepts the same typed plan,
+not MCP-provided paths. It confines new targets to canonical
+`applications/<application-id>` directories, rejects symbolic-link roots,
+existing and case-colliding targets, binds an approval challenge to the actual
+absent base and exact candidate, and requires interactive CLI confirmation.
+Apply regenerates and revalidates the candidate, takes an exclusive lock,
+stages and byte-checks every artifact, recompiles the staged tree, publishes by
+same-filesystem rename, and records `.tide-apply.json`. Failures clean TIDE-
+owned staging and lock files; a successful target prevents replay. Existing-
+application editing and MCP-side apply remain disabled pending a host-level
+human-approval contract, comment-preserving changes and conflict handling.
+Remote developer hosting additionally requires authenticated workspace
+isolation, repository authorization, proposal ownership, quotas and audit.
 
 Schema v0.1 is single-tenant per deployment. Multi-user does not imply
 multi-tenant: tenant identifiers must not be added as an informal row filter.

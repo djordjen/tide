@@ -299,10 +299,12 @@ ephemeral materialization/runtime checks from source or database mutation with
 command, database-access and in-memory-check flags.
 
 There are no caller-selected paths, arbitrary Python, apply, workspace-write,
-external-test-execution, or shell tools. See
-[AI-assisted application generation](AI-APPLICATION-GENERATION.md) for the
-remaining stale-base, explicit-approval, apply, and audit stages that must
-precede any future write tool.
+external-test-execution, or shell tools in developer MCP. The separate local
+`tide app preview` and interactive `tide app apply` commands now bind a verified
+new-application candidate to the actual absent destination, publish it
+atomically, and write an approval/artifact receipt. See
+[AI-assisted application generation](AI-APPLICATION-GENERATION.md). MCP-side
+apply remains disabled until a host-level human-approval contract exists.
 
 ## Runtime MCP server
 

@@ -151,9 +151,19 @@ runs fixed TIDE-owned sequence/transition templates through bounded in-memory
 CRUD, authorization, idempotency, report, HTML and optional PDF checks. It runs
 no external command, uses no configured application database, and always
 confirms that no workspace write or persistent candidate occurred.
-There is not yet an apply tool: see
-[AI-assisted application generation](AI-APPLICATION-GENERATION.md) for the
-remaining stale-base and explicit approval flow.
+Developer MCP still has no apply tool. Save the same structured plan as JSON to
+use the separate local approval boundary:
+
+```powershell
+uv run tide app preview plan.json --workspace .
+uv run tide app apply plan.json --workspace .
+```
+
+The second command prints the exact diff and requires the complete displayed
+`APPLY tide-approval-...` challenge. It creates only a previously absent
+`applications/<application-id>` tree and records `.tide-apply.json`; it never
+edits or replaces an existing application. See
+[AI-assisted application generation](AI-APPLICATION-GENERATION.md).
 
 To verify the new reusable remote client, leave the API window running and open
 a second terminal:

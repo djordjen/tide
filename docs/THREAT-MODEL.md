@@ -40,7 +40,7 @@ authorization; application services are the enforcement boundary.
 | Developer MCP arbitrary file/code execution | Process-selected project root; discriminated logical operations; no caller path/Python/module/shell/apply tools; confined deleted candidate; only reviewed fixed templates execute after AST/compiler checks, never custom code |
 | Candidate path traversal or case collision | Framework-derived relative paths; reject absolute/parent paths and case-insensitive collisions before temporary materialization |
 | Candidate smoke test reaches real data or commands | Fresh in-memory repository/services only; no configured database or external command; explicit result flags; bounded entity/action/report counts and relationship depth |
-| AI source changes applied without informed consent | Proposal/base/candidate fingerprints, exact artifacts and diff, isolated compilation/static/runtime checks now; future apply requires actual destination/stale-base check, explicit approval, and audit |
+| AI source changes applied without informed consent | Proposal/base/candidate fingerprints, exact artifacts and diff, isolated compilation/static/runtime checks, actual absent-destination checks, a candidate-bound challenge typed through the local CLI, regeneration/revalidation, exclusive apply lock, same-filesystem staged publication, and an approval/artifact receipt; developer MCP remains no-write |
 | Generated audit timestamp forgery | Fixed transition templates use the server UTC clock and ignore caller payload for generated stamps |
 
 ## Non-goals for v0.1

@@ -126,15 +126,57 @@ executable line comes from a reviewed TIDE template with typed, escaped
 identifiers/literals. A future custom-code operation must not use this execution
 path; it needs a separate conspicuous approval unit and a real sandbox.
 
-The service accepts no destination path and exposes no apply/write tool. It can
-therefore help an AI and user refine and compile a design without silently
-creating or changing workspace files. Project inspection also remains
-available when compilation fails: validation, proposal, and isolated candidate
-preview remain advertised until the existing project becomes valid.
+The developer MCP service accepts no destination path and exposes no
+apply/write tool. It can therefore help an AI and user refine and compile a
+design without silently creating or changing workspace files. Project
+inspection also remains available when compilation fails: validation,
+proposal, and isolated candidate preview remain advertised until the existing
+project becomes valid.
 
-## Remaining approval and apply flow
+## Local approval and apply flow
 
-The implemented preview covers the first four stages:
+The same structured plan passed to the MCP proposal/preview tools can be saved
+as JSON and prepared from the repository root without writing anything:
+
+```bash
+uv run tide app preview plan.json --workspace .
+uv run tide app preview plan.json --workspace . --json
+```
+
+Preparation reruns the complete candidate preview, inspects the actual
+`applications/<application-id>` destination, and binds an approval ID to the
+proposal ID, canonical destination, absent-base fingerprint, candidate ID, and
+candidate fingerprint. It rejects existing or case-colliding targets, unsafe
+or symbolic-link application roots, invalid previews, and inconsistent
+artifact hashes.
+
+Application is a separate interactive command:
+
+```bash
+uv run tide app apply plan.json --workspace .
+```
+
+The command displays the exact candidate diff and requires the user to type
+the complete `APPLY tide-approval-...` challenge. There is deliberately no
+`--yes` switch. After confirmation, TIDE regenerates and revalidates the plan,
+rechecks the destination and all bound fingerprints, takes an exclusive
+per-application apply lock, writes into a temporary sibling directory, verifies
+the staged bytes, compiles that exact tree, and publishes it by a same-filesystem
+rename. Existing applications are never edited or replaced. Failure removes
+the staging tree and TIDE-owned lock.
+
+A successful new application contains `.tide-apply.json` with the approval,
+proposal, base, candidate, diff-hash, and artifact-hash receipt. The applied
+files make the exact approved source change visible to source control. Reusing
+the approval fails because the destination now exists.
+
+The developer MCP itself remains read/propose/preview-only. A future MCP apply
+tool must obtain a real host-level human approval and then call this service;
+it must not manufacture an approval merely because it can read preview output.
+
+## Approval stages
+
+The new-application flow now covers all eight stages:
 
 1. Materialize a valid proposal into an isolated candidate source tree;
    **implemented for new applications**.
@@ -147,17 +189,21 @@ The implemented preview covers the first four stages:
    idempotency, report-document, HTML and optional PDF checks using only fixed
    TIDE templates; **implemented**.
 6. Bind an explicit approval to the proposal ID, actual destination base
-   fingerprint and exact candidate fingerprint.
+   fingerprint and exact candidate fingerprint; **implemented by local
+   approval preparation**.
 7. Apply only through an explicit user-approved command, refusing an existing
-   new-application target or a stale base.
-8. Preserve the approved diff for source control, undo and audit.
+   new-application target or a stale base; **implemented by the interactive
+   local CLI with atomic publication**.
+8. Preserve the approved diff for source control, undo and audit;
+   **implemented through the applied source tree and `.tide-apply.json`
+   receipt**.
 
-The current base fingerprint identifies an empty logical tree at
-`applications/<application-id>`; it does not claim the destination is empty.
-That fact must be checked and bound at approval/apply time. Editing an existing
-application additionally needs a comment-preserving round-trip strategy and
-stable model paths. Until those contracts exist, the developer MCP will not
-pretend that a candidate has been applied.
+The preview base fingerprint identifies an empty logical tree at
+`applications/<application-id>`; local approval preparation now checks that the
+actual destination is absent before binding it. Editing an existing application
+still needs a comment-preserving round-trip strategy, stable model paths,
+conflict handling, and explicit rename/delete semantics. Until those contracts
+exist, TIDE applies new applications only.
 
 Custom business logic remains ordinary trusted Python, but AI generation does
 not use an unrestricted Python-writing tool. The current state-transition code
