@@ -1078,6 +1078,7 @@ def _launch_remote_tui(
         from tide.api.client import TideApiClient
         from tide.api.remote import (
             RemoteActionService,
+            RemoteAuditHistoryService,
             RemoteRecordsService,
             RemoteReportService,
         )
@@ -1117,12 +1118,14 @@ def _launch_remote_tui(
             )
             records = RemoteRecordsService(model, client, session)
             actions = RemoteActionService(client)
+            audits = RemoteAuditHistoryService(client, session)
             reports = RemoteReportService(client, session)
             TideApp(
                 model,
                 records,
                 context,
                 actions=actions,
+                audit_history=audits,
                 view_name=arguments.view,
                 page_size=arguments.page_size,
                 source_label=f"remote API {arguments.api_url}",

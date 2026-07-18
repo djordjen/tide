@@ -13,6 +13,7 @@ __all__ = [
     "OidcJwtAuthenticator",
     "OpenApiPreview",
     "RemoteActionService",
+    "RemoteAuditHistoryService",
     "RemoteRecordsService",
     "RemoteReportService",
     "RemoteSecurityView",
@@ -41,12 +42,14 @@ def __getattr__(name: str) -> Any:
         }[name]
     if name in {
         "RemoteActionService",
+        "RemoteAuditHistoryService",
         "RemoteRecordsService",
         "RemoteReportService",
         "RemoteSecurityView",
     }:
         from tide.api.remote import (
             RemoteActionService,
+            RemoteAuditHistoryService,
             RemoteRecordsService,
             RemoteReportService,
             RemoteSecurityView,
@@ -54,6 +57,7 @@ def __getattr__(name: str) -> Any:
 
         return {
             "RemoteActionService": RemoteActionService,
+            "RemoteAuditHistoryService": RemoteAuditHistoryService,
             "RemoteRecordsService": RemoteRecordsService,
             "RemoteReportService": RemoteReportService,
             "RemoteSecurityView": RemoteSecurityView,

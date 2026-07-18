@@ -18,12 +18,19 @@ from tide.data import (
     SQLAlchemyRepository,
     SchemaManagementError,
 )
-from tide.runtime import ActionDisabled, Channel, Principal, RequestContext
+from tide.runtime import (
+    ActionDisabled,
+    AuthorizationError,
+    Channel,
+    Principal,
+    RequestContext,
+)
 from tide.runtime.errors import ConcurrencyError, IdempotencyConflict
 from tide.services import (
     ActionAuditEvent,
     ActionExecutionStore,
     ActionService,
+    AuditHistoryService,
     AuditOutcome,
     IdempotencyStatus,
     InMemoryActionExecutionStore,
@@ -384,6 +391,67 @@ def test_audit_events_preserve_begin_order_when_timestamps_match() -> None:
             "z-first",
             "a-second",
         ]
+
+    sql_store.dispose()
+
+
+def test_audit_history_is_bounded_filtered_newest_first_and_authorized() -> None:
+    sql_store = SQLAlchemyActionExecutionStore(
+        "sqlite+pysqlite:///:memory:",
+        mode="managed",
+    )
+    sql_store.create_schema()
+    stores: tuple[ActionExecutionStore, ...] = (
+        InMemoryActionExecutionStore(),
+        sql_store,
+    )
+    started_at = datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)
+    events = (
+        ("invoice-1-first", "sales.Invoice", 1),
+        ("invoice-2", "sales.Invoice", 2),
+        ("invoice-1-latest", "sales.Invoice", 1),
+        ("product-1", "catalog.Product", 1),
+    )
+
+    model = compile_project(INVOICING)
+    auditor = RequestContext(
+        Principal("user:auditor", roles=frozenset({"auditor"})),
+        channel=Channel.TUI,
+    )
+    clerk = RequestContext(
+        Principal("user:clerk", roles=frozenset({"sales_clerk"})),
+        channel=Channel.TUI,
+    )
+    for store in stores:
+        for event_id, entity, identity in events:
+            store.begin_audit(
+                ActionAuditEvent(
+                    event_id=event_id,
+                    entity=entity,
+                    action="post",
+                    identity=identity,
+                    principal="user:clerk",
+                    channel="tui",
+                    correlation_id=event_id,
+                    started_at=started_at,
+                )
+            )
+        service = AuditHistoryService(model, store)
+        assert service.can_view("sales.Invoice", auditor)
+        assert not service.can_view("sales.Invoice", clerk)
+        assert [
+            event.event_id
+            for event in service.for_record(
+                "sales.Invoice",
+                1,
+                auditor,
+                limit=1,
+            )
+        ] == ["invoice-1-latest"]
+        with pytest.raises(AuthorizationError):
+            service.for_record("sales.Invoice", 1, clerk)
+        with pytest.raises(ValueError, match="between 1 and 500"):
+            service.for_record("sales.Invoice", 1, auditor, limit=0)
 
     sql_store.dispose()
 

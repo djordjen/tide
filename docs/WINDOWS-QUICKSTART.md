@@ -74,6 +74,18 @@ To use the isolated in-memory sample instead of SQL Server:
 .\start.bat demo
 ```
 
+To open the read-only auditor workspace and inspect permitted invoice action
+history, use `auditor` for SQL Server or `auditor-demo` for isolated demo data:
+
+```powershell
+.\start.bat auditor
+.\start.bat auditor-demo
+```
+
+Select an invoice and choose **History** or press `H`. Persistent history is
+created when an audited action such as Post runs; a fresh demo process starts
+with no prior events.
+
 To browse the application definition instead of running the business
 application:
 

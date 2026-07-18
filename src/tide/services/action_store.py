@@ -103,6 +103,10 @@ class ActionExecutionStore(Protocol):
         self,
         *,
         correlation_id: str | None = None,
+        entity: str | None = None,
+        identity: Any | None = None,
+        limit: int | None = None,
+        newest_first: bool = False,
     ) -> tuple[ActionAuditEvent, ...]: ...
 
 
@@ -206,13 +210,23 @@ class InMemoryActionExecutionStore:
         self,
         *,
         correlation_id: str | None = None,
+        entity: str | None = None,
+        identity: Any | None = None,
+        limit: int | None = None,
+        newest_first: bool = False,
     ) -> tuple[ActionAuditEvent, ...]:
+        _validate_audit_limit(limit)
         with self._lock:
-            events = (
+            matching = [
                 event
                 for event in self._audit.values()
                 if correlation_id is None or event.correlation_id == correlation_id
-            )
+                if entity is None or event.entity == entity
+                if identity is None or event.identity == identity
+            ]
+            if newest_first:
+                matching.reverse()
+            events = matching if limit is None else matching[:limit]
             return tuple(_copy_audit(event) for event in events)
 
     def _matching_idempotency(
@@ -321,3 +335,8 @@ def _copy_idempotency(record: IdempotencyRecord) -> IdempotencyRecord:
 
 def _copy_audit(event: ActionAuditEvent) -> ActionAuditEvent:
     return replace(event, identity=deepcopy(event.identity))
+
+
+def _validate_audit_limit(limit: int | None) -> None:
+    if limit is not None and (limit < 1 or limit > 500):
+        raise ValueError("audit limit must be between 1 and 500")

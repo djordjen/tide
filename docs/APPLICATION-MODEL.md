@@ -120,6 +120,11 @@ Mutation exposure grants no authority by itself. Every exposed operation also
 needs its entity permission, such as `permissions.delete`, and deletion follows
 each incoming reference's explicit `on_delete` behavior.
 
+Action-history access is separately fail-closed. An entity may declare
+`permissions.audit`; only principals with that permission can use renderer or
+REST history surfaces. The permission does not imply ordinary record mutation,
+and ordinary read/update permissions do not imply audit access.
+
 The field identifier is stable application vocabulary. Labels, help text,
 formats, editor hints, and localization are separate facets of the field.
 Runtime MCP exposure is deny-by-default. Schema v0.1 currently accepts only

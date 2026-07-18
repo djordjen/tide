@@ -10,6 +10,8 @@ if /I "%~1"=="init" goto initialize
 if /I "%~1"=="check" goto check
 if /I "%~1"=="seed" goto seed
 if /I "%~1"=="demo" goto demo
+if /I "%~1"=="auditor" goto auditor
+if /I "%~1"=="auditor-demo" goto auditor_demo
 if /I "%~1"=="studio" goto studio
 if /I "%~1"=="api" goto api
 if /I "%~1"=="api-demo" goto api_demo
@@ -35,6 +37,16 @@ goto finish
 
 :demo
 uv run --extra tui tide run applications/invoicing --demo --page-size 5
+goto finish
+
+:auditor
+echo Starting the read-only auditor workspace against SQL Server...
+uv run --extra tui --extra sqlserver tide run applications/invoicing --database-env --role auditor --page-size 5
+goto finish
+
+:auditor_demo
+echo Starting the read-only auditor workspace with isolated demo data...
+uv run --extra tui tide run applications/invoicing --demo --role auditor --page-size 5
 goto finish
 
 :studio
@@ -105,6 +117,8 @@ echo   start.bat        Start normally against the existing SQL Server database
 echo   start.bat check  Read-only SQL Server connectivity and compatibility check
 echo   start.bat seed   Seed an empty initialized database with fake data
 echo   start.bat demo   Start isolated in-memory demo data
+echo   start.bat auditor Start read-only audit/report mode against SQL Server
+echo   start.bat auditor-demo Start read-only audit/report mode with demo data
 echo   start.bat studio Inspect and edit application metadata in memory
 echo   start.bat api    Start local API against SQL Server
 echo   start.bat api-demo Start local API with demo data

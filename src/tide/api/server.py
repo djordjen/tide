@@ -27,6 +27,8 @@ from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from tide.api.contracts import (
     TIDE_WIRE_VERSION,
+    TideAuditEvent,
+    TideAuditHistory,
     TideEntityCapabilities,
     TideQueryInput,
     TideReferenceSelectionInput,
@@ -69,7 +71,12 @@ from tide.runtime import (
 )
 from tide.reporting import ReportService
 from tide.security import PROTECTED
-from tide.services import ActionService, RecordsService
+from tide.services import (
+    ActionService,
+    AuditHistoryReader,
+    AuditHistoryService,
+    RecordsService,
+)
 
 
 SERVER_OPERATIONS = REST_OPERATIONS
@@ -118,6 +125,7 @@ class TideApiRuntime:
     records: RecordsService
     actions: ActionService
     reports: ReportService
+    audits: AuditHistoryReader
     authenticator: BearerAuthenticator
     base_path: str
 
@@ -129,6 +137,7 @@ def build_fastapi_app(
     *,
     actions: ActionService | None = None,
     reports: ReportService | None = None,
+    audits: AuditHistoryReader | None = None,
     base_path: str = DEFAULT_BASE_PATH,
 ) -> FastAPI:
     """Build an HTTP adapter over services without granting client database access."""
@@ -137,6 +146,11 @@ def build_fastapi_app(
     exposures = rest_exposures(model, allowed_operations=SERVER_OPERATIONS)
     action_service = actions or ActionService(model, records)
     report_service = reports or ReportService(model, records)
+    audit_service = audits or AuditHistoryService(
+        model,
+        action_service.execution_store,
+        records.security,
+    )
     create_models, update_models = _build_writable_models(model, exposures)
     app = FastAPI(
         title=f"{model.name} API",
@@ -151,6 +165,7 @@ def build_fastapi_app(
         records,
         action_service,
         report_service,
+        audit_service,
         authenticator,
         base_path,
     )
@@ -321,6 +336,11 @@ def build_fastapi_app(
                 readable_fields=readable_fields,
                 writable_fields=writable_fields,
                 actions=allowed_actions,
+                audit=bool(
+                    exposure is not None
+                    and "get" in operations
+                    and audit_service.can_view(entity_name, context)
+                ),
             )
         return TideSessionInfo(
             application=model.name,
@@ -456,6 +476,27 @@ def build_fastapi_app(
                 tags=[tag],
                 responses=_documented_errors(400, 401, 403, 404, 422),
             )
+            if entity.metadata.get("permissions", {}).get("audit") is not None:
+                audit_endpoint = _audit_endpoint(
+                    audit_service,
+                    model,
+                    entity,
+                    primary_key,
+                    request_context,
+                )
+                app.add_api_route(
+                    f"{resource_path}/{{{primary_key.name}}}/_audit",
+                    audit_endpoint,
+                    methods=["GET"],
+                    response_model=TideAuditHistory,
+                    name=f"Audit history for {entity.label}",
+                    operation_id=(
+                        "audit"
+                        f"{preview.record_models[entity_name].__name__.removesuffix('Record')}"
+                    ),
+                    tags=[tag],
+                    responses=_documented_errors(400, 401, 403, 422),
+                )
         if "create" in exposure.operations:
             create_endpoint = _create_endpoint(
                 records,
@@ -566,6 +607,57 @@ def build_fastapi_app(
 
     app.openapi = tide_openapi  # type: ignore[method-assign]
     return app
+
+
+def _audit_endpoint(
+    audits: AuditHistoryReader,
+    model: ApplicationModel,
+    entity: NormalizedEntity,
+    primary_key: NormalizedField,
+    context_dependency: Any,
+) -> Any:
+    def record_audit(
+        context: RequestContext = Depends(context_dependency),
+        identity: str = Path(alias=primary_key.name, description="Record identity"),
+        limit: int = Query(100, ge=1, le=500),
+    ) -> TideAuditHistory:
+        try:
+            typed_identity = _coerce_identity(model, primary_key, identity)
+        except (TypeError, ValueError, InvalidOperation) as error:
+            raise _bad_request("record identity has an invalid type") from error
+        events = audits.for_record(
+            entity.name,
+            typed_identity,
+            context,
+            limit=limit,
+        )
+        return TideAuditHistory(
+            entity=entity.name,
+            identity=typed_identity,
+            events=tuple(
+                TideAuditEvent(
+                    event_id=event.event_id,
+                    entity=event.entity,
+                    action=event.action,
+                    identity=event.identity,
+                    principal=event.principal,
+                    channel=event.channel,
+                    correlation_id=event.correlation_id,
+                    started_at=event.started_at,
+                    outcome=str(event.outcome),
+                    finished_at=event.finished_at,
+                    error_code=event.error_code,
+                )
+                for event in events
+            ),
+        )
+
+    record_audit.__name__ = f"audit_{entity.name.replace('.', '_')}"
+    record_audit.__annotations__["identity"] = _identity_annotation(
+        model,
+        primary_key,
+    )
+    return record_audit
 
 
 def _build_writable_models(

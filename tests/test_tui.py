@@ -27,6 +27,7 @@ from tide.tui import (
     configure_application_runtime,
     seed_demo_data,
 )
+from tide.tui.audit import AuditHistoryScreen
 from tide.tui.form import NumericMaskedInput, RecordEditScreen
 from tide.tui.confirm import DeleteConfirmationScreen
 from tide.tui.conflict import ConflictReviewScreen
@@ -933,6 +934,59 @@ def test_textual_invoice_post_uses_registered_action_and_audit() -> None:
             assert events[0].action == "post"
             assert events[0].outcome is AuditOutcome.SUCCEEDED
             assert not isinstance(app.screen, RecordEditScreen)
+
+    asyncio.run(exercise())
+
+
+def test_textual_auditor_opens_safe_record_action_history() -> None:
+    app = _demo_app(page_size=3, role="auditor")
+    app.actions.execute(
+        "sales.Invoice",
+        "post",
+        2,
+        {},
+        RequestContext(
+            Principal("audit:clerk", roles=frozenset({"sales_clerk"})),
+            channel=Channel.TUI,
+            correlation_id="tui-history-post",
+        ),
+        idempotency_key="tui-history-post-2",
+    )
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 36)) as pilot:
+            await pilot.pause()
+            table = app.query_one("#records", DataTable)
+            history_button = app.query_one("#audit-history", Button)
+            assert history_button.display
+            assert not history_button.disabled
+
+            table.move_cursor(row=1)
+            history_button.press()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, AuditHistoryScreen),
+            )
+            screen = app.screen
+            assert isinstance(screen, AuditHistoryScreen)
+            events = screen.query_one("#audit-events", DataTable)
+            assert events.row_count == 1
+            assert [str(value) for value in events.get_row_at(0)[1:]] == [
+                "post",
+                "succeeded",
+                "audit:clerk",
+                "tui",
+                "tui-history-post",
+            ]
+            assert "Payloads are never included" in str(
+                screen.query_one("#audit-status", Static).content
+            )
+
+            await pilot.press("escape")
+            await _wait_until(
+                pilot,
+                lambda: not isinstance(app.screen, AuditHistoryScreen),
+            )
 
     asyncio.run(exercise())
 

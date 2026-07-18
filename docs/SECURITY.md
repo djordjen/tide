@@ -355,6 +355,9 @@ Multi-tenant support requires an explicit isolation and migration contract.
 
 Implemented action audit records include principal, channel, action, entity,
 typed identity, timestamps, correlation identifier, and outcome. They exclude
-payloads, protected values, and raw idempotency keys. Permitted change details,
-generic CRUD, MCP, report/export audit, retention, and reconciliation remain
-future extensions and must preserve the same non-disclosure rule.
+payloads, protected values, and raw idempotency keys. Explicit per-entity audit
+permission now gates bounded record history through local/remote Textual and
+REST, whose projection also omits the stored idempotency-key hash. Permitted
+change details, generic CRUD, MCP, report/export audit, retention, and
+reconciliation remain future extensions and must preserve the same
+non-disclosure rule.

@@ -306,7 +306,8 @@ first metadata-driven Textual invoicing workflow is runnable with
 application-owned demo data, secured reference display, opaque paging,
 create/edit forms, master-detail line editing, validation and concurrency
 feedback, audited posting, invoice-number incremental search, named filters,
-and sortable stored scalar columns through keyboard or mouse controls. Secured
+sortable stored scalar columns, and permission-gated action history through
+keyboard or mouse controls. Secured
 single-record invoice reporting now provides a terminal preview plus HTML and
 PDF export. A loopback-only FastAPI server hosts secured list/get/create/update
 and Invoice Post routes with typed input, ETag concurrency, idempotency, and

@@ -14,7 +14,7 @@ from tide.api.server import DevelopmentTokenAuthenticator, build_fastapi_app
 from tide.compiler.normalized import deep_thaw, immutable_mapping
 from tide.cli import main
 from tide.data import InMemoryRepository
-from tide.runtime import Principal
+from tide.runtime import Channel, Principal, RequestContext
 from tide.runtime.application import configure_application_runtime
 from tide.services import ActionService, RecordsService
 from tide.tui import seed_demo_data
@@ -73,6 +73,7 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
             "lines",
         }
         assert invoice_capabilities["actions"] == ["post"]
+        assert invoice_capabilities["audit"] is False
         for response in (missing, incorrect):
             assert response.status_code == 401
             assert response.json() == {
@@ -104,6 +105,7 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
     }
     assert set(schema["paths"]["/api/v1/invoices"]) == {"get", "post"}
     assert "/api/v1/invoices/{id}" in schema["paths"]
+    assert "/api/v1/invoices/{id}/_audit" in schema["paths"]
     assert set(schema["paths"]["/api/v1/invoices/{id}"]) == {"get", "patch"}
     assert set(schema["paths"]["/api/v1/products/{id}"]) == {
         "get",
@@ -442,6 +444,71 @@ def test_server_posts_with_version_and_idempotency_preconditions() -> None:
         assert replay.json()["version"] == 2
         assert stale.status_code == 412
         assert stale.json()["code"] == "stale_version"
+
+    asyncio.run(exercise())
+
+
+def test_server_returns_only_authorized_safe_record_audit_history() -> None:
+    allowed_app = _app("auditor")
+    denied_app = _app("sales_clerk")
+    actor = RequestContext(
+        Principal("api:clerk", roles=frozenset({"sales_clerk"})),
+        channel=Channel.REST,
+        correlation_id="audit-post-first",
+    )
+    allowed_app.state.tide.actions.execute(
+        "sales.Invoice",
+        "post",
+        2,
+        {},
+        actor,
+        idempotency_key="audit-history-post-2",
+    )
+    allowed_app.state.tide.actions.execute(
+        "sales.Invoice",
+        "post",
+        2,
+        {},
+        RequestContext(
+            actor.principal,
+            channel=Channel.REST,
+            correlation_id="audit-post-replay",
+        ),
+        idempotency_key="audit-history-post-2",
+    )
+
+    async def exercise() -> None:
+        async with _client(allowed_app) as client:
+            session = await client.get(
+                "/api/v1/_tide/session",
+                headers=_authorization(),
+            )
+            history = await client.get(
+                "/api/v1/invoices/2/_audit?limit=1",
+                headers=_authorization(),
+            )
+        async with _client(denied_app) as client:
+            denied = await client.get(
+                "/api/v1/invoices/2/_audit",
+                headers=_authorization(),
+            )
+
+        assert session.json()["entities"]["sales.Invoice"]["audit"] is True
+        assert history.status_code == 200
+        body = history.json()
+        assert body["entity"] == "sales.Invoice"
+        assert body["identity"] == 2
+        assert len(body["events"]) == 1
+        event = body["events"][0]
+        assert event["action"] == "post"
+        assert event["outcome"] == "replayed"
+        assert event["principal"] == "api:clerk"
+        assert event["channel"] == "rest"
+        assert event["correlation_id"] == "audit-post-replay"
+        assert "idempotency_key_hash" not in event
+        assert "audit-history-post-2" not in repr(body)
+        assert denied.status_code == 403
+        assert denied.json()["code"] == "forbidden"
 
     asyncio.run(exercise())
 

@@ -76,6 +76,26 @@ does not disable idempotency storage. The SQL store assigns an identity-backed
 sequence when each audit row begins, so equal database timestamps do not make
 invocation history depend on random event identifiers.
 
+## Secured record history
+
+`AuditHistoryService` is the read-only boundary used by renderers and HTTP
+adapters. Access requires an explicit `permissions.audit` entry on the entity
+and a matching grant in the current principal's role. Omission denies access.
+Queries are scoped to one typed entity identity, newest first, and accept a
+bounded limit from 1 through 500. SQLAlchemy applies the entity, serialized
+identity, ordering, and limit in SQL rather than loading the whole audit table.
+
+FastAPI exposes history only for entities that also expose REST `get`, at
+`<record-resource>/{identity}/_audit`. The authenticated session contract tells
+remote renderers only whether audit access is available; it does not disclose
+permission names. Textual uses the same local/remote reader contract and shows
+**History** only when authorized.
+
+The wire and TUI projections include safe lifecycle fields but deliberately
+omit payloads, protected values, credentials, raw idempotency keys, and even
+the stored idempotency-key hash. This first history surface covers domain
+actions. Generic CRUD/change-detail history remains separate future work.
+
 ## Crash and transaction semantics
 
 The reservation is durable before the handler runs, which provides a

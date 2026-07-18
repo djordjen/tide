@@ -26,7 +26,13 @@ from tide.runtime import DeleteRestricted, RequestContext, TideRuntimeError
 from tide.reporting import ReportService
 from tide.security import PROTECTED
 from tide.tui.table import table_cell, table_label
-from tide.services import ActionService, RecordsService
+from tide.services import (
+    ActionService,
+    AuditHistoryReader,
+    AuditHistoryService,
+    RecordsService,
+)
+from tide.tui.audit import AuditHistoryScreen
 from tide.tui.confirm import DeleteConfirmationScreen
 from tide.tui.form import ReopenRecordEdit, RecordEditScreen, select_form_view
 from tide.tui.report import ReportPreviewScreen
@@ -142,6 +148,7 @@ class TideApp(App[None]):
         Binding("n", "next_page", "Next"),
         Binding("r", "reload", "Refresh"),
         Binding("v", "preview_report", "Preview"),
+        Binding("h", "audit_history", "History"),
         Binding("q", "quit", "Quit"),
     ]
 
@@ -152,6 +159,7 @@ class TideApp(App[None]):
         context: RequestContext,
         *,
         actions: ActionService | None = None,
+        audit_history: AuditHistoryReader | None = None,
         view_name: str | None = None,
         page_size: int | None = None,
         source_label: str = "in-memory",
@@ -162,6 +170,12 @@ class TideApp(App[None]):
         self.model = model
         self.records = records
         self.actions = actions or ActionService(model, records)
+        execution_store = getattr(self.actions, "execution_store", None)
+        self.audit_history = audit_history or (
+            AuditHistoryService(model, execution_store, records.security)
+            if execution_store is not None
+            else None
+        )
         self.report_service = report_service or ReportService(model, records)
         self.report_output_directory = Path(
             report_output_directory or Path.cwd() / "output" / "reports"
@@ -272,6 +286,9 @@ class TideApp(App[None]):
             delete_button.display = self._delete_allowed
             yield delete_button
             yield Button("Preview", id="preview-report", disabled=True)
+            history_button = Button("History", id="audit-history", disabled=True)
+            history_button.display = self._audit_allowed
+            yield history_button
             yield Button("Previous", id="previous-page", disabled=True)
             yield Button("Next", id="next-page", disabled=True, variant="primary")
             yield Button("Refresh", id="refresh-page")
@@ -310,6 +327,8 @@ class TideApp(App[None]):
             self.action_delete_record()
         elif event.button.id == "preview-report":
             self.action_preview_report()
+        elif event.button.id == "audit-history":
+            self.action_audit_history()
         elif event.button.id == "create-record":
             self.action_create_record()
         elif event.button.id == "sort-direction":
@@ -458,6 +477,28 @@ class TideApp(App[None]):
             ReportPreviewScreen(document, self.report_output_directory)
         )
 
+    def action_audit_history(self) -> None:
+        record = self._selected_record()
+        if record is None or not self._audit_allowed or self.audit_history is None:
+            return
+        identity = record[_primary_key(self.entity)]
+        try:
+            events = self.audit_history.for_record(
+                self.entity.name,
+                identity,
+                self.context,
+            )
+        except (TideRuntimeError, ValueError) as error:
+            self.notify(f"Audit history failed: {error}", severity="error")
+            return
+        self.push_screen(
+            AuditHistoryScreen(
+                self.model.name,
+                _display_record(self.entity, record),
+                events,
+            )
+        )
+
     def open_record(self, identity: Any) -> None:
         if self.form_view is None:
             self._notify_missing_form()
@@ -558,6 +599,10 @@ class TideApp(App[None]):
         self.named_filters = _named_filters(view)
         self.columns = _browse_columns(view, self.entity)
         self.sort_fields = _sortable_fields(self.columns, self.entity)
+        self._audit_allowed = bool(
+            self.audit_history is not None
+            and self.audit_history.can_view(self.entity.name, self.context)
+        )
         self._create_allowed = bool(
             self.form_view is not None
             and self.records.security.can_access_entity(
@@ -651,6 +696,9 @@ class TideApp(App[None]):
             delete_button = self.query_one("#delete-record", Button)
             delete_button.display = self._delete_allowed
             delete_button.disabled = True
+            history_button = self.query_one("#audit-history", Button)
+            history_button.display = self._audit_allowed
+            history_button.disabled = True
             table = self.query_one("#records", DataTable)
             table.clear(columns=True)
             self._add_table_columns(table)
@@ -724,6 +772,7 @@ class TideApp(App[None]):
                 f"{self.source_label}{self._query_summary()}  ·  "
                 "C create  E edit  V preview  P/N page  R refresh"
                 + ("  Del delete" if self._delete_allowed else "")
+                + ("  H history" if self._audit_allowed else "")
             )
             self._update_navigation()
             self.query_one("#edit-record", Button).disabled = not (
@@ -731,6 +780,9 @@ class TideApp(App[None]):
             )
             self.query_one("#delete-record", Button).disabled = not (
                 page.records and self._delete_allowed
+            )
+            self.query_one("#audit-history", Button).disabled = not (
+                page.records and self._audit_allowed
             )
             self._update_report_control(bool(page.records))
             table.refresh(layout=True)
@@ -742,6 +794,7 @@ class TideApp(App[None]):
             self._update_navigation(force_disabled=True)
             self.query_one("#edit-record", Button).disabled = True
             self.query_one("#delete-record", Button).disabled = True
+            self.query_one("#audit-history", Button).disabled = True
             self._update_report_control(False)
 
     def _active_report(self) -> str | None:

@@ -12,6 +12,7 @@ from tide import compile_project
 from tide.api.client import TideApiClient, TideApiClientError
 from tide.api.remote import (
     RemoteActionService,
+    RemoteAuditHistoryService,
     RemoteRecordsService,
     RemoteReportService,
 )
@@ -32,6 +33,56 @@ ROOT = Path(__file__).parents[1]
 INVOICING = ROOT / "applications" / "invoicing"
 TOKEN = "tide-remote-facade-test-token-long-enough"
 BASE_URL = "http://127.0.0.1"
+
+
+def test_remote_audit_history_uses_server_capabilities_and_safe_contract() -> None:
+    model, app = _app("auditor")
+    app.state.tide.actions.execute(
+        "sales.Invoice",
+        "post",
+        2,
+        {},
+        RequestContext(
+            Principal("remote:clerk", roles=frozenset({"sales_clerk"})),
+            channel=Channel.REST,
+            correlation_id="remote-audit-post",
+        ),
+        idempotency_key="remote-audit-post-2",
+    )
+
+    with _http_client(app) as transport:
+        client = TideApiClient(model, BASE_URL, TOKEN, http_client=transport)
+        session = client.connect()
+        context = RequestContext(
+            Principal(session.principal, roles=frozenset(session.roles)),
+            channel=Channel.TUI,
+        )
+        audits = RemoteAuditHistoryService(client, session)
+
+        assert audits.can_view("sales.Invoice", context)
+        events = audits.for_record("sales.Invoice", 2, context)
+        assert len(events) == 1
+        assert events[0].action == "post"
+        assert events[0].principal == "remote:clerk"
+        assert events[0].correlation_id == "remote-audit-post"
+
+    denied_model, denied_app = _app("sales_clerk")
+    with _http_client(denied_app) as transport:
+        client = TideApiClient(
+            denied_model,
+            BASE_URL,
+            TOKEN,
+            http_client=transport,
+        )
+        session = client.connect()
+        context = RequestContext(
+            Principal(session.principal, roles=frozenset(session.roles)),
+            channel=Channel.TUI,
+        )
+        audits = RemoteAuditHistoryService(client, session)
+        assert not audits.can_view("sales.Invoice", context)
+        with pytest.raises(AuthorizationError):
+            audits.for_record("sales.Invoice", 2, context)
 
 
 def test_remote_facades_browse_create_edit_lookup_and_post_via_http() -> None:

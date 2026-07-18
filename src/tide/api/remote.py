@@ -19,7 +19,7 @@ from tide.runtime import (
 from tide.runtime.errors import ValidationIssue
 from tide.reporting.document import ReportDocument
 from tide.security import PROTECTED
-from tide.services import QueryPage
+from tide.services import ActionAuditEvent, QueryPage
 from tide.sessions import RecordSession
 
 
@@ -367,6 +367,36 @@ class RemoteActionService:
                     [ValidationIssue("remote", str(error))]
                 ) from error
             raise
+
+
+class RemoteAuditHistoryService:
+    """AuditHistoryReader-compatible access over authenticated HTTP."""
+
+    def __init__(
+        self,
+        client: TideApiClient,
+        session: TideSessionInfo,
+    ) -> None:
+        self.client = client
+        self.session = session
+
+    def can_view(self, entity_name: str, _context: RequestContext) -> bool:
+        capabilities = self.session.entities.get(entity_name)
+        return bool(capabilities and capabilities.audit)
+
+    def for_record(
+        self,
+        entity_name: str,
+        identity: Any,
+        context: RequestContext,
+        *,
+        limit: int = 100,
+    ) -> tuple[ActionAuditEvent, ...]:
+        if not self.can_view(entity_name, context):
+            raise AuthorizationError(
+                f"remote principal may not audit {entity_name}"
+            )
+        return self.client.audit_history(entity_name, identity, limit=limit)
 
 
 class RemoteReportService:

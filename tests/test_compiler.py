@@ -27,6 +27,9 @@ def test_invoicing_fixture_compiles_to_immutable_model() -> None:
     assert model.formats["money"]["decimal_places"] == 2
     assert "sales.invoice.post" in model.permissions
     assert "sales.invoice.write" not in model.roles["auditor"]
+    assert model.entity("sales.Invoice").metadata["permissions"]["audit"] == (
+        "sales.invoice.audit"
+    )
     assert model.entity("sales.Invoice").field("total").dependencies == ("lines.total",)
     assert model.entity("sales.Invoice").field("version").metadata["concurrency_token"]
     assert model.entity("sales.Invoice").field("status").metadata["write"] == "action_only"

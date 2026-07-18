@@ -197,7 +197,9 @@ the same services.
   **implemented through shared three-way comparison/resolution contracts plus
   local/remote TUI reload, safe-field rebase, and explicit Current/Mine choices**;
 - roles and permissions administration;
-- audit history and protected logging;
+- permission-gated action audit history through local/remote TUI and REST,
+  with safe protected logging; **implemented for domain-action lifecycle
+  events; generic CRUD/change details and retention remain**;
 - import and controlled export;
 - deployment configuration, SSH guidance, and container packaging.
 - health/readiness checks, structured logging, backup/restore, and migration

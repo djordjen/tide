@@ -10,6 +10,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 TIDE_WIRE_VERSION = "0.1"
 TideOperation = Literal["list", "get", "create", "update", "delete"]
+TideAuditOutcome = Literal[
+    "started",
+    "succeeded",
+    "replayed",
+    "conflict",
+    "failed",
+]
 TideFilterOperator = Literal[
     "eq",
     "ne",
@@ -128,6 +135,35 @@ class TideReferenceSelectionResult(BaseModel):
     values: dict[str, Any]
 
 
+class TideAuditEvent(BaseModel):
+    """Safe wire projection of one action-audit lifecycle row."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    event_id: str
+    entity: str
+    action: str
+    identity: Any
+    principal: str
+    channel: str
+    correlation_id: str
+    started_at: datetime
+    outcome: TideAuditOutcome
+    finished_at: datetime | None = None
+    error_code: str | None = None
+
+
+class TideAuditHistory(BaseModel):
+    """Bounded newest-first history for one authorized record."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    wire_version: Literal["0.1"] = TIDE_WIRE_VERSION
+    entity: str
+    identity: Any
+    events: tuple[TideAuditEvent, ...] = ()
+
+
 class TideEntityCapabilities(BaseModel):
     """Operations the authenticated principal may attempt through this server."""
 
@@ -138,6 +174,7 @@ class TideEntityCapabilities(BaseModel):
     readable_fields: tuple[str, ...] = ()
     writable_fields: tuple[str, ...] = ()
     actions: tuple[str, ...] = ()
+    audit: bool = False
 
 
 class TideSessionInfo(BaseModel):

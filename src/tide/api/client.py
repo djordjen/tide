@@ -13,6 +13,7 @@ import httpx
 from pydantic import ValidationError
 
 from tide.api.contracts import (
+    TideAuditHistory,
     TideFilterInput,
     TideQueryInput,
     TideReferenceSelectionInput,
@@ -33,6 +34,7 @@ from tide.reporting.document import (
     ReportValue,
 )
 from tide.security import PROTECTED
+from tide.services import ActionAuditEvent, AuditOutcome
 
 
 CLIENT_OPERATIONS = REST_OPERATIONS
@@ -353,6 +355,89 @@ class TideApiClient:
             json=_encode_generic(payload or {}),
         )
         return self._record_response(entity, response)
+
+    def audit_history(
+        self,
+        entity_name: str,
+        identity: Any,
+        *,
+        limit: int = 100,
+    ) -> tuple[ActionAuditEvent, ...]:
+        """Return bounded safe action history for one authorized record."""
+
+        if limit < 1 or limit > 500:
+            raise ValueError("audit limit must be between 1 and 500")
+        resource = self._resource(entity_name, "get")
+        response = self._request(
+            "GET",
+            f"{resource}/{_identity_segment(identity)}/_audit",
+            expected=(200,),
+            params={"limit": limit},
+        )
+        try:
+            history = TideAuditHistory.model_validate(self._json_object(response))
+        except ValidationError as error:
+            raise TideApiContractError(
+                "server returned an invalid audit-history contract"
+            ) from error
+        entity = self.model.entity(entity_name)
+        try:
+            history_identity = _decode_field(
+                self.model,
+                _primary_key(entity),
+                history.identity,
+            )
+        except (TypeError, ValueError, InvalidOperation) as error:
+            raise TideApiContractError(
+                "server returned an invalid audit-history identity"
+            ) from error
+        if history.entity != entity_name or history_identity != identity:
+            raise TideApiContractError(
+                "server returned audit history for a different record"
+            )
+        events: list[ActionAuditEvent] = []
+        for event in history.events:
+            try:
+                event_identity = _decode_field(
+                    self.model,
+                    _primary_key(entity),
+                    event.identity,
+                )
+            except (TypeError, ValueError, InvalidOperation) as error:
+                raise TideApiContractError(
+                    "server returned an invalid audit-event identity"
+                ) from error
+            if event.entity != entity_name or event_identity != identity:
+                raise TideApiContractError(
+                    "server returned an audit event for a different record"
+                )
+            if event.started_at.tzinfo is None or event.started_at.utcoffset() is None:
+                raise TideApiContractError(
+                    "audit event start timestamp lacks a timezone"
+                )
+            if event.finished_at is not None and (
+                event.finished_at.tzinfo is None
+                or event.finished_at.utcoffset() is None
+            ):
+                raise TideApiContractError(
+                    "audit event finish timestamp lacks a timezone"
+                )
+            events.append(
+                ActionAuditEvent(
+                event_id=event.event_id,
+                entity=event.entity,
+                action=event.action,
+                identity=event_identity,
+                principal=event.principal,
+                channel=event.channel,
+                correlation_id=event.correlation_id,
+                started_at=event.started_at,
+                outcome=AuditOutcome(event.outcome),
+                finished_at=event.finished_at,
+                error_code=event.error_code,
+            )
+            )
+        return tuple(events)
 
     def build_report_for_record(
         self,

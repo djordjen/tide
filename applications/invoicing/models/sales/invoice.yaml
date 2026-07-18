@@ -13,6 +13,7 @@ permissions:
   read: sales.invoice.read
   create: sales.invoice.write
   update: sales.invoice.write
+  audit: sales.invoice.audit
 
 fields:
   id:           {type: integer, primary_key: true}

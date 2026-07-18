@@ -76,6 +76,7 @@ class EntityPermissionsSource(SourceModel):
     create: str | None = None
     update: str | None = None
     delete: str | None = None
+    audit: str | None = None
 
     model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
 

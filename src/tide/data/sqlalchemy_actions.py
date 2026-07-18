@@ -321,13 +321,32 @@ class SQLAlchemyActionExecutionStore:
         self,
         *,
         correlation_id: str | None = None,
+        entity: str | None = None,
+        identity: Any | None = None,
+        limit: int | None = None,
+        newest_first: bool = False,
     ) -> tuple[ActionAuditEvent, ...]:
+        if limit is not None and (limit < 1 or limit > 500):
+            raise ValueError("audit limit must be between 1 and 500")
         statement = select(self.audit_table)
         if correlation_id is not None:
             statement = statement.where(
                 self.audit_table.c.correlation_id == correlation_id
             )
-        statement = statement.order_by(self.audit_table.c.sequence)
+        if entity is not None:
+            statement = statement.where(self.audit_table.c.entity == entity)
+        if identity is not None:
+            statement = statement.where(
+                self.audit_table.c.identity_json == serialize_action_value(identity)
+            )
+        order = (
+            self.audit_table.c.sequence.desc()
+            if newest_first
+            else self.audit_table.c.sequence
+        )
+        statement = statement.order_by(order)
+        if limit is not None:
+            statement = statement.limit(limit)
         try:
             with self.engine.connect() as connection:
                 rows = connection.execute(statement).mappings().all()

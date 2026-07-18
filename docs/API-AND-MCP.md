@@ -50,6 +50,7 @@ GET    /api/v1/people/{id}
 POST   /api/v1/people
 PATCH  /api/v1/people/{id}
 DELETE /api/v1/people/{id}
+GET    /api/v1/people/{id}/_audit
 ```
 
 The adapter also publishes OpenAPI and interactive documentation. Input models
@@ -73,7 +74,9 @@ tide api export-openapi applications/invoicing --output openapi.json
 tide serve applications/invoicing --demo
 ```
 
-Only declared operations appear. `rest: true` remains a safe shorthand for
+Only declared operations appear. Record history additionally requires REST
+`get` exposure plus an explicit `permissions.audit` entry; the current
+principal must hold that permission on every request. `rest: true` remains a safe shorthand for
 `list` and `get`; create, update, and delete require mapping form. An action
 route exists only when that action declares `expose.rest: true`. If `path` is
 omitted, the default is a namespaced,
@@ -91,8 +94,10 @@ limited to its dependency-free list/get contract.
 the wire version, application identity, authentication type, principal
 identifier, and only those server-assigned roles, directly exposed operations,
 nested-draft operations, readable/writable fields, and exposed actions
-available to that principal through this server. It is capability information for rendering
-and early feedback, never a replacement for per-request authorization.
+available to that principal through this server. A Boolean audit capability
+reports only whether the safe record-history route is available and does not
+disclose the permission name. It is capability information for rendering and
+early feedback, never a replacement for per-request authorization.
 
 The development identity adapter is deliberately local-only:
 it reads one opaque token from a named environment variable, maps that token to

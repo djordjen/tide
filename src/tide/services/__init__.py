@@ -1,4 +1,5 @@
 from tide.services.actions import ActionService
+from tide.services.audit import AuditHistoryReader, AuditHistoryService
 from tide.services.action_store import (
     ActionAuditEvent,
     ActionExecutionStore,
@@ -15,6 +16,8 @@ __all__ = [
     "ActionService",
     "ActionAuditEvent",
     "ActionExecutionStore",
+    "AuditHistoryReader",
+    "AuditHistoryService",
     "AuditOutcome",
     "CursorStore",
     "FilterCondition",

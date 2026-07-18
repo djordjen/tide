@@ -94,6 +94,17 @@ exposes **Draft invoices** and **High-value invoices** from view metadata, and
 the sort selector or eligible column headers toggle secured ascending and
 descending queries. **Clear** restores the default browse query.
 
+The auditor role may select an invoice and choose **History** or press `H` to
+open its newest-first action history. The screen shows the action, outcome,
+principal, channel, timestamp, and correlation identifier; it never includes
+payload values or idempotency secrets. The sales-clerk role does not receive
+`sales.invoice.audit`, so the control remains hidden for that role.
+
+With the repository's Windows shortcut, run `start.bat auditor` to inspect
+persisted SQL Server history, or `start.bat auditor-demo` for the isolated demo.
+The demo starts with no action events; post an invoice as the sales clerk first
+when testing persistent history.
+
 On the Invoice workspace, select a saved invoice and choose **Preview** or
 press `V`. The preview is built from the secured `sales.invoice` report and can
 export standalone HTML or A4 PDF. Files are written to `output/reports/` below
