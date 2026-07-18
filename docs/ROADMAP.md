@@ -201,6 +201,11 @@ respect every relevant permission.
 
 ## Milestone 7 - TIDE Studio
 
+Status: **the initial Textual Studio/view-designer tranche is complete**. The
+headless contracts, safe candidate lifecycle, structural editing, role/terminal
+preview, and compact-terminal/invalid-candidate hardening are implemented.
+Deeper report design and developer-MCP editing remain later Milestone 7 work.
+
 - structured new-application proposal operations and semantic validation;
   **implemented without source writes**
 - isolated new-application candidate-tree materialization, normal compiler,
@@ -224,8 +229,11 @@ respect every relevant permission.
 - Textual application/entity/view/report/source tree, nested typed scalar
   property editing, locked structural/identity rows, compiler validation,
   undo/redo, diagnostics, exact unified-diff review and line-numbered YAML
-  preview; **implemented in memory as the separate `tide studio` developer
-  screen; approved persistence is not connected yet**
+  preview; **implemented as the separate `tide studio` developer screen**
+- Studio save review showing the exact diff, changed YAML files and
+  candidate-bound approval phrase, followed only by transactional
+  `DesignerSaveService` execution, clean-session reload, receipt reporting,
+  stale-base refusal and recovery-preview guidance; **implemented**
 - schema-aware property editors generated from the authoritative metadata
   contract: dropdowns for `Literal`/enumerated values such as field type, view
   kind and delete behavior plus Boolean selection; **initial schema-derived
@@ -245,8 +253,23 @@ respect every relevant permission.
   same approval-required persistence boundary; never write directly from the
   text widget; **implemented with apply/cancel controls, `Ctrl+S`/`Esc`, stable
   document-identity enforcement and shared history**;
-- structural TUI view designer;
-- role and terminal-size previews;
+- structural TUI view designer; **initial resolved table/lookup columns and
+  form/inline left-right tracks, source origin, group-bounded move-up/down and
+  same-position left/right swaps, local entity-field add/remove, live preview,
+  compiler validation, diff, undo/redo and approved save integration
+  implemented**, including explicit add destinations and local group
+  create/rename/adjacent-reorder/empty-remove, plus portable tab assignment,
+  complete group/collection section reorder, compatible collection add/remove,
+  record/collection action-bar ordering and real Textual tab/button rendering;
+  unmatched-cell transfers remain;
+- role and terminal-size previews; **implemented with shared entity/field/
+  action permission resolution, record-dependent-state markers, 80×24,
+  100×30 and 140×40 exact-width canvases, layout-fit warnings, and no database
+  or application-code execution**;
+- Studio usability and semantic hardening; **implemented with live/preview
+  parity for hidden browse, form, and collection placements, scrollable compact
+  layouts, a usable YAML minimum height, and visible fail-closed explanations
+  for invalid view candidates**;
 - developer MCP designer tools;
 - browser page canvas for report design.
 

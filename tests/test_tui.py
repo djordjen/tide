@@ -4,10 +4,11 @@ import asyncio
 from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
+import shutil
 
 from rich.text import Text
 from sqlalchemy import create_engine, inspect
-from textual.widgets import Button, DataTable, Input, Select, Static
+from textual.widgets import Button, DataTable, Input, Select, Static, TabbedContent
 
 from tide import compile_project
 from tide.cli import main
@@ -160,6 +161,8 @@ def test_textual_browse_search_named_filters_and_sorting() -> None:
             assert table.row_count == 0
 
             await pilot.click("#clear-query")
+            await pilot.pause()
+            assert table.row_count == 3
             app.query_one("#sort-field", Select).value = "total"
             await pilot.pause()
             assert str(table.get_row_at(0)[-1]) == "240.00"
@@ -399,6 +402,114 @@ def test_textual_form_focuses_columns_and_enter_advances() -> None:
             assert app.screen is screen
             assert screen.focused is not None
             assert screen.focused.id == "field-customer"
+
+    asyncio.run(exercise())
+
+
+def test_textual_form_renders_portable_tabs_and_action_bar_order(
+    tmp_path: Path,
+) -> None:
+    project = shutil.copytree(INVOICING, tmp_path / "invoicing")
+    view_file = project / "views" / "sales" / "invoice-edit.yaml"
+    source = view_file.read_text(encoding="utf-8")
+    source = source.replace(
+        "  - group: Invoice\n",
+        "  - group: Invoice\n    tab: Details\n",
+    ).replace(
+        "  - collection: lines\n",
+        "  - collection: lines\n    tab: Details\n",
+    ).replace(
+        "  - group: Totals\n",
+        "  - group: Totals\n    tab: Summary\n",
+    ).replace(
+        "  - group: Posting\n",
+        "  - group: Posting\n    tab: Summary\n",
+    ).replace(
+        "    actions: [add, apply, remove]",
+        "    actions: [remove, add, apply]",
+    ).replace(
+        "actions: [cancel, save, post]",
+        "actions: [post, cancel, save]",
+    )
+    view_file.write_text(source, encoding="utf-8")
+    app = _demo_app(page_size=3, project=project)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.open_record(2)
+            await pilot.pause()
+
+            screen = app.screen
+            assert isinstance(screen, RecordEditScreen)
+            tabs = screen.query_one("#form-tabs", TabbedContent)
+            assert tabs.active == "form-tab-0"
+            assert [child.id for child in screen.query_one("#record-actions").children] == [
+                "post-record",
+                "cancel-form",
+                "save-form",
+            ]
+            assert [child.id for child in screen.query_one("#line-actions").children] == [
+                "remove-line",
+                "add-line",
+                "apply-line",
+            ]
+            assert screen.query_one("#collection-records", DataTable).row_count == 1
+            tabs.active = "form-tab-1"
+            await pilot.pause()
+            assert tabs.active == "form-tab-1"
+
+    asyncio.run(exercise())
+
+
+def test_textual_view_hidden_fields_match_browse_and_form_rendering(
+    tmp_path: Path,
+) -> None:
+    project = shutil.copytree(INVOICING, tmp_path / "invoicing")
+    browse_file = project / "views" / "sales" / "invoice-browse.yaml"
+    browse_file.write_text(
+        browse_file.read_text(encoding="utf-8")
+        + "\nfields:\n  total:\n    hidden: true\n",
+        encoding="utf-8",
+    )
+    form_file = project / "views" / "sales" / "invoice-edit.yaml"
+    form_file.write_text(
+        form_file.read_text(encoding="utf-8")
+        .replace(
+            "  - group: Invoice\n",
+            "  - group: Invoice\n    tab: General\n",
+        )
+        .replace(
+            "  - collection: lines\n",
+            "  - collection: lines\n    tab: Hidden lines\n",
+        )
+        .replace(
+            "fields:\n",
+            "fields:\n  number:\n    hidden: true\n  lines:\n    hidden: true\n",
+        ),
+        encoding="utf-8",
+    )
+    app = _demo_app(page_size=3, project=project)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            table = app.query_one("#records", DataTable)
+            assert [column.key.value for column in table.ordered_columns] == [
+                "number",
+                "invoice_date",
+                "customer",
+                "status",
+            ]
+
+            app.open_record(2)
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, RecordEditScreen)
+            assert not screen.query("#field-number")
+            assert not screen.query("#collection-records")
+            assert not screen.query("#line-actions")
+            assert len(screen.query("TabPane")) == 1
 
     asyncio.run(exercise())
 
@@ -695,8 +806,9 @@ def _demo_app(
     page_size: int,
     role: str = "sales_clerk",
     report_output_directory: Path | None = None,
+    project: Path = INVOICING,
 ) -> TideApp:
-    model = compile_project(INVOICING)
+    model = compile_project(project)
     repository = InMemoryRepository()
     assert seed_demo_data(model, repository) == 14
     records = RecordsService(model, repository)

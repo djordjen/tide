@@ -130,6 +130,7 @@ class DesignerInsertSequenceItemCommand(DesignerCommandModel):
     path: tuple[PathPart, ...] = Field(default=(), max_length=MAX_DESIGNER_PATH_DEPTH)
     index: int = Field(ge=0)
     value: Any
+    flow_style: bool = False
 
     @field_validator("path")
     @classmethod
@@ -386,6 +387,19 @@ class DesignerSession:
             candidate_fingerprint=_fingerprint_files(self._working_files),
             documents=descriptors,
         )
+
+    def application_model(self) -> ApplicationModel:
+        """Compile and return the current in-memory candidate model."""
+
+        evaluation = self._evaluate()
+        if evaluation.model is None:
+            first = evaluation.diagnostics[0] if evaluation.diagnostics else {}
+            detail = str(first.get("message", "candidate does not compile"))
+            raise DesignerError(
+                "TIDEDES013",
+                f"the Designer candidate has no resolved application model: {detail}",
+            )
+        return evaluation.model
 
     def execute(self, command: DesignerCommand) -> DesignerSnapshot:
         return self.execute_batch(DesignerCommandBatch(commands=(command,)))
@@ -655,7 +669,13 @@ def _apply_command(
         _reorder_mapping(mapping, command.keys, command.path)
     elif isinstance(command, DesignerInsertSequenceItemCommand):
         sequence = _resolve_node(document, command.path)
-        _insert_sequence_item(sequence, command.index, command.value, command.path)
+        _insert_sequence_item(
+            sequence,
+            command.index,
+            command.value,
+            command.path,
+            flow_style=command.flow_style,
+        )
     elif isinstance(command, DesignerMoveSequenceItemCommand):
         sequence = _resolve_node(document, command.path)
         _move_sequence_item(
@@ -858,6 +878,8 @@ def _insert_sequence_item(
     index: int,
     value: Any,
     path: Sequence[PathPart],
+    *,
+    flow_style: bool,
 ) -> None:
     if not _is_mutable_sequence(sequence):
         raise DesignerError(
@@ -866,7 +888,10 @@ def _insert_sequence_item(
         )
     if index > len(sequence):
         raise DesignerError("TIDEDES005", "sequence insertion index is out of range")
-    sequence.insert(index, _round_trip_value(value))
+    inserted = _round_trip_value(value)
+    if flow_style and isinstance(inserted, CommentedSeq):
+        inserted.fa.set_flow_style()
+    sequence.insert(index, inserted)
 
 
 def _move_sequence_item(

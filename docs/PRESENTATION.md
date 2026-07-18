@@ -73,6 +73,11 @@ Unmentioned fields continue to follow inherited and generated behavior. This
 allows a newly added model field to appear automatically unless a view has
 chosen an explicit fixed layout.
 
+`hidden: true` removes the field from the resolved view's live TUI placement,
+including browse columns, form controls, or a collection section and its action
+bar. It remains presentation metadata, not an authorization rule; services
+continue to enforce field and entity security independently.
+
 ## Semantic layouts
 
 Shared layouts describe structure rather than pixel or terminal coordinates:
@@ -85,19 +90,25 @@ extends: standard_form
 
 layout:
   - group: Invoice
+    tab: Details
     rows:
       - [number, invoice_date, status]
       - [customer]
 
   - collection: lines
+    tab: Details
     view: sales.InvoiceLine.inline_edit
+    actions: [add, apply, remove]
 
   - group: Totals
+    tab: Summary
     align: right
     rows:
       - [subtotal]
       - [tax]
       - [total]
+
+actions: [cancel, save, post]
 ```
 
 The Textual renderer converts this structure into character-cell layouts. A
@@ -122,6 +133,42 @@ column and the second in the right, then traverses the complete left column
 before the right column. When no inline layout is declared, the renderer falls
 back to the editable `columns` order. This lets an invoice line editor place
 `product` before `description` without changing the line table layout.
+
+Studio derives the same resolved terminal tracks from the compiled view. For
+view-local `columns` and `layout.rows`, developers can move a field up or down
+inside its current table, form, or inline track. The operation is expressed as
+a bounded sequence move or atomic slot-swap command batch, so compiler
+validation, provenance, exact diff, undo/redo, and approved persistence remain
+consistent with raw YAML authoring. Inherited or generated tracks are displayed
+but remain read-only until an explicit overlay-creation operation is added.
+
+Local layout fields may also swap left/right with the same-position field in
+the opposite track when both placements belong to the same group. This strict
+swap rule avoids unsupported empty cells and prevents an apparently visual
+operation from changing group ownership. Studio can add an unused entity field
+to locally owned columns/layout and remove a view placement without touching
+the entity definition. Inline add/remove changes `columns` and `layout.rows`
+atomically so the editor's completeness rule remains valid.
+
+Form/inline additions choose a destination from the resolved local field
+groups. Studio can create and rename a group, reorder it across an adjacent
+field group, and remove it after it becomes empty.
+
+Form layout sections may declare a portable `tab` label. Sections with the same
+label share one tab; unlabelled sections appear under **General** when any tab
+is declared. A collection section may order any subset of `add`, `apply`, and
+`remove`, while a form-level `actions` sequence orders `cancel`, `save`, and
+the entity's declared domain actions. Omitting either action sequence preserves
+the generated defaults. The compiler rejects empty/unsafe tab labels, duplicate
+or unknown actions, and collection views that are not compatible inline editors
+(`TIDE244`).
+
+Studio's **Layout…** dialog edits that same shared contract. It assigns/clears
+tabs, moves complete group or collection sections, adds an unused collection
+only with a compatible inline view, removes only the view placement, and edits
+record/collection action sequences. These operations are still bounded,
+compiler-validated, undoable, diffed, and persisted only through the approved
+Designer save boundary.
 
 The target is shared application semantics with limited renderer-specific
 presentation, not an identical lowest-common-denominator interface.

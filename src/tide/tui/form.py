@@ -14,7 +14,18 @@ from textual.binding import Binding
 from textual.containers import Grid, Horizontal, Vertical
 from textual.screen import Screen
 from textual.validation import Regex
-from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Select, Static
+from textual.widgets import (
+    Button,
+    DataTable,
+    Footer,
+    Header,
+    Input,
+    Label,
+    Select,
+    Static,
+    TabbedContent,
+    TabPane,
+)
 
 from tide.compiler.expressions import evaluate_expression
 from tide.compiler.normalized import (
@@ -151,6 +162,14 @@ class RecordEditScreen(Screen[Any]):
     #form-body {
         height: 1fr;
         padding: 0 2;
+    }
+
+    #form-tabs, #form-tabs TabPane {
+        height: 1fr;
+    }
+
+    #form-tabs TabPane {
+        padding: 0;
     }
 
     .section-title {
@@ -299,6 +318,11 @@ class RecordEditScreen(Screen[Any]):
         self.entity = model.entity(session.entity)
         self.scalar_fields = _form_fields(view, self.entity)
         self.collection_name, self.inline_view = _collection_view(model, view)
+        self.layout_tabs = _layout_tabs(view, self.entity)
+        self.record_action_order = _record_action_order(view, self.entity)
+        self.collection_action_order = _collection_action_order(
+            view, self.collection_name
+        )
         self.collection_entity = (
             model.entity(self.entity.field(self.collection_name).target_entity)
             if self.collection_name is not None
@@ -341,9 +365,7 @@ class RecordEditScreen(Screen[Any]):
         self.title = model.name
         entity_label = self.entity.label.removesuffix("s") or self.entity.label
         self.sub_title = (
-            f"New {entity_label}"
-            if session.is_new
-            else f"Edit {entity_label}"
+            f"New {entity_label}" if session.is_new else f"Edit {entity_label}"
         )
 
     def check_action(
@@ -353,7 +375,22 @@ class RecordEditScreen(Screen[Any]):
     ) -> bool | None:
         if action == "post" and "post" not in self.entity.actions:
             return False
+        if action == "post" and "post" not in self.record_action_order:
+            return False
+        if action == "save" and "save" not in self.record_action_order:
+            return False
+        if action == "cancel" and "cancel" not in self.record_action_order:
+            return False
         if action in {"add_line", "apply_line"} and self.collection_name is None:
+            return False
+        collection_action = {
+            "add_line": "add",
+            "apply_line": "apply",
+        }.get(action)
+        if (
+            collection_action is not None
+            and collection_action not in self.collection_action_order
+        ):
             return False
         return super().check_action(action, parameters)
 
@@ -365,66 +402,114 @@ class RecordEditScreen(Screen[Any]):
             id="form-context",
         )
         with Vertical(id="form-body"):
-            yield Static(self.entity.label, classes="section-title")
-            with Horizontal(id="record-fields"):
-                for column_fields in _field_columns(self.scalar_fields):
-                    with Grid(classes="field-column"):
-                        for field_name in column_fields:
-                            field = self.entity.field(field_name)
-                            editable = self._field_is_editable(
-                                self.entity,
-                                field,
-                                self.session.original,
-                            )
-                            label_classes = (
-                                "field-label"
-                                if editable
-                                else "field-label readonly-label"
-                            )
-                            yield Label(_field_label(field), classes=label_classes)
-                            yield self._field_widget(
-                                field,
-                                self.session.values.get(field_name),
-                                editable=editable,
-                            )
-
-            if self.collection_name is not None and self.collection_entity is not None:
-                yield Static(
-                    _field_label(self.entity.field(self.collection_name)),
-                    classes="section-title",
+            if self.layout_tabs:
+                with TabbedContent(id="form-tabs"):
+                    for tab_index, (label, sections) in enumerate(self.layout_tabs):
+                        with TabPane(label, id=f"form-tab-{tab_index}"):
+                            for section_index, section in sections:
+                                if "collection" in section:
+                                    yield from self._compose_collection_section()
+                                else:
+                                    fields = _section_fields(
+                                        section,
+                                        self.view,
+                                        self.entity,
+                                    )
+                                    if fields:
+                                        yield from self._compose_record_fields(
+                                            fields,
+                                            title=str(
+                                                section.get("group")
+                                                or self.entity.label
+                                            ),
+                                            widget_id=f"record-fields-{section_index}",
+                                        )
+            else:
+                yield from self._compose_record_fields(
+                    self.scalar_fields,
+                    title=self.entity.label,
+                    widget_id="record-fields",
                 )
-                yield DataTable(id="collection-records")
-                with Horizontal(id="line-fields"):
-                    for column_fields in self.line_editor_columns:
-                        with Grid(classes="field-column"):
-                            for field_name in column_fields:
-                                field = self.collection_entity.field(field_name)
-                                label_classes = (
-                                    "field-label"
-                                    if self._collection_is_editable()
-                                    else "field-label readonly-label"
-                                )
-                                yield Label(_field_label(field), classes=label_classes)
-                                yield self._line_widget(field)
+                yield from self._compose_collection_section()
 
         yield Static("", id="form-message")
         with Horizontal(id="form-actions"):
             if self.collection_name is not None:
                 with Horizontal(id="line-actions"):
-                    yield Button("Add line", id="add-line")
-                    yield Button("Apply line", id="apply-line", variant="primary")
-                    yield Button("Remove line", id="remove-line", variant="warning")
+                    for action_name in self.collection_action_order:
+                        yield _collection_action_button(action_name)
             yield Static("", id="action-spacer")
             with Horizontal(id="record-actions"):
-                yield Button("Cancel", id="cancel-form")
-                yield Button(
-                    "Save & Select" if self.select_after_save else "Save",
-                    id="save-form",
-                    variant="primary",
-                )
-                if "post" in self.entity.actions:
-                    yield Button("Post", id="post-record", variant="success")
+                for action_name in self.record_action_order:
+                    yield self._record_action_button(action_name)
         yield Footer()
+
+    def _compose_record_fields(
+        self,
+        field_names: tuple[str, ...],
+        *,
+        title: str,
+        widget_id: str,
+    ) -> ComposeResult:
+        if not field_names:
+            return
+        yield Static(title, classes="section-title")
+        with Horizontal(id=widget_id):
+            for column_fields in _field_columns(field_names):
+                with Grid(classes="field-column"):
+                    for field_name in column_fields:
+                        field = self.entity.field(field_name)
+                        editable = self._field_is_editable(
+                            self.entity,
+                            field,
+                            self.session.original,
+                        )
+                        label_classes = (
+                            "field-label" if editable else "field-label readonly-label"
+                        )
+                        yield Label(_field_label(field), classes=label_classes)
+                        yield self._field_widget(
+                            field,
+                            self.session.values.get(field_name),
+                            editable=editable,
+                        )
+
+    def _compose_collection_section(self) -> ComposeResult:
+        if self.collection_name is None or self.collection_entity is None:
+            return
+        yield Static(
+            _field_label(self.entity.field(self.collection_name)),
+            classes="section-title",
+        )
+        yield DataTable(id="collection-records")
+        with Horizontal(id="line-fields"):
+            for column_fields in self.line_editor_columns:
+                with Grid(classes="field-column"):
+                    for field_name in column_fields:
+                        field = self.collection_entity.field(field_name)
+                        label_classes = (
+                            "field-label"
+                            if self._collection_is_editable()
+                            else "field-label readonly-label"
+                        )
+                        yield Label(_field_label(field), classes=label_classes)
+                        yield self._line_widget(field)
+
+    def _record_action_button(self, action_name: str) -> Button:
+        if action_name == "cancel":
+            return Button("Cancel", id="cancel-form")
+        if action_name == "save":
+            return Button(
+                "Save & Select" if self.select_after_save else "Save",
+                id="save-form",
+                variant="primary",
+            )
+        action = self.entity.actions[action_name]
+        return Button(
+            str(action.get("label") or action_name.replace("_", " ").title()),
+            id=_record_action_button_id(action_name),
+            variant="success" if action_name == "post" else "default",
+        )
 
     def on_mount(self) -> None:
         if self.collection_name is not None:
@@ -450,14 +535,25 @@ class RecordEditScreen(Screen[Any]):
         handlers = {
             "cancel-form": self.action_cancel,
             "save-form": self.action_save,
-            "post-record": self.action_post,
             "add-line": self.action_add_line,
             "apply-line": self.action_apply_line,
             "remove-line": self.action_remove_line,
         }
-        handler = handlers.get(event.button.id or "")
+        button_id = event.button.id or ""
+        handler = handlers.get(button_id)
         if handler is not None:
             handler()
+            return
+        action_name = next(
+            (
+                name
+                for name in self.entity.actions
+                if _record_action_button_id(name) == button_id
+            ),
+            None,
+        )
+        if action_name is not None:
+            self._execute_record_action(action_name)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.has_class("editable-value"):
@@ -480,7 +576,8 @@ class RecordEditScreen(Screen[Any]):
         self._select_line(int(key.removeprefix("line-")))
 
     def action_save(self) -> None:
-        if self.query_one("#save-form", Button).disabled:
+        buttons = list(self.query("#save-form"))
+        if not buttons or buttons[0].disabled:
             return
         if not self._collect_form():
             return
@@ -496,7 +593,11 @@ class RecordEditScreen(Screen[Any]):
         self.dismiss(stored if self.select_after_save else True)
 
     def action_post(self) -> None:
-        if self.query_one("#post-record", Button).disabled:
+        self._execute_record_action("post")
+
+    def _execute_record_action(self, action_name: str) -> None:
+        buttons = list(self.query(f"#{_record_action_button_id(action_name)}"))
+        if not buttons or buttons[0].disabled:
             return
         saved_before_post = False
         if not self._collect_form():
@@ -507,7 +608,7 @@ class RecordEditScreen(Screen[Any]):
                 saved_before_post = True
             result = self.actions.execute(
                 self.entity.name,
-                "post",
+                action_name,
                 self.session.identity,
                 {},
                 self.context,
@@ -523,7 +624,8 @@ class RecordEditScreen(Screen[Any]):
             self._recover_after_failed_post(saved_before_post)
             return
         self.session.values = deepcopy(result)
-        self.notify("Invoice posted.", severity="information")
+        label = self.entity.actions[action_name].get("label") or action_name
+        self.notify(f"{label} completed.", severity="information")
         self.dismiss(True)
 
     def action_cancel(self) -> None:
@@ -542,10 +644,13 @@ class RecordEditScreen(Screen[Any]):
         except TideRuntimeError as error:
             self._show_error(error)
             return
-        line_number = max(
-            (int(line.get("line_number") or 0) for line in self.lines),
-            default=0,
-        ) + 1
+        line_number = (
+            max(
+                (int(line.get("line_number") or 0) for line in self.lines),
+                default=0,
+            )
+            + 1
+        )
         defaults["line_number"] = line_number
         inverse = self.entity.field(self.collection_name).metadata.get("inverse")
         if inverse:
@@ -735,9 +840,7 @@ class RecordEditScreen(Screen[Any]):
                 editor.value = ""
 
     def _load_reference_options(self) -> None:
-        fields = [
-            (self.entity.field(name), "field") for name in self.scalar_fields
-        ]
+        fields = [(self.entity.field(name), "field") for name in self.scalar_fields]
         if self.collection_entity is not None:
             fields.extend(
                 (self.collection_entity.field(name), "line")
@@ -777,7 +880,9 @@ class RecordEditScreen(Screen[Any]):
         field = entity.field(field_name)
         lookup_name = self._reference_lookup_view(field, prefix)
         if lookup_name is None or lookup_name not in self.model.views:
-            self._set_message(f"No lookup view is configured for {_field_label(field)}.")
+            self._set_message(
+                f"No lookup view is configured for {_field_label(field)}."
+            )
             return
 
         self.app.push_screen(
@@ -859,7 +964,9 @@ class RecordEditScreen(Screen[Any]):
         elif isinstance(editor, LookupField):
             editor.set_selection(
                 value,
-                display if display is not None else self._reference_display(field, value),
+                display
+                if display is not None
+                else self._reference_display(field, value),
             )
         else:
             editor.value = _input_text(field, value)
@@ -928,8 +1035,7 @@ class RecordEditScreen(Screen[Any]):
             return False
         immutable_when = metadata.get("immutable_when")
         return not (
-            immutable_when
-            and bool(evaluate_expression(str(immutable_when), original))
+            immutable_when and bool(evaluate_expression(str(immutable_when), original))
         )
 
     def _collection_is_editable(self) -> bool:
@@ -967,32 +1073,45 @@ class RecordEditScreen(Screen[Any]):
 
     def _update_actions(self) -> None:
         editable = bool(self._editors) or self._collection_is_editable()
-        self.query_one("#save-form", Button).disabled = not editable
-        post = self.entity.actions.get("post")
-        can_post = False
-        if post is not None:
-            can_post = self.records.security.can_execute_action(
-                post,
+        save_buttons = list(self.query("#save-form"))
+        if save_buttons:
+            save_buttons[0].disabled = not editable
+        for action_name, action in self.entity.actions.items():
+            action_buttons = list(
+                self.query(f"#{_record_action_button_id(action_name)}")
+            )
+            if not action_buttons:
+                continue
+            can_execute = self.records.security.can_execute_action(
+                action,
                 self.context,
             )
-            condition = post.get("enabled_when")
+            condition = action.get("enabled_when")
             if condition:
                 values = deepcopy(self.session.values)
                 if self.collection_name is not None:
                     values[self.collection_name] = deepcopy(self.lines)
-                can_post = can_post and bool(evaluate_expression(condition, values))
-        post_buttons = list(self.query("#post-record"))
-        if post_buttons:
-            post_buttons[0].disabled = not can_post
+                can_execute = can_execute and bool(
+                    evaluate_expression(condition, values)
+                )
+            action_buttons[0].disabled = not can_execute
+            visible_when = action.get("visible_when")
+            if visible_when:
+                values = deepcopy(self.session.values)
+                if self.collection_name is not None:
+                    values[self.collection_name] = deepcopy(self.lines)
+                action_buttons[0].display = bool(
+                    evaluate_expression(visible_when, values)
+                )
         if self.collection_name is not None:
             collection_editable = self._collection_is_editable()
-            self.query_one("#add-line", Button).disabled = not collection_editable
-            self.query_one("#apply-line", Button).disabled = (
-                not collection_editable or self._selected_line is None
-            )
-            self.query_one("#remove-line", Button).disabled = (
-                not collection_editable or self._selected_line is None
-            )
+            for action_name in self.collection_action_order:
+                button = self.query_one(
+                    f"#{_collection_action_button_id(action_name)}", Button
+                )
+                button.disabled = not collection_editable or (
+                    action_name in {"apply", "remove"} and self._selected_line is None
+                )
 
     def _show_validation(self, error: ValidationFailed) -> None:
         messages = "; ".join(issue.message for issue in error.issues)
@@ -1023,9 +1142,118 @@ def _form_fields(view: ResolvedView, entity: NormalizedEntity) -> tuple[str, ...
         for row in section.get("rows", ()):
             for field_name in row:
                 name = str(field_name)
-                if name in entity.fields and name not in result:
+                if (
+                    name in entity.fields
+                    and not _field_is_hidden(view, name)
+                    and name not in result
+                ):
                     result.append(name)
     return tuple(result)
+
+
+def _section_fields(
+    section: Mapping[str, Any],
+    view: ResolvedView,
+    entity: NormalizedEntity,
+) -> tuple[str, ...]:
+    result: list[str] = []
+    for row in section.get("rows", ()):
+        for field_name in row:
+            name = str(field_name)
+            if (
+                name in entity.fields
+                and not _field_is_hidden(view, name)
+                and name not in result
+            ):
+                result.append(name)
+    return tuple(result)
+
+
+def _field_is_hidden(view: ResolvedView, name: str) -> bool:
+    fields = view.data.get("fields", {})
+    configuration = fields.get(name) if isinstance(fields, Mapping) else None
+    return bool(
+        isinstance(configuration, Mapping)
+        and configuration.get("hidden", False)
+    )
+
+
+def _layout_tabs(
+    view: ResolvedView,
+    entity: NormalizedEntity,
+) -> tuple[tuple[str, tuple[tuple[int, Mapping[str, Any]], ...]], ...]:
+    sections = tuple(
+        (index, section)
+        for index, section in enumerate(view.data.get("layout", ()))
+        if isinstance(section, Mapping)
+        and (
+            (
+                section.get("collection")
+                and not _field_is_hidden(view, str(section["collection"]))
+            )
+            or _section_fields(section, view, entity)
+        )
+    )
+    if not any(section.get("tab") for _index, section in sections):
+        return ()
+    grouped: dict[str, list[tuple[int, Mapping[str, Any]]]] = {}
+    for index, section in sections:
+        label = str(section.get("tab") or "General")
+        grouped.setdefault(label, []).append((index, section))
+    return tuple((label, tuple(items)) for label, items in grouped.items())
+
+
+def _record_action_order(
+    view: ResolvedView,
+    entity: NormalizedEntity,
+) -> tuple[str, ...]:
+    configured = tuple(str(name) for name in view.data.get("actions", ()))
+    if configured:
+        return configured
+    return ("cancel", "save", *entity.actions)
+
+
+def _collection_action_order(
+    view: ResolvedView,
+    collection_name: str | None,
+) -> tuple[str, ...]:
+    if collection_name is None:
+        return ()
+    for section in view.data.get("layout", ()):
+        if not isinstance(section, Mapping):
+            continue
+        if str(section.get("collection")) != collection_name:
+            continue
+        configured = tuple(str(name) for name in section.get("actions", ()))
+        return configured or ("add", "apply", "remove")
+    return ("add", "apply", "remove")
+
+
+def _record_action_button_id(action_name: str) -> str:
+    if action_name == "post":
+        return "post-record"
+    return "record-action-" + action_name.replace("_", "-")
+
+
+def _collection_action_button_id(action_name: str) -> str:
+    return {
+        "add": "add-line",
+        "apply": "apply-line",
+        "remove": "remove-line",
+    }[action_name]
+
+
+def _collection_action_button(action_name: str) -> Button:
+    label, variant = {
+        "add": ("Add line", "default"),
+        "apply": ("Apply line", "primary"),
+        "remove": ("Remove line", "warning"),
+    }[action_name]
+    return Button(
+        label,
+        id=_collection_action_button_id(action_name),
+        variant=variant,
+    )
 
 
 def _inline_editor_columns(
@@ -1079,7 +1307,11 @@ def _collection_view(
     for section in view.data.get("layout", ()):
         collection = section.get("collection")
         inline_name = section.get("view")
-        if collection and inline_name:
+        if (
+            collection
+            and inline_name
+            and not _field_is_hidden(view, str(collection))
+        ):
             inline = model.views.get(str(inline_name))
             if inline is not None and inline.kind == "inline_edit":
                 return str(collection), inline

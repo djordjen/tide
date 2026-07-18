@@ -12,6 +12,7 @@ layout:
 
   - collection: lines
     view: sales.InvoiceLine.inline_edit
+    actions: [add, apply, remove]
 
   - group: Totals
     align: right
@@ -28,6 +29,8 @@ fields:
     lookup_view: crm.Customer.lookup
     allow_create: true
     create_view: crm.Customer.edit
+
+actions: [cancel, save, post]
 
 surfaces:
   tui:

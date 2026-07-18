@@ -794,7 +794,16 @@ def _browse_columns(
     unknown = [name for name in columns if name not in entity.fields]
     if unknown:
         raise ValueError(f"browse view contains unknown columns: {', '.join(unknown)}")
-    return columns
+    field_configuration = view.data.get("fields", {})
+    return tuple(
+        name
+        for name in columns
+        if not (
+            isinstance(field_configuration, Mapping)
+            and isinstance(field_configuration.get(name), Mapping)
+            and field_configuration[name].get("hidden", False)
+        )
+    )
 
 
 def _search_field(

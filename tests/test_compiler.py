@@ -61,6 +61,12 @@ def test_invoicing_fixture_compiles_to_immutable_model() -> None:
         "allow_create": True,
         "create_view": "crm.Customer.edit",
     }
+    assert resolved.data["actions"] == ("cancel", "save", "post")
+    assert resolved.data["layout"][1]["actions"] == (
+        "add",
+        "apply",
+        "remove",
+    )
     lookup = model.views["catalog.Product.lookup"]
     assert lookup.kind == "lookup"
     assert lookup.data["columns"] == ("code", "name", "unit_price")
@@ -365,6 +371,91 @@ def test_edit_masks_are_compiler_validated(tmp_path: Path) -> None:
     assert "integer edit masks cannot contain fractional digits" in mask_messages
     assert any("invalid edit-mask regular expression" in message for message in mask_messages)
     assert any("typed edit masks" in message for message in mask_messages)
+
+
+def test_view_tabs_collections_and_action_bars_are_compiler_validated(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "invalid-view-presentation"
+    models = project / "models"
+    views = project / "views"
+    models.mkdir(parents=True)
+    views.mkdir()
+    (project / "tide.yaml").write_text(
+        "\n".join(
+            [
+                'schema_version: "0.1"',
+                "application: {name: Invalid Presentation, version: 0.1.0}",
+                "model: {paths: [models]}",
+                "views: {paths: [views]}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (models / "root.yaml").write_text(
+        "\n".join(
+            [
+                "entity: demo.Root",
+                "fields:",
+                "  id: {type: integer, primary_key: true}",
+                "  lines: {type: collection, target: demo.Line, inverse: root}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (models / "line.yaml").write_text(
+        "\n".join(
+            [
+                "entity: demo.Line",
+                "fields:",
+                "  id: {type: integer, primary_key: true}",
+                "  root: {type: reference, target: demo.Root}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (views / "root.yaml").write_text(
+        "\n".join(
+            [
+                "view: demo.Root.edit",
+                "entity: demo.Root",
+                "kind: form",
+                "actions: [save, save, dance]",
+                "layout:",
+                '  - {group: Root, tab: "", rows: [[id]]}',
+                "  - collection: lines",
+                "    view: demo.Line.browse",
+                "    actions: [add, add, dance]",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (views / "line.yaml").write_text(
+        "\n".join(
+            [
+                "view: demo.Line.browse",
+                "entity: demo.Line",
+                "kind: browse",
+                "columns: [id]",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(project)
+
+    messages = {
+        diagnostic.message
+        for diagnostic in caught.value.diagnostics
+        if diagnostic.code == "TIDE244"
+    }
+    assert any("layout tab must be" in message for message in messages)
+    assert "view action bar repeats actions: save" in messages
+    assert "view action bar contains unknown actions: dance" in messages
+    assert "collection action bar repeats actions: add" in messages
+    assert "collection action bar contains unknown actions: dance" in messages
+    assert any("must be an inline_edit view" in message for message in messages)
 
 
 def test_record_report_contract_is_compiler_validated(tmp_path: Path) -> None:

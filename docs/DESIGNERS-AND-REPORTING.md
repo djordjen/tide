@@ -142,13 +142,25 @@ Enter or **Apply in memory** sends a typed `set_value` command to the bounded
 invalid result remains inspectable. **Changes** shows the exact unified diff,
 **Diagnostics** shows compiler messages, and Undo/Redo use the shared Designer
 history. Shortcuts are `Ctrl+Z`, `Ctrl+Y`, `Ctrl+D`, and `Q`. `R` reloads clean
-sessions but refuses to silently discard pending edits.
+sessions but refuses to silently discard pending edits. Outside expert YAML
+editing, `Ctrl+S` opens the save review.
 
-Studio still performs no application-source write, executes no application
-Python, and does not open the configured database. Closing it discards the
-process-local candidate. The next persistence slice will pass this same session
-through the already separate preparation, exact approval, transactional save,
-and recovery boundary; this screen does not weaken or bypass that boundary.
+**Save candidate** is enabled only for a valid modified candidate. Its modal
+shows the canonical project, changed YAML files, receipt destination, exact
+diff and the complete candidate-bound `SAVE tide-designer-approval-...`
+challenge. The confirmation button remains disabled until that exact phrase is
+entered. Approval invokes only `DesignerSaveService`, which rereads the live
+base, reacquires the evidence, locks, stages, recompiles and transactionally
+replaces the approved YAML before publishing its receipt. Studio then reopens a
+fresh clean Designer session with no undo history crossing the saved baseline.
+
+A stale live base or active/interrupted save lock blocks approval. When a lock
+is present, the review also performs the existing read-only recovery inspection
+and displays the precise `tide designer recover ... --preview` command; recovery
+itself remains a separate explicit evidence-bound operation. Normal Studio
+editing executes no application Python and never opens the configured database.
+The property and YAML widgets still have no direct file-write authority, and
+closing Studio discards any candidate that has not passed the save review.
 
 ### Editor ergonomics
 
@@ -176,9 +188,9 @@ session source. Applying requires strict YAML, preserves the selected
 document's semantic identity, updates only the process-local candidate, runs
 the compiler, opens the exact diff, and joins the same undo/redo history.
 Malformed YAML leaves the editor open so it can be corrected or cancelled.
-Search remains available while editing. Persistence still requires the
-separate candidate-bound approval/save workflow: the text widget has no direct
-file-write authority.
+Search remains available while editing. Persistence requires **Save candidate**
+and its separate candidate-bound approval/save workflow: **Apply YAML** itself
+does not write a file and the text widget has no direct file-write authority.
 
 ## TUI view designer
 
@@ -197,6 +209,82 @@ A Textual designer can dogfood TIDE and support:
 The first version should favor structural tree editing over free-form dragging.
 Move-up, move-down, nest, unnest, and property editing provide most practical
 value with substantially less complexity.
+
+The first structural slice is now present whenever a view document is selected
+in Textual Studio. Its dedicated table resolves the compiled view and entity,
+then displays these terminal placement tracks:
+
+- browse, lookup, and inline collection table columns in left-to-right order;
+- form fields in the renderer's left and right columns;
+- inline-editor `layout.rows` as complete left and right column-first tracks.
+
+Each row shows the field, label, type, source group and layered metadata origin.
+The adjacent summary presents the resolved order without requiring the
+developer to infer it from YAML. **Move up** and **Move down** operate only
+inside the selected track. Flat `columns` use the bounded sequence-move command;
+layout fields atomically swap their exact YAML slots in one command batch. Both
+paths preserve the layout container, recompile immediately, join normal
+undo/redo, update the exact diff, and persist only through **Save candidate**.
+Inherited or generated tracks with no local source path remain preview-only.
+
+The next slice adds conservative cross-column and membership operations. A
+local form or inline field can **Swap left** or **Swap right** only when a local
+field occupies the same resolved position in the opposite track and both are
+inside the same YAML group. The two exact scalar slots swap atomically, so the
+operation never invents blank placeholders or silently crosses metadata groups.
+Ordinary up/down movement is now group-bounded for the same reason.
+
+The entity-field selector lists fields not currently present in the locally
+owned structure. **Add field** appends a browse/lookup column, adds a form field
+to the selected field's group, or updates both inline `columns` and
+`layout.rows` in one transaction. Inline choices exclude collection, readonly,
+computed, and hidden fields. **Remove field** deletes only the view placement,
+never the entity field or database column; inline removal again updates table
+and editor membership together. Add/remove, swaps and moves all recompile,
+participate in undo/redo and exact diff, and persist only through **Save
+candidate**.
+
+Form and inline additions now use an explicit destination-group selector. The
+**Groups…** dialog exposes compiler-resolved group order and field counts, and
+can create, rename, move, or remove a local group. Group movement is limited to
+an immediately adjacent group: collection sections are deliberate barriers
+until collection structure joins the designer. Removal is available only for
+an empty group, so it cannot silently delete field placements. Group operations
+use the same bounded commands, history, diff, compile, and approved-save path.
+
+The next structural slice is also executable. The **Layout…** dialog treats
+groups and collections as one ordered section track, assigns shared portable
+tab labels, adds unused collection fields only when a compatible inline editor
+exists, and removes collection placements without deleting entity fields. It
+also edits the ordered record action bar (`cancel`, `save`, and domain actions)
+and each collection action bar (`add`, `apply`, `remove`). The Textual runtime
+renders declared tabs and button order, while absent metadata keeps generated
+defaults. The compiler validates the contract and every Studio operation uses
+the same in-memory history, exact diff, and approval-required save boundary.
+
+The adjacent **Preview…** dialog now resolves the selected candidate view for
+any compiled application role and for compact (80×24), standard (100×30), or
+wide (140×40) terminals. It shows entity-operation access, protected/read-only/
+editable/record-dependent field placements, record and collection action
+states, tab/section order, declared minimums, estimated height, horizontal-
+scroll pressure, and a canvas with the exact selected width and height. The
+preview constructs a synthetic `Channel.TUI` principal and calls the shared
+`SecurityEngine`; it never loads a record, opens the configured database, or
+executes application code. Consequently, row-dependent immutability and action
+conditions are labeled conditional rather than guessed from invented data.
+
+The closing hardening pass keeps preview and runtime semantics aligned:
+`fields.<name>.hidden: true` is now honored by live browse columns, form fields,
+and collection sections as well as by the preview. On compact developer
+terminals the Studio details pane scrolls instead of clipping its lower tools,
+and the YAML editor retains a usable minimum height. If an in-memory candidate
+cannot compile, the selected view keeps the compiler explanation visible while
+all structural and preview actions fail closed until undo or another edit
+restores a valid candidate.
+
+Transferring an unmatched last field between columns is deferred until the
+portable layout model defines an explicit empty-cell/span concept. The resolved
+contract remains UI-independent so a later Qt or Web designer can reuse it.
 
 ## Web view designer
 

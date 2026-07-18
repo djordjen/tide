@@ -1227,7 +1227,8 @@ def _validate_views(
                 document,
                 diagnostics,
             )
-        _validate_layout(view, entity, views, document, diagnostics)
+        _validate_view_actions(view, entity, document, diagnostics)
+        _validate_layout(view, entity, entities, views, document, diagnostics)
 
     for view_name in views:
         chain: list[str] = []
@@ -1253,6 +1254,7 @@ def _validate_views(
 def _validate_layout(
     view: ViewSource,
     entity: EntitySource,
+    entities: dict[str, EntitySource],
     views: dict[str, ViewSource],
     document: SourceDocument,
     diagnostics: list[Diagnostic],
@@ -1260,6 +1262,14 @@ def _validate_layout(
     for index, node in enumerate(view.layout):
         if not isinstance(node, dict):
             continue
+        if "tab" in node:
+            _validate_presentation_label(
+                node["tab"],
+                name="layout tab",
+                document=document,
+                path=("layout", index, "tab"),
+                diagnostics=diagnostics,
+            )
         if "rows" in node:
             for field_name in _strings_in(node["rows"]):
                 _require_field(entity, field_name, document, ("layout", index, "rows"), diagnostics)
@@ -1283,6 +1293,132 @@ def _validate_layout(
                     document,
                     ("layout", index, "view"),
                 )
+            elif referenced_view:
+                inline_view = views[referenced_view]
+                inline_entity = inline_view.entity or _infer_view_entity(
+                    referenced_view, entities
+                )
+                if (
+                    _view_kind(inline_view) != "inline_edit"
+                    or field is None
+                    or inline_entity != field.target
+                ):
+                    _add(
+                        diagnostics,
+                        "TIDE244",
+                        f"collection view {referenced_view!r} must be an inline_edit "
+                        f"view for {field.target if field is not None else 'the collection target'}",
+                        document,
+                        ("layout", index, "view"),
+                    )
+            raw_actions = node.get("actions")
+            if raw_actions is not None:
+                _validate_action_names(
+                    raw_actions,
+                    allowed={"add", "apply", "remove"},
+                    description="collection action bar",
+                    document=document,
+                    path=("layout", index, "actions"),
+                    diagnostics=diagnostics,
+                )
+        elif "actions" in node:
+            _add(
+                diagnostics,
+                "TIDE244",
+                "layout actions are supported only on collection sections",
+                document,
+                ("layout", index, "actions"),
+            )
+
+
+def _validate_view_actions(
+    view: ViewSource,
+    entity: EntitySource,
+    document: SourceDocument,
+    diagnostics: list[Diagnostic],
+) -> None:
+    if not view.actions:
+        return
+    if _view_kind(view) != "form":
+        _add(
+            diagnostics,
+            "TIDE244",
+            "view action bars are supported only on form views",
+            document,
+            ("actions",),
+        )
+    _validate_action_names(
+        view.actions,
+        allowed={"cancel", "save", *entity.actions},
+        description="view action bar",
+        document=document,
+        path=("actions",),
+        diagnostics=diagnostics,
+    )
+
+
+def _validate_action_names(
+    value: Any,
+    *,
+    allowed: set[str],
+    description: str,
+    document: SourceDocument,
+    path: tuple[str | int, ...],
+    diagnostics: list[Diagnostic],
+) -> None:
+    if not isinstance(value, (list, tuple)) or any(
+        not isinstance(item, str) for item in value
+    ):
+        _add(
+            diagnostics,
+            "TIDE244",
+            f"{description} must be a sequence of action names",
+            document,
+            path,
+        )
+        return
+    names = tuple(value)
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        _add(
+            diagnostics,
+            "TIDE244",
+            f"{description} repeats actions: " + ", ".join(duplicates),
+            document,
+            path,
+        )
+    unknown = sorted(set(names) - allowed)
+    if unknown:
+        _add(
+            diagnostics,
+            "TIDE244",
+            f"{description} contains unknown actions: " + ", ".join(unknown),
+            document,
+            path,
+        )
+
+
+def _validate_presentation_label(
+    value: Any,
+    *,
+    name: str,
+    document: SourceDocument,
+    path: tuple[str | int, ...],
+    diagnostics: list[Diagnostic],
+) -> None:
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or len(value.strip()) > 80
+        or any(character in value for character in ("\r", "\n", "\x00"))
+    ):
+        _add(
+            diagnostics,
+            "TIDE244",
+            f"{name} must be a non-empty single-line label of at most 80 characters",
+            document,
+            path,
+        )
 
 
 def _validate_inline_editor_layout(
@@ -1430,7 +1566,16 @@ def _resolve_views(
             )
 
         overlay = view.model_dump(mode="json", exclude_none=True)
-        for property_name in ("settings", "fields", "columns", "search", "filters", "layout", "surfaces"):
+        for property_name in (
+            "settings",
+            "fields",
+            "columns",
+            "search",
+            "filters",
+            "layout",
+            "actions",
+            "surfaces",
+        ):
             if property_name not in view.model_fields_set:
                 continue
             incoming = overlay[property_name]

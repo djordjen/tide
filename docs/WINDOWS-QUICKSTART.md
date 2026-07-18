@@ -81,6 +81,45 @@ syntax colors. `Ctrl+F` searches the current YAML/diff/diagnostic view; Enter or
 Next and Previous move through highlighted matches. `Ctrl+D` opens Changes and
 `Q` exits. `R` reloads only when there are no pending edits.
 
+Select a document under **Views** to open the first structural view designer.
+Its table shows the compiler-resolved table columns or the form/inline left and
+right field tracks, including each field's layered metadata origin. Select a
+local field and use **Move up** or **Move down** to reorder it within that
+track. The candidate recompiles immediately and the structural summary and
+exact Changes diff refresh together. Undo, redo and **Save candidate** work the
+same way as for property edits; inherited or generated placements are visible
+but read-only.
+
+When a same-group field exists at the corresponding position in the opposite
+column, **← Swap** or **Swap →** exchanges the two placements. Select an unused
+entity field from the chooser and choose **Add field** to add it to the local
+view; the selected layout field determines the form/inline group. **Remove
+field** removes only that view placement, not the entity field or SQL column.
+For inline editors, add/remove updates the table column and editor layout as one
+undoable operation. Unmatched cells and cross-group moves remain disabled.
+
+For a form or inline view, select the destination group before choosing **Add
+field**. Choose **Groups…** to create or rename a local group, move it past an
+adjacent field group, or remove it once empty. A group cannot cross a collection
+section, and a non-empty group cannot be removed. The dialog closes after each
+operation so the resolved structure and exact diff refresh immediately.
+
+For a form view, choose **Layout…** to edit the complete shared presentation
+track. You can assign or clear tab labels, move whole group/collection sections,
+add an unused collection with a compatible inline editor, remove only its view
+placement, and order the record or collection action buttons. The dialog closes
+after one operation so Studio can recompile and show the exact diff. Save the
+candidate, close Studio, and run `start.bat demo` to test the resulting tabs and
+button order against isolated demo data.
+
+Choose **Preview…** on any selected view to inspect it without saving or
+starting the application. Select an application role and compact 80×24,
+standard 100×30, or wide 140×40 terminal size. The canvas marks fields as
+editable, record-dependent, read-only, protected, or hidden; shows action and
+entity access; and warns when declared/estimated layout constraints do not fit.
+This preview uses only compiled metadata and the shared security engine: it
+does not connect to SQL Server, load records, or execute application handlers.
+
 For a source-level change, select a document and choose **Edit YAML**. The lower
 panel becomes writable while the tree and property editor are locked to that
 document. Choose **Apply YAML** or press `Ctrl+S` to parse and compile the whole
@@ -90,11 +129,25 @@ open for correction, while changing an entity/view/report identity is refused
 because renames require an atomic cross-document command. `Ctrl+F` also works
 inside the expert editor.
 
-These edits remain process-local and are discarded when Studio closes. Studio
-does not use `TIDE_DATABASE_URL`, connect to SQL Server, execute application
-Python, or write YAML. **Apply YAML** means apply to the process-local candidate,
-not save to disk. Persisting a candidate will be connected later through the
-separate preview/approval/save workflow documented below.
+To persist a valid candidate, choose **Save candidate** or press `Ctrl+S` while
+the expert editor is closed. Review the canonical project path, changed YAML
+files, receipt path and exact diff. Type the complete displayed `SAVE
+tide-designer-approval-...` phrase; the confirmation button remains disabled
+for partial or altered text. The existing transactional save service then
+rereads and locks the live application, stages and recompiles the candidate,
+replaces only the approved YAML files, writes its receipt, and reloads Studio
+at a clean baseline. Unsaved edits are still discarded when Studio closes.
+
+If the live files changed after Studio opened, save is refused without
+overwriting them. If an active or interrupted Designer lock exists, the review
+shows read-only recovery status and the exact `uv run tide designer recover
+"..." --preview` command to run after closing Studio. Recovery remains a
+separate explicit approval operation documented below.
+
+Studio does not use `TIDE_DATABASE_URL`, connect to SQL Server, or execute
+application Python. **Apply YAML** means apply to the process-local candidate,
+not save to disk; only the separately reviewed **Save candidate** action has
+the narrow transactional YAML-write authority.
 
 To fill an empty initialized SQL Server database with deterministic development
 data, run this once after `start.bat init` has created the tables:

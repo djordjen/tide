@@ -227,6 +227,7 @@ class ViewSource(SourceModel):
     search: tuple[str, ...] = ()
     filters: dict[str, FilterSource] = Field(default_factory=dict)
     layout: tuple[Any, ...] = ()
+    actions: tuple[str, ...] = ()
     surfaces: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 

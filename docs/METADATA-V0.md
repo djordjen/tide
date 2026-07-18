@@ -110,6 +110,15 @@ column, the second positions form the right, and keyboard traversal follows
 the complete left column before the right. Omitting `layout` retains the
 generated editable-column order. Invalid explicit layouts report `TIDE241`.
 
+Form layout sections may declare an optional non-empty, single-line `tab`
+label. Repeated labels place sections on the same tab; unlabelled sections use
+`General` when at least one tab is present. Form views may declare an ordered
+`actions` sequence containing `cancel`, `save`, and action names defined by the
+entity. Collection sections may declare an ordered subset of `add`, `apply`,
+and `remove`. Omitted sequences use renderer defaults. Collection `view` values
+must resolve to an `inline_edit` view for the collection target entity. Invalid
+tab, action-bar, or inline-view presentation reports `TIDE244`.
+
 `tide view explain` returns the resolved view plus provenance for every leaf or
 replaced collection, including the layer, source file, and source property path.
 

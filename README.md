@@ -135,9 +135,22 @@ expert buffer; `Ctrl+S` applies strict YAML to the in-memory candidate, `Esc`
 cancels it, and semantic identity changes are refused. Container,
 schema-version and semantic identity property rows remain locked. Apply, undo
 and redo recompile the candidate without writing source or opening the
-application database. On Windows,
-`start.bat studio` opens the bundled invoicing project directly. Closing Studio
-discards the candidate; approved persistence remains a separate workflow.
+application database. **Save candidate** opens the exact diff and changed-file
+review, requires the complete evidence-bound approval phrase, and only then
+invokes the transactional YAML-only `DesignerSaveService`. Stale sources and
+active/interrupted save locks fail closed with recovery-preview guidance. On
+view documents, a resolved TUI structure panel now shows table/lookup columns
+and form/inline left-right field tracks with their metadata origin. **Move up**
+and **Move down** reorder fields within a track through atomic Designer
+commands. Same-position **Swap left/right** controls preserve YAML group
+boundaries, while an entity-field chooser can add local placements and
+**Remove field** removes only the view placement. Inline membership updates its
+table columns and editor layout atomically. Form/inline additions now use an
+explicit destination-group selector; **Groups…** creates, renames, reorders,
+and removes empty local groups without crossing collection sections. Every
+operation immediately recompiles and refreshes the diff and preview. On
+Windows, `start.bat studio` opens the bundled invoicing project directly.
+Closing Studio discards only an unsaved candidate.
 For reviewed network deployments, `uv sync --extra api --extra auth` adds OIDC
 discovery/JWKS access-token validation. `tide serve --auth oidc` requires an
 exact issuer and audience, maps external roles explicitly to application roles,
@@ -306,7 +319,23 @@ The first Textual Studio shell now exposes the semantic document tree, typed
 in-memory scalar property editing, validation, undo/redo, diagnostics, exact
 diff review, schema-derived selection controls, searchable previews and
 syntax-colored YAML plus a bounded expert YAML apply/cancel mode on top of that
-same headless service.
+same headless service. Its explicit save review now connects a valid candidate
+to the existing approval-bound transactional save, receipt and recovery
+boundary without giving the editor direct file-write authority.
+The first structural view-designer slice resolves list columns and form/inline
+terminal field tracks, exposes provenance, and supports undoable in-track
+reordering, same-group cross-column swaps, local field add/remove, explicit add
+destinations, and safe local group management. Its **Layout…** editor now also
+assigns portable tabs, reorders complete group/collection sections, adds or
+removes compatible collection placements, and orders record/collection action
+bars; the Textual form renderer consumes the same compiled tab and button-order
+metadata. **Preview…** projects a selected view as any application role at
+80×24, 100×30, or 140×40, showing shared-security field/action states and
+terminal-fit warnings without records, database access, or application code.
+The first Studio tranche is now hardened: hidden-field behavior matches the
+live browse/form runtime, compact terminals scroll instead of clipping tools,
+and invalid view candidates retain an explanation while designer actions fail
+closed.
 REST delete, interactive identity-provider login/refresh, trusted reverse
 proxies, MCP
 mutations/actions, developer-MCP designer/save tools, migrations, expanded

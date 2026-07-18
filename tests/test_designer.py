@@ -10,6 +10,7 @@ from tide.development import (
     DesignerCommandBatch,
     DesignerDocumentReference,
     DesignerError,
+    DesignerInsertSequenceItemCommand,
     DesignerMoveSequenceItemCommand,
     DesignerRemoveValueCommand,
     DesignerReplaceDocumentSourceCommand,
@@ -205,6 +206,51 @@ def test_mapping_and_sequence_order_commands_compile(tmp_path: Path) -> None:
     assert session.document(_entity()).content.index("  name:") < session.document(
         _entity()
     ).content.index("  id:")
+
+
+def test_sequence_insert_can_request_compact_flow_style(tmp_path: Path) -> None:
+    session = DesignerService(_write_project(tmp_path)).open_session()
+    target = DesignerDocumentReference(kind="view", name="core.item.browse")
+
+    changed = session.execute_batch(
+        DesignerCommandBatch(
+            commands=(
+                DesignerSetValueCommand(
+                    target=target,
+                    path=("settings",),
+                    value={"rows": []},
+                ),
+                DesignerInsertSequenceItemCommand(
+                    target=target,
+                    path=("settings", "rows"),
+                    index=0,
+                    value=["id"],
+                    flow_style=True,
+                ),
+            )
+        )
+    )
+
+    assert changed.valid
+    assert "  - [id]" in session.document(target).content
+
+
+def test_designer_session_exposes_only_a_valid_resolved_candidate_model(
+    tmp_path: Path,
+) -> None:
+    session = DesignerService(_write_project(tmp_path)).open_session()
+
+    assert session.application_model().entity("core.Item").name == "core.Item"
+
+    session.execute(
+        DesignerSetValueCommand(
+            target=_entity(),
+            path=("display",),
+            value="missing",
+        )
+    )
+    with pytest.raises(DesignerError, match="TIDEDES013"):
+        session.application_model()
 
 
 def test_source_reference_can_address_non_semantic_yaml(tmp_path: Path) -> None:

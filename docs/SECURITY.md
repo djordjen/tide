@@ -42,6 +42,20 @@ TIDE distinguishes:
 Roles grant permission identifiers or policies; model fields should reference
 permission identifiers rather than embedding particular role names.
 
+## Studio security preview
+
+TIDE Studio can project a compiled view as a selected role. It constructs a
+synthetic `Principal` on `Channel.TUI` and uses the same `SecurityEngine` as the
+runtime to resolve entity operations, field read/write permissions, protected
+values, and action permissions. The preview does not query records, evaluate
+row-policy results against invented data, open the configured database, or run
+application handlers. Conditions such as `immutable_when`, `enabled_when`, and
+selection-dependent collection actions are therefore marked record-dependent.
+
+This is a developer diagnostic, not an authorization boundary or impersonation
+feature. Runtime services always authorize the authenticated principal again
+against the actual record and current state.
+
 ## Row security
 
 Row policies become part of the database query. Unauthorized records must not
@@ -262,6 +276,40 @@ rejects malformed/duplicate-key YAML and oversized candidates, and requires
 the replacement to retain the original project/entity/view/report identity.
 Applying the text only changes the bounded session and recompiles its temporary
 candidate; the Textual widget has no save or arbitrary-path capability.
+
+Studio connects persistence only through a separate save-review modal. The
+button is unavailable for clean or compiler-invalid candidates; preparation is
+no-write and displays the exact diff, changed YAML inventory, canonical project,
+receipt destination and evidence-bound approval phrase. Exact entry constructs
+the existing `DesignerSaveApproval`; `DesignerSaveService` independently
+reprepares and validates the session before its locked transactional save.
+Stale sources, active locks and ambiguous recovery evidence fail closed. Lock
+blockers expose only read-only recovery status and an explicit CLI preview
+command—Studio does not silently recover or grant its widgets direct path/write
+authority. A successful save reopens the project as a fresh clean session.
+
+The structural view panel adds no independent mutation authority. It renders a
+compiler-resolved structure, maps a local move to bounded Designer commands,
+and immediately recompiles the complete candidate. Inherited or generated
+positions without an editable local YAML path are preview-only. Structural
+changes enter the same exact diff, undo/redo, approval challenge, transactional
+save, stale-source detection and recovery boundary as property or expert YAML
+changes.
+
+Cross-column operations require two exact local slots in the same layout group
+and swap them in one command batch. Field membership operations accept only a
+field from the compiler-resolved entity and mutate only local view YAML. Remove
+does not delete an entity field, Python code, schema object, or database data;
+inline add/remove updates its local columns and layout atomically. These
+constraints keep structural convenience from broadening Studio's source or
+database authority.
+
+Group management is likewise limited to local `layout` entries. Labels are
+bounded, single-line, and case-insensitively unique. Reorder moves one adjacent
+group and refuses collection boundaries; removal requires a compiler-resolved
+zero field count. Explicit field destinations must identify one of those local
+groups. No group operation changes entity metadata, collection definitions,
+Python, schema objects, or database state.
 
 The separate local DesignerSaveService accepts only an already bounded session.
 Preparation rereads and fingerprints the complete live YAML/Python source tree,
