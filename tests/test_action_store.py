@@ -32,8 +32,12 @@ from tide.services import (
     ActionService,
     AuditHistoryService,
     AuditOutcome,
+    AuditFieldChange,
+    AuditValueMode,
     IdempotencyStatus,
     InMemoryActionExecutionStore,
+    RecordAuditEvent,
+    RecordAuditOperation,
     RecordsService,
 )
 
@@ -356,7 +360,7 @@ def test_sql_action_store_defaults_to_no_ddl() -> None:
     assert inspect(store.engine).get_table_names() == []
     with pytest.raises(SchemaManagementError):
         store.create_schema()
-    assert len(store.schema_issues()) == 2
+    assert len(store.schema_issues()) == 3
     assert inspect(store.engine).get_table_names() == []
     store.dispose()
 
@@ -454,6 +458,203 @@ def test_audit_history_is_bounded_filtered_newest_first_and_authorized() -> None
             service.for_record("sales.Invoice", 1, auditor, limit=0)
 
     sql_store.dispose()
+
+
+def test_record_audit_store_round_trips_typed_changes_and_filters() -> None:
+    sql_store = SQLAlchemyActionExecutionStore(
+        "sqlite+pysqlite:///:memory:",
+        mode="managed",
+    )
+    sql_store.create_schema()
+    stores: tuple[ActionExecutionStore, ...] = (
+        InMemoryActionExecutionStore(),
+        sql_store,
+    )
+    occurred_at = datetime(2026, 7, 18, 13, 0, tzinfo=timezone.utc)
+
+    for store in stores:
+        for event_id, identity, amount in (
+            ("first", 1, Decimal("1000.25")),
+            ("other", 2, Decimal("20.00")),
+            ("latest", 1, Decimal("1001.25")),
+        ):
+            store.record_audit(
+                RecordAuditEvent(
+                    event_id=event_id,
+                    entity="sales.Invoice",
+                    operation=RecordAuditOperation.UPDATE,
+                    identity=identity,
+                    principal="user:clerk",
+                    channel="tui",
+                    correlation_id=event_id,
+                    occurred_at=occurred_at,
+                    source="user",
+                    changes=(
+                        AuditFieldChange(
+                            field="total",
+                            before_present=True,
+                            after_present=True,
+                            value_mode=AuditValueMode.RECORDED,
+                            before=date(2026, 7, 17),
+                            after=amount,
+                        ),
+                    ),
+                )
+            )
+        events = store.record_audit_events(
+            entity="sales.Invoice",
+            identity=1,
+            newest_first=True,
+            limit=1,
+        )
+        assert [event.event_id for event in events] == ["latest"]
+        assert events[0].changes[0].before == date(2026, 7, 17)
+        assert events[0].changes[0].after == Decimal("1001.25")
+        with pytest.raises(ValueError, match="between 1 and 500"):
+            store.record_audit_events(limit=501)
+
+    sql_store.dispose()
+
+
+def test_records_service_audits_crud_and_redacts_protected_values() -> None:
+    store = InMemoryActionExecutionStore()
+    model, repository, records = _memory_runtime()
+    records.audit_store = store
+    created = records.commit(
+        records.create("sales.Invoice", _context("invoice-create"), _invoice_values()),
+        _context("invoice-create"),
+    )
+    edit = records.begin_edit("sales.Invoice", created["id"], _context("invoice-edit"))
+    edit.set("invoice_date", date(2026, 7, 16))
+    records.commit(edit, _context("invoice-edit"))
+    _actions(model, records, store).execute(
+        "sales.Invoice",
+        "post",
+        created["id"],
+        {},
+        _context("invoice-post"),
+        idempotency_key="record-audit-post",
+    )
+
+    record_events = store.record_audit_events(
+        entity="sales.Invoice",
+        identity=created["id"],
+    )
+    assert [event.operation for event in record_events] == [
+        RecordAuditOperation.CREATE,
+        RecordAuditOperation.UPDATE,
+        RecordAuditOperation.UPDATE,
+    ]
+    created_number = next(
+        change for change in record_events[0].changes if change.field == "number"
+    )
+    assert not created_number.before_present
+    assert created_number.after == created["number"]
+    edited_date = next(
+        change for change in record_events[1].changes if change.field == "invoice_date"
+    )
+    assert edited_date.before == date(2026, 7, 15)
+    assert edited_date.after == date(2026, 7, 16)
+    post_event = record_events[2]
+    assert post_event.source == "action"
+    assert post_event.correlation_id == "invoice-post"
+    posted_by = next(
+        change for change in post_event.changes if change.field == "posted_by"
+    )
+    assert posted_by.value_mode is AuditValueMode.REDACTED
+    assert posted_by.before is posted_by.after is None
+
+    auditor = RequestContext(
+        Principal("user:auditor", roles=frozenset({"auditor"})),
+        channel=Channel.TUI,
+    )
+    combined = AuditHistoryService(model, store).for_record(
+        "sales.Invoice",
+        created["id"],
+        auditor,
+    )
+    assert len(combined) == 4
+    assert {event.correlation_id for event in combined} == {
+        "invoice-create",
+        "invoice-edit",
+        "invoice-post",
+    }
+
+    product = records.commit(
+        records.create(
+            "catalog.Product",
+            _context("product-create"),
+            {
+                "code": "DELETE-ME",
+                "name": "Temporary product",
+                "unit_price": Decimal("1.25"),
+            },
+        ),
+        _context("product-create"),
+    )
+    records.delete(
+        "catalog.Product",
+        product["id"],
+        _context("product-delete"),
+    )
+    deleted = store.record_audit_events(
+        entity="catalog.Product",
+        identity=product["id"],
+        newest_first=True,
+        limit=1,
+    )[0]
+    assert deleted.operation is RecordAuditOperation.DELETE
+    assert all(change.before_present and not change.after_present for change in deleted.changes)
+    assert all(
+        record["id"] != product["id"]
+        for record in repository.all("catalog.Product")
+    )
+
+
+def test_audit_history_redacts_stored_values_from_field_policy() -> None:
+    model = compile_project(INVOICING)
+    store = InMemoryActionExecutionStore()
+    store.record_audit(
+        RecordAuditEvent(
+            event_id="protected-change",
+            entity="sales.Invoice",
+            operation=RecordAuditOperation.UPDATE,
+            identity=1,
+            principal="user:clerk",
+            channel="rest",
+            correlation_id="protected-change",
+            occurred_at=datetime(2026, 7, 18, 14, 0, tzinfo=timezone.utc),
+            source="action",
+            changes=(
+                AuditFieldChange(
+                    field="lines",
+                    before_present=True,
+                    after_present=True,
+                    value_mode=AuditValueMode.RECORDED,
+                    before=None,
+                    after=[{"description": "secret detail"}],
+                ),
+            ),
+        )
+    )
+    audit_only = RequestContext(
+        Principal(
+            "user:audit-only",
+            permissions=frozenset({"sales.invoice.audit"}),
+        ),
+        channel=Channel.REST,
+    )
+
+    event = AuditHistoryService(model, store).for_record(
+        "sales.Invoice",
+        1,
+        audit_only,
+    )[0]
+
+    assert isinstance(event, RecordAuditEvent)
+    assert event.changes[0].value_mode is AuditValueMode.REDACTED
+    assert event.changes[0].after is None
+    assert "secret detail" not in repr(event)
 
 
 def _memory_runtime() -> tuple[Any, InMemoryRepository, RecordsService]:

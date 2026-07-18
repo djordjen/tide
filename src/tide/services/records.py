@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import ast
 from copy import deepcopy
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 import re
 from typing import Any, Callable, Mapping
+from uuid import uuid4
 
 from tide.compiler.expressions import evaluate_expression
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity
@@ -42,7 +43,19 @@ from tide.services.cursors import (
     InMemoryCursorStore,
     QueryPage,
 )
+from tide.services.action_store import (
+    ActionExecutionStore,
+    AuditFieldChange,
+    AuditValueMode,
+    InMemoryActionExecutionStore,
+    RecordAuditEvent,
+    RecordAuditOperation,
+    serialize_action_value,
+)
 from tide.sessions.record_session import RecordSession
+
+
+_MAX_AUDIT_VALUE_BYTES = 4_096
 
 
 class MutationSource(StrEnum):
@@ -63,6 +76,9 @@ class RecordsService:
         cursor_store: CursorStore | None = None,
         relationship_max_depth: int = 3,
         relationship_max_items: int = 1_000,
+        audit_store: ActionExecutionStore | None = None,
+        clock: Callable[[], datetime] | None = None,
+        event_id_factory: Callable[[], str] | None = None,
     ) -> None:
         if relationship_max_depth < 1:
             raise ValueError("relationship expansion depth must be positive")
@@ -76,6 +92,9 @@ class RecordsService:
         )
         self.relationship_max_depth = relationship_max_depth
         self.relationship_max_items = relationship_max_items
+        self.audit_store = audit_store or InMemoryActionExecutionStore()
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._event_id_factory = event_id_factory or (lambda: str(uuid4()))
         self._generators: dict[str, Generator] = {}
 
     def register_generator(self, reference: str, generator: Generator) -> None:
@@ -166,7 +185,7 @@ class RecordsService:
         version_field = _version_field(entity)
         if version_field is not None and expected_version is None:
             raise VersionPreconditionRequired(entity_name)
-        self._load_authorized(
+        original = self._load_authorized(
             entity_name,
             identity,
             context,
@@ -188,6 +207,15 @@ class RecordsService:
                 f"{context.principal.identifier!r} may not delete this "
                 f"{entity_name} record"
             ) from error
+        self._record_audit(
+            entity,
+            RecordAuditOperation.DELETE,
+            identity,
+            original,
+            {},
+            context,
+            MutationSource.USER,
+        )
 
     def lookup_records(
         self,
@@ -543,13 +571,62 @@ class RecordsService:
                 f"{context.principal.identifier!r} may not {write_operation} this "
                 f"{entity.name} record"
             ) from error
+        was_new = session.is_new
+        original = {} if was_new else deepcopy(session.original)
         session.identity = stored[_primary_key(entity)]
         version_field = _version_field(entity)
         session.expected_version = (
             stored.get(version_field) if version_field is not None else None
         )
         session.mark_committed(stored)
+        self._record_audit(
+            entity,
+            (
+                RecordAuditOperation.CREATE
+                if was_new
+                else RecordAuditOperation.UPDATE
+            ),
+            session.identity,
+            original,
+            stored,
+            context,
+            source,
+        )
         return self._project(entity, stored, context)
+
+    def _record_audit(
+        self,
+        entity: NormalizedEntity,
+        operation: RecordAuditOperation,
+        identity: Any,
+        before: Mapping[str, Any],
+        after: Mapping[str, Any],
+        context: RequestContext,
+        source: MutationSource,
+    ) -> None:
+        changes = _audit_changes(self.model, entity, operation, before, after)
+        if not changes:
+            return
+        self.audit_store.record_audit(
+            RecordAuditEvent(
+                event_id=self._event_id_factory(),
+                entity=entity.name,
+                operation=operation,
+                identity=deepcopy(identity),
+                principal=context.principal.identifier,
+                channel=str(context.channel),
+                correlation_id=context.correlation_id,
+                occurred_at=self._now(),
+                source=str(source),
+                changes=changes,
+            )
+        )
+
+    def _now(self) -> datetime:
+        value = self._clock()
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("record audit timestamps must be timezone-aware")
+        return value.astimezone(timezone.utc)
 
     def _missing_required_inputs(
         self, entity: NormalizedEntity, values: Mapping[str, Any]
@@ -1009,6 +1086,97 @@ class RecordsService:
 
 def _primary_key(entity: NormalizedEntity) -> str:
     return next(name for name, field in entity.fields.items() if field.metadata.get("primary_key"))
+
+
+def _audit_changes(
+    model: ApplicationModel,
+    entity: NormalizedEntity,
+    operation: RecordAuditOperation,
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+) -> tuple[AuditFieldChange, ...]:
+    changes: list[AuditFieldChange] = []
+    for field_name, field in entity.fields.items():
+        capture = str(field.metadata.get("audit", "changes"))
+        if capture == "none":
+            continue
+        before_present = (
+            operation is not RecordAuditOperation.CREATE and field_name in before
+        )
+        after_present = (
+            operation is not RecordAuditOperation.DELETE and field_name in after
+        )
+        before_value = before.get(field_name)
+        after_value = after.get(field_name)
+        if (
+            before_present == after_present
+            and before_value == after_value
+        ):
+            continue
+
+        value_mode = AuditValueMode.FIELD_ONLY
+        if capture == "values":
+            if _field_has_restricted_read(model, entity.name, field_name):
+                value_mode = AuditValueMode.REDACTED
+            elif field.metadata["type"] != "collection" and _audit_values_fit(
+                before_value if before_present else None,
+                after_value if after_present else None,
+            ):
+                value_mode = AuditValueMode.RECORDED
+        changes.append(
+            AuditFieldChange(
+                field=field_name,
+                before_present=before_present,
+                after_present=after_present,
+                value_mode=value_mode,
+                before=(deepcopy(before_value) if value_mode is AuditValueMode.RECORDED else None),
+                after=(deepcopy(after_value) if value_mode is AuditValueMode.RECORDED else None),
+            )
+        )
+    return tuple(changes)
+
+
+def _audit_values_fit(before: Any, after: Any) -> bool:
+    try:
+        return all(
+            len(serialize_action_value(value).encode("utf-8"))
+            <= _MAX_AUDIT_VALUE_BYTES
+            for value in (before, after)
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def _field_has_restricted_read(
+    model: ApplicationModel,
+    entity_name: str,
+    field_name: str,
+    visited: frozenset[tuple[str, str]] = frozenset(),
+) -> bool:
+    key = entity_name, field_name
+    if key in visited:
+        return False
+    if any(
+        policy["entity"] == entity_name
+        and policy["field"] == field_name
+        and policy.get("read") is not None
+        for policy in model.field_policies
+    ):
+        return True
+    field = model.entity(entity_name).field(field_name)
+    if not field.metadata.get("computed"):
+        return False
+    visited = visited | {key}
+    for dependency in field.dependencies:
+        current = model.entity(entity_name)
+        for part in dependency.split("."):
+            if _field_has_restricted_read(model, current.name, part, visited):
+                return True
+            dependency_field = current.field(part)
+            if dependency_field.target_entity is None:
+                break
+            current = model.entity(dependency_field.target_entity)
+    return False
 
 
 def _delete_references(model: ApplicationModel) -> tuple[DeleteReference, ...]:

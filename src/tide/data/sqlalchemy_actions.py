@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 from typing import Any
 
 from sqlalchemy import (
@@ -16,6 +17,7 @@ from sqlalchemy import (
     String,
     Table,
     Unicode,
+    UnicodeText,
     inspect,
     insert,
     select,
@@ -33,10 +35,14 @@ from tide.data.sqlalchemy import (
 from tide.runtime.errors import ActionStoreError
 from tide.services.action_store import (
     ActionAuditEvent,
+    AuditFieldChange,
     AuditOutcome,
+    AuditValueMode,
     IdempotencyClaim,
     IdempotencyRecord,
     IdempotencyStatus,
+    RecordAuditEvent,
+    RecordAuditOperation,
     deserialize_action_value,
     serialize_action_value,
 )
@@ -109,6 +115,41 @@ class SQLAlchemyActionExecutionStore:
             "ix_tide_action_audit_started",
             self.audit_table.c.started_at,
         )
+        self.record_audit_table = Table(
+            "tide_record_audit",
+            self.metadata,
+            Column(
+                "sequence",
+                BigInteger().with_variant(Integer(), "sqlite"),
+                Identity(),
+                primary_key=True,
+            ),
+            Column("event_id", String(64), nullable=False, unique=True),
+            Column("entity", Unicode(255), nullable=False),
+            Column("operation", String(16), nullable=False),
+            Column("identity_json", Unicode(2048), nullable=False),
+            Column("identity_hash", String(64), nullable=False),
+            Column("principal", Unicode(512), nullable=False),
+            Column("channel", String(32), nullable=False),
+            Column("correlation_id", Unicode(255), nullable=False),
+            Column("occurred_at", DateTime(timezone=True), nullable=False),
+            Column("source", String(16), nullable=False),
+            Column("changes_json", UnicodeText(), nullable=False),
+            schema=schema,
+        )
+        Index(
+            "ix_tide_record_audit_correlation",
+            self.record_audit_table.c.correlation_id,
+        )
+        Index(
+            "ix_tide_record_audit_occurred",
+            self.record_audit_table.c.occurred_at,
+        )
+        Index(
+            "ix_tide_record_audit_record",
+            self.record_audit_table.c.entity,
+            self.record_audit_table.c.identity_hash,
+        )
 
     def create_schema(self) -> None:
         if self.mode != "managed":
@@ -120,7 +161,11 @@ class SQLAlchemyActionExecutionStore:
     def schema_issues(self) -> tuple[SchemaIssue, ...]:
         inspector = inspect(self.engine)
         issues: list[SchemaIssue] = []
-        for table in (self.idempotency_table, self.audit_table):
+        for table in (
+            self.idempotency_table,
+            self.audit_table,
+            self.record_audit_table,
+        ):
             object_name = f"{table.schema}.{table.name}" if table.schema else table.name
             entity = f"tide.action-store.{table.name}"
             if not inspector.has_table(table.name, schema=table.schema):
@@ -357,6 +402,72 @@ class SQLAlchemyActionExecutionStore:
         except (TypeError, ValueError) as error:
             raise ActionStoreError("stored action audit is invalid") from error
 
+    def record_audit(self, event: RecordAuditEvent) -> None:
+        if not event.changes:
+            raise ActionStoreError("record audit events require at least one change")
+        identity_json = serialize_action_value(event.identity)
+        values = {
+            "event_id": event.event_id,
+            "entity": event.entity,
+            "operation": event.operation.value,
+            "identity_json": identity_json,
+            "identity_hash": _identity_hash(identity_json),
+            "principal": event.principal,
+            "channel": event.channel,
+            "correlation_id": event.correlation_id,
+            "occurred_at": event.occurred_at,
+            "source": event.source,
+            "changes_json": _serialize_record_changes(event.changes),
+        }
+        try:
+            with self.engine.begin() as connection:
+                connection.execute(insert(self.record_audit_table).values(**values))
+        except SQLAlchemyError as error:
+            raise ActionStoreError("could not write record audit") from error
+
+    def record_audit_events(
+        self,
+        *,
+        correlation_id: str | None = None,
+        entity: str | None = None,
+        identity: Any | None = None,
+        limit: int | None = None,
+        newest_first: bool = False,
+    ) -> tuple[RecordAuditEvent, ...]:
+        if limit is not None and (limit < 1 or limit > 500):
+            raise ValueError("audit limit must be between 1 and 500")
+        statement = select(self.record_audit_table)
+        if correlation_id is not None:
+            statement = statement.where(
+                self.record_audit_table.c.correlation_id == correlation_id
+            )
+        if entity is not None:
+            statement = statement.where(self.record_audit_table.c.entity == entity)
+        if identity is not None:
+            identity_json = serialize_action_value(identity)
+            statement = statement.where(
+                self.record_audit_table.c.identity_hash
+                == _identity_hash(identity_json),
+                self.record_audit_table.c.identity_json == identity_json,
+            )
+        order = (
+            self.record_audit_table.c.sequence.desc()
+            if newest_first
+            else self.record_audit_table.c.sequence
+        )
+        statement = statement.order_by(order)
+        if limit is not None:
+            statement = statement.limit(limit)
+        try:
+            with self.engine.connect() as connection:
+                rows = connection.execute(statement).mappings().all()
+        except SQLAlchemyError as error:
+            raise ActionStoreError("could not read record audit") from error
+        try:
+            return tuple(_record_audit_event(row) for row in rows)
+        except (TypeError, ValueError) as error:
+            raise ActionStoreError("stored record audit is invalid") from error
+
     def dispose(self) -> None:
         if self._owns_engine:
             self.engine.dispose()
@@ -425,6 +536,74 @@ def _audit_event(row: Any) -> ActionAuditEvent:
             else None
         ),
     )
+
+
+def _record_audit_event(row: Any) -> RecordAuditEvent:
+    return RecordAuditEvent(
+        event_id=str(row["event_id"]),
+        entity=str(row["entity"]),
+        operation=RecordAuditOperation(str(row["operation"])),
+        identity=deserialize_action_value(str(row["identity_json"])),
+        principal=str(row["principal"]),
+        channel=str(row["channel"]),
+        correlation_id=str(row["correlation_id"]),
+        occurred_at=_database_datetime(row["occurred_at"]),
+        source=str(row["source"]),
+        changes=_deserialize_record_changes(str(row["changes_json"])),
+    )
+
+
+def _identity_hash(serialized: str) -> str:
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _serialize_record_changes(changes: tuple[AuditFieldChange, ...]) -> str:
+    return serialize_action_value(
+        [
+            {
+                "field": change.field,
+                "before_present": change.before_present,
+                "after_present": change.after_present,
+                "value_mode": change.value_mode.value,
+                "before": change.before,
+                "after": change.after,
+            }
+            for change in changes
+        ]
+    )
+
+
+def _deserialize_record_changes(value: str) -> tuple[AuditFieldChange, ...]:
+    payload = deserialize_action_value(value)
+    if not isinstance(payload, list):
+        raise ValueError("record audit changes must be a sequence")
+    changes: list[AuditFieldChange] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            raise ValueError("record audit change must be a mapping")
+        field = item.get("field")
+        before_present = item.get("before_present")
+        after_present = item.get("after_present")
+        if (
+            not isinstance(field, str)
+            or not field
+            or not isinstance(before_present, bool)
+            or not isinstance(after_present, bool)
+        ):
+            raise ValueError("record audit change has an invalid shape")
+        changes.append(
+            AuditFieldChange(
+                field=field,
+                before_present=before_present,
+                after_present=after_present,
+                value_mode=AuditValueMode(str(item.get("value_mode"))),
+                before=item.get("before"),
+                after=item.get("after"),
+            )
+        )
+    if not changes or len({change.field for change in changes}) != len(changes):
+        raise ValueError("record audit changes must be non-empty and unique")
+    return tuple(changes)
 
 
 def _database_datetime(value: datetime) -> datetime:

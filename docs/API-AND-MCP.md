@@ -99,6 +99,15 @@ reports only whether the safe record-history route is available and does not
 disclose the permission name. It is capability information for rendering and
 early feedback, never a replacement for per-request authorization.
 
+The bounded history response contains two explicit event variants. `action`
+events retain action name, lifecycle outcome, start/finish timestamps, and safe
+error code. `record` events identify a successful `create`, `update`, or
+`delete`, its mutation source (`user`, `action`, or `system`), and changed
+fields. Each field change says whether before/after sides existed and whether
+values are `recorded`, `field_only`, or `redacted`. Decimal/date/datetime values
+use the same exact typed wire rules as ordinary records. Protected, unconfigured,
+collection, and oversized values are never smuggled into the generic payload.
+
 The development identity adapter is deliberately local-only:
 it reads one opaque token from a named environment variable, maps that token to
 a principal and roles fixed at server startup, and binds only to a loopback
@@ -165,6 +174,11 @@ principal-bound cursors, and maps authorization/not-found/query failures to a
 stable error envelope. Every CRUD route calls `RecordsService`, and domain
 actions call `ActionService`; the adapter never uses a repository or SQLAlchemy
 connection directly.
+
+Because CRUD auditing lives inside `RecordsService`, local Textual, remote
+Textual, REST, and future GUI/MCP callers produce the same record events. The
+transport cannot disable or forge them. Action-triggered record changes share
+the request correlation identifier with the enclosing action lifecycle event.
 
 Queries use deterministic ordering and opaque continuation cursors. A primary
 key tie-breaker is added when necessary. Expansion and page sizes are bounded

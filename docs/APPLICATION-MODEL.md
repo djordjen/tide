@@ -120,10 +120,17 @@ Mutation exposure grants no authority by itself. Every exposed operation also
 needs its entity permission, such as `permissions.delete`, and deletion follows
 each incoming reference's explicit `on_delete` behavior.
 
-Action-history access is separately fail-closed. An entity may declare
+Record-history access is separately fail-closed. An entity may declare
 `permissions.audit`; only principals with that permission can use renderer or
 REST history surfaces. The permission does not imply ordinary record mutation,
 and ordinary read/update permissions do not imply audit access.
+
+Each field also accepts `audit: none | changes | values`. The default
+`changes` records only that the field changed. `values` opts a scalar/reference
+field into bounded before/after capture, while `none` omits it. Collection or
+oversized values fall back to field-only capture. Any field (or computed
+dependency) with a read policy is redacted before storage, and history services
+recheck the current reader's field permissions before returning stored values.
 
 The field identifier is stable application vocabulary. Labels, help text,
 formats, editor hints, and localization are separate facets of the field.
@@ -144,6 +151,7 @@ A field may contribute to several projections without mixing their concerns:
   defaults;
 - API: read/write representation and exposure policy;
 - security: read and write permission requirements;
+- auditing: omit, field-name-only change capture, or safe value capture;
 - reporting: formatting and aggregation behavior.
 
 The compiler combines these facets into one `FieldModel`. Adapters use the

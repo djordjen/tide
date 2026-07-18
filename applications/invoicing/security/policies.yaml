@@ -3,9 +3,11 @@ permissions:
   - crm.customer.read
   - crm.customer.write
   - crm.customer.delete
+  - crm.customer.audit
   - catalog.product.read
   - catalog.product.write
   - catalog.product.delete
+  - catalog.product.audit
   - sales.invoice.read
   - sales.invoice.write
   - sales.invoice.post
@@ -31,7 +33,9 @@ roles:
   auditor:
     grants:
       - crm.customer.read
+      - crm.customer.audit
       - catalog.product.read
+      - catalog.product.audit
       - sales.invoice.read
       - sales.invoice.report
       - sales.invoice.audit

@@ -16,7 +16,7 @@ permissions:
   audit: sales.invoice.audit
 
 fields:
-  id:           {type: integer, primary_key: true}
+  id:           {type: integer, primary_key: true, audit: none}
   number:
     type: string
     length: 30
@@ -25,6 +25,7 @@ fields:
     readonly: true
     write: system
     generated_by: actions.allocate_invoice_number
+    audit: values
 
   invoice_date:
     type: date
@@ -32,6 +33,7 @@ fields:
     default_factory: today
     format: local_date
     immutable_when: "status != 'draft'"
+    audit: values
 
   currency:
     type: string
@@ -39,6 +41,7 @@ fields:
     required: true
     default: EUR
     immutable_when: "status != 'draft'"
+    audit: values
 
   status:
     type: choice
@@ -46,17 +49,20 @@ fields:
     default: draft
     readonly: true
     write: action_only
+    audit: values
 
   posted_at:
     type: datetime
     readonly: true
     write: action_only
+    audit: values
 
   posted_by:
     type: string
     length: 120
     readonly: true
     write: action_only
+    audit: values
 
   version:
     type: integer
@@ -65,6 +71,7 @@ fields:
     readonly: true
     write: system
     concurrency_token: true
+    audit: none
 
   customer:
     type: reference
@@ -74,6 +81,7 @@ fields:
     required: true
     on_delete: restrict
     immutable_when: "status != 'draft'"
+    audit: values
 
   lines:
     type: collection
@@ -93,6 +101,7 @@ fields:
     computed:
       expression: "sum(lines.total)"
       materialization: stored
+    audit: values
 
 validations:
   - id: invoice_has_lines

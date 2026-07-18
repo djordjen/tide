@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 TIDE_WIRE_VERSION = "0.1"
@@ -17,6 +17,9 @@ TideAuditOutcome = Literal[
     "conflict",
     "failed",
 ]
+TideAuditKind = Literal["action", "record"]
+TideRecordAuditOperation = Literal["create", "update", "delete"]
+TideAuditValueMode = Literal["recorded", "field_only", "redacted"]
 TideFilterOperator = Literal[
     "eq",
     "ne",
@@ -135,22 +138,67 @@ class TideReferenceSelectionResult(BaseModel):
     values: dict[str, Any]
 
 
+class TideAuditFieldChange(BaseModel):
+    """Safe wire projection of one changed record field."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    field: str = Field(min_length=1)
+    before_present: bool
+    after_present: bool
+    value_mode: TideAuditValueMode
+    before: Any = None
+    after: Any = None
+
+    @model_validator(mode="after")
+    def safe_values(self) -> TideAuditFieldChange:
+        if self.value_mode != "recorded" and (
+            self.before is not None or self.after is not None
+        ):
+            raise ValueError("non-recorded audit values must be omitted")
+        if (not self.before_present and self.before is not None) or (
+            not self.after_present and self.after is not None
+        ):
+            raise ValueError("absent audit sides cannot contain values")
+        return self
+
+
 class TideAuditEvent(BaseModel):
-    """Safe wire projection of one action-audit lifecycle row."""
+    """Safe wire projection of one action or CRUD audit event."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     event_id: str
     entity: str
-    action: str
+    kind: TideAuditKind = "action"
+    action: str | None = None
+    operation: TideRecordAuditOperation | None = None
     identity: Any
     principal: str
     channel: str
     correlation_id: str
     started_at: datetime
-    outcome: TideAuditOutcome
+    outcome: TideAuditOutcome | None = None
     finished_at: datetime | None = None
     error_code: str | None = None
+    source: Literal["user", "action", "system"] | None = None
+    changes: tuple[TideAuditFieldChange, ...] = ()
+
+    @model_validator(mode="after")
+    def valid_variant(self) -> TideAuditEvent:
+        if self.kind == "action":
+            if self.action is None or self.outcome is None:
+                raise ValueError("action audit events require action and outcome")
+            if self.operation is not None or self.source is not None or self.changes:
+                raise ValueError("action audit events cannot contain CRUD details")
+        else:
+            if self.operation is None or self.source is None or not self.changes:
+                raise ValueError("record audit events require operation, source, and changes")
+            if self.action is not None or self.outcome is not None:
+                raise ValueError("record audit events cannot contain action lifecycle fields")
+            if self.finished_at is not None or self.error_code is not None:
+                raise ValueError("record audit events cannot contain action completion fields")
+        return self
 
 
 class TideAuditHistory(BaseModel):

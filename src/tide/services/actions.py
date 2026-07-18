@@ -25,7 +25,6 @@ from tide.services.action_store import (
     AuditOutcome,
     IdempotencyRecord,
     IdempotencyStatus,
-    InMemoryActionExecutionStore,
     serialize_action_value,
 )
 from tide.services.records import MutationSource, RecordsService
@@ -47,7 +46,8 @@ class ActionService:
         self.model = model
         self.records = records
         self.security = security or records.security
-        self.execution_store = execution_store or InMemoryActionExecutionStore()
+        self.execution_store = execution_store or records.audit_store
+        records.audit_store = self.execution_store
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._event_id_factory = event_id_factory or (lambda: str(uuid4()))
         self._handlers: dict[str, ActionHandler] = {}

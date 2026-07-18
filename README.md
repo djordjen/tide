@@ -184,17 +184,19 @@ reference-path, and single-collection aggregate row policies are pushed into
 root queries. SQL Server schema/query compilation and an opt-in live integration
 suite establish it as the first multi-user target. Secured keyset pagination
 uses opaque, principal-bound continuation cursors with matching behavior in the
-in-memory and SQLAlchemy adapters. Action idempotency and audit state now share
-a storage-neutral lifecycle with in-memory and explicitly managed SQLAlchemy
-implementations; interrupted reservations fail closed instead of executing a
-handler twice. Opt-in REST deletion now crosses the same service boundary, with
+in-memory and SQLAlchemy adapters. Action idempotency plus action/CRUD audit
+state now share storage-neutral contracts with in-memory and explicitly managed
+SQLAlchemy implementations; protected change values are redacted and
+interrupted reservations fail closed instead of executing a handler twice.
+Opt-in REST deletion now crosses the same service boundary, with
 explicit permission/exposure, row-policy and version enforcement, stable
 reference conflicts, and transactional relationship behavior in memory,
 managed SQL, and legacy no-DDL SQL. The initial Textual adapter now interprets resolved browse and
 form metadata for secured create/edit, inline InvoiceLine editing, validation,
 cancel/save, optimistic-concurrency feedback, and audited invoice posting. It
 can now select an explicitly configured SQLAlchemy deployment repository;
-managed deployments use durable cursor, idempotency, and action-audit stores.
+managed deployments use durable cursor, idempotency, action-audit, and
+record-audit stores.
 Stale TUI edits now open a three-way Original/Current/Your draft review. Users
 may reload, continue inspecting their draft, or explicitly choose Current/Mine
 for every overlapping field before rebasing. Non-conflicting draft fields are
@@ -260,7 +262,7 @@ Start with [the documentation index](docs/README.md). Important documents are:
 - [REST API and MCP](docs/API-AND-MCP.md)
 - [Query and concurrency](docs/QUERY-AND-CONCURRENCY.md)
 - [Shared cursor storage](docs/CURSOR-STORAGE.md)
-- [Action audit and idempotency](docs/AUDIT-AND-IDEMPOTENCY.md)
+- [Record audit and action idempotency](docs/AUDIT-AND-IDEMPOTENCY.md)
 - [Designers and reporting](docs/DESIGNERS-AND-REPORTING.md)
 - [Terminal compatibility](docs/TERMINAL-COMPATIBILITY.md)
 - [Threat model](docs/THREAT-MODEL.md)
@@ -295,9 +297,10 @@ executable invoicing workflow are implemented. Direct, reference-path, and
 single-collection aggregate SQL policy translation and secured keyset
 pagination are executable. Collection hydration now applies source-field,
 target-entity, and target-row authorization through bounded relationship load
-plans. Durable action reservations and channel-aware action audit rows are
-implemented for memory and SQLAlchemy stores. SQL Server dialect compilation is
-covered, with live certification available through an opt-in integration suite.
+plans. Durable action reservations plus channel-aware action and CRUD audit
+rows are implemented for memory and SQLAlchemy stores. SQL Server dialect
+compilation is covered, with live certification available through an opt-in
+integration suite.
 Shared SQLAlchemy cursor storage preserves exact typed continuation state across
 runtime restarts and processes while storing only hashes of bearer tokens. An
 adapter-independent, read-only OpenAPI 3.1 preview now generates typed
@@ -306,8 +309,8 @@ first metadata-driven Textual invoicing workflow is runnable with
 application-owned demo data, secured reference display, opaque paging,
 create/edit forms, master-detail line editing, validation and concurrency
 feedback, audited posting, invoice-number incremental search, named filters,
-sortable stored scalar columns, and permission-gated action history through
-keyboard or mouse controls. Secured
+sortable stored scalar columns, and permission-gated action/record history
+through keyboard or mouse controls. Secured
 single-record invoice reporting now provides a terminal preview plus HTML and
 PDF export. A loopback-only FastAPI server hosts secured list/get/create/update
 and Invoice Post routes with typed input, ETag concurrency, idempotency, and

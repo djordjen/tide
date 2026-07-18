@@ -94,16 +94,18 @@ exposes **Draft invoices** and **High-value invoices** from view metadata, and
 the sort selector or eligible column headers toggle secured ascending and
 descending queries. **Clear** restores the default browse query.
 
-The auditor role may select an invoice and choose **History** or press `H` to
-open its newest-first action history. The screen shows the action, outcome,
-principal, channel, timestamp, and correlation identifier; it never includes
-payload values or idempotency secrets. The sales-clerk role does not receive
-`sales.invoice.audit`, so the control remains hidden for that role.
+The auditor role may select an invoice, customer, or product and choose
+**History** or press `H` to open newest-first action and CRUD history. The
+screen shows operations, configured safe field changes, outcomes, principals,
+channels, timestamps, and correlation identifiers. Protected values are
+redacted and payload/idempotency secrets are never included. The sales-clerk
+role does not receive audit permissions, so the control remains hidden.
 
 With the repository's Windows shortcut, run `start.bat auditor` to inspect
 persisted SQL Server history, or `start.bat auditor-demo` for the isolated demo.
-The demo starts with no action events; post an invoice as the sales clerk first
-when testing persistent history.
+Seeded demo records have no prior events because seeding writes the repository
+directly. Create/edit a record or post an invoice as the sales clerk first when
+testing persistent history.
 
 On the Invoice workspace, select a saved invoice and choose **Preview** or
 press `V`. The preview is built from the secured `sales.invoice` report and can

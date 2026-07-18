@@ -796,6 +796,7 @@ def _serve_api(arguments: argparse.Namespace) -> int:
             model,
             storage.repository,
             cursor_store=storage.cursor_store,
+            audit_store=storage.execution_store,
         )
         actions = ActionService(
             model,
@@ -1014,7 +1015,12 @@ def _launch_tui(
         ),
         channel=Channel.TUI,
     )
-    records = RecordsService(model, repository, cursor_store=storage.cursor_store)
+    records = RecordsService(
+        model,
+        repository,
+        cursor_store=storage.cursor_store,
+        audit_store=storage.execution_store,
+    )
     actions = ActionService(
         model,
         records,
@@ -1279,6 +1285,7 @@ def _db_seed(arguments: argparse.Namespace) -> int:
             model,
             storage.repository,
             cursor_store=storage.cursor_store,
+            audit_store=storage.execution_store,
         )
         actions = ActionService(
             model,

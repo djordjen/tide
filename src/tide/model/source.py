@@ -148,6 +148,7 @@ class FieldSource(SourceModel):
     write: Literal["normal", "action_only", "system"] = "normal"
     immutable_when: str | None = None
     generated_by: str | None = None
+    audit: Literal["none", "changes", "values"] = "changes"
 
     @field_validator("length", "precision", "scale")
     @classmethod

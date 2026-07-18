@@ -30,6 +30,13 @@ def test_invoicing_fixture_compiles_to_immutable_model() -> None:
     assert model.entity("sales.Invoice").metadata["permissions"]["audit"] == (
         "sales.invoice.audit"
     )
+    assert model.entity("crm.Customer").metadata["permissions"]["audit"] == (
+        "crm.customer.audit"
+    )
+    assert model.entity("sales.Invoice").field("invoice_date").metadata["audit"] == (
+        "values"
+    )
+    assert model.entity("sales.Invoice").field("version").metadata["audit"] == "none"
     assert model.entity("sales.Invoice").field("total").dependencies == ("lines.total",)
     assert model.entity("sales.Invoice").field("version").metadata["concurrency_token"]
     assert model.entity("sales.Invoice").field("status").metadata["write"] == "action_only"

@@ -28,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field, create_model
 from tide.api.contracts import (
     TIDE_WIRE_VERSION,
     TideAuditEvent,
+    TideAuditFieldChange,
     TideAuditHistory,
     TideEntityCapabilities,
     TideQueryInput,
@@ -72,9 +73,11 @@ from tide.runtime import (
 from tide.reporting import ReportService
 from tide.security import PROTECTED
 from tide.services import (
+    ActionAuditEvent,
     ActionService,
     AuditHistoryReader,
     AuditHistoryService,
+    RecordAuditEvent,
     RecordsService,
 )
 
@@ -634,22 +637,7 @@ def _audit_endpoint(
         return TideAuditHistory(
             entity=entity.name,
             identity=typed_identity,
-            events=tuple(
-                TideAuditEvent(
-                    event_id=event.event_id,
-                    entity=event.entity,
-                    action=event.action,
-                    identity=event.identity,
-                    principal=event.principal,
-                    channel=event.channel,
-                    correlation_id=event.correlation_id,
-                    started_at=event.started_at,
-                    outcome=str(event.outcome),
-                    finished_at=event.finished_at,
-                    error_code=event.error_code,
-                )
-                for event in events
-            ),
+            events=tuple(_wire_audit_event(event) for event in events),
         )
 
     record_audit.__name__ = f"audit_{entity.name.replace('.', '_')}"
@@ -658,6 +646,47 @@ def _audit_endpoint(
         primary_key,
     )
     return record_audit
+
+
+def _wire_audit_event(event: ActionAuditEvent | RecordAuditEvent) -> TideAuditEvent:
+    if isinstance(event, ActionAuditEvent):
+        return TideAuditEvent(
+            event_id=event.event_id,
+            entity=event.entity,
+            kind="action",
+            action=event.action,
+            identity=event.identity,
+            principal=event.principal,
+            channel=event.channel,
+            correlation_id=event.correlation_id,
+            started_at=event.started_at,
+            outcome=str(event.outcome),
+            finished_at=event.finished_at,
+            error_code=event.error_code,
+        )
+    return TideAuditEvent(
+        event_id=event.event_id,
+        entity=event.entity,
+        kind="record",
+        operation=str(event.operation),
+        identity=event.identity,
+        principal=event.principal,
+        channel=event.channel,
+        correlation_id=event.correlation_id,
+        started_at=event.occurred_at,
+        source=event.source,
+        changes=tuple(
+            TideAuditFieldChange(
+                field=change.field,
+                before_present=change.before_present,
+                after_present=change.after_present,
+                value_mode=str(change.value_mode),
+                before=change.before,
+                after=change.after,
+            )
+            for change in event.changes
+        ),
+    )
 
 
 def _build_writable_models(

@@ -34,7 +34,15 @@ from tide.reporting.document import (
     ReportValue,
 )
 from tide.security import PROTECTED
-from tide.services import ActionAuditEvent, AuditOutcome
+from tide.services import (
+    ActionAuditEvent,
+    AuditEvent,
+    AuditFieldChange,
+    AuditOutcome,
+    AuditValueMode,
+    RecordAuditEvent,
+    RecordAuditOperation,
+)
 
 
 CLIENT_OPERATIONS = REST_OPERATIONS
@@ -362,8 +370,8 @@ class TideApiClient:
         identity: Any,
         *,
         limit: int = 100,
-    ) -> tuple[ActionAuditEvent, ...]:
-        """Return bounded safe action history for one authorized record."""
+    ) -> tuple[AuditEvent, ...]:
+        """Return bounded safe action and CRUD history for one record."""
 
         if limit < 1 or limit > 500:
             raise ValueError("audit limit must be between 1 and 500")
@@ -395,7 +403,7 @@ class TideApiClient:
             raise TideApiContractError(
                 "server returned audit history for a different record"
             )
-        events: list[ActionAuditEvent] = []
+        events: list[AuditEvent] = []
         for event in history.events:
             try:
                 event_identity = _decode_field(
@@ -422,20 +430,65 @@ class TideApiClient:
                 raise TideApiContractError(
                     "audit event finish timestamp lacks a timezone"
                 )
+            if event.kind == "action":
+                events.append(
+                    ActionAuditEvent(
+                        event_id=event.event_id,
+                        entity=event.entity,
+                        action=str(event.action),
+                        identity=event_identity,
+                        principal=event.principal,
+                        channel=event.channel,
+                        correlation_id=event.correlation_id,
+                        started_at=event.started_at,
+                        outcome=AuditOutcome(str(event.outcome)),
+                        finished_at=event.finished_at,
+                        error_code=event.error_code,
+                    )
+                )
+                continue
+            changes: list[AuditFieldChange] = []
+            for change in event.changes:
+                field = entity.fields.get(change.field)
+                if field is None:
+                    raise TideApiContractError(
+                        "server returned audit details for an unknown field"
+                    )
+                before = change.before
+                after = change.after
+                if change.value_mode == "recorded":
+                    try:
+                        if change.before_present:
+                            before = _decode_field(self.model, field, before)
+                        if change.after_present:
+                            after = _decode_field(self.model, field, after)
+                    except (TypeError, ValueError, InvalidOperation) as error:
+                        raise TideApiContractError(
+                            "server returned an invalid audit field value"
+                        ) from error
+                changes.append(
+                    AuditFieldChange(
+                        field=change.field,
+                        before_present=change.before_present,
+                        after_present=change.after_present,
+                        value_mode=AuditValueMode(change.value_mode),
+                        before=before,
+                        after=after,
+                    )
+                )
             events.append(
-                ActionAuditEvent(
-                event_id=event.event_id,
-                entity=event.entity,
-                action=event.action,
-                identity=event_identity,
-                principal=event.principal,
-                channel=event.channel,
-                correlation_id=event.correlation_id,
-                started_at=event.started_at,
-                outcome=AuditOutcome(event.outcome),
-                finished_at=event.finished_at,
-                error_code=event.error_code,
-            )
+                RecordAuditEvent(
+                    event_id=event.event_id,
+                    entity=event.entity,
+                    operation=RecordAuditOperation(str(event.operation)),
+                    identity=event_identity,
+                    principal=event.principal,
+                    channel=event.channel,
+                    correlation_id=event.correlation_id,
+                    occurred_at=event.started_at,
+                    source=str(event.source),
+                    changes=tuple(changes),
+                )
             )
         return tuple(events)
 

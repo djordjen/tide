@@ -106,6 +106,8 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
     assert set(schema["paths"]["/api/v1/invoices"]) == {"get", "post"}
     assert "/api/v1/invoices/{id}" in schema["paths"]
     assert "/api/v1/invoices/{id}/_audit" in schema["paths"]
+    assert "/api/v1/customers/{id}/_audit" in schema["paths"]
+    assert "/api/v1/products/{id}/_audit" in schema["paths"]
     assert set(schema["paths"]["/api/v1/invoices/{id}"]) == {"get", "patch"}
     assert set(schema["paths"]["/api/v1/products/{id}"]) == {
         "get",
@@ -487,6 +489,10 @@ def test_server_returns_only_authorized_safe_record_audit_history() -> None:
                 "/api/v1/invoices/2/_audit?limit=1",
                 headers=_authorization(),
             )
+            full_history = await client.get(
+                "/api/v1/invoices/2/_audit?limit=10",
+                headers=_authorization(),
+            )
         async with _client(denied_app) as client:
             denied = await client.get(
                 "/api/v1/invoices/2/_audit",
@@ -507,6 +513,34 @@ def test_server_returns_only_authorized_safe_record_audit_history() -> None:
         assert event["correlation_id"] == "audit-post-replay"
         assert "idempotency_key_hash" not in event
         assert "audit-history-post-2" not in repr(body)
+        complete = full_history.json()["events"]
+        assert [item["kind"] for item in complete] == [
+            "action",
+            "action",
+            "record",
+        ]
+        record_event = complete[-1]
+        assert record_event["operation"] == "update"
+        assert record_event["source"] == "action"
+        assert record_event["outcome"] is None
+        status = next(
+            change for change in record_event["changes"] if change["field"] == "status"
+        )
+        assert status == {
+            "field": "status",
+            "before_present": True,
+            "after_present": True,
+            "value_mode": "recorded",
+            "before": "draft",
+            "after": "posted",
+        }
+        posted_by = next(
+            change
+            for change in record_event["changes"]
+            if change["field"] == "posted_by"
+        )
+        assert posted_by["value_mode"] == "redacted"
+        assert posted_by["before"] is posted_by["after"] is None
         assert denied.status_code == 403
         assert denied.json()["code"] == "forbidden"
 

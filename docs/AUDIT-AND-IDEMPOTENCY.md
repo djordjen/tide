@@ -1,19 +1,22 @@
-# Action Audit and Idempotency
+# Record Audit and Action Idempotency
 
 ## Implemented boundary
 
-`ActionService` uses an `ActionExecutionStore` for two related but distinct
-records:
+`ActionService`, `RecordsService`, and `AuditHistoryService` share an
+`ActionExecutionStore` for three related but distinct records:
 
 - an idempotency reservation keyed by an adapter-supplied token; and
 - an audit lifecycle row for each invocation of an action whose metadata has
-  `audit: true` (the default).
+  `audit: true` (the default); and
+- a successful create/update/delete event containing safe changed-field
+  metadata.
 
 The default `InMemoryActionExecutionStore` preserves the fast headless test
 contract. `SQLAlchemyActionExecutionStore` persists the same contract in
-`tide_action_idempotency` and `tide_action_audit` tables. Construction never
-creates those tables. A TIDE-owned operations schema must explicitly select
-`mode="managed"` and call `create_schema()`; the safe default is `legacy`, where
+`tide_action_idempotency`, `tide_action_audit`, and `tide_record_audit` tables.
+Construction never creates those tables. A TIDE-owned operations schema must
+explicitly select `mode="managed"` and call `create_schema()`; the safe default
+is `legacy`, where
 DDL is refused and only compatibility validation is available.
 
 ```python
@@ -21,6 +24,7 @@ store = SQLAlchemyActionExecutionStore(repository.engine, mode="managed")
 store.create_schema()
 store.validate_schema()
 
+records = RecordsService(model, repository, audit_store=store)
 actions = ActionService(model, records, execution_store=store)
 ```
 
@@ -76,6 +80,33 @@ does not disable idempotency storage. The SQL store assigns an identity-backed
 sequence when each audit row begins, so equal database timestamps do not make
 invocation history depend on random event identifiers.
 
+## CRUD change events
+
+Every successful root `RecordsService` create, update, or delete writes a
+record event after the repository mutation. The event contains the typed
+identity, operation, mutation source (`user`, `action`, or `system`), principal,
+channel, correlation identifier, timestamp, and changed fields. An update made
+inside a domain action therefore shares that action's correlation identifier.
+Failed validation, authorization, concurrency, and repository operations do not
+write success events. Cascade child-row details are not yet expanded into
+separate events.
+
+Field metadata controls detail capture:
+
+- `audit: changes` (default) stores only the field name;
+- `audit: values` stores bounded before/after values for supported scalar and
+  reference fields; and
+- `audit: none` omits the field.
+
+One encoded field value is limited to 4096 bytes. Collections, unsupported
+objects, and oversized values fall back to field-name-only capture. A field or
+computed dependency governed by any read policy is redacted before persistence,
+even when `values` was requested. `AuditHistoryService` then rechecks the
+current reader's field permissions and redacts any stored value that the reader
+cannot currently access. The SQL store hashes serialized identities for its
+record lookup index but still compares the exact typed identity to reject hash
+collisions.
+
 ## Secured record history
 
 `AuditHistoryService` is the read-only boundary used by renderers and HTTP
@@ -91,21 +122,27 @@ remote renderers only whether audit access is available; it does not disclose
 permission names. Textual uses the same local/remote reader contract and shows
 **History** only when authorized.
 
-The wire and TUI projections include safe lifecycle fields but deliberately
-omit payloads, protected values, credentials, raw idempotency keys, and even
-the stored idempotency-key hash. This first history surface covers domain
-actions. Generic CRUD/change-detail history remains separate future work.
+The wire and TUI projections combine action lifecycle and successful CRUD
+events, while deliberately omitting payloads, protected values, credentials,
+raw idempotency keys, and even the stored idempotency-key hash. Equal timestamp
+ticks use an explicit lifecycle phase order so an action completion sorts after
+its correlated record write rather than depending on random event identifiers.
 
 ## Crash and transaction semantics
 
-The reservation is durable before the handler runs, which provides a
+The action reservation is durable before the handler runs, which provides a
 fail-closed, at-most-once retry posture. The current action store and application
 record write use separate short database transactions. A crash after the record
 commit but before the reservation is completed therefore leaves an
 `in_progress` record rather than risking duplicate execution. Operators must
 compare the audit correlation, target state, and application-specific side
-effects before reconciling it.
+effects before reconciling it. CRUD events are currently persisted in a
+separate short transaction after the application write. A crash between those
+transactions can therefore leave a successful mutation without its record
+event; deployments requiring atomic application/audit commits need a future
+shared transaction/outbox boundary.
 
 Atomic completion in the same transaction as application changes, retention
-and purge policy, reconciliation commands, protected change-detail capture, and
-auditing of generic CRUD/MCP/report operations remain later production work.
+and purge policy, reconciliation commands, collection-detail events, failed
+CRUD-attempt audit, and auditing of MCP/report/export operations remain later
+production work.

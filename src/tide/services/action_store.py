@@ -29,6 +29,20 @@ class AuditOutcome(StrEnum):
     FAILED = "failed"
 
 
+class RecordAuditOperation(StrEnum):
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
+
+
+class AuditValueMode(StrEnum):
+    """Describe whether safe before/after values accompany a changed field."""
+
+    RECORDED = "recorded"
+    FIELD_ONLY = "field_only"
+    REDACTED = "redacted"
+
+
 @dataclass(frozen=True, slots=True)
 class IdempotencyRecord:
     key: str
@@ -63,6 +77,57 @@ class ActionAuditEvent:
     finished_at: datetime | None = None
     error_code: str | None = None
     idempotency_key_hash: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AuditFieldChange:
+    field: str
+    before_present: bool
+    after_present: bool
+    value_mode: AuditValueMode = AuditValueMode.FIELD_ONLY
+    before: Any = None
+    after: Any = None
+
+    def __post_init__(self) -> None:
+        if not self.field:
+            raise ValueError("audit change field must not be empty")
+        if self.value_mode is not AuditValueMode.RECORDED and (
+            self.before is not None or self.after is not None
+        ):
+            raise ValueError("non-recorded audit values must be omitted")
+        if (not self.before_present and self.before is not None) or (
+            not self.after_present and self.after is not None
+        ):
+            raise ValueError("absent audit sides cannot contain values")
+
+
+@dataclass(frozen=True, slots=True)
+class RecordAuditEvent:
+    event_id: str
+    entity: str
+    operation: RecordAuditOperation
+    identity: Any
+    principal: str
+    channel: str
+    correlation_id: str
+    occurred_at: datetime
+    source: str
+    changes: tuple[AuditFieldChange, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.event_id or not self.entity:
+            raise ValueError("record audit identifiers must not be empty")
+        if self.occurred_at.tzinfo is None or self.occurred_at.utcoffset() is None:
+            raise ValueError("record audit timestamps must be timezone-aware")
+        if self.source not in {"user", "action", "system"}:
+            raise ValueError("record audit source is invalid")
+        if not self.changes or len({change.field for change in self.changes}) != len(
+            self.changes
+        ):
+            raise ValueError("record audit changes must be non-empty and unique")
+
+
+AuditEvent = ActionAuditEvent | RecordAuditEvent
 
 
 @runtime_checkable
@@ -109,6 +174,18 @@ class ActionExecutionStore(Protocol):
         newest_first: bool = False,
     ) -> tuple[ActionAuditEvent, ...]: ...
 
+    def record_audit(self, event: RecordAuditEvent) -> None: ...
+
+    def record_audit_events(
+        self,
+        *,
+        correlation_id: str | None = None,
+        entity: str | None = None,
+        identity: Any | None = None,
+        limit: int | None = None,
+        newest_first: bool = False,
+    ) -> tuple[RecordAuditEvent, ...]: ...
+
 
 class InMemoryActionExecutionStore:
     """Thread-safe process-local implementation of the durable store contract."""
@@ -116,6 +193,7 @@ class InMemoryActionExecutionStore:
     def __init__(self) -> None:
         self._idempotency: dict[str, IdempotencyRecord] = {}
         self._audit: dict[str, ActionAuditEvent] = {}
+        self._record_audit: dict[str, RecordAuditEvent] = {}
         self._lock = RLock()
 
     def get_idempotency(self, key: str) -> IdempotencyRecord | None:
@@ -229,6 +307,37 @@ class InMemoryActionExecutionStore:
             events = matching if limit is None else matching[:limit]
             return tuple(_copy_audit(event) for event in events)
 
+    def record_audit(self, event: RecordAuditEvent) -> None:
+        if not event.changes:
+            raise ActionStoreError("record audit events require at least one change")
+        with self._lock:
+            if event.event_id in self._record_audit:
+                raise ActionStoreError("record audit event identifier already exists")
+            self._record_audit[event.event_id] = _copy_record_audit(event)
+
+    def record_audit_events(
+        self,
+        *,
+        correlation_id: str | None = None,
+        entity: str | None = None,
+        identity: Any | None = None,
+        limit: int | None = None,
+        newest_first: bool = False,
+    ) -> tuple[RecordAuditEvent, ...]:
+        _validate_audit_limit(limit)
+        with self._lock:
+            matching = [
+                event
+                for event in self._record_audit.values()
+                if correlation_id is None or event.correlation_id == correlation_id
+                if entity is None or event.entity == entity
+                if identity is None or event.identity == identity
+            ]
+            if newest_first:
+                matching.reverse()
+            events = matching if limit is None else matching[:limit]
+            return tuple(_copy_record_audit(event) for event in events)
+
     def _matching_idempotency(
         self,
         key: str,
@@ -335,6 +444,21 @@ def _copy_idempotency(record: IdempotencyRecord) -> IdempotencyRecord:
 
 def _copy_audit(event: ActionAuditEvent) -> ActionAuditEvent:
     return replace(event, identity=deepcopy(event.identity))
+
+
+def _copy_record_audit(event: RecordAuditEvent) -> RecordAuditEvent:
+    return replace(
+        event,
+        identity=deepcopy(event.identity),
+        changes=tuple(
+            replace(
+                change,
+                before=deepcopy(change.before),
+                after=deepcopy(change.after),
+            )
+            for change in event.changes
+        ),
+    )
 
 
 def _validate_audit_limit(limit: int | None) -> None:

@@ -501,6 +501,7 @@ def test_tide_run_database_constructs_durable_runtime(
             "tide_action_audit",
             "tide_action_idempotency",
             "tide_query_cursor",
+            "tide_record_audit",
         }
     finally:
         engine.dispose()
@@ -970,15 +971,21 @@ def test_textual_auditor_opens_safe_record_action_history() -> None:
             screen = app.screen
             assert isinstance(screen, AuditHistoryScreen)
             events = screen.query_one("#audit-events", DataTable)
-            assert events.row_count == 1
+            assert events.row_count == 2
             assert [str(value) for value in events.get_row_at(0)[1:]] == [
+                "Action",
                 "post",
-                "succeeded",
+                "Succeeded",
+                "—",
                 "audit:clerk",
                 "tui",
                 "tui-history-post",
             ]
-            assert "Payloads are never included" in str(
+            record_row = [str(value) for value in events.get_row_at(1)[1:]]
+            assert record_row[:3] == ["Record", "Update", "Succeeded"]
+            assert "status: draft → posted" in record_row[3]
+            assert "posted_by: [redacted]" in record_row[3]
+            assert "Protected values stay redacted" in str(
                 screen.query_one("#audit-status", Static).content
             )
 

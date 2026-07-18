@@ -19,7 +19,7 @@ from tide.runtime import (
 from tide.runtime.errors import ValidationIssue
 from tide.reporting.document import ReportDocument
 from tide.security import PROTECTED
-from tide.services import ActionAuditEvent, QueryPage
+from tide.services import AuditEvent, QueryPage
 from tide.sessions import RecordSession
 
 
@@ -391,7 +391,7 @@ class RemoteAuditHistoryService:
         context: RequestContext,
         *,
         limit: int = 100,
-    ) -> tuple[ActionAuditEvent, ...]:
+    ) -> tuple[AuditEvent, ...]:
         if not self.can_view(entity_name, context):
             raise AuthorizationError(
                 f"remote principal may not audit {entity_name}"

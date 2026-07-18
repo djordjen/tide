@@ -22,9 +22,13 @@ from tide.data import (
 from tide.runtime import Channel, ConcurrencyError, Principal, RequestContext
 from tide.services import (
     ActionAuditEvent,
+    AuditFieldChange,
     AuditOutcome,
+    AuditValueMode,
     IdempotencyRecord,
     IdempotencyStatus,
+    RecordAuditEvent,
+    RecordAuditOperation,
     RecordsService,
 )
 from tide.services.cursors import CURSOR_VERSION, CursorShape, CursorState
@@ -309,6 +313,29 @@ def test_sql_server_persists_action_idempotency_and_audit(
             outcome=AuditOutcome.SUCCEEDED,
             finished_at=now,
         )
+        store.record_audit(
+            RecordAuditEvent(
+                event_id="sqlserver-record-event-1",
+                entity="sales.Invoice",
+                operation=RecordAuditOperation.UPDATE,
+                identity=Decimal("123.45"),
+                principal="user:sqlserver",
+                channel="rest",
+                correlation_id="sqlserver-correlation",
+                occurred_at=now,
+                source="user",
+                changes=(
+                    AuditFieldChange(
+                        field="total",
+                        before_present=True,
+                        after_present=True,
+                        value_mode=AuditValueMode.RECORDED,
+                        before=Decimal("1000.00"),
+                        after=Decimal("1001.25"),
+                    ),
+                ),
+            )
+        )
 
         restarted = SQLAlchemyActionExecutionStore(
             sqlserver_repository.engine,
@@ -320,6 +347,12 @@ def test_sql_server_persists_action_idempotency_and_audit(
         assert persisted.identity == Decimal("123.45")
         assert persisted.status is IdempotencyStatus.COMPLETED
         assert restarted.audit_events()[0].outcome is AuditOutcome.SUCCEEDED
+        record_event = restarted.record_audit_events(
+            entity="sales.Invoice",
+            identity=Decimal("123.45"),
+        )[0]
+        assert record_event.operation is RecordAuditOperation.UPDATE
+        assert record_event.changes[0].after == Decimal("1001.25")
     finally:
         store.metadata.drop_all(store.engine)
 

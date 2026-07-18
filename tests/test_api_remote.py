@@ -20,7 +20,13 @@ from tide.api.server import DevelopmentTokenAuthenticator, build_fastapi_app
 from tide.data import FilterCondition, InMemoryRepository, QuerySpec, SortField
 from tide.runtime import AuthorizationError, Channel, Principal, RequestContext
 from tide.runtime.application import configure_application_runtime
-from tide.services import ActionService, RecordsService
+from tide.services import (
+    ActionAuditEvent,
+    ActionService,
+    AuditValueMode,
+    RecordAuditEvent,
+    RecordsService,
+)
 from tide.tui import seed_demo_data
 from tide.tui import TideApp
 from tide.tui.conflict import ConflictReviewScreen
@@ -61,10 +67,17 @@ def test_remote_audit_history_uses_server_capabilities_and_safe_contract() -> No
 
         assert audits.can_view("sales.Invoice", context)
         events = audits.for_record("sales.Invoice", 2, context)
-        assert len(events) == 1
-        assert events[0].action == "post"
-        assert events[0].principal == "remote:clerk"
-        assert events[0].correlation_id == "remote-audit-post"
+        assert len(events) == 2
+        action = next(event for event in events if isinstance(event, ActionAuditEvent))
+        change = next(event for event in events if isinstance(event, RecordAuditEvent))
+        assert action.action == "post"
+        assert action.principal == "remote:clerk"
+        assert action.correlation_id == "remote-audit-post"
+        assert change.operation == "update"
+        assert change.correlation_id == action.correlation_id
+        assert next(item for item in change.changes if item.field == "posted_by").value_mode is (
+            AuditValueMode.REDACTED
+        )
 
     denied_model, denied_app = _app("sales_clerk")
     with _http_client(denied_app) as transport:

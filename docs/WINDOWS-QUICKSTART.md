@@ -46,6 +46,10 @@ then opens the application. Use `init` only for a managed TIDE database where
 the current Windows account is allowed to create tables. It does not add demo
 records.
 
+After upgrading a database created before CRUD auditing was added, run `init`
+once to add the TIDE-owned `tide_record_audit` table. Existing application
+tables and data are not changed.
+
 ## Normal starts
 
 After initialization, double-click `start.bat` or run:
@@ -74,17 +78,19 @@ To use the isolated in-memory sample instead of SQL Server:
 .\start.bat demo
 ```
 
-To open the read-only auditor workspace and inspect permitted invoice action
-history, use `auditor` for SQL Server or `auditor-demo` for isolated demo data:
+To open the read-only auditor workspace and inspect permitted Invoice,
+Customer, and Product history, use `auditor` for SQL Server or `auditor-demo`
+for isolated demo data:
 
 ```powershell
 .\start.bat auditor
 .\start.bat auditor-demo
 ```
 
-Select an invoice and choose **History** or press `H`. Persistent history is
-created when an audited action such as Post runs; a fresh demo process starts
-with no prior events.
+Select a record and choose **History** or press `H`. Persistent history is
+created by successful create/edit/delete operations and audited actions such as
+Post. Seeded demo rows start with no prior events because seeding bypasses the
+application service intentionally.
 
 To browse the application definition instead of running the business
 application:

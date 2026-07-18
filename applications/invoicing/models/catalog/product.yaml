@@ -15,16 +15,18 @@ permissions:
   create: catalog.product.write
   update: catalog.product.write
   delete: catalog.product.delete
+  audit: catalog.product.audit
 
 fields:
-  id:         {type: integer, primary_key: true}
+  id:         {type: integer, primary_key: true, audit: none}
   code:
     type: string
     length: 30
     required: true
     unique: true
     edit_mask: {regex: "[A-Z][A-Z0-9-]{0,29}"}
-  name:       {type: string, length: 120, required: true, searchable: true}
+    audit: values
+  name:       {type: string, length: 120, required: true, searchable: true, audit: values}
   unit_price:
     type: decimal
     precision: 12
@@ -33,4 +35,5 @@ fields:
     minimum: 0
     format: money
     edit_mask: "0.00"
-  active:     {type: boolean, default: true}
+    audit: values
+  active:     {type: boolean, default: true, audit: values}

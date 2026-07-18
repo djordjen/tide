@@ -197,9 +197,10 @@ the same services.
   **implemented through shared three-way comparison/resolution contracts plus
   local/remote TUI reload, safe-field rebase, and explicit Current/Mine choices**;
 - roles and permissions administration;
-- permission-gated action audit history through local/remote TUI and REST,
-  with safe protected logging; **implemented for domain-action lifecycle
-  events; generic CRUD/change details and retention remain**;
+- permission-gated action and CRUD audit history through local/remote TUI and
+  REST, with safe protected logging; **implemented for domain-action lifecycle
+  events and successful root create/update/delete changes; collection-detail,
+  retention, purge, and broader MCP/report/export audit remain**;
 - import and controlled export;
 - deployment configuration, SSH guidance, and container packaging.
 - health/readiness checks, structured logging, backup/restore, and migration

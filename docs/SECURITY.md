@@ -354,10 +354,14 @@ Multi-tenant support requires an explicit isolation and migration contract.
 ## Auditing
 
 Implemented action audit records include principal, channel, action, entity,
-typed identity, timestamps, correlation identifier, and outcome. They exclude
-payloads, protected values, and raw idempotency keys. Explicit per-entity audit
-permission now gates bounded record history through local/remote Textual and
-REST, whose projection also omits the stored idempotency-key hash. Permitted
-change details, generic CRUD, MCP, report/export audit, retention, and
-reconciliation remain future extensions and must preserve the same
-non-disclosure rule.
+typed identity, timestamps, correlation identifier, and outcome. Successful
+root create/update/delete operations also record their source and changed field
+names. Before/after values require explicit field-level `audit: values`, are
+bounded, and are redacted before storage whenever a field or computed
+dependency has a read policy. The history service rechecks the current reader's
+field permissions as a second protection layer. Payloads, credentials, raw
+idempotency keys, and protected values are excluded. Explicit per-entity audit
+permission gates bounded history through local/remote Textual and REST, whose
+projection also omits the stored idempotency-key hash. Collection-detail,
+failed CRUD attempts, MCP/report/export audit, retention, purge, and
+reconciliation remain future extensions under the same non-disclosure rule.

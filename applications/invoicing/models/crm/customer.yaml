@@ -15,18 +15,20 @@ permissions:
   create: crm.customer.write
   update: crm.customer.write
   delete: crm.customer.delete
+  audit: crm.customer.audit
 
 fields:
-  id:     {type: integer, primary_key: true}
+  id:     {type: integer, primary_key: true, audit: none}
   code:
     type: string
     length: 20
     required: true
     unique: true
     edit_mask: {regex: "[A-Z][A-Z0-9-]{0,19}"}
-  name:   {type: string, length: 120, required: true, searchable: true}
+    audit: values
+  name:   {type: string, length: 120, required: true, searchable: true, audit: values}
   email:  {type: string, length: 254, unique: true, validation: email}
-  active: {type: boolean, default: true}
+  active: {type: boolean, default: true, audit: values}
 
   invoices:
     type: collection
