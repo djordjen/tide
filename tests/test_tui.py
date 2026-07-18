@@ -142,10 +142,19 @@ def test_textual_browse_and_form_keep_actions_reachable_at_supported_sizes() -> 
                     assert body.show_vertical_scrollbar
                     assert body.max_scroll_y > 0
                     body.scroll_end(animate=False)
-                    await pilot.pause()
                     line_fields = screen.query_one("#line-fields")
-                    assert body.region.y <= line_fields.region.y
-                    assert line_fields.region.bottom <= body.region.bottom
+                    await _wait_until(
+                        pilot,
+                        lambda: (
+                            body.scroll_offset.y == body.max_scroll_y
+                            and body.scrollable_content_region.contains_region(
+                                line_fields.region
+                            )
+                        ),
+                    )
+                    assert body.scrollable_content_region.contains_region(
+                        line_fields.region
+                    )
 
                 await pilot.press("escape")
                 await pilot.pause()

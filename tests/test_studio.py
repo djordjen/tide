@@ -856,13 +856,17 @@ def test_textual_studio_browses_properties_and_yaml_without_writes() -> None:
                 for node in entity_group.children
                 if node.label.plain == "sales.Invoice"
             )
-            tree.select_node(invoice_node)
-            await pilot.pause()
-
-            assert app.selected_target == DesignerDocumentReference(
+            expected_target = DesignerDocumentReference(
                 kind="entity",
                 name="sales.Invoice",
             )
+            tree.select_node(invoice_node)
+            for _attempt in range(50):
+                await pilot.pause()
+                if app.selected_target == expected_target:
+                    break
+
+            assert app.selected_target == expected_target
             rows = app.query_one("#property-table", DataTable)
             entity_key = _property_key(app, ("entity",))
             assert rows.get_row(entity_key) == [
