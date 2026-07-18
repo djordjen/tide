@@ -64,6 +64,25 @@ def _delete_confirmation_ready(app: TideApp) -> bool:
     )
 
 
+def _lookup_ready(
+    app: TideApp,
+    *,
+    column_count: int | None = None,
+    row_count: int | None = None,
+) -> bool:
+    screen = app.screen
+    if not isinstance(screen, LookupScreen):
+        return False
+    tables = screen.query("#lookup-results")
+    if len(tables) != 1:
+        return False
+    results = screen.query_one("#lookup-results", DataTable)
+    return (
+        (column_count is None or len(results.columns) == column_count)
+        and (row_count is None or results.row_count == row_count)
+    )
+
+
 def test_textual_invoice_browse_pages_by_keyboard_and_mouse() -> None:
     app = _demo_app(page_size=3)
 
@@ -679,7 +698,7 @@ def test_textual_form_focuses_columns_and_enter_advances() -> None:
             await pilot.press("space")
             await _wait_until(
                 pilot,
-                lambda: isinstance(app.screen, LookupScreen),
+                lambda: _lookup_ready(app),
             )
             assert isinstance(app.screen, LookupScreen)
             await pilot.press("escape")
@@ -723,7 +742,15 @@ def test_textual_form_renders_portable_tabs_and_action_bar_order(
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             app.open_record(2)
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, RecordEditScreen)
+                and len(app.screen.query("#form-tabs")) == 1
+                and app.screen.query_one(
+                    "#collection-records", DataTable
+                ).row_count
+                == 1,
+            )
 
             screen = app.screen
             assert isinstance(screen, RecordEditScreen)
@@ -741,7 +768,7 @@ def test_textual_form_renders_portable_tabs_and_action_bar_order(
             ]
             assert screen.query_one("#collection-records", DataTable).row_count == 1
             tabs.active = "form-tab-1"
-            await pilot.pause()
+            await _wait_until(pilot, lambda: tabs.active == "form-tab-1")
             assert tabs.active == "form-tab-1"
 
     asyncio.run(exercise())
@@ -824,14 +851,21 @@ def test_textual_product_lookup_search_and_selection_defaults() -> None:
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             app.open_record(2)
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, RecordEditScreen)
+                and len(app.screen.query("#line-product")) == 1,
+            )
             form = app.screen
             assert isinstance(form, RecordEditScreen)
 
             product = form.query_one("#line-product", LookupField)
             product.focus()
             await pilot.press("space")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: _lookup_ready(app, column_count=3, row_count=3),
+            )
 
             lookup = app.screen
             assert isinstance(lookup, LookupScreen)
@@ -841,7 +875,7 @@ def test_textual_product_lookup_search_and_selection_defaults() -> None:
 
             search = lookup.query_one("#lookup-search", Input)
             search.value = "annual"
-            await pilot.pause()
+            await _wait_until(pilot, lambda: results.row_count == 1)
             assert results.row_count == 1
             result_row = results.get_row_at(0)
             assert [str(value) for value in result_row] == [
@@ -854,7 +888,10 @@ def test_textual_product_lookup_search_and_selection_defaults() -> None:
 
             search.focus()
             await pilot.press("enter")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: app.screen is form and product.value == 3,
+            )
             assert app.screen is form
             assert product.value == 3
             assert form.query_one("#line-description", Input).value == "Annual license"
@@ -875,7 +912,11 @@ def test_textual_lookup_creates_product_and_preserves_invoice_draft() -> None:
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             app.open_record(2)
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, RecordEditScreen)
+                and len(app.screen.query("#line-product")) == 1,
+            )
             invoice = app.screen
             assert isinstance(invoice, RecordEditScreen)
             invoice.query_one("#field-currency", Input).value = "GBP"
@@ -883,13 +924,24 @@ def test_textual_lookup_creates_product_and_preserves_invoice_draft() -> None:
             product = invoice.query_one("#line-product", LookupField)
             product.focus()
             await pilot.press("space")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: _lookup_ready(app)
+                and not app.screen.query_one(
+                    "#create-lookup-record", Button
+                ).disabled,
+            )
             lookup = app.screen
             assert isinstance(lookup, LookupScreen)
             assert not lookup.query_one("#create-lookup-record", Button).disabled
 
             await pilot.click("#create-lookup-record")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, RecordEditScreen)
+                and app.screen.entity.name == "catalog.Product"
+                and len(app.screen.query("#save-form")) == 1,
+            )
             product_form = app.screen
             assert isinstance(product_form, RecordEditScreen)
             assert product_form.entity.name == "catalog.Product"
@@ -909,7 +961,10 @@ def test_textual_lookup_creates_product_and_preserves_invoice_draft() -> None:
             await pilot.press("tab")
             assert price.value == "350.00"
             await pilot.click("#save-form")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: app.screen is invoice and product.value == 4,
+            )
 
             assert app.screen is invoice
             assert invoice.query_one("#field-currency", Input).value == "GBP"
