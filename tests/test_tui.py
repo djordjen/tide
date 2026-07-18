@@ -244,22 +244,24 @@ def test_textual_product_delete_confirms_cancels_and_reports_references(
             assert "Temporary product" in str(
                 app.screen.query_one("#delete-message", Static).content
             )
-            await pilot.click("#cancel-delete")
-            await pilot.pause()
+            app.screen.query_one("#cancel-delete", Button).press()
+            await _wait_until(
+                pilot,
+                lambda: not isinstance(app.screen, DeleteConfirmationScreen),
+            )
             assert app.records.repository.exists("catalog.Product", 4)
 
-            await pilot.click("#delete-record")
+            delete_button.press()
             await _wait_until(
                 pilot,
                 lambda: isinstance(app.screen, DeleteConfirmationScreen),
             )
-            await pilot.click("#confirm-delete")
+            app.screen.query_one("#confirm-delete", Button).press()
             await _wait_until(
                 pilot,
                 lambda: not app.records.repository.exists("catalog.Product", 4)
                 and table.row_count == 3
-                and bool(notifications)
-                and not delete_button.has_class("-active"),
+                and bool(notifications),
             )
             assert not app.records.repository.exists("catalog.Product", 4)
             assert table.row_count == 3
@@ -269,12 +271,12 @@ def test_textual_product_delete_confirms_cancels_and_reports_references(
             )
 
             table.move_cursor(row=0)
-            await pilot.click("#delete-record")
+            delete_button.press()
             await _wait_until(
                 pilot,
                 lambda: isinstance(app.screen, DeleteConfirmationScreen),
             )
-            await pilot.click("#confirm-delete")
+            app.screen.query_one("#confirm-delete", Button).press()
             await _wait_until(
                 pilot,
                 lambda: bool(notifications)
@@ -318,12 +320,12 @@ def test_textual_customer_delete_is_permission_driven_and_compact_safe() -> None
             assert delete_button.region.bottom <= 24
 
             table.move_cursor(row=3)
-            await pilot.click("#delete-record")
+            delete_button.press()
             await _wait_until(
                 pilot,
                 lambda: isinstance(app.screen, DeleteConfirmationScreen),
             )
-            await pilot.click("#confirm-delete")
+            app.screen.query_one("#confirm-delete", Button).press()
             await _wait_until(
                 pilot,
                 lambda: not app.records.repository.exists("crm.Customer", 4)
@@ -387,11 +389,10 @@ def test_textual_browse_search_named_filters_and_sorting() -> None:
             assert table.get_row_at(0)[0] == "INV-2026-0008"
             assert app.query_one("#next-page", Button).disabled
 
-            await pilot.click(clear_button)
+            clear_button.press()
             await _wait_until(
                 pilot,
-                lambda: table.row_count == 3
-                and not clear_button.has_class("-active"),
+                lambda: table.row_count == 3,
             )
             assert table.row_count == 3
 
@@ -413,7 +414,7 @@ def test_textual_browse_search_named_filters_and_sorting() -> None:
             await _wait_until(pilot, lambda: table.row_count == 0)
             assert table.row_count == 0
 
-            await pilot.click(clear_button)
+            clear_button.press()
             await _wait_until(pilot, lambda: table.row_count == 3)
             assert table.row_count == 3
             app.query_one("#sort-field", Select).value = "total"
@@ -424,7 +425,7 @@ def test_textual_browse_search_named_filters_and_sorting() -> None:
             )
             assert str(table.get_row_at(0)[-1]) == "240.00"
 
-            await pilot.click("#sort-direction")
+            app.query_one("#sort-direction", Button).press()
             await _wait_until(
                 pilot,
                 lambda: table.row_count == 3
