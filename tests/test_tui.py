@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -8,6 +9,7 @@ import shutil
 
 from rich.text import Text
 from sqlalchemy import create_engine, inspect
+from textual.pilot import Pilot
 from textual.widgets import Button, DataTable, Input, Select, Static, TabbedContent
 
 from tide import compile_project
@@ -33,6 +35,23 @@ from tide.tui.report import ReportPreviewScreen
 
 ROOT = Path(__file__).parents[1]
 INVOICING = ROOT / "applications" / "invoicing"
+
+
+async def _wait_until(
+    pilot: Pilot[object],
+    condition: Callable[[], bool],
+    *,
+    attempts: int = 50,
+) -> None:
+    """Drain Textual messages until an observable UI state is reached."""
+    for _ in range(attempts):
+        if condition():
+            return
+        await pilot.pause()
+        if condition():
+            return
+        await pilot.pause(0.01)
+    assert condition(), "Textual did not reach the expected state"
 
 
 def test_textual_invoice_browse_pages_by_keyboard_and_mouse() -> None:
@@ -230,8 +249,18 @@ def test_textual_product_delete_confirms_cancels_and_reports_references(
             assert app.records.repository.exists("catalog.Product", 4)
 
             await pilot.click("#delete-record")
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, DeleteConfirmationScreen),
+            )
             await pilot.click("#confirm-delete")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: not app.records.repository.exists("catalog.Product", 4)
+                and table.row_count == 3
+                and bool(notifications)
+                and not delete_button.has_class("-active"),
+            )
             assert not app.records.repository.exists("catalog.Product", 4)
             assert table.row_count == 3
             assert notifications[-1] == (
@@ -241,8 +270,16 @@ def test_textual_product_delete_confirms_cancels_and_reports_references(
 
             table.move_cursor(row=0)
             await pilot.click("#delete-record")
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, DeleteConfirmationScreen),
+            )
             await pilot.click("#confirm-delete")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: bool(notifications)
+                and notifications[-1][1] == "warning",
+            )
             assert app.records.repository.exists("catalog.Product", 1)
             assert notifications[-1] == (
                 "Cannot delete 'CONS - Consulting hour': it is used by "
@@ -282,8 +319,16 @@ def test_textual_customer_delete_is_permission_driven_and_compact_safe() -> None
 
             table.move_cursor(row=3)
             await pilot.click("#delete-record")
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, DeleteConfirmationScreen),
+            )
             await pilot.click("#confirm-delete")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: not app.records.repository.exists("crm.Customer", 4)
+                and table.row_count == 3,
+            )
             assert not app.records.repository.exists("crm.Customer", 4)
             assert table.row_count == 3
 
@@ -331,18 +376,33 @@ def test_textual_browse_search_named_filters_and_sorting() -> None:
             table = app.query_one("#records", DataTable)
 
             search = app.query_one("#search-query", Input)
+            clear_button = app.query_one("#clear-query", Button)
             search.value = "0008"
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: table.row_count == 1
+                and table.get_row_at(0)[0] == "INV-2026-0008",
+            )
             assert table.row_count == 1
             assert table.get_row_at(0)[0] == "INV-2026-0008"
             assert app.query_one("#next-page", Button).disabled
 
-            await pilot.click("#clear-query")
-            await pilot.pause()
+            await pilot.click(clear_button)
+            await _wait_until(
+                pilot,
+                lambda: table.row_count == 3
+                and not clear_button.has_class("-active"),
+            )
             assert table.row_count == 3
 
             app.query_one("#named-filter", Select).value = "drafts"
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: table.row_count == 3
+                and all(
+                    table.get_row_at(index)[3] == "Draft" for index in range(3)
+                ),
+            )
             assert table.row_count == 3
             assert all(table.get_row_at(index)[3] == "Draft" for index in range(3))
             assert "Draft invoices" in str(
@@ -350,18 +410,26 @@ def test_textual_browse_search_named_filters_and_sorting() -> None:
             )
 
             app.query_one("#named-filter", Select).value = "high_value"
-            await pilot.pause()
+            await _wait_until(pilot, lambda: table.row_count == 0)
             assert table.row_count == 0
 
-            await pilot.click("#clear-query")
-            await pilot.pause()
+            await pilot.click(clear_button)
+            await _wait_until(pilot, lambda: table.row_count == 3)
             assert table.row_count == 3
             app.query_one("#sort-field", Select).value = "total"
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: table.row_count == 3
+                and str(table.get_row_at(0)[-1]) == "240.00",
+            )
             assert str(table.get_row_at(0)[-1]) == "240.00"
 
             await pilot.click("#sort-direction")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: table.row_count == 3
+                and str(table.get_row_at(0)[-1]) == "2,400.00",
+            )
             assert str(table.get_row_at(0)[-1]) == "2,400.00"
             assert str(table.ordered_columns[-1].label).endswith("↓")
 
