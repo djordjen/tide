@@ -1294,8 +1294,12 @@ def test_textual_studio_swaps_adds_and_removes_view_fields_in_memory() -> None:
 
             selector = app.query_one("#view-field-add-choice", Select)
             selector.value = "id"
-            await pilot.pause()
-            assert not app.query_one("#add-view-field", Button).disabled
+            add_button = app.query_one("#add-view-field", Button)
+            for _attempt in range(50):
+                await pilot.pause()
+                if not add_button.disabled:
+                    break
+            assert not add_button.disabled
             await pilot.click("#add-view-field")
             await pilot.pause()
 

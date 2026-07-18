@@ -980,6 +980,7 @@ def test_textual_auditor_opens_safe_record_action_history() -> None:
             screen = app.screen
             assert isinstance(screen, AuditHistoryScreen)
             events = screen.query_one("#audit-events", DataTable)
+            await _wait_until(pilot, lambda: events.row_count == 2)
             assert events.row_count == 2
             assert [str(value) for value in events.get_row_at(0)[1:]] == [
                 "Action",
