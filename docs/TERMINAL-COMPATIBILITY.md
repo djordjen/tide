@@ -1,7 +1,7 @@
 # Terminal Compatibility Contract
 
-**Status: Initial automated browse/form harness implemented; full release
-matrix remains proposed.**
+**Status: Automated compact/standard/wide browse and form acceptance is
+implemented; cross-terminal, color-depth, and SSH certification remain.**
 
 TIDE's terminal adapter must work through keyboard alone; mouse behavior is an
 additional route to the same actions. A terminal-specific control must not be
@@ -31,9 +31,17 @@ than fragile full-screen snapshots alone. A smaller set of golden screenshots
 may verify layout at representative dimensions. Width calculations must use
 terminal cell width rather than Unicode code-point count.
 
-The initial Textual tests run headlessly at 100x24, 120x30, and 120x40. They
-exercise metadata columns, secured reference display, key-driven paging and
-refresh, clickable navigation, metadata forms, typed reference selectors,
+The Textual acceptance tests now run the same browse and invoice form at
+80x24, 100x30, and 140x40. They assert that every browse action and every
+Cancel/Save/Post form action stays inside the viewport. Below 100 columns,
+nonessential workspace/filter/sort selectors collapse, the browse actions use
+a compact bar, and the form body scrolls independently so line details remain
+reachable while record actions stay fixed. A compact browse regression also
+round-trips mixed wide CJK, combining-accent, and right-to-left text.
+
+The broader headless suite also exercises metadata columns, secured reference
+display, key-driven paging and refresh, clickable navigation, metadata forms,
+typed reference selectors,
 master-detail editing, create/save/post actions, immutable states, and stale
 commit feedback. Browse coverage also includes incremental search, metadata
 filters, query-reset behavior, and ascending/descending sort controls. This is
@@ -57,6 +65,9 @@ Invoice report coverage opens the selected record with **Preview** or `V`,
 checks the secured document contents, exports HTML and PDF, and closes without
 altering the browse or record session. Report data, formatting, and export are
 owned by headless services/renderers rather than reconstructed by Textual.
+Windows Terminal, xterm/SSH, reduced-color/no-color, latency, wheel, and
+reconnect cases remain manual release certification until their harnesses are
+implemented.
 
 SSH tests should include noticeable latency and interrupted connections.
 `RecordSession` retains unsaved edits until the user explicitly cancels or the

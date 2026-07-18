@@ -9,6 +9,7 @@ from tide.runtime.errors import (
     AuthorizationError,
     ConcurrencyError,
     CursorStoreError,
+    DeleteRestricted,
     ImmutableFieldError,
     IdempotencyConflict,
     InvalidQueryCursor,
@@ -16,6 +17,7 @@ from tide.runtime.errors import (
     RelationshipExpansionLimit,
     TideRuntimeError,
     ValidationFailed,
+    VersionPreconditionRequired,
 )
 
 __all__ = [
@@ -26,6 +28,7 @@ __all__ = [
     "Channel",
     "ConcurrencyError",
     "CursorStoreError",
+    "DeleteRestricted",
     "ImmutableFieldError",
     "IdempotencyConflict",
     "InvalidQueryCursor",
@@ -35,5 +38,6 @@ __all__ = [
     "RequestContext",
     "TideRuntimeError",
     "ValidationFailed",
+    "VersionPreconditionRequired",
     "configure_application_runtime",
 ]

@@ -35,7 +35,7 @@ from tide.reporting.document import (
 from tide.security import PROTECTED
 
 
-CLIENT_OPERATIONS = REST_OPERATIONS - {"delete"}
+CLIENT_OPERATIONS = REST_OPERATIONS
 _STRONG_ETAG = re.compile(r'^"\d+"$')
 
 
@@ -308,6 +308,21 @@ class TideApiClient:
             json=_encode_record(self.model, entity, values),
         )
         return self._record_response(entity, response)
+
+    def delete_record(
+        self,
+        entity_name: str,
+        identity: Any,
+        *,
+        if_match: str | int | None = None,
+    ) -> None:
+        resource = self._resource(entity_name, "delete")
+        self._request(
+            "DELETE",
+            f"{resource}/{_identity_segment(identity)}",
+            expected=(204,),
+            headers=_precondition_headers(if_match=if_match),
+        )
 
     def execute_action(
         self,

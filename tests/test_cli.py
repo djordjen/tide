@@ -665,6 +665,68 @@ def test_tide_run_database_error_does_not_echo_environment_value(
     assert secret_value not in error
 
 
+def test_db_check_validates_managed_database_without_echoing_url(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    database = tmp_path / "acceptance-SUPERSECRET.db"
+    url = f"sqlite+pysqlite:///{database.as_posix()}"
+    model = compile_project(INVOICING)
+    repository = SQLAlchemyRepository(model, url)
+    repository.create_schema()
+    SQLAlchemyCursorStore(repository.engine, mode="managed").create_schema()
+    SQLAlchemyActionExecutionStore(
+        repository.engine,
+        mode="managed",
+    ).create_schema()
+    repository.dispose()
+    monkeypatch.setenv("CHECK_DATABASE_URL", url)
+
+    result = main(
+        [
+            "db",
+            "check",
+            str(INVOICING),
+            "--database-env",
+            "CHECK_DATABASE_URL",
+        ]
+    )
+
+    output = capsys.readouterr()
+    assert result == 0
+    assert output.err == ""
+    assert output.out == (
+        "Database check passed: TIDE Invoicing 0.1.0; dialect=sqlite; "
+        "mode=managed; framework_state=durable.\n"
+    )
+    assert url not in output.out
+    assert "SUPERSECRET" not in output.out
+
+
+def test_db_check_requires_configured_environment_variable(
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.delenv("MISSING_CHECK_DATABASE_URL", raising=False)
+
+    result = main(
+        [
+            "db",
+            "check",
+            str(INVOICING),
+            "--database-env",
+            "MISSING_CHECK_DATABASE_URL",
+        ]
+    )
+
+    assert result == 1
+    assert capsys.readouterr().err == (
+        "Read-only check database startup failed: environment variable "
+        "'MISSING_CHECK_DATABASE_URL' is not set\n"
+    )
+
+
 def test_db_seed_populates_empty_managed_database_deterministically(
     monkeypatch,
     tmp_path: Path,

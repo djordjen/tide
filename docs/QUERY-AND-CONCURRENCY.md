@@ -80,10 +80,10 @@ dependency; see [Shared cursor storage](CURSOR-STORAGE.md).
 
 ## Mutation preconditions
 
-An entity exposed for update or delete must have a concurrency token. Generated
-REST responses expose that token through an ETag. Update, delete, and
-record-targeted action requests require the version they observed; stale writes
-fail without mutation.
+When an entity has a concurrency token, generated REST responses expose that
+token through an ETag. Update, delete, and record-targeted action requests
+require the version they observed; stale writes fail without mutation.
+Non-versioned legacy entities remain usable without changing their structure.
 
 TUI and MCP carry the same expected version through `RecordSession` and action
 payloads. Missing, stale, null, and protected values are distinct states.

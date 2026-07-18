@@ -95,6 +95,14 @@ The no-DDL rule does not make data access unrestricted. Entity, row, field,
 action, and reference validation still pass through the same secured
 application services.
 
+Metadata-defined deletion also preserves the no-DDL boundary. The SQLAlchemy
+repository checks `restrict` references and executes declared `cascade` or
+`set_null` behavior inside the application transaction, so correctness does not
+depend on TIDE adding or changing a foreign key. Existing database constraints
+and triggers still apply; an integrity rejection is returned as the stable
+`delete_restricted` conflict. Version preconditions are required only when the
+mapped entity already declares a concurrency-token field.
+
 Durable action audit/idempotency and shared query-cursor tables are TIDE-owned
 operational data. They are not silently added to a legacy application schema.
 Both SQLAlchemy operational stores default to `mode="legacy"` and refuse

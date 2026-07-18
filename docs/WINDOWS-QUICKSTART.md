@@ -57,6 +57,17 @@ After initialization, double-click `start.bat` or run:
 This validates the existing schema and opens the application without requesting
 schema creation.
 
+To verify SQL Server without opening the application or changing the database:
+
+```powershell
+.\start.bat check
+```
+
+This checks connectivity, the managed application and TIDE-owned runtime
+tables, and SQL-translatable policies. A successful result names only the
+dialect, database mode, and framework-state mode; the configured URL remains
+secret. Run this after driver/server changes or before troubleshooting the TUI.
+
 To use the isolated in-memory sample instead of SQL Server:
 
 ```powershell

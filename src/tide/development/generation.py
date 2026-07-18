@@ -143,7 +143,9 @@ class DefineEntityOperation(GenerationModel):
     create_permission: str | None = None
     update_permission: str | None = None
     expose_tui: bool = True
-    expose_rest: tuple[Literal["list", "get", "create", "update"], ...] = ()
+    expose_rest: tuple[
+        Literal["list", "get", "create", "update", "delete"], ...
+    ] = ()
     expose_mcp: tuple[Literal["schema", "record", "search"], ...] = ()
 
     @model_validator(mode="after")

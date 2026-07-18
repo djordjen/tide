@@ -13,6 +13,8 @@ from typing import Any, Callable, Mapping
 from tide.compiler.expressions import evaluate_expression
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity
 from tide.data.repository import (
+    DeleteCollection,
+    DeleteReference,
     FilterCondition as FilterCondition,
     QuerySpec,
     RelationshipLoad,
@@ -29,6 +31,7 @@ from tide.runtime.errors import (
     RelationshipExpansionLimit,
     ValidationFailed,
     ValidationIssue,
+    VersionPreconditionRequired,
 )
 from tide.security.engine import PROTECTED, SecurityEngine
 from tide.services.cursors import (
@@ -147,6 +150,44 @@ class RecordsService:
             entity_name, identity, context, operations=("read",)
         )
         return self._project(entity, values, context)
+
+    def delete(
+        self,
+        entity_name: str,
+        identity: Any,
+        context: RequestContext,
+        *,
+        expected_version: int | None = None,
+    ) -> None:
+        """Delete one authorized row using metadata-defined reference behavior."""
+
+        entity = self.model.entity(entity_name)
+        self.security.authorize_entity(entity, "delete", context)
+        version_field = _version_field(entity)
+        if version_field is not None and expected_version is None:
+            raise VersionPreconditionRequired(entity_name)
+        self._load_authorized(
+            entity_name,
+            identity,
+            context,
+            operations=("delete",),
+        )
+        try:
+            self.repository.delete(
+                entity_name,
+                identity,
+                primary_key=_primary_key(entity),
+                version_field=version_field,
+                expected_version=expected_version,
+                row_criteria=self.security.row_criteria(entity_name, "delete"),
+                references=_delete_references(self.model),
+                collections=_delete_collections(self.model),
+            )
+        except RowPolicyMismatch as error:
+            raise AuthorizationError(
+                f"{context.principal.identifier!r} may not delete this "
+                f"{entity_name} record"
+            ) from error
 
     def lookup_records(
         self,
@@ -968,6 +1009,35 @@ class RecordsService:
 
 def _primary_key(entity: NormalizedEntity) -> str:
     return next(name for name, field in entity.fields.items() if field.metadata.get("primary_key"))
+
+
+def _delete_references(model: ApplicationModel) -> tuple[DeleteReference, ...]:
+    return tuple(
+        DeleteReference(
+            source_entity=entity.name,
+            source_field=field.name,
+            source_primary_key=_primary_key(entity),
+            target_entity=field.target_entity,
+            on_delete=str(field.metadata.get("on_delete") or "restrict"),
+        )
+        for entity in model.entities.values()
+        for field in entity.fields.values()
+        if field.metadata["type"] == "reference" and field.target_entity is not None
+    )
+
+
+def _delete_collections(model: ApplicationModel) -> tuple[DeleteCollection, ...]:
+    return tuple(
+        DeleteCollection(
+            parent_entity=entity.name,
+            parent_field=field.name,
+            child_entity=field.target_entity,
+            child_primary_key=_primary_key(model.entity(field.target_entity)),
+        )
+        for entity in model.entities.values()
+        for field in entity.fields.values()
+        if field.metadata["type"] == "collection" and field.target_entity is not None
+    )
 
 
 class _ExpressionPathCollector(ast.NodeVisitor):

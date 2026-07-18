@@ -8,6 +8,8 @@ from typing import Any, Iterable, Mapping
 
 from tide.compiler.expressions import evaluate_expression
 from tide.data.repository import (
+    DeleteCollection,
+    DeleteReference,
     QuerySpec,
     RelationshipLoadPlan,
     RowPolicyMismatch,
@@ -17,6 +19,7 @@ from tide.data.repository import (
 )
 from tide.runtime.errors import (
     ConcurrencyError,
+    DeleteRestricted,
     NotFoundError,
     RelationshipExpansionLimit,
 )
@@ -163,6 +166,141 @@ class InMemoryRepository:
                     record[version_field] = int(actual_version) + 1
             bucket[identity] = deepcopy(record)
             return record
+
+    def delete(
+        self,
+        entity: str,
+        identity: Any,
+        *,
+        primary_key: str,
+        version_field: str | None,
+        expected_version: int | None,
+        row_criteria: tuple[str, ...] = (),
+        references: tuple[DeleteReference, ...] = (),
+        collections: tuple[DeleteCollection, ...] = (),
+    ) -> None:
+        with self._lock:
+            current = next(
+                (
+                    record
+                    for record in self._entity_records(entity, collections)
+                    if record.get(primary_key) == identity
+                ),
+                None,
+            )
+            if current is None:
+                raise NotFoundError(f"{entity} {identity!r} was not found")
+            if not all(
+                bool(evaluate_expression(criteria, current))
+                for criteria in row_criteria
+            ):
+                raise RowPolicyMismatch
+            actual_version = current.get(version_field) if version_field else None
+            if version_field and expected_version != actual_version:
+                raise ConcurrencyError(expected_version, actual_version)
+
+            snapshot = deepcopy(self._records)
+            try:
+                self._delete_entity(
+                    entity,
+                    identity,
+                    references=references,
+                    collections=collections,
+                    visited=set(),
+                )
+            except Exception:
+                self._records = snapshot
+                raise
+
+    def _delete_entity(
+        self,
+        entity: str,
+        identity: Any,
+        *,
+        references: tuple[DeleteReference, ...],
+        collections: tuple[DeleteCollection, ...],
+        visited: set[tuple[str, Any]],
+    ) -> None:
+        key = entity, identity
+        if key in visited:
+            return
+        visited.add(key)
+        for reference in references:
+            if reference.target_entity != entity:
+                continue
+            related = [
+                record
+                for record in self._entity_records(
+                    reference.source_entity,
+                    collections,
+                )
+                if record.get(reference.source_field) == identity
+            ]
+            if not related:
+                continue
+            relationship = f"{reference.source_entity}.{reference.source_field}"
+            if reference.on_delete == "restrict":
+                raise DeleteRestricted(entity, identity, relationship)
+            if reference.on_delete == "set_null":
+                for record in related:
+                    record[reference.source_field] = None
+                continue
+            for record in related:
+                self._delete_entity(
+                    reference.source_entity,
+                    record[reference.source_primary_key],
+                    references=references,
+                    collections=collections,
+                    visited=visited,
+                )
+        self._remove_entity(entity, identity, collections)
+
+    def _entity_records(
+        self,
+        entity: str,
+        collections: tuple[DeleteCollection, ...],
+        visiting: frozenset[str] = frozenset(),
+    ) -> list[dict[str, Any]]:
+        if entity in visiting:
+            return list(self._records.get(entity, {}).values())
+        records = list(self._records.get(entity, {}).values())
+        for collection in collections:
+            if collection.child_entity != entity:
+                continue
+            for parent in self._entity_records(
+                collection.parent_entity,
+                collections,
+                visiting | {entity},
+            ):
+                children = parent.get(collection.parent_field) or []
+                if isinstance(children, list):
+                    records.extend(
+                        child for child in children if isinstance(child, dict)
+                    )
+        return records
+
+    def _remove_entity(
+        self,
+        entity: str,
+        identity: Any,
+        collections: tuple[DeleteCollection, ...],
+    ) -> None:
+        self._records.get(entity, {}).pop(identity, None)
+        for collection in collections:
+            if collection.child_entity != entity:
+                continue
+            for parent in self._entity_records(collection.parent_entity, collections):
+                children = parent.get(collection.parent_field)
+                if not isinstance(children, list):
+                    continue
+                parent[collection.parent_field] = [
+                    child
+                    for child in children
+                    if not (
+                        isinstance(child, dict)
+                        and child.get(collection.child_primary_key) == identity
+                    )
+                ]
 
 
 def _record_is_after(

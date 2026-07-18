@@ -160,7 +160,9 @@ See [REST API and MCP](docs/API-AND-MCP.md#current-application-server).
 `tide run --database-env` selects a persistent SQLAlchemy repository using the
 `TIDE_DATABASE_URL` environment variable. The first managed-database run may
 add `--create-schema`; later runs omit it. Database URLs and credentials remain
-outside application metadata and command output. See
+outside application metadata and command output. `tide db check` (or
+`start.bat check` on Windows) performs a read-only connectivity, schema,
+durable-state, and SQL-policy acceptance check. See
 [Microsoft SQL Server](docs/SQL-SERVER.md#run-the-tui-against-sql-server).
 
 Here, "compiler" means a **metadata compiler**, not native executable or Python
@@ -185,7 +187,10 @@ uses opaque, principal-bound continuation cursors with matching behavior in the
 in-memory and SQLAlchemy adapters. Action idempotency and audit state now share
 a storage-neutral lifecycle with in-memory and explicitly managed SQLAlchemy
 implementations; interrupted reservations fail closed instead of executing a
-handler twice. The initial Textual adapter now interprets resolved browse and
+handler twice. Opt-in REST deletion now crosses the same service boundary, with
+explicit permission/exposure, row-policy and version enforcement, stable
+reference conflicts, and transactional relationship behavior in memory,
+managed SQL, and legacy no-DDL SQL. The initial Textual adapter now interprets resolved browse and
 form metadata for secured create/edit, inline InvoiceLine editing, validation,
 cancel/save, optimistic-concurrency feedback, and audited invoice posting. It
 can now select an explicitly configured SQLAlchemy deployment repository;
@@ -265,6 +270,7 @@ tide model validate
 tide model explain sales.Invoice.customer
 tide view explain sales.Invoice.edit
 tide api export-openapi
+tide db check
 tide db diff
 tide db migrate
 tide studio
@@ -336,8 +342,7 @@ The first Studio tranche is now hardened: hidden-field behavior matches the
 live browse/form runtime, compact terminals scroll instead of clipping tools,
 and invalid view candidates retain an explanation while designer actions fail
 closed.
-REST delete, interactive identity-provider login/refresh, trusted reverse
-proxies, MCP
+Interactive identity-provider login/refresh, trusted reverse proxies, MCP
 mutations/actions, developer-MCP designer/save tools, migrations, expanded
 report queries/grouping, and broader lookup-query capabilities remain roadmap
 work.

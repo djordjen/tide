@@ -56,6 +56,7 @@ from tide.runtime import (
     ActionDisabled,
     Channel,
     ConcurrencyError,
+    DeleteRestricted,
     IdempotencyConflict,
     ImmutableFieldError,
     InvalidQueryCursor,
@@ -64,13 +65,14 @@ from tide.runtime import (
     RequestContext,
     TideRuntimeError,
     ValidationFailed,
+    VersionPreconditionRequired,
 )
 from tide.reporting import ReportService
 from tide.security import PROTECTED
 from tide.services import ActionService, RecordsService
 
 
-SERVER_OPERATIONS = REST_OPERATIONS - {"delete"}
+SERVER_OPERATIONS = REST_OPERATIONS
 
 
 class TideEmptyActionPayload(BaseModel):
@@ -262,7 +264,7 @@ def build_fastapi_app(
             exposure = exposures.get(entity_name)
             operations = tuple(
                 operation
-                for operation in ("list", "get", "create", "update")
+                for operation in ("list", "get", "create", "update", "delete")
                 if exposure is not None
                 and operation in exposure.operations
                 and _operation_allowed(records, entity, operation, context)
@@ -495,6 +497,29 @@ def build_fastapi_app(
                 operation_id=f"update{preview.record_models[entity_name].__name__.removesuffix('Record')}",
                 tags=[tag],
                 responses=_documented_errors(400, 401, 403, 404, 409, 412, 422, 428),
+            )
+        if "delete" in exposure.operations:
+            primary_key = _primary_key(entity)
+            delete_endpoint = _delete_endpoint(
+                records,
+                entity,
+                primary_key,
+                request_context,
+            )
+            app.add_api_route(
+                f"{resource_path}/{{{primary_key.name}}}",
+                delete_endpoint,
+                methods=["DELETE"],
+                status_code=204,
+                response_class=Response,
+                name=f"Delete {entity.label}",
+                operation_id=(
+                    f"delete{preview.record_models[entity_name].__name__.removesuffix('Record')}"
+                ),
+                tags=[tag],
+                responses=_documented_errors(
+                    400, 401, 403, 404, 409, 412, 422, 428
+                ),
             )
 
         primary_key = _primary_key(entity)
@@ -804,6 +829,38 @@ def _action_endpoint(
     return execute_action
 
 
+def _delete_endpoint(
+    records: RecordsService,
+    entity: NormalizedEntity,
+    primary_key: NormalizedField,
+    context_dependency: Any,
+) -> Any:
+    def delete_record(
+        context: RequestContext = Depends(context_dependency),
+        identity: str = Path(alias=primary_key.name, description="Record identity"),
+        if_match: str | None = Header(None, alias="If-Match"),
+    ) -> Response:
+        try:
+            typed_identity = _coerce_identity(records.model, primary_key, identity)
+        except (TypeError, ValueError, InvalidOperation) as error:
+            raise _bad_request("record identity has an invalid type") from error
+        expected = _required_version(entity, if_match)
+        records.delete(
+            entity.name,
+            typed_identity,
+            context,
+            expected_version=expected,
+        )
+        return Response(status_code=204)
+
+    delete_record.__name__ = f"delete_{entity.name.replace('.', '_')}"
+    delete_record.__annotations__["identity"] = _identity_annotation(
+        records.model,
+        primary_key,
+    )
+    return delete_record
+
+
 def _list_endpoint(
     records: RecordsService,
     entity: NormalizedEntity,
@@ -1022,11 +1079,13 @@ def _runtime_status(error: TideRuntimeError) -> int:
         return 404
     if isinstance(error, ConcurrencyError):
         return 412
+    if isinstance(error, VersionPreconditionRequired):
+        return 428
     if isinstance(error, ValidationFailed):
         return 422
     if isinstance(
         error,
-        (ActionDisabled, IdempotencyConflict, ImmutableFieldError),
+        (ActionDisabled, DeleteRestricted, IdempotencyConflict, ImmutableFieldError),
     ):
         return 409
     if isinstance(error, InvalidQueryCursor):

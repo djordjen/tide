@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -8,16 +9,19 @@ from pathlib import Path
 import pytest
 
 from tide import compile_project
+from tide.compiler.normalized import deep_thaw, immutable_mapping
 from tide.data import InMemoryRepository
 from tide.runtime import (
     ActionDisabled,
     AuthorizationError,
     Channel,
     ConcurrencyError,
+    DeleteRestricted,
     ImmutableFieldError,
     Principal,
     RequestContext,
     ValidationFailed,
+    VersionPreconditionRequired,
 )
 from tide.runtime.errors import IdempotencyConflict
 from tide.security import PROTECTED, SecurityEngine
@@ -109,6 +113,115 @@ def test_create_session_applies_today_default_factory(runtime) -> None:
 
     assert session.values["invoice_date"] == date.today()
     assert session.original["invoice_date"] == date.today()
+
+
+def test_delete_is_authorized_and_restricts_embedded_references(runtime) -> None:
+    _, repository, records, _ = runtime
+    clerk = context("user:clerk", "sales_clerk")
+    repository.seed(
+        "catalog.Product",
+        [
+            {
+                "id": 2,
+                "code": "FREE",
+                "name": "Unused product",
+                "unit_price": Decimal("1.00"),
+                "active": True,
+            }
+        ],
+    )
+
+    records.delete("catalog.Product", 2, clerk)
+    assert not repository.exists("catalog.Product", 2)
+
+    invoice = records.create("sales.Invoice", clerk, invoice_values())
+    records.commit(invoice, clerk)
+    with pytest.raises(DeleteRestricted) as restricted:
+        records.delete("catalog.Product", 1, clerk)
+    assert restricted.value.relationship == "sales.InvoiceLine.product"
+    assert repository.exists("catalog.Product", 1)
+
+
+def test_delete_permission_fails_closed(runtime) -> None:
+    _, repository, records, _ = runtime
+
+    with pytest.raises(AuthorizationError):
+        records.delete(
+            "catalog.Product",
+            1,
+            context("user:auditor", "auditor"),
+        )
+
+    assert repository.exists("catalog.Product", 1)
+
+
+def test_delete_row_policy_fails_closed(runtime) -> None:
+    model, repository, _, _ = runtime
+    policies = [deep_thaw(policy) for policy in model.row_policies]
+    active_products = next(
+        policy for policy in policies if policy["id"] == "active_products"
+    )
+    active_products["operations"].append("delete")
+    secured_model = replace(
+        model,
+        row_policies=tuple(immutable_mapping(policy) for policy in policies),
+    )
+    records = RecordsService(secured_model, repository)
+    repository.seed(
+        "catalog.Product",
+        [
+            {
+                "id": 2,
+                "code": "INACTIVE",
+                "name": "Inactive product",
+                "unit_price": Decimal("1.00"),
+                "active": False,
+            }
+        ],
+    )
+
+    with pytest.raises(AuthorizationError):
+        records.delete(
+            "catalog.Product",
+            2,
+            context("user:clerk", "sales_clerk"),
+        )
+
+    assert repository.exists("catalog.Product", 2)
+
+
+def test_versioned_delete_requires_and_checks_observed_version(runtime) -> None:
+    model, repository, _, _ = runtime
+    invoice = model.entity("sales.Invoice")
+    metadata = deep_thaw(invoice.metadata)
+    metadata["permissions"]["delete"] = "sales.invoice.write"
+    entities = dict(model.entities)
+    entities[invoice.name] = replace(
+        invoice,
+        metadata=immutable_mapping(metadata),
+    )
+    secured_model = replace(model, entities=immutable_mapping(entities))
+    records = RecordsService(secured_model, repository)
+    repository.seed(
+        "sales.Invoice",
+        [
+            {
+                "id": 1,
+                "version": 1,
+                "customer": 1,
+                "lines": [],
+            }
+        ],
+    )
+    clerk = context("user:clerk", "sales_clerk")
+
+    with pytest.raises(VersionPreconditionRequired):
+        records.delete("sales.Invoice", 1, clerk)
+    with pytest.raises(ConcurrencyError):
+        records.delete("sales.Invoice", 1, clerk, expected_version=0)
+
+    records.delete("sales.Invoice", 1, clerk, expected_version=1)
+    assert not repository.exists("sales.Invoice", 1)
 
 
 def test_headless_invoice_create_post_retry_and_protection(runtime) -> None:

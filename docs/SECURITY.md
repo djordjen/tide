@@ -69,6 +69,15 @@ supported root aggregate/reference predicates. The service rechecks returned
 children before projection; inaccessible target entities remain protected and
 are not hydrated by SQL repositories.
 
+Delete authorization is independent from read or update. The entity must name
+a `permissions.delete` identifier; omission denies the operation. REST also
+requires an explicit `delete` exposure. `RecordsService` evaluates delete row
+policies before mutation and supplies the same criteria to the repository so
+the root delete remains atomic with its authorization and observed version.
+Incoming references follow only their compiled `restrict`, `cascade`, or
+`set_null` contract. A cascade is relationship-owned cleanup, not a way for the
+caller to acquire a child delete capability.
+
 ## Protected fields
 
 When a user may see a record but not a field, TIDE uses an internal sentinel:

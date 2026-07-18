@@ -34,12 +34,15 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.engine import Connection, Engine, URL, make_url
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.type_api import TypeEngine
 
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 from tide.data.repository import (
+    DeleteCollection,
+    DeleteReference,
     FilterCondition,
     QuerySpec,
     RelationshipLoadPlan,
@@ -49,6 +52,7 @@ from tide.data.repository import (
 from tide.data.sql_expressions import QueryTranslationError, translate_expression
 from tide.runtime.errors import (
     ConcurrencyError,
+    DeleteRestricted,
     NotFoundError,
     RelationshipExpansionLimit,
     TideRuntimeError,
@@ -388,8 +392,154 @@ class SQLAlchemyRepository:
                 row_criteria=row_criteria,
             )
 
+    def delete(
+        self,
+        entity: str,
+        identity: Any,
+        *,
+        primary_key: str,
+        version_field: str | None,
+        expected_version: int | None,
+        row_criteria: tuple[str, ...] = (),
+        references: tuple[DeleteReference, ...] = (),
+        collections: tuple[DeleteCollection, ...] = (),
+    ) -> None:
+        del collections
+        normalized = self.model.entity(entity)
+        expected_key = _primary_key(normalized)
+        expected_version_field = _version_field(normalized)
+        if primary_key != expected_key or version_field != expected_version_field:
+            raise ValueError("repository delete metadata does not match the compiled entity")
+        table = self.table(entity)
+        policy_predicates = tuple(
+            translate_expression(
+                policy,
+                model=self.model,
+                entity=normalized,
+                columns=table.c,
+                tables=self._tables,
+                relationship_criteria=_model_read_criteria(self.model),
+            )
+            for policy in row_criteria
+        )
+        try:
+            with self.engine.begin() as connection:
+                current = connection.execute(
+                    select(
+                        table.c[primary_key],
+                        *((table.c[version_field],) if version_field else ()),
+                    ).where(table.c[primary_key] == identity)
+                ).first()
+                if current is None:
+                    raise NotFoundError(f"{entity} {identity!r} was not found")
+                if policy_predicates and connection.execute(
+                    select(table.c[primary_key]).where(
+                        table.c[primary_key] == identity,
+                        and_(*policy_predicates),
+                    )
+                ).first() is None:
+                    raise RowPolicyMismatch
+                actual_version = (
+                    current._mapping[version_field] if version_field else None
+                )
+                if version_field and expected_version != actual_version:
+                    raise ConcurrencyError(expected_version, actual_version)
+
+                root_criteria = table.c[primary_key] == identity
+                if policy_predicates:
+                    root_criteria = root_criteria & and_(*policy_predicates)
+                if version_field:
+                    root_criteria = root_criteria & (
+                        table.c[version_field] == expected_version
+                    )
+                self._delete_entity(
+                    connection,
+                    entity,
+                    identity,
+                    references=references,
+                    visited=set(),
+                    root_criteria=root_criteria,
+                    expected_version=expected_version,
+                )
+        except DeleteRestricted:
+            raise
+        except IntegrityError as error:
+            raise DeleteRestricted(entity, identity) from error
+
     def dispose(self) -> None:
         self.engine.dispose()
+
+    def _delete_entity(
+        self,
+        connection: Connection,
+        entity: str,
+        identity: Any,
+        *,
+        references: tuple[DeleteReference, ...],
+        visited: set[tuple[str, Any]],
+        root_criteria: ColumnElement[bool] | None = None,
+        expected_version: int | None = None,
+    ) -> None:
+        key = entity, identity
+        if key in visited:
+            return
+        visited.add(key)
+        for reference in references:
+            if reference.target_entity != entity:
+                continue
+            source = self.table(reference.source_entity)
+            related = tuple(
+                connection.execute(
+                    select(source.c[reference.source_primary_key]).where(
+                        source.c[reference.source_field] == identity
+                    )
+                ).scalars()
+            )
+            if not related:
+                continue
+            relationship = f"{reference.source_entity}.{reference.source_field}"
+            if reference.on_delete == "restrict":
+                raise DeleteRestricted(entity, identity, relationship)
+            if reference.on_delete == "set_null":
+                connection.execute(
+                    update(source)
+                    .where(source.c[reference.source_field] == identity)
+                    .values({reference.source_field: None})
+                )
+                continue
+            for related_identity in related:
+                self._delete_entity(
+                    connection,
+                    reference.source_entity,
+                    related_identity,
+                    references=references,
+                    visited=visited,
+                )
+
+        normalized = self.model.entity(entity)
+        table = self.table(entity)
+        primary_key = _primary_key(normalized)
+        criteria = (
+            root_criteria
+            if root_criteria is not None
+            else table.c[primary_key] == identity
+        )
+        result = connection.execute(delete(table).where(criteria))
+        if result.rowcount == 1 or root_criteria is None:
+            return
+        version_field = _version_field(normalized)
+        current = connection.execute(
+            select(
+                table.c[primary_key],
+                *((table.c[version_field],) if version_field else ()),
+            ).where(table.c[primary_key] == identity)
+        ).first()
+        if current is None:
+            raise NotFoundError(f"{entity} {identity!r} was not found")
+        actual_version = current._mapping[version_field] if version_field else None
+        if actual_version == expected_version:
+            raise RowPolicyMismatch
+        raise ConcurrencyError(expected_version, actual_version)
 
     def _write_entity(
         self,

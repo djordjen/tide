@@ -14,6 +14,7 @@ from tide.runtime import (
     AuthorizationError,
     RequestContext,
     ValidationFailed,
+    VersionPreconditionRequired,
 )
 from tide.runtime.errors import ValidationIssue
 from tide.reporting.document import ReportDocument
@@ -289,6 +290,24 @@ class RemoteRecordsService:
         session.expected_version = _etag_version(remote.etag, entity, stored)
         session.mark_committed(stored)
         return stored
+
+    def delete(
+        self,
+        entity_name: str,
+        identity: Any,
+        context: RequestContext,
+        *,
+        expected_version: int | None = None,
+    ) -> None:
+        entity = self.model.entity(entity_name)
+        self._require(entity, "delete", context)
+        if _version_field(entity) is not None and expected_version is None:
+            raise VersionPreconditionRequired(entity_name)
+        self.client.delete_record(
+            entity_name,
+            identity,
+            if_match=expected_version,
+        )
 
     def rollback(self, session: RecordSession) -> None:
         session.rollback()

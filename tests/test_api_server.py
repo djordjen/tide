@@ -11,7 +11,7 @@ import uvicorn
 from tide import compile_project
 from tide.api.auth import OidcJwtAuthenticator
 from tide.api.server import DevelopmentTokenAuthenticator, build_fastapi_app
-from tide.compiler.normalized import immutable_mapping
+from tide.compiler.normalized import deep_thaw, immutable_mapping
 from tide.cli import main
 from tide.data import InMemoryRepository
 from tide.runtime import Principal
@@ -105,6 +105,23 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
     assert set(schema["paths"]["/api/v1/invoices"]) == {"get", "post"}
     assert "/api/v1/invoices/{id}" in schema["paths"]
     assert set(schema["paths"]["/api/v1/invoices/{id}"]) == {"get", "patch"}
+    assert set(schema["paths"]["/api/v1/products/{id}"]) == {
+        "get",
+        "patch",
+        "delete",
+    }
+    delete_operation = schema["paths"]["/api/v1/products/{id}"]["delete"]
+    assert set(delete_operation["responses"]) == {
+        "204",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "422",
+        "428",
+    }
     assert set(schema["paths"]["/api/v1/invoices/_query"]) == {"post"}
     assert set(schema["paths"]["/api/v1/_tide/reference-selection"]) == {
         "post"
@@ -288,6 +305,89 @@ def test_server_creates_and_patches_through_records_service() -> None:
         assert stale.status_code == 412
         assert stale.json()["code"] == "stale_version"
         assert protected_input.status_code == 422
+
+    asyncio.run(exercise())
+
+
+def test_server_deletes_only_explicitly_exposed_authorized_records() -> None:
+    allowed_app = _app("sales_clerk")
+    denied_app = _app("auditor")
+
+    async def exercise() -> None:
+        async with _client(allowed_app) as client:
+            created = await client.post(
+                "/api/v1/products",
+                headers=_authorization(),
+                json={
+                    "code": "DELETE-ME",
+                    "name": "Unused product",
+                    "unit_price": "1.00",
+                    "active": True,
+                },
+            )
+            deleted = await client.delete(
+                f"/api/v1/products/{created.json()['id']}",
+                headers=_authorization(),
+            )
+            missing = await client.get(
+                f"/api/v1/products/{created.json()['id']}",
+                headers=_authorization(),
+            )
+            restricted = await client.delete(
+                "/api/v1/products/1",
+                headers=_authorization(),
+            )
+            invoice_route = await client.delete(
+                "/api/v1/invoices/1",
+                headers=_authorization(),
+            )
+        async with _client(denied_app) as client:
+            forbidden = await client.delete(
+                "/api/v1/products/1",
+                headers=_authorization(),
+            )
+
+        assert created.status_code == 201
+        assert deleted.status_code == 204
+        assert deleted.content == b""
+        assert missing.status_code == 404
+        assert restricted.status_code == 409
+        assert restricted.json()["code"] == "delete_restricted"
+        assert invoice_route.status_code == 405
+        assert forbidden.status_code == 403
+        assert forbidden.json()["code"] == "forbidden"
+
+    asyncio.run(exercise())
+
+
+def test_server_requires_if_match_for_versioned_delete() -> None:
+    app = _app("sales_clerk", model=_invoice_delete_model())
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            missing = await client.delete(
+                "/api/v1/invoices/8",
+                headers=_authorization(),
+            )
+            stale = await client.delete(
+                "/api/v1/invoices/8",
+                headers={**_authorization(), "If-Match": '"99"'},
+            )
+            deleted = await client.delete(
+                "/api/v1/invoices/8",
+                headers={**_authorization(), "If-Match": '"1"'},
+            )
+            gone = await client.get(
+                "/api/v1/invoices/8",
+                headers=_authorization(),
+            )
+
+        assert missing.status_code == 428
+        assert missing.json()["code"] == "precondition_required"
+        assert stale.status_code == 412
+        assert stale.json()["code"] == "stale_version"
+        assert deleted.status_code == 204
+        assert gone.status_code == 404
 
     asyncio.run(exercise())
 
@@ -780,6 +880,21 @@ def _app(role: str | None, *, model: Any | None = None) -> Any:
         DevelopmentTokenAuthenticator(TOKEN, principal),
         actions=actions,
     )
+
+
+def _invoice_delete_model() -> Any:
+    model = compile_project(INVOICING)
+    invoice = model.entity("sales.Invoice")
+    metadata = deep_thaw(invoice.metadata)
+    metadata["permissions"]["delete"] = "sales.invoice.write"
+    operations = metadata["expose"]["rest"]["operations"]
+    metadata["expose"]["rest"]["operations"] = [*operations, "delete"]
+    entities = dict(model.entities)
+    entities[invoice.name] = replace(
+        invoice,
+        metadata=immutable_mapping(metadata),
+    )
+    return replace(model, entities=immutable_mapping(entities))
 
 
 def _client(app: Any) -> httpx.AsyncClient:

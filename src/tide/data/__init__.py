@@ -1,5 +1,7 @@
 from tide.data.memory import InMemoryRepository
 from tide.data.repository import (
+    DeleteCollection,
+    DeleteReference,
     FilterCondition,
     QuerySpec,
     RelationshipLoad,
@@ -20,6 +22,8 @@ from tide.data.sql_expressions import QueryTranslationError
 
 __all__ = [
     "DatabaseDriverError",
+    "DeleteCollection",
+    "DeleteReference",
     "InMemoryRepository",
     "FilterCondition",
     "QuerySpec",

@@ -126,22 +126,29 @@ application-owned Faker profile and the real secured services.
 - computed line and invoice totals;
 - Post Invoice action and immutable posted invoices;
 - configurable keyboard shortcuts and mouse-aware controls;
-- terminal compatibility checks at the documented viewport/Unicode/color matrix;
+- compact/standard/wide terminal acceptance at 80×24, 100×30, and 140×40,
+  including reachable actions, compact scrolling, and mixed wide/combining/RTL
+  browse text; **implemented**; Windows Terminal/xterm/SSH and reduced/no-color
+  release certification remain;
 - sorting, paging, incremental search, and named filters;
 - basic secured printable invoice with TUI preview, HTML, and PDF;
   **implemented**
-- opt-in REST list/get/create/update and domain-action routes plus OpenAPI;
+- opt-in REST list/get/create/update/delete and domain-action routes plus OpenAPI;
   **implemented with FastAPI hosting, local development and OIDC/JWKS bearer
   identity, direct TLS enforcement for non-loopback binds, opaque pagination,
-  protected-field serialization, ETag concurrency, and action idempotency**
+  protected-field serialization, ETag concurrency, reference-safe deletion,
+  and action idempotency**
 
 Exit condition: the example application can create, edit, post, find, and print
 an invoice entirely by keyboard or mouse.
 
 ## Milestone 4 - Machine interfaces
 
-- opt-in generated REST delete routes; create/update/action are implemented;
-- expected-version preconditions for delete; update/action are implemented;
+- opt-in generated REST delete routes with explicit permission/exposure,
+  stable restrict conflicts, and transactional cascade/set-null behavior;
+  **implemented across memory, managed SQL, and legacy no-DDL SQL**
+- expected-version preconditions for versioned delete/update/action operations;
+  **implemented**
 - API structured filtering/sorting and concurrency transport contracts over
   the implemented pagination and protected-field primitives;
 - typed remote HTTP client, authenticated session capabilities, application
@@ -169,7 +176,11 @@ the same services.
 
 ## Milestone 5 - Production data and security
 
-- complete live SQL Server certification and operational guidance;
+- read-only SQL Server operational acceptance (`tide db check` and
+  `start.bat check`) covering connectivity, application/system schemas, and
+  SQL policy translation without exposing the URL; **implemented and passed
+  against the local Windows-integrated MSSQL database**;
+- complete multi-version live SQL Server certification and operational guidance;
 - PostgreSQL support after the SQL Server contract is stable;
 - additional SQLAlchemy dialect certification for legacy databases, based on
   demand and dialect availability;

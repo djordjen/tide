@@ -28,7 +28,7 @@ expose:
 
   rest:
     path: people
-    operations: [list, get, create, update]
+    operations: [list, get, create, update, delete]
 
   mcp:
     resources: [schema, record]
@@ -62,7 +62,7 @@ stable resource representations rather than leaking persistence internals.
 
 ### Current application server
 
-The implemented FastAPI adapter registers secured list/get/create/update and
+The implemented FastAPI adapter registers secured list/get/create/update/delete and
 exposed domain-action routes from the immutable `ApplicationModel`. It reuses
 the same Pydantic record/page contracts as the standalone OpenAPI exporter and
 adds writable request projections at server startup:
@@ -74,9 +74,9 @@ tide serve applications/invoicing --demo
 ```
 
 Only declared operations appear. `rest: true` remains a safe shorthand for
-`list` and `get`; create and update require mapping form. An action route exists
-only when that action declares `expose.rest: true`. Delete is not implemented
-yet even if declared. If `path` is omitted, the default is a namespaced,
+`list` and `get`; create, update, and delete require mapping form. An action
+route exists only when that action declares `expose.rest: true`. If `path` is
+omitted, the default is a namespaced,
 kebab-case resource path such as `crm/person`. The standalone `export-openapi`
 command intentionally remains the dependency-free read-only contract preview;
 the running server's `/openapi.json` includes its mutation schemas and routes.
@@ -172,10 +172,20 @@ List adapters map the service page to an envelope such as
 value and should not be logged; clients must repeat the same filter, sort, and
 page size when presenting it.
 
-Entities exposed for update or delete carry an integer concurrency token.
-Generated REST responses publish an ETag, and mutations require the version the
-caller observed. TUI and MCP carry the same expected version through application
-services so remote mutations cannot silently overwrite newer work.
+When an entity has an integer concurrency token, generated REST responses
+publish an ETag and update/delete requests require the version the caller
+observed. A missing `If-Match` returns 428 and a stale value returns 412 before
+the deletion can commit. Non-versioned legacy entities remain supported without
+inventing a column in an externally owned schema.
+
+DELETE is independently deny-by-default at both layers: the entity must declare
+`expose.rest.operations: [delete]` and a non-null `permissions.delete` grant.
+The service applies delete row policies again inside the repository mutation.
+Successful deletion returns 204 with no body. A metadata `on_delete: restrict`
+relationship returns the stable `delete_restricted` error with HTTP 409;
+`cascade` and `set_null` execute in the same transaction. Cascaded dependants
+follow relationship ownership and do not require a separate client-visible
+delete route or child delete grant.
 
 Create request models include only normal writable fields. System-generated,
 action-owned, read-only, and computed fields are rejected before they reach a

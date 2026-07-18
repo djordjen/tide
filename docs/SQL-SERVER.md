@@ -78,6 +78,20 @@ records. Later launches omit schema creation:
 uv run tide run applications/invoicing --database-env --role sales_clerk
 ```
 
+For a read-only operational acceptance check against an already initialized
+database, run:
+
+```powershell
+uv run --extra sqlserver tide db check applications/invoicing --database-env
+```
+
+The check compiles the application, opens the configured database, validates
+the mapped application schema, verifies managed cursor/idempotency/audit state,
+and preflights every SQL-translated row policy. It performs no DDL and no data
+mutation, and reports the dialect/mode without printing the connection URL.
+On the repository's Windows shortcut the equivalent command is
+`start.bat check`.
+
 The environment value is never printed by TIDE. Use encrypted connections and
 normal certificate validation for networked deployments; `Encrypt=no` above is
 only for the previously certified local development instance. Legacy-mode

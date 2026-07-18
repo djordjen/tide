@@ -80,6 +80,27 @@ class RelationshipLoadPlan:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class DeleteReference:
+    """One stored reference that can affect deletion of its target record."""
+
+    source_entity: str
+    source_field: str
+    source_primary_key: str
+    target_entity: str
+    on_delete: str
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteCollection:
+    """One embedded collection used by document-shaped repositories."""
+
+    parent_entity: str
+    parent_field: str
+    child_entity: str
+    child_primary_key: str
+
+
 def matches_filter(record: Mapping[str, Any], condition: FilterCondition) -> bool:
     value = record.get(condition.field)
     operations = {
@@ -151,3 +172,16 @@ class Repository(Protocol):
         is_new: bool,
         row_criteria: tuple[str, ...] = (),
     ) -> dict[str, Any]: ...
+
+    def delete(
+        self,
+        entity: str,
+        identity: Any,
+        *,
+        primary_key: str,
+        version_field: str | None,
+        expected_version: int | None,
+        row_criteria: tuple[str, ...] = (),
+        references: tuple[DeleteReference, ...] = (),
+        collections: tuple[DeleteCollection, ...] = (),
+    ) -> None: ...

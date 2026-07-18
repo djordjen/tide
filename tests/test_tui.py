@@ -81,6 +81,88 @@ def test_textual_invoice_browse_pages_by_keyboard_and_mouse() -> None:
     asyncio.run(exercise())
 
 
+def test_textual_browse_and_form_keep_actions_reachable_at_supported_sizes() -> None:
+    for width, height in ((80, 24), (100, 30), (140, 40)):
+        app = _demo_app(page_size=3)
+
+        async def exercise() -> None:
+            async with app.run_test(size=(width, height)) as pilot:
+                await pilot.pause()
+                compact = width < 100
+                assert ("compact-terminal" in app.screen.classes) is compact
+                for button_id in (
+                    "create-record",
+                    "edit-record",
+                    "preview-report",
+                    "previous-page",
+                    "next-page",
+                    "refresh-page",
+                    "quit-app",
+                ):
+                    button = app.query_one(f"#{button_id}", Button)
+                    assert button.region.right <= width
+                    assert button.region.bottom <= height
+                assert app.query_one("#named-filter", Select).display is not compact
+                assert app.query_one("#sort-field", Select).display is not compact
+
+                app.open_record(2)
+                await pilot.pause()
+                screen = app.screen
+                assert isinstance(screen, RecordEditScreen)
+                assert ("compact-terminal" in screen.classes) is compact
+                for button_id in ("cancel-form", "save-form", "post-record"):
+                    button = screen.query_one(f"#{button_id}", Button)
+                    assert button.region.right <= width
+                    assert button.region.bottom <= height
+
+                body = screen.query_one("#form-body")
+                if compact:
+                    assert body.show_vertical_scrollbar
+                    assert body.max_scroll_y > 0
+                    body.scroll_end(animate=False)
+                    await pilot.pause()
+                    line_fields = screen.query_one("#line-fields")
+                    assert body.region.y <= line_fields.region.y
+                    assert line_fields.region.bottom <= body.region.bottom
+
+                await pilot.press("escape")
+                await pilot.pause()
+                assert not isinstance(app.screen, RecordEditScreen)
+
+        asyncio.run(exercise())
+
+
+def test_textual_compact_browse_preserves_wide_combining_and_rtl_text() -> None:
+    app = _demo_app(page_size=10)
+    unicode_name = "漢字 e\u0301 مرحبا"
+    app.records.repository.seed(
+        "crm.Customer",
+        [
+            {
+                "id": 99,
+                "code": "UNICODE",
+                "name": unicode_name,
+                "email": None,
+                "active": True,
+            }
+        ],
+    )
+
+    async def exercise() -> None:
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            workspace = app.query_one("#browse-view", Select)
+            workspace.value = "crm.Customer.browse"
+            await pilot.pause()
+
+            table = app.query_one("#records", DataTable)
+            rows = [table.get_row_at(index) for index in range(table.row_count)]
+            assert any(row[0] == "UNICODE" and row[1] == unicode_name for row in rows)
+            assert table.region.right <= app.size.width
+
+    asyncio.run(exercise())
+
+
 def test_textual_reference_display_fails_closed_without_target_access() -> None:
     app = _demo_app(page_size=1, role="summary_viewer")
 

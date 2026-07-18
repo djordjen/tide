@@ -4,6 +4,7 @@ permissions:
   - crm.customer.write
   - catalog.product.read
   - catalog.product.write
+  - catalog.product.delete
   - sales.invoice.read
   - sales.invoice.write
   - sales.invoice.post
@@ -18,6 +19,7 @@ roles:
       - crm.customer.write
       - catalog.product.read
       - catalog.product.write
+      - catalog.product.delete
       - sales.invoice.read
       - sales.invoice.write
       - sales.invoice.post

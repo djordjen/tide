@@ -9,6 +9,7 @@ import re
 from typing import Any, Mapping
 from uuid import uuid4
 
+from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Grid, Horizontal, Vertical
@@ -162,6 +163,7 @@ class RecordEditScreen(Screen[Any]):
     #form-body {
         height: 1fr;
         padding: 0 2;
+        overflow-y: auto;
     }
 
     #form-tabs, #form-tabs TabPane {
@@ -285,6 +287,23 @@ class RecordEditScreen(Screen[Any]):
         max-height: 3;
         padding: 0 2;
         color: $warning;
+    }
+
+    RecordEditScreen.compact-terminal #form-body,
+    RecordEditScreen.compact-terminal #form-actions {
+        padding-left: 1;
+        padding-right: 1;
+    }
+
+    RecordEditScreen.compact-terminal .field-column {
+        grid-columns: 12 1fr;
+    }
+
+    RecordEditScreen.compact-terminal #line-actions Button,
+    RecordEditScreen.compact-terminal #record-actions Button {
+        min-width: 9;
+        margin-left: 0;
+        margin-right: 0;
     }
     """
 
@@ -512,6 +531,7 @@ class RecordEditScreen(Screen[Any]):
         )
 
     def on_mount(self) -> None:
+        self._sync_terminal_layout(self.app.size.width)
         if self.collection_name is not None:
             table = self.query_one("#collection-records", DataTable)
             for field_name in self.line_fields:
@@ -530,6 +550,12 @@ class RecordEditScreen(Screen[Any]):
         )
         if first_editor is not None:
             first_editor.focus()
+
+    def on_resize(self, event: events.Resize) -> None:
+        self._sync_terminal_layout(event.size.width)
+
+    def _sync_terminal_layout(self, width: int) -> None:
+        self.set_class(width < 100, "compact-terminal")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         handlers = {

@@ -15,6 +15,10 @@ def test_windows_shortcut_requests_mode_dependencies() -> None:
         "uv run --extra seed --extra sqlserver tide db seed "
         "applications/invoicing --database-env" in script
     )
+    assert (
+        "uv run --extra sqlserver tide db check "
+        "applications/invoicing --database-env" in script
+    )
     assert "uv run --extra tui tide run applications/invoicing --demo" in script
     assert "uv run --extra studio tide studio applications/invoicing" in script
     assert ".venv\\scripts\\tide.exe" not in script

@@ -26,6 +26,25 @@ class ConcurrencyError(TideRuntimeError):
         super().__init__(f"record version changed: expected {expected}, current {actual}")
 
 
+class VersionPreconditionRequired(TideRuntimeError):
+    code = "version_precondition_required"
+
+    def __init__(self, entity: str) -> None:
+        self.entity = entity
+        super().__init__(f"deleting {entity} requires an observed record version")
+
+
+class DeleteRestricted(TideRuntimeError):
+    code = "delete_restricted"
+
+    def __init__(self, entity: str, identity: object, relationship: str | None = None):
+        self.entity = entity
+        self.identity = identity
+        self.relationship = relationship
+        suffix = f" by {relationship}" if relationship else ""
+        super().__init__(f"{entity} {identity!r} cannot be deleted because it is referenced{suffix}")
+
+
 class ImmutableFieldError(TideRuntimeError):
     code = "immutable_field"
 

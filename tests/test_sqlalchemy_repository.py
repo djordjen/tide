@@ -12,7 +12,9 @@ from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.pool import StaticPool
 
 from tide import compile_project
+from tide.compiler.normalized import deep_thaw, immutable_mapping
 from tide.data import (
+    DeleteReference,
     FilterCondition,
     InMemoryRepository,
     QuerySpec,
@@ -26,6 +28,7 @@ from tide.runtime import (
     AuthorizationError,
     Channel,
     ConcurrencyError,
+    DeleteRestricted,
     Principal,
     RequestContext,
 )
@@ -157,6 +160,55 @@ def test_repository_protocol_accepts_memory_and_sqlalchemy(sql_runtime) -> None:
 
     assert isinstance(InMemoryRepository(), Repository)
     assert isinstance(repository, Repository)
+
+
+def test_managed_delete_honors_restrict_and_removes_unused_rows(sql_runtime) -> None:
+    _, repository, records = sql_runtime
+    repository.seed(
+        "catalog.Product",
+        [
+            {
+                "id": 2,
+                "code": "FREE",
+                "name": "Unused product",
+                "unit_price": Decimal("1.00"),
+                "active": True,
+            }
+        ],
+    )
+    _seed_invoice(repository)
+
+    records.delete("catalog.Product", 2, context())
+    assert not repository.exists("catalog.Product", 2)
+
+    with pytest.raises(DeleteRestricted) as restricted:
+        records.delete("catalog.Product", 1, context())
+    assert restricted.value.relationship == "sales.InvoiceLine.product"
+    assert repository.exists("catalog.Product", 1)
+
+
+def test_managed_delete_cascades_in_one_service_transaction(sql_runtime) -> None:
+    model, repository, _ = sql_runtime
+    _seed_invoice(repository)
+    invoice = model.entity("sales.Invoice")
+    metadata = deep_thaw(invoice.metadata)
+    metadata["permissions"]["delete"] = "sales.invoice.write"
+    entities = dict(model.entities)
+    entities[invoice.name] = replace(
+        invoice,
+        metadata=immutable_mapping(metadata),
+    )
+    secured = replace(model, entities=immutable_mapping(entities))
+
+    RecordsService(secured, repository).delete(
+        "sales.Invoice",
+        100,
+        context(),
+        expected_version=1,
+    )
+
+    assert not repository.exists("sales.Invoice", 100)
+    assert not repository.exists("sales.InvoiceLine", 1000)
 
 
 def test_sql_query_pushes_policy_filter_sort_and_limit_to_database(sql_runtime) -> None:
@@ -546,6 +598,41 @@ def test_legacy_mapping_reads_and_writes_without_ddl() -> None:
         is_new=False,
     )
     assert updated["name"] == "Updated"
+
+    reference = DeleteReference(
+        source_entity="legacy.Customer",
+        source_field="account_manager",
+        source_primary_key="id",
+        target_entity="legacy.Employee",
+        on_delete="restrict",
+    )
+    with pytest.raises(DeleteRestricted):
+        repository.delete(
+            "legacy.Employee",
+            10,
+            primary_key="id",
+            version_field=None,
+            expected_version=None,
+            references=(reference,),
+        )
+    repository.delete(
+        "legacy.Customer",
+        1,
+        primary_key="id",
+        version_field=None,
+        expected_version=None,
+        references=(reference,),
+    )
+    repository.delete(
+        "legacy.Employee",
+        10,
+        primary_key="id",
+        version_field=None,
+        expected_version=None,
+        references=(reference,),
+    )
+    assert not repository.exists("legacy.Customer", 1)
+    assert not repository.exists("legacy.Employee", 10)
     assert not any(
         statement.startswith(("CREATE ", "ALTER ", "DROP "))
         for statement in statements

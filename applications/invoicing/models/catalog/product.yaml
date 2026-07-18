@@ -6,7 +6,7 @@ search_fields: [code, name]
 
 expose:
   tui: true
-  rest: {path: products, operations: [list, get, create, update]}
+  rest: {path: products, operations: [list, get, create, update, delete]}
   mcp: {resources: [schema, record], tools: [search]}
 
 permissions:
@@ -14,6 +14,7 @@ permissions:
   read: catalog.product.read
   create: catalog.product.write
   update: catalog.product.write
+  delete: catalog.product.delete
 
 fields:
   id:         {type: integer, primary_key: true}

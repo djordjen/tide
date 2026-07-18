@@ -7,6 +7,7 @@ rem the SQLAlchemy URL contains ampersands, which otherwise have meaning to cmd.
 set "TIDE_DATABASE_URL=mssql+pyodbc://@localhost:1433/TIDE?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes&Encrypt=no"
 
 if /I "%~1"=="init" goto initialize
+if /I "%~1"=="check" goto check
 if /I "%~1"=="seed" goto seed
 if /I "%~1"=="demo" goto demo
 if /I "%~1"=="studio" goto studio
@@ -25,6 +26,11 @@ goto finish
 :initialize
 echo Initializing the managed TIDE database and starting the application...
 uv run --extra tui --extra sqlserver tide run applications/invoicing --database-env --create-schema --role sales_clerk --page-size 5
+goto finish
+
+:check
+echo Checking SQL Server connectivity, schema, durable state, and query support...
+uv run --extra sqlserver tide db check applications/invoicing --database-env
 goto finish
 
 :demo
@@ -96,6 +102,7 @@ echo TIDE Windows shortcut
 echo.
 echo   start.bat init   Create missing managed tables, then start SQL Server mode
 echo   start.bat        Start normally against the existing SQL Server database
+echo   start.bat check  Read-only SQL Server connectivity and compatibility check
 echo   start.bat seed   Seed an empty initialized database with fake data
 echo   start.bat demo   Start isolated in-memory demo data
 echo   start.bat studio Inspect and edit application metadata in memory

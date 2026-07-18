@@ -104,7 +104,7 @@ display: "{first_name} {last_name}"
 
 expose:
   tui: true
-  rest: {operations: [list, get, create, update]}
+  rest: {operations: [list, get, create, update, delete]}
   mcp: {resources: [schema, record], tools: [search]}
 
 fields:
@@ -115,6 +115,10 @@ fields:
   email:      {type: string, length: 254, validation: email}
   active:     {type: boolean, default: true}
 ```
+
+Mutation exposure grants no authority by itself. Every exposed operation also
+needs its entity permission, such as `permissions.delete`, and deletion follows
+each incoming reference's explicit `on_delete` behavior.
 
 The field identifier is stable application vocabulary. Labels, help text,
 formats, editor hints, and localization are separate facets of the field.

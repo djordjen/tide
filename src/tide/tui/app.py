@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 from typing import Any, Mapping
 
+from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
@@ -104,6 +105,28 @@ class TideApp(App[None]):
         padding: 0 2;
         color: $text-muted;
         content-align: left middle;
+    }
+
+    Screen.compact-terminal #browse-view,
+    Screen.compact-terminal #named-filter,
+    Screen.compact-terminal #sort-field,
+    Screen.compact-terminal #sort-direction {
+        display: none;
+    }
+
+    Screen.compact-terminal #browse-toolbar {
+        padding: 0;
+        align-horizontal: left;
+    }
+
+    Screen.compact-terminal #browse-toolbar Button {
+        min-width: 8;
+        margin: 0;
+    }
+
+    Screen.compact-terminal #clear-query {
+        min-width: 8;
+        margin-left: 1;
     }
     """
 
@@ -248,6 +271,7 @@ class TideApp(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
+        self._sync_terminal_layout(self.size.width)
         table = self.query_one("#records", DataTable)
         self._add_table_columns(table)
         table.cursor_type = "row"
@@ -256,6 +280,12 @@ class TideApp(App[None]):
         )
         table.focus()
         self._load_page()
+
+    def on_resize(self, event: events.Resize) -> None:
+        self._sync_terminal_layout(event.size.width)
+
+    def _sync_terminal_layout(self, width: int) -> None:
+        self.screen.set_class(width < 100, "compact-terminal")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "previous-page":

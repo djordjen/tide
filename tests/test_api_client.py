@@ -51,6 +51,13 @@ def test_client_connects_and_reports_server_authorized_capabilities() -> None:
         "create",
         "update",
     )
+    assert session.entities["catalog.Product"].operations == (
+        "list",
+        "get",
+        "create",
+        "update",
+        "delete",
+    )
     assert "status" in session.entities["sales.Invoice"].readable_fields
     assert "status" not in session.entities["sales.Invoice"].writable_fields
     assert session.entities["sales.Invoice"].actions == ("post",)
@@ -99,6 +106,11 @@ def test_client_round_trips_types_mutations_versions_and_actions() -> None:
                 "active": True,
             },
         )
+        client.delete_record("catalog.Product", product.values["id"])
+        with pytest.raises(TideApiClientError) as deleted_product:
+            client.get_record("catalog.Product", product.values["id"])
+        with pytest.raises(TideApiContractError):
+            client.delete_record("sales.Invoice", 1)
         created = client.create_record(
             "sales.Invoice",
             {
@@ -156,6 +168,7 @@ def test_client_round_trips_types_mutations_versions_and_actions() -> None:
     assert render_pdf(report).startswith(b"%PDF-")
     assert product.values["unit_price"] == Decimal("29.95")
     assert product.etag is None
+    assert deleted_product.value.status_code == 404
     assert created.values["total"] == Decimal("50.00")
     assert created.etag == '"1"'
     assert updated.values["currency"] == "USD"

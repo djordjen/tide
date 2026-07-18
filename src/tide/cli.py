@@ -340,6 +340,29 @@ def _create_parser() -> argparse.ArgumentParser:
 
     database = commands.add_parser("db", help="manage development database data")
     database_commands = database.add_subparsers(dest="database_command")
+    database_check = database_commands.add_parser(
+        "check",
+        help="validate database connectivity, schema, durable state, and queries",
+    )
+    database_check.add_argument(
+        "project",
+        nargs="?",
+        default=".",
+        metavar="APPLICATION",
+        help="application root or tide.yaml (default: current directory)",
+    )
+    database_check.add_argument(
+        "--database-env",
+        nargs="?",
+        const="TIDE_DATABASE_URL",
+        required=True,
+        metavar="NAME",
+        help=(
+            "read the SQLAlchemy database URL from environment variable NAME "
+            "(default name: TIDE_DATABASE_URL)"
+        ),
+    )
+    database_check.set_defaults(handler=_db_check, create_schema=False)
     seed = database_commands.add_parser(
         "seed",
         help="seed an empty managed database with application-owned fake data",
@@ -1189,6 +1212,29 @@ def _open_run_storage(
             file=sys.stderr,
         )
         return None
+
+
+def _db_check(arguments: argparse.Namespace) -> int:
+    model = compile_project(arguments.project)
+    storage = _open_run_storage(arguments, model, purpose="Read-only check")
+    if storage is None:
+        return 1
+    try:
+        repository = storage.repository
+        dialect = (
+            repository.engine.dialect.name
+            if isinstance(repository, SQLAlchemyRepository)
+            else "memory"
+        )
+        mode = str(model.database["mode"])
+        state = "durable" if mode == "managed" else "process-local"
+        print(
+            f"Database check passed: {model.name} {model.version}; "
+            f"dialect={dialect}; mode={mode}; framework_state={state}."
+        )
+        return 0
+    finally:
+        storage.dispose()
 
 
 def _db_seed(arguments: argparse.Namespace) -> int:

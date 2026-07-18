@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 TIDE_WIRE_VERSION = "0.1"
-TideOperation = Literal["list", "get", "create", "update"]
+TideOperation = Literal["list", "get", "create", "update", "delete"]
 TideFilterOperator = Literal[
     "eq",
     "ne",
