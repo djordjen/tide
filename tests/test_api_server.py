@@ -110,6 +110,8 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
         "patch",
         "delete",
     }
+    assert "delete" in schema["paths"]["/api/v1/customers/{id}"]
+    assert "delete" in schema["paths"]["/api/v1/customers/{id}"]
     delete_operation = schema["paths"]["/api/v1/products/{id}"]["delete"]
     assert set(delete_operation["responses"]) == {
         "204",

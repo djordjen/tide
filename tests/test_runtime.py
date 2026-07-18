@@ -25,6 +25,12 @@ from tide.runtime import (
 )
 from tide.runtime.errors import IdempotencyConflict
 from tide.security import PROTECTED, SecurityEngine
+from tide.sessions import (
+    ConflictDisposition,
+    ConflictValueChoice,
+    compare_record_conflict,
+    resolve_record_conflict,
+)
 from tide.services import (
     ActionService,
     FilterCondition,
@@ -81,6 +87,40 @@ def context(identifier: str, *roles: str) -> RequestContext:
         principal=Principal(identifier, roles=frozenset(roles)),
         channel=Channel.TUI,
     )
+
+
+def test_record_conflict_comparison_classifies_safe_and_overlapping_changes() -> None:
+    original = {"name": "Original", "email": "old@example.test", "active": True}
+    current = {"name": "Current", "email": "old@example.test", "active": False}
+    draft = {"name": "Draft", "email": "new@example.test", "active": False}
+
+    conflict = compare_record_conflict(original, current, draft)
+
+    assert [field.name for field in conflict.fields] == ["name", "email", "active"]
+    assert [field.disposition for field in conflict.fields] == [
+        ConflictDisposition.CONFLICT,
+        ConflictDisposition.YOUR_CHANGE,
+        ConflictDisposition.SAME_CHANGE,
+    ]
+    assert conflict.conflicting_fields == ("name",)
+    assert conflict.rebase_fields == ("email",)
+    unresolved = resolve_record_conflict(conflict, {})
+    assert not unresolved.complete
+    assert unresolved.unresolved_fields == ("name",)
+
+    resolution = resolve_record_conflict(
+        conflict,
+        {"name": ConflictValueChoice.DRAFT},
+    )
+    assert resolution.complete
+    assert resolution.draft_fields == ("name", "email")
+    assert resolution.current_fields == ("active",)
+
+    with pytest.raises(ValueError, match="non-conflicting field"):
+        resolve_record_conflict(
+            conflict,
+            {"email": ConflictValueChoice.CURRENT},
+        )
 
 
 def invoice_values(*, lines: bool = True) -> dict:

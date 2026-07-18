@@ -92,6 +92,42 @@ def test_set_value_preserves_comments_quotes_and_source_files(tmp_path: Path) ->
     assert _source_bytes(project) == before
 
 
+def test_round_trip_and_expert_source_preserve_crlf_documents(tmp_path: Path) -> None:
+    project = _write_project(tmp_path)
+    for path in project.rglob("*.yaml"):
+        content = path.read_bytes().replace(b"\r\n", b"\n")
+        path.write_bytes(content.replace(b"\n", b"\r\n"))
+    session = DesignerService(project).open_session()
+
+    changed = session.execute(
+        DesignerSetValueCommand(
+            target=_entity(),
+            path=("label",),
+            value="Stock items",
+        )
+    )
+    assert changed.dirty
+    restored = session.execute(
+        DesignerSetValueCommand(
+            target=_entity(),
+            path=("label",),
+            value="Items",
+        )
+    )
+    assert not restored.dirty
+    assert "\r\n" in session.document(_entity()).content
+
+    source = session.document(_entity()).content.replace("\r\n", "\n")
+    invalid = session.execute(
+        DesignerReplaceDocumentSourceCommand(
+            target=_entity(),
+            source=source.replace('display: "{name}"', 'display: "{missing}"'),
+        )
+    )
+    assert not invalid.valid
+    assert "\r\n" in session.document(_entity()).content
+
+
 def test_invalid_intermediate_state_is_visible_and_undoable(tmp_path: Path) -> None:
     session = DesignerService(_write_project(tmp_path)).open_session()
 

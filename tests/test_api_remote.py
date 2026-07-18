@@ -22,8 +22,11 @@ from tide.runtime.application import configure_application_runtime
 from tide.services import ActionService, RecordsService
 from tide.tui import seed_demo_data
 from tide.tui import TideApp
+from tide.tui.conflict import ConflictReviewScreen
+from tide.tui.form import RecordEditScreen
 from tide.tui.report import ReportPreviewScreen
-from textual.widgets import Button
+from tide.tui.confirm import DeleteConfirmationScreen
+from textual.widgets import Button, DataTable, Input, Select
 
 ROOT = Path(__file__).parents[1]
 INVOICING = ROOT / "applications" / "invoicing"
@@ -132,7 +135,115 @@ def test_remote_capabilities_hide_mutations_and_reports_fail_closed() -> None:
         with pytest.raises(TideApiClientError) as denied:
             reports.build_for_record("sales.invoice", 1, context)
         assert denied.value.status_code == 403
-        assert denied.value.code == "forbidden"
+    assert denied.value.code == "forbidden"
+
+
+def test_remote_textual_delete_uses_the_secured_http_facade() -> None:
+    model, app = _app("sales_clerk")
+
+    async def exercise() -> None:
+        with _http_client(app) as transport:
+            client = TideApiClient(model, BASE_URL, TOKEN, http_client=transport)
+            session_info = client.connect()
+            created = client.create_record(
+                "catalog.Product",
+                {
+                    "code": "REMOTE-DELETE",
+                    "name": "Remote delete product",
+                    "unit_price": Decimal("3.50"),
+                    "active": True,
+                },
+            )
+            context = RequestContext(
+                Principal(session_info.principal),
+                channel=Channel.TUI,
+            )
+            tide_app = TideApp(
+                model,
+                RemoteRecordsService(model, client, session_info),
+                context,
+                actions=RemoteActionService(client),
+                page_size=10,
+                source_label="remote delete test",
+            )
+            async with tide_app.run_test(size=(100, 30)) as pilot:
+                await pilot.pause()
+                tide_app.query_one("#browse-view", Select).value = (
+                    "catalog.Product.browse"
+                )
+                await pilot.pause()
+                table = tide_app.query_one("#records", DataTable)
+                table.move_cursor(row=3)
+                await pilot.click("#delete-record")
+                await pilot.pause()
+                assert isinstance(tide_app.screen, DeleteConfirmationScreen)
+                await pilot.click("#confirm-delete")
+                await pilot.pause()
+                assert table.row_count == 3
+
+            with pytest.raises(TideApiClientError) as missing:
+                client.get_record("catalog.Product", created.values["id"])
+            assert missing.value.status_code == 404
+
+    asyncio.run(exercise())
+
+
+def test_remote_textual_stale_edit_reviews_server_values() -> None:
+    model, app = _app("sales_clerk")
+
+    async def exercise() -> None:
+        with _http_client(app) as transport:
+            client = TideApiClient(model, BASE_URL, TOKEN, http_client=transport)
+            session_info = client.connect()
+            context = RequestContext(
+                Principal(session_info.principal),
+                channel=Channel.TUI,
+            )
+            records = RemoteRecordsService(model, client, session_info)
+            tide_app = TideApp(
+                model,
+                records,
+                context,
+                actions=RemoteActionService(client),
+                page_size=3,
+                source_label="remote conflict test",
+            )
+            async with tide_app.run_test(size=(120, 36)) as pilot:
+                await pilot.pause()
+                tide_app.open_record(2)
+                await pilot.pause()
+                screen = tide_app.screen
+                assert isinstance(screen, RecordEditScreen)
+
+                concurrent = records.begin_edit("sales.Invoice", 2, context)
+                concurrent.set("currency", "USD")
+                records.commit(concurrent, context)
+
+                screen.query_one("#field-currency", Input).value = "GBP"
+                screen.action_save()
+                await pilot.pause()
+                review = tide_app.screen
+                assert isinstance(review, ConflictReviewScreen)
+                assert review.conflict.conflicting_fields == ("currency",)
+
+                await pilot.click("#use-draft-conflict")
+                assert not review.query_one(
+                    "#apply-conflict-resolution", Button
+                ).disabled
+                await pilot.click("#apply-conflict-resolution")
+                await pilot.pause()
+                reloaded = tide_app.screen
+                assert isinstance(reloaded, RecordEditScreen)
+                assert reloaded.session.expected_version == 2
+                assert reloaded.query_one("#field-currency", Input).value == "GBP"
+
+                reloaded.action_save()
+                await pilot.pause()
+                stored = client.get_record("sales.Invoice", 2)
+                assert stored.values["currency"] == "GBP"
+                assert stored.values["version"] == 3
+
+    asyncio.run(exercise())
 
 
 def test_remote_textual_preview_uses_the_server_report_document(

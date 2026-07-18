@@ -195,9 +195,16 @@ form metadata for secured create/edit, inline InvoiceLine editing, validation,
 cancel/save, optimistic-concurrency feedback, and audited invoice posting. It
 can now select an explicitly configured SQLAlchemy deployment repository;
 managed deployments use durable cursor, idempotency, and action-audit stores.
+Stale TUI edits now open a three-way Original/Current/Your draft review. Users
+may reload, continue inspecting their draft, or explicitly choose Current/Mine
+for every overlapping field before rebasing. Non-conflicting draft fields are
+retained automatically, while newly immutable workflow fields are never carried
+forward.
 The invoicing TUI also provides Invoice, Customer, and Product workspaces,
-nested create-and-select lookups, and an explicit deterministic Faker seeder for
-empty managed development databases. The selected Invoice can now be rendered
+nested create-and-select lookups, and confirmed, permission-driven Customer and
+Product deletion with readable reference-conflict feedback in local or remote
+mode. An explicit deterministic Faker seeder supports empty managed development
+databases. The selected Invoice can now be rendered
 through a secured report service into a Textual preview, standalone HTML, or an
 A4 PDF with shared field formats.
 

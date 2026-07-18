@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 import re
@@ -40,7 +41,12 @@ from tide.runtime import RequestContext, TideRuntimeError, ValidationFailed
 from tide.security import PROTECTED
 from tide.tui.table import table_cell, table_label
 from tide.services import ActionService, RecordsService
-from tide.sessions.record_session import RecordSession, SessionState
+from tide.sessions import RecordConflict, RecordSession, SessionState, compare_record_conflict
+from tide.tui.conflict import (
+    ConflictChoice,
+    ConflictReviewResult,
+    ConflictReviewScreen,
+)
 from tide.tui.lookup import LookupField, LookupScreen
 
 
@@ -140,6 +146,14 @@ class FormSelect(Select[Any]):
 
 
 Editor = Input | Select[Any] | LookupField
+
+
+@dataclass(frozen=True, slots=True)
+class ReopenRecordEdit:
+    """Ask the owning application to rebuild a form from a fresh session."""
+
+    session: RecordSession
+    message: str
 
 
 class RecordEditScreen(Screen[Any]):
@@ -380,6 +394,8 @@ class RecordEditScreen(Screen[Any]):
         self._reference_records: dict[str, dict[Any, dict[str, Any]]] = {}
         self._editors: dict[str, Editor] = {}
         self._line_editors: dict[str, Editor] = {}
+        self._pending_conflict: RecordConflict | None = None
+        self._pending_conflict_draft: dict[str, Any] | None = None
         self._load_reference_options()
         self.title = model.name
         entity_label = self.entity.label.removesuffix("s") or self.entity.label
@@ -613,6 +629,9 @@ class RecordEditScreen(Screen[Any]):
             self._show_validation(error)
             return
         except TideRuntimeError as error:
+            if error.code == "stale_version" and not self.session.is_new:
+                self._open_conflict_review()
+                return
             self._show_error(error)
             return
         self.notify("Record saved.", severity="information")
@@ -1145,6 +1164,102 @@ class RecordEditScreen(Screen[Any]):
 
     def _show_error(self, error: Exception, *, prefix: str = "Unable to save") -> None:
         self._set_message(f"{prefix}: {error}")
+
+    def _open_conflict_review(self) -> None:
+        try:
+            current = self.records.get(
+                self.entity.name,
+                self.session.identity,
+                self.context,
+            )
+        except TideRuntimeError as error:
+            self._show_error(error, prefix="Unable to inspect the current record")
+            return
+        draft = deepcopy(self.session.values)
+        conflict = compare_record_conflict(
+            self.session.original,
+            current,
+            draft,
+            fields=(
+                field_name
+                for field_name in (
+                    *self.scalar_fields,
+                    *((self.collection_name,) if self.collection_name else ()),
+                )
+                if self._field_is_editable(
+                    self.entity,
+                    self.entity.field(field_name),
+                    self.session.original,
+                )
+            ),
+        )
+        self._pending_conflict = conflict
+        self._pending_conflict_draft = draft
+        self.app.push_screen(
+            ConflictReviewScreen(
+                conflict,
+                field_label=lambda name: _field_label(self.entity.field(name)),
+                format_value=self._format_conflict_value,
+            ),
+            self._conflict_review_closed,
+        )
+
+    def _conflict_review_closed(self, result: ConflictReviewResult | None) -> None:
+        draft = self._pending_conflict_draft
+        self._pending_conflict = None
+        self._pending_conflict_draft = None
+        if result is None or result.choice is ConflictChoice.KEEP_EDITING:
+            self._set_message(
+                "Your draft remains open and unsaved. Reload or rebase before saving."
+            )
+            return
+        try:
+            fresh = self.records.begin_edit(
+                self.entity.name,
+                self.session.identity,
+                self.context,
+            )
+        except TideRuntimeError as error:
+            self._show_error(error, prefix="Unable to reload the current record")
+            return
+        if (
+            result.choice is ConflictChoice.REBASE
+            and result.resolution is not None
+            and draft is not None
+        ):
+            retained: list[str] = []
+            dropped: list[str] = []
+            for field_name in result.resolution.draft_fields:
+                field = self.entity.field(field_name)
+                if self._field_is_editable(self.entity, field, fresh.original):
+                    fresh.set(field_name, deepcopy(draft.get(field_name)))
+                    retained.append(field_name)
+                else:
+                    dropped.append(field_name)
+            if retained:
+                message = (
+                    "Current data reloaded; non-conflicting draft fields were "
+                    "retained. Review and save again."
+                )
+            else:
+                message = "Current data reloaded; no draft fields could be retained."
+            if dropped:
+                message += (
+                    " Workflow rules now lock: "
+                    + ", ".join(_field_label(self.entity.field(name)) for name in dropped)
+                    + "."
+                )
+        else:
+            message = "Current data reloaded; the stale draft was discarded."
+        self.dismiss(ReopenRecordEdit(fresh, message))
+
+    def _format_conflict_value(self, field_name: str, value: object) -> str:
+        if isinstance(value, (list, tuple)):
+            suffix = "item" if len(value) == 1 else "items"
+            return f"{len(value)} {suffix}"
+        if isinstance(value, Mapping):
+            return "Record"
+        return self._format_value(self.entity.field(field_name), value)
 
     def _set_message(self, message: str) -> None:
         self.query_one("#form-message", Static).update(message)

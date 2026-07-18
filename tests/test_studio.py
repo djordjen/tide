@@ -494,6 +494,38 @@ def test_studio_service_manages_local_groups_and_explicit_add_targets() -> None:
     assert _source_state(INVOICING) == before
 
 
+def test_studio_preserves_crlf_during_structural_and_expert_edits(
+    tmp_path: Path,
+) -> None:
+    project = shutil.copytree(INVOICING, tmp_path / "crlf-invoicing")
+    for path in project.rglob("*.yaml"):
+        content = path.read_bytes().replace(b"\r\n", b"\n")
+        path.write_bytes(content.replace(b"\n", b"\r\n"))
+    service = StudioService(project)
+    browse = DesignerDocumentReference(kind="view", name="sales.Invoice.browse")
+    form = DesignerDocumentReference(kind="view", name="sales.Invoice.edit")
+
+    assert service.add_view_field(browse, "id").dirty
+    assert not service.remove_view_field(browse, "columns:id").dirty
+
+    created = service.create_view_group(form, "Temporary")
+    temporary = next(
+        group
+        for group in service.view_structure(form).groups
+        if group.label == "Temporary"
+    )
+    assert created.dirty
+    assert not service.remove_view_group(form, temporary.key).dirty
+
+    source = service.document(form).source.replace("\r\n", "\n")
+    invalid = service.replace_document_source(
+        form,
+        source.replace("base: generated.edit", "base: missing.edit"),
+    )
+    assert not invalid.valid
+    assert "\r\n" in service.document(form).source
+
+
 def test_studio_service_manages_tabs_collections_and_action_bars_in_memory() -> None:
     before = _source_state(INVOICING)
     service = StudioService(INVOICING)

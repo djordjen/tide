@@ -47,6 +47,29 @@ lookup:
   close_after_selection: true
 ```
 
+Textual consumes the resolved browse action list rather than inventing a
+separate toolbar contract. `delete` is shown only when it is present in that
+list and the current principal has the entity's explicit delete permission.
+With `confirm_delete: true`, the selected record's display value is shown in a
+modal whose safe default is **Keep record**; Escape also cancels. Confirmation
+calls `RecordsService.delete()` with the observed version, then refreshes the
+browse. Reference restrictions remain service errors and are translated into a
+relationship-aware message without giving the renderer repository access.
+
+Record-edit concurrency follows the same renderer/service split. When a commit
+reports `stale_version`, the TUI reads the current secured record and passes the
+original, current, and draft values to the shared three-way conflict comparer.
+The review surface labels genuine overlaps separately from changes made only by
+the current user or another user. Users may keep the draft open, discard it and
+reload, or explicitly select **Use Current**/**Use Mine** for every overlapping
+field. A complete resolution plan carries draft-only and explicitly selected
+values into a fresh `RecordSession`; it never mutates storage from the dialog.
+Field permissions and `immutable_when` are reevaluated against the current
+record before rebasing, so a concurrent workflow transition cannot carry an
+edit into a newly read-only field. The user reviews and saves the resulting
+form through normal validation. The same contract works with local and
+HTTP-backed services and can be rendered later by Qt/Web.
+
 Named presets capture recurring patterns such as `standard_browse`,
 `standard_form`, and `master_detail`.
 

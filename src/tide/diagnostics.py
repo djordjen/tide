@@ -30,12 +30,7 @@ class Diagnostic:
     hint: str | None = None
 
     def format(self, *, root: Path | None = None) -> str:
-        file = self.location.file
-        if root is not None:
-            try:
-                file = file.relative_to(root)
-            except ValueError:
-                pass
+        file = _display_file(self.location.file, root)
         path = ""
         if self.path:
             path = " (" + ".".join(str(part) for part in self.path) + ")"
@@ -48,12 +43,7 @@ class Diagnostic:
         return result
 
     def as_dict(self, *, root: Path | None = None) -> dict[str, object]:
-        file = self.location.file
-        if root is not None:
-            try:
-                file = file.relative_to(root)
-            except ValueError:
-                pass
+        file = _display_file(self.location.file, root)
         return {
             "code": self.code,
             "severity": self.severity.value,
@@ -66,8 +56,23 @@ class Diagnostic:
         }
 
 
+def _display_file(file: Path, root: Path | None) -> Path:
+    """Return a stable project-relative path, including on Windows temp roots."""
+
+    if root is None:
+        return file
+    try:
+        return file.relative_to(root)
+    except ValueError:
+        try:
+            return file.resolve(strict=False).relative_to(
+                root.resolve(strict=False)
+            )
+        except (OSError, ValueError):
+            return file
+
+
 class CompilationFailed(Exception):
     def __init__(self, diagnostics: Iterable[Diagnostic]):
         self.diagnostics = tuple(diagnostics)
         super().__init__(f"model compilation failed with {len(self.diagnostics)} diagnostic(s)")
-

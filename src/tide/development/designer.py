@@ -635,7 +635,7 @@ def _apply_command(
     relative = _resolve_document(command.target, index)
     document = _load_round_trip_yaml(relative, files[relative])
     if isinstance(command, DesignerReplaceDocumentSourceCommand):
-        replacement = command.source.encode("utf-8")
+        replacement = _encode_source_text(command.source, files[relative])
         candidate_document = _load_round_trip_yaml(relative, replacement)
         if _document_identity(document, relative, project_file) != _document_identity(
             candidate_document,
@@ -709,7 +709,7 @@ def _document_identity(
 def _load_round_trip_yaml(relative: str, content: bytes) -> Any:
     yaml = _round_trip_yaml()
     try:
-        document = yaml.load(content.decode("utf-8"))
+        document = yaml.load(_normalized_source_text(content.decode("utf-8")))
     except (UnicodeDecodeError, YAMLError) as error:
         raise DesignerError(
             "TIDEDES003",
@@ -722,10 +722,23 @@ def _load_round_trip_yaml(relative: str, content: bytes) -> Any:
 
 def _dump_round_trip_yaml(document: Any, original: bytes) -> bytes:
     yaml = _round_trip_yaml()
-    yaml.line_break = "\r\n" if b"\r\n" in original else "\n"
+    yaml.line_break = "\n"
     stream = StringIO()
     yaml.dump(document, stream)
-    return stream.getvalue().encode("utf-8")
+    return _encode_source_text(stream.getvalue(), original)
+
+
+def _normalized_source_text(source: str) -> str:
+    return source.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _encode_source_text(source: str, original: bytes) -> bytes:
+    normalized = _normalized_source_text(source)
+    if b"\r\n" in original:
+        normalized = normalized.replace("\n", "\r\n")
+    elif b"\r" in original and b"\n" not in original:
+        normalized = normalized.replace("\n", "\r")
+    return normalized.encode("utf-8")
 
 
 def _round_trip_yaml() -> YAML:

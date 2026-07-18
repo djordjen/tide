@@ -26,6 +26,8 @@ from tide.tui import (
     seed_demo_data,
 )
 from tide.tui.form import NumericMaskedInput, RecordEditScreen
+from tide.tui.confirm import DeleteConfirmationScreen
+from tide.tui.conflict import ConflictReviewScreen
 from tide.tui.lookup import LookupField, LookupScreen
 from tide.tui.report import ReportPreviewScreen
 
@@ -174,7 +176,116 @@ def test_textual_reference_display_fails_closed_without_target_access() -> None:
             assert "Adria Consulting" not in repr(row)
             assert app.query_one("#create-record", Button).disabled
             assert app.query_one("#edit-record", Button).disabled
+            assert not app.query_one("#delete-record", Button).display
             assert not app.query_one("#preview-report", Button).display
+
+    asyncio.run(exercise())
+
+
+def test_textual_product_delete_confirms_cancels_and_reports_references(
+    monkeypatch,
+) -> None:
+    app = _demo_app(page_size=10)
+    app.records.repository.seed(
+        "catalog.Product",
+        [
+            {
+                "id": 4,
+                "code": "TEMP",
+                "name": "Temporary product",
+                "unit_price": Decimal("1.00"),
+                "active": True,
+            }
+        ],
+    )
+    notifications: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        app,
+        "notify",
+        lambda message, **options: notifications.append(
+            (str(message), str(options.get("severity", "information")))
+        ),
+    )
+
+    async def exercise() -> None:
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            app.query_one("#browse-view", Select).value = "catalog.Product.browse"
+            await pilot.pause()
+            table = app.query_one("#records", DataTable)
+            delete_button = app.query_one("#delete-record", Button)
+            assert delete_button.display
+            assert not delete_button.disabled
+            assert table.row_count == 4
+
+            table.move_cursor(row=3)
+            await pilot.press("delete")
+            await pilot.pause()
+            assert isinstance(app.screen, DeleteConfirmationScreen)
+            assert "Temporary product" in str(
+                app.screen.query_one("#delete-message", Static).content
+            )
+            await pilot.click("#cancel-delete")
+            await pilot.pause()
+            assert app.records.repository.exists("catalog.Product", 4)
+
+            await pilot.click("#delete-record")
+            await pilot.click("#confirm-delete")
+            await pilot.pause()
+            assert not app.records.repository.exists("catalog.Product", 4)
+            assert table.row_count == 3
+            assert notifications[-1] == (
+                "TEMP - Temporary product deleted.",
+                "information",
+            )
+
+            table.move_cursor(row=0)
+            await pilot.click("#delete-record")
+            await pilot.click("#confirm-delete")
+            await pilot.pause()
+            assert app.records.repository.exists("catalog.Product", 1)
+            assert notifications[-1] == (
+                "Cannot delete 'CONS - Consulting hour': it is used by "
+                "Invoice Lines (Product).",
+                "warning",
+            )
+
+    asyncio.run(exercise())
+
+
+def test_textual_customer_delete_is_permission_driven_and_compact_safe() -> None:
+    app = _demo_app(page_size=10)
+    app.records.repository.seed(
+        "crm.Customer",
+        [
+            {
+                "id": 4,
+                "code": "TEMP",
+                "name": "Temporary customer",
+                "email": None,
+                "active": True,
+                "invoices": [],
+            }
+        ],
+    )
+
+    async def exercise() -> None:
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            app.query_one("#browse-view", Select).value = "crm.Customer.browse"
+            await pilot.pause()
+            table = app.query_one("#records", DataTable)
+            delete_button = app.query_one("#delete-record", Button)
+            assert delete_button.display
+            assert delete_button.region.right <= 80
+            assert delete_button.region.bottom <= 24
+
+            table.move_cursor(row=3)
+            await pilot.click("#delete-record")
+            await pilot.click("#confirm-delete")
+            await pilot.pause()
+            assert not app.records.repository.exists("crm.Customer", 4)
+            assert table.row_count == 3
 
     asyncio.run(exercise())
 
@@ -849,9 +960,197 @@ def test_textual_stale_edit_reports_concurrency_conflict() -> None:
             screen.action_save()
             await pilot.pause()
 
+            review = app.screen
+            assert isinstance(review, ConflictReviewScreen)
+            assert review.conflict.conflicting_fields == ("currency",)
+            assert not review.conflict.rebase_fields
+            row = review.query_one("#conflict-fields", DataTable).get_row_at(0)
+            assert [str(value) for value in row] == [
+                "Currency",
+                "EUR",
+                "USD",
+                "GBP",
+                "Choose value",
+            ]
+            assert review.query_one("#apply-conflict-resolution", Button).disabled
+            assert not review.query_one("#use-current-conflict", Button).disabled
+            assert not review.query_one("#use-draft-conflict", Button).disabled
+
+            await pilot.click("#keep-conflict-draft")
+            await pilot.pause()
+            assert app.screen is screen
             message = str(screen.query_one("#form-message", Static).content)
-            assert "expected 1, current 2" in message
+            assert "draft remains open and unsaved" in message
+
+            screen.action_save()
+            await pilot.pause()
+            await pilot.click("#reload-conflict-record")
+            await pilot.pause()
+
+            reloaded = app.screen
+            assert isinstance(reloaded, RecordEditScreen)
+            assert reloaded is not screen
+            assert reloaded.session.expected_version == 2
+            assert reloaded.query_one("#field-currency", Input).value == "USD"
             assert app.records.repository.get("sales.Invoice", 2)["currency"] == "USD"
+
+    asyncio.run(exercise())
+
+
+def test_textual_stale_edit_applies_explicit_current_and_draft_choices() -> None:
+    app = _demo_app(page_size=3)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            app.open_record(2)
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, RecordEditScreen)
+
+            concurrent = app.records.begin_edit("sales.Invoice", 2, app.context)
+            concurrent.set("invoice_date", date(2026, 7, 5))
+            concurrent.set("currency", "USD")
+            app.records.commit(concurrent, app.context)
+
+            screen.query_one("#field-invoice_date", Input).value = "04.07.2026"
+            screen.query_one("#field-currency", Input).value = "GBP"
+            screen.action_save()
+            await pilot.pause()
+            review = app.screen
+            assert isinstance(review, ConflictReviewScreen)
+            assert review.conflict.conflicting_fields == (
+                "invoice_date",
+                "currency",
+            )
+            assert review.has_class("compact-terminal")
+            apply_button = review.query_one("#apply-conflict-resolution", Button)
+            assert apply_button.disabled
+            assert apply_button.region.y < 24
+
+            table = review.query_one("#conflict-fields", DataTable)
+            table.move_cursor(row=0)
+            await pilot.click("#use-current-conflict")
+            assert str(table.get_row_at(0)[-1]) == "Use Current"
+            assert apply_button.disabled
+
+            table.move_cursor(row=1)
+            await pilot.pause()
+            await pilot.click("#use-draft-conflict")
+            assert str(table.get_row_at(1)[-1]) == "Use Draft"
+            assert not apply_button.disabled
+
+            await pilot.click("#apply-conflict-resolution")
+            await pilot.pause()
+            resolved = app.screen
+            assert isinstance(resolved, RecordEditScreen)
+            assert resolved.session.expected_version == 2
+            assert (
+                resolved.query_one("#field-invoice_date", Input).value
+                == "05.07.2026"
+            )
+            assert resolved.query_one("#field-currency", Input).value == "GBP"
+
+            resolved.action_save()
+            await pilot.pause()
+            stored = app.records.repository.get("sales.Invoice", 2)
+            assert stored["invoice_date"] == date(2026, 7, 5)
+            assert stored["currency"] == "GBP"
+            assert stored["version"] == 3
+
+    asyncio.run(exercise())
+
+
+def test_textual_stale_edit_rebases_only_non_conflicting_draft_fields() -> None:
+    app = _demo_app(page_size=3)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            app.open_record(2)
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, RecordEditScreen)
+
+            concurrent = app.records.begin_edit("sales.Invoice", 2, app.context)
+            concurrent.set("currency", "USD")
+            app.records.commit(concurrent, app.context)
+
+            screen.query_one("#field-invoice_date", Input).value = "04.07.2026"
+            screen.action_save()
+            await pilot.pause()
+
+            review = app.screen
+            assert isinstance(review, ConflictReviewScreen)
+            assert not review.conflict.conflicting_fields
+            assert review.conflict.rebase_fields == ("invoice_date",)
+            assert review.has_class("compact-terminal")
+            assert not review.query_one(
+                "#apply-conflict-resolution", Button
+            ).disabled
+
+            await pilot.click("#apply-conflict-resolution")
+            await pilot.pause()
+            rebased = app.screen
+            assert isinstance(rebased, RecordEditScreen)
+            assert rebased.session.expected_version == 2
+            assert rebased.query_one("#field-currency", Input).value == "USD"
+            assert (
+                rebased.query_one("#field-invoice_date", Input).value
+                == "04.07.2026"
+            )
+
+            rebased.action_save()
+            await pilot.pause()
+            stored = app.records.repository.get("sales.Invoice", 2)
+            assert stored["currency"] == "USD"
+            assert stored["invoice_date"] == date(2026, 7, 4)
+            assert stored["version"] == 3
+
+    asyncio.run(exercise())
+
+
+def test_textual_stale_edit_does_not_rebase_fields_locked_by_new_workflow_state() -> None:
+    app = _demo_app(page_size=3)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.open_record(2)
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, RecordEditScreen)
+
+            posted = app.actions.execute(
+                "sales.Invoice",
+                "post",
+                2,
+                {},
+                app.context,
+                idempotency_key="concurrent-post-before-rebase",
+                expected_version=1,
+            )
+            assert posted["status"] == "posted"
+
+            screen.query_one("#field-currency", Input).value = "GBP"
+            screen.action_save()
+            await pilot.pause()
+            review = app.screen
+            assert isinstance(review, ConflictReviewScreen)
+            assert review.conflict.rebase_fields == ("currency",)
+
+            await pilot.click("#apply-conflict-resolution")
+            await pilot.pause()
+            reloaded = app.screen
+            assert isinstance(reloaded, RecordEditScreen)
+            assert not reloaded.query("#field-currency")
+            assert str(
+                reloaded.query_one("#value-currency", Static).content
+            ) == "EUR"
+            assert reloaded.query_one("#save-form", Button).disabled
+            stored = app.records.repository.get("sales.Invoice", 2)
+            assert stored["currency"] == "EUR"
+            assert stored["version"] == 2
 
     asyncio.run(exercise())
 

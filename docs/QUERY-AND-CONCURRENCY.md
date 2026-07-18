@@ -88,8 +88,22 @@ Non-versioned legacy entities remain usable without changing their structure.
 TUI and MCP carry the same expected version through `RecordSession` and action
 payloads. Missing, stale, null, and protected values are distinct states.
 
-Initial conflict handling reports the current version and the fields that can
-be safely disclosed. Interactive field-by-field merge remains a later feature.
+The shared `compare_record_conflict()` contract classifies each permitted field
+with a three-way Original/Current/Draft comparison: changed only in the draft,
+changed only in current storage, changed to the same value, or genuinely
+conflicting. It contains no persistence or Textual dependency, so Qt/Web
+clients can render the same semantics later.
+
+`resolve_record_conflict()` validates explicit Current/Draft choices only for
+genuinely overlapping fields and returns separate draft, current, and unresolved
+field sets. The TUI presents that contract for local and remote edit sessions.
+It can keep the unsaved draft open, discard it and reload, or require **Use
+Current**/**Use Mine** for each overlap before enabling Apply Resolution.
+Draft-only changes are retained automatically. The completed plan is copied
+into a fresh `RecordSession`, permissions and `immutable_when` are reevaluated,
+and the user reviews and saves through normal service validation. A concurrent
+workflow change therefore cannot bypass current locking, and the dialog itself
+never writes storage.
 
 Integer expected-version comparison and increment are executable in both the
 in-memory and SQLAlchemy repositories. SQLAlchemy performs the comparison in

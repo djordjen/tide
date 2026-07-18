@@ -96,7 +96,11 @@ columns are executable through keyboard or clickable controls. Forms use
 compact, visually distinct editable/read-only fields, localized date parsing,
 model-owned today defaults, keyboard date stepping, column-first Tab traversal,
 Enter-to-advance data entry, and typed numeric/string edit masks backed by
-service validation. Product references now support a secured,
+service validation. Stale edits now open an Original/Current/Draft review with
+safe reload, automatic non-overlapping-field rebase, and explicit Current/Mine
+selection for every overlap in local and remote TUI modes; permissions and
+workflow immutability are reevaluated before rebasing. Product references now
+support a secured,
 case-insensitive, multi-column lookup window and declarative selection values
 that copy description and unit price into the editable line draft. Inline
 editor layout and keyboard order are now developer-controlled independently of
@@ -106,8 +110,10 @@ including durable framework state for managed databases. A compiler-validated,
 secured record-report service now drives TUI invoice preview plus standalone
 HTML and A4 PDF export.
 The same TUI now navigates Invoice, Customer, and Product workspaces, supports
-secured master-data create/edit forms, and can create a missing reference from
-inside a lookup with **Save & Select** while preserving the invoice draft.
+secured master-data create/edit/delete, confirms destructive operations,
+explains reference restrictions, and can create a missing reference from inside
+a lookup with **Save & Select** while preserving the invoice draft. Local and
+remote Textual modes route deletion through the same service/API boundary.
 Managed development databases can be populated deterministically through an
 application-owned Faker profile and the real secured services.
 
@@ -115,7 +121,8 @@ application-owned Faker profile and the real secured services.
 - view-level field ordering for form and inline editor controls, independent of
   collection-table column order (for example, Product before Description in
   InvoiceLine details); **implemented for the Textual invoice workflow**
-- Customer and Product browse/edit workspaces and create-enabled lookups;
+- Customer and Product browse/edit/delete workspaces and create-enabled
+  lookups; **implemented with permission/action visibility and confirmation**
 - transactional Invoice/InvoiceLine master-detail editing;
 - selectable in-memory or SQLAlchemy runtime persistence, with explicit managed
   schema creation and legacy no-DDL behavior;
@@ -187,6 +194,8 @@ the same services.
 - Alembic migration proposal workflow;
 - explicit rename and destructive-change handling;
 - interactive conflict inspection and permitted field-level merge assistance;
+  **implemented through shared three-way comparison/resolution contracts plus
+  local/remote TUI reload, safe-field rebase, and explicit Current/Mine choices**;
 - roles and permissions administration;
 - audit history and protected logging;
 - import and controlled export;

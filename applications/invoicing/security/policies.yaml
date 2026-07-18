@@ -2,6 +2,7 @@
 permissions:
   - crm.customer.read
   - crm.customer.write
+  - crm.customer.delete
   - catalog.product.read
   - catalog.product.write
   - catalog.product.delete
@@ -17,6 +18,7 @@ roles:
     grants:
       - crm.customer.read
       - crm.customer.write
+      - crm.customer.delete
       - catalog.product.read
       - catalog.product.write
       - catalog.product.delete

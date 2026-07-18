@@ -44,9 +44,20 @@ display, key-driven paging and refresh, clickable navigation, metadata forms,
 typed reference selectors,
 master-detail editing, create/save/post actions, immutable states, and stale
 commit feedback. Browse coverage also includes incremental search, metadata
-filters, query-reset behavior, and ascending/descending sort controls. This is
-the automated floor, not certification of the wider terminal matrix. Form
-controls use single-row compact rendering; editable versus read-only state is
+filters, query-reset behavior, and ascending/descending sort controls. Secured
+Customer/Product deletion coverage verifies metadata/permission visibility,
+Delete-key and clickable activation, a safe-default confirmation modal,
+cancellation, successful refresh, readable reference-conflict feedback, and
+the same behavior through the remote HTTP facade at compact and standard sizes.
+Stale-edit coverage exercises the three-way conflict table, safe-default draft
+retention, current-record reload, safe-field rebasing, selected-row **Use
+Current**/**Use Mine** choices, mixed-field resolutions, remote values, and the
+case where a concurrent workflow transition makes a formerly editable field
+read-only. Apply remains disabled until every overlap has a choice. The conflict
+dialog and all resolution controls are exercised at `80x24` as well as standard
+sizes. This is the automated floor, not certification of the wider terminal
+matrix. Form controls use single-row compact rendering; editable versus
+read-only state is
 communicated through both color and italic styling, rather than color alone.
 Form focus tests require column-first traversal (left top-to-bottom, then right
 top-to-bottom), Enter-to-advance behavior, and normal keyboard operation inside

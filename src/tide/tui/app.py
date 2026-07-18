@@ -22,12 +22,13 @@ from tide.compiler.normalized import (
     ResolvedView,
 )
 from tide.data import FilterCondition, QuerySpec, SortField
-from tide.runtime import RequestContext, TideRuntimeError
+from tide.runtime import DeleteRestricted, RequestContext, TideRuntimeError
 from tide.reporting import ReportService
 from tide.security import PROTECTED
 from tide.tui.table import table_cell, table_label
 from tide.services import ActionService, RecordsService
-from tide.tui.form import RecordEditScreen, select_form_view
+from tide.tui.confirm import DeleteConfirmationScreen
+from tide.tui.form import ReopenRecordEdit, RecordEditScreen, select_form_view
 from tide.tui.report import ReportPreviewScreen
 
 
@@ -136,6 +137,7 @@ class TideApp(App[None]):
         Binding("d", "toggle_sort_direction", "Direction"),
         Binding("c", "create_record", "Create"),
         Binding("e", "edit_record", "Edit"),
+        Binding("delete", "delete_record", "Delete"),
         Binding("p", "previous_page", "Previous"),
         Binding("n", "next_page", "Next"),
         Binding("r", "reload", "Refresh"),
@@ -261,6 +263,14 @@ class TideApp(App[None]):
                 variant="success",
             )
             yield Button("Edit", id="edit-record", disabled=True)
+            delete_button = Button(
+                "Delete",
+                id="delete-record",
+                disabled=True,
+                variant="error",
+            )
+            delete_button.display = self._delete_allowed
+            yield delete_button
             yield Button("Preview", id="preview-report", disabled=True)
             yield Button("Previous", id="previous-page", disabled=True)
             yield Button("Next", id="next-page", disabled=True, variant="primary")
@@ -296,6 +306,8 @@ class TideApp(App[None]):
             self.action_reload()
         elif event.button.id == "edit-record":
             self.action_edit_record()
+        elif event.button.id == "delete-record":
+            self.action_delete_record()
         elif event.button.id == "preview-report":
             self.action_preview_report()
         elif event.button.id == "create-record":
@@ -368,6 +380,65 @@ class TideApp(App[None]):
             return
         self._open_form(session)
 
+    def action_delete_record(self) -> None:
+        record = self._selected_record()
+        if record is None or not self._delete_allowed:
+            return
+        record_title = _display_record(self.entity, record)
+        if self._confirm_delete:
+            self.push_screen(
+                DeleteConfirmationScreen(self.entity.label, record_title),
+                lambda confirmed: self._delete_record(record) if confirmed else None,
+            )
+            return
+        self._delete_record(record)
+
+    def _delete_record(self, record: Mapping[str, Any]) -> None:
+        identity = record[_primary_key(self.entity)]
+        version_field = _version_field(self.entity)
+        expected_version = (
+            record.get(version_field) if version_field is not None else None
+        )
+        if expected_version is PROTECTED:
+            expected_version = None
+        try:
+            self.records.delete(
+                self.entity.name,
+                identity,
+                self.context,
+                expected_version=expected_version,
+            )
+        except DeleteRestricted as error:
+            self.notify(
+                self._delete_restricted_message(record, error),
+                severity="warning",
+            )
+            return
+        except TideRuntimeError as error:
+            self.notify(f"Delete failed: {error}", severity="error")
+            return
+        self.notify(
+            f"{_display_record(self.entity, record)} deleted.",
+            severity="information",
+        )
+        self._restart_query()
+
+    def _delete_restricted_message(
+        self,
+        record: Mapping[str, Any],
+        error: DeleteRestricted,
+    ) -> str:
+        reason = "it is referenced by another record"
+        if error.relationship and "." in error.relationship:
+            source_name, field_name = error.relationship.rsplit(".", 1)
+            source = self.model.entities.get(source_name)
+            if source is not None and field_name in source.fields:
+                reason = (
+                    f"it is used by {source.label} "
+                    f"({_field_label(source.field(field_name))})"
+                )
+        return f"Cannot delete {_display_record(self.entity, record)!r}: {reason}."
+
     def action_preview_report(self) -> None:
         report_name = self._active_report()
         table = self.query_one("#records", DataTable)
@@ -421,8 +492,13 @@ class TideApp(App[None]):
             severity="warning",
         )
 
-    def _record_form_closed(self, changed: bool | None) -> None:
-        if changed:
+    def _record_form_closed(self, result: bool | ReopenRecordEdit | None) -> None:
+        if isinstance(result, ReopenRecordEdit):
+            self.action_reload()
+            self.notify(result.message, severity="warning")
+            self.call_later(self._open_form, result.session)
+            return
+        if result:
             self.action_reload()
 
     def action_previous_page(self) -> None:
@@ -498,6 +574,17 @@ class TideApp(App[None]):
                 self.context,
             )
         )
+        settings = view.data.get("settings", {})
+        browse_actions = tuple(str(action) for action in settings.get("actions", ()))
+        self._delete_allowed = bool(
+            "delete" in browse_actions
+            and self.records.security.can_access_entity(
+                self.entity,
+                "delete",
+                self.context,
+            )
+        )
+        self._confirm_delete = bool(settings.get("confirm_delete", True))
         configured_page_size = int(view.data.get("settings", {}).get("page_size", 25))
         self.page_size = (
             self._page_size_override
@@ -561,6 +648,9 @@ class TideApp(App[None]):
                 sorts.value = Select.NULL
             self.query_one("#create-record", Button).disabled = not self._create_allowed
             self.query_one("#edit-record", Button).disabled = True
+            delete_button = self.query_one("#delete-record", Button)
+            delete_button.display = self._delete_allowed
+            delete_button.disabled = True
             table = self.query_one("#records", DataTable)
             table.clear(columns=True)
             self._add_table_columns(table)
@@ -633,10 +723,14 @@ class TideApp(App[None]):
                 f"Page {self.page_number}  ·  {count} {noun}  ·  "
                 f"{self.source_label}{self._query_summary()}  ·  "
                 "C create  E edit  V preview  P/N page  R refresh"
+                + ("  Del delete" if self._delete_allowed else "")
             )
             self._update_navigation()
             self.query_one("#edit-record", Button).disabled = not (
                 page.records and self._edit_allowed
+            )
+            self.query_one("#delete-record", Button).disabled = not (
+                page.records and self._delete_allowed
             )
             self._update_report_control(bool(page.records))
             table.refresh(layout=True)
@@ -647,6 +741,7 @@ class TideApp(App[None]):
             status.update(f"Unable to load {self.entity.label}: {error}")
             self._update_navigation(force_disabled=True)
             self.query_one("#edit-record", Button).disabled = True
+            self.query_one("#delete-record", Button).disabled = True
             self._update_report_control(False)
 
     def _active_report(self) -> str | None:
@@ -774,6 +869,14 @@ class TideApp(App[None]):
             ),
             None,
         )
+
+    def _selected_record(self) -> dict[str, Any] | None:
+        table = self.query_one("#records", DataTable)
+        if not self._current_records or table.cursor_row < 0:
+            return None
+        if table.cursor_row >= len(self._current_records):
+            return None
+        return self._current_records[table.cursor_row]
 
     def _update_navigation(self, *, force_disabled: bool = False) -> None:
         self.query_one("#previous-page", Button).disabled = (
@@ -930,6 +1033,17 @@ def _primary_key(entity: NormalizedEntity) -> str:
         name
         for name, field in entity.fields.items()
         if field.metadata.get("primary_key")
+    )
+
+
+def _version_field(entity: NormalizedEntity) -> str | None:
+    return next(
+        (
+            name
+            for name, field in entity.fields.items()
+            if field.metadata.get("concurrency_token")
+        ),
+        None,
     )
 
 
