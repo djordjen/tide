@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from pathlib import Path
 import shutil
 from typing import Any
 
 import pytest
 from textual.containers import Horizontal
+from textual.pilot import Pilot
 from textual.widgets import Button, DataTable, Input, Select, Static, TextArea, Tree
 
 from tide.cli import main
@@ -894,8 +896,7 @@ def test_textual_studio_applies_reviews_and_undoes_in_memory_edit() -> None:
     async def exercise() -> None:
         async with app.run_test(size=(130, 40)) as pilot:
             await pilot.pause()
-            _select_invoice(app)
-            await pilot.pause()
+            await _select_invoice(pilot, app)
 
             table = app.query_one("#property-table", DataTable)
             label_key = _property_key(app, ("label",))
@@ -947,8 +948,7 @@ def test_textual_studio_keeps_invalid_edit_visible_with_diagnostics() -> None:
     async def exercise() -> None:
         async with app.run_test(size=(130, 40)) as pilot:
             await pilot.pause()
-            _select_invoice(app)
-            await pilot.pause()
+            await _select_invoice(pilot, app)
 
             table = app.query_one("#property-table", DataTable)
             display_key = _property_key(app, ("display",))
@@ -978,8 +978,7 @@ def test_textual_studio_uses_schema_choice_and_boolean_controls() -> None:
     async def exercise() -> None:
         async with app.run_test(size=(130, 40)) as pilot:
             await pilot.pause()
-            _select_invoice(app)
-            await pilot.pause()
+            await _select_invoice(pilot, app)
 
             table = app.query_one("#property-table", DataTable)
             type_key = _property_key(app, ("fields", "id", "type"))
@@ -1024,8 +1023,7 @@ def test_textual_studio_colors_yaml_and_searches_current_preview() -> None:
     async def exercise() -> None:
         async with app.run_test(size=(130, 40)) as pilot:
             await pilot.pause()
-            _select_invoice(app)
-            await pilot.pause()
+            await _select_invoice(pilot, app)
 
             preview = app.query_one("#source-preview", TextArea)
             assert preview.language == "yaml"
@@ -1069,8 +1067,7 @@ def test_textual_studio_expert_yaml_apply_cancel_and_undo_are_in_memory() -> Non
     async def exercise() -> None:
         async with app.run_test(size=(130, 40)) as pilot:
             await pilot.pause()
-            _select_invoice(app)
-            await pilot.pause()
+            await _select_invoice(pilot, app)
 
             preview = app.query_one("#source-preview", TextArea)
             original = preview.text
@@ -1126,8 +1123,7 @@ def test_textual_studio_keeps_invalid_view_structure_explained_and_safe() -> Non
     async def exercise() -> None:
         async with app.run_test(size=(140, 44)) as pilot:
             await pilot.pause()
-            _select_view(app, "sales.Invoice.edit")
-            await pilot.pause()
+            await _select_view(pilot, app, "sales.Invoice.edit")
 
             source = app.query_one("#source-preview", TextArea)
             original = source.text
@@ -1169,8 +1165,7 @@ def test_textual_studio_reviews_and_explicitly_saves_a_candidate(
     async def exercise() -> None:
         async with app.run_test(size=(140, 44)) as pilot:
             await pilot.pause()
-            _select_invoice(app)
-            await pilot.pause()
+            await _select_invoice(pilot, app)
 
             table = app.query_one("#property-table", DataTable)
             label_key = _property_key(app, ("label",))
@@ -1178,11 +1173,18 @@ def test_textual_studio_reviews_and_explicitly_saves_a_candidate(
             await pilot.pause()
             app.query_one("#property-value", Input).value = "Studio saved invoices"
             await pilot.click("#apply-property")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: not app.query_one("#save-candidate", Button).disabled,
+            )
 
             assert not app.query_one("#save-candidate", Button).disabled
             await pilot.press("ctrl+s")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, StudioSaveScreen)
+                and len(app.screen.query("#studio-save-diff")) == 1,
+            )
 
             assert isinstance(app.screen, StudioSaveScreen)
             screen = app.screen
@@ -1192,10 +1194,16 @@ def test_textual_studio_reviews_and_explicitly_saves_a_candidate(
             expected = screen.review.preparation.approval_prompt
             assert expected is not None
             approval.value = expected
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: not screen.query_one("#confirm-save", Button).disabled,
+            )
             assert not screen.query_one("#confirm-save", Button).disabled
             await pilot.click("#confirm-save")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: not isinstance(app.screen, StudioSaveScreen),
+            )
 
             assert not isinstance(app.screen, StudioSaveScreen)
             assert app.state.valid
@@ -1219,8 +1227,7 @@ def test_textual_studio_moves_and_previews_resolved_view_fields_without_writes()
     async def exercise() -> None:
         async with app.run_test(size=(140, 44)) as pilot:
             await pilot.pause()
-            _select_view(app, "sales.InvoiceLine.inline_edit")
-            await pilot.pause()
+            await _select_view(pilot, app, "sales.InvoiceLine.inline_edit")
 
             panel = app.query_one("#view-structure", Horizontal)
             assert panel.display
@@ -1231,7 +1238,12 @@ def test_textual_studio_moves_and_previews_resolved_view_fields_without_writes()
             table = app.query_one("#view-field-table", DataTable)
             description_key = _view_field_key(app, "layout-left:description")
             table.move_cursor(row=list(app._view_field_rows).index(description_key))
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: not app.query_one(
+                    "#move-view-field-up", Button
+                ).disabled,
+            )
 
             assert app.selected_view_field is not None
             assert app.selected_view_field.name == "description"
@@ -1273,13 +1285,17 @@ def test_textual_studio_swaps_adds_and_removes_view_fields_in_memory() -> None:
     async def exercise() -> None:
         async with app.run_test(size=(150, 48)) as pilot:
             await pilot.pause()
-            _select_view(app, "sales.InvoiceLine.inline_edit")
-            await pilot.pause()
+            await _select_view(pilot, app, "sales.InvoiceLine.inline_edit")
 
             table = app.query_one("#view-field-table", DataTable)
             product_key = _view_field_key(app, "layout-left:product")
             table.move_cursor(row=list(app._view_field_rows).index(product_key))
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: not app.query_one(
+                    "#move-view-field-right", Button
+                ).disabled,
+            )
             assert not app.query_one("#move-view-field-right", Button).disabled
             await pilot.click("#move-view-field-right")
             await pilot.pause()
@@ -1341,8 +1357,7 @@ def test_textual_studio_targets_and_manages_view_groups_in_memory() -> None:
     async def exercise() -> None:
         async with app.run_test(size=(150, 52)) as pilot:
             await pilot.pause()
-            _select_view(app, "sales.Invoice.edit")
-            await pilot.pause()
+            await _select_view(pilot, app, "sales.Invoice.edit")
 
             assert app.view_structure is not None
             totals = next(
@@ -1352,7 +1367,10 @@ def test_textual_studio_targets_and_manages_view_groups_in_memory() -> None:
             group_selector = app.query_one("#view-field-group-choice", Select)
             add_selector.value = "id"
             group_selector.value = totals.key
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: not app.query_one("#add-view-field", Button).disabled,
+            )
             assert not app.query_one("#add-view-field", Button).disabled
 
             await pilot.click("#add-view-field")
@@ -1371,14 +1389,26 @@ def test_textual_studio_targets_and_manages_view_groups_in_memory() -> None:
             assert not app.state.dirty
 
             await pilot.click("#manage-view-groups")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, StudioGroupsScreen)
+                and len(app.screen.query("#studio-group-name")) == 1,
+            )
             assert isinstance(app.screen, StudioGroupsScreen)
             groups_screen = app.screen
             groups_screen.query_one("#studio-group-name", Input).value = "Audit"
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: not groups_screen.query_one(
+                    "#studio-group-create", Button
+                ).disabled,
+            )
             assert not groups_screen.query_one("#studio-group-create", Button).disabled
             await pilot.click("#studio-group-create")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: not isinstance(app.screen, StudioGroupsScreen),
+            )
 
             assert not isinstance(app.screen, StudioGroupsScreen)
             assert app.state.valid
@@ -1389,7 +1419,11 @@ def test_textual_studio_targets_and_manages_view_groups_in_memory() -> None:
             assert audit.can_remove
 
             await pilot.click("#manage-view-groups")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, StudioGroupsScreen)
+                and len(app.screen.query("#studio-group-select")) == 1,
+            )
             groups_screen = app.screen
             assert isinstance(groups_screen, StudioGroupsScreen)
             groups_screen.query_one("#studio-group-select", Select).value = audit.key
@@ -1404,11 +1438,20 @@ def test_textual_studio_targets_and_manages_view_groups_in_memory() -> None:
                 group for group in app.view_structure.groups if group.label == "Review"
             )
             await pilot.click("#manage-view-groups")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, StudioGroupsScreen)
+                and len(app.screen.query("#studio-group-select")) == 1,
+            )
             groups_screen = app.screen
             assert isinstance(groups_screen, StudioGroupsScreen)
             groups_screen.query_one("#studio-group-select", Select).value = review.key
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: not groups_screen.query_one(
+                    "#studio-group-up", Button
+                ).disabled,
+            )
             assert not groups_screen.query_one("#studio-group-up", Button).disabled
             await pilot.click("#studio-group-up")
             await pilot.pause()
@@ -1418,14 +1461,26 @@ def test_textual_studio_targets_and_manages_view_groups_in_memory() -> None:
                 group for group in app.view_structure.groups if group.label == "Review"
             )
             await pilot.click("#manage-view-groups")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, StudioGroupsScreen)
+                and len(app.screen.query("#studio-group-select")) == 1,
+            )
             groups_screen = app.screen
             assert isinstance(groups_screen, StudioGroupsScreen)
             groups_screen.query_one("#studio-group-select", Select).value = review.key
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: not groups_screen.query_one(
+                    "#studio-group-remove", Button
+                ).disabled,
+            )
             assert not groups_screen.query_one("#studio-group-remove", Button).disabled
             await pilot.click("#studio-group-remove")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: not isinstance(app.screen, StudioGroupsScreen),
+            )
 
             assert not isinstance(app.screen, StudioGroupsScreen)
             assert app.state.valid
@@ -1442,12 +1497,15 @@ def test_textual_studio_manages_tabs_and_action_order_in_memory() -> None:
     async def exercise() -> None:
         async with app.run_test(size=(150, 52)) as pilot:
             await pilot.pause()
-            _select_view(app, "sales.Invoice.edit")
-            await pilot.pause()
+            await _select_view(pilot, app, "sales.Invoice.edit")
 
             assert not app.query_one("#manage-view-layout", Button).disabled
             await pilot.click("#manage-view-layout")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, StudioLayoutScreen)
+                and len(app.screen.query("#studio-layout-section")) == 1,
+            )
             assert isinstance(app.screen, StudioLayoutScreen)
             layout = app.screen
             layout.query_one(
@@ -1455,7 +1513,12 @@ def test_textual_studio_manages_tabs_and_action_order_in_memory() -> None:
             ).value = "layout-section:2"
             await pilot.pause()
             layout.query_one("#studio-layout-tab", Input).value = "Summary"
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: not layout.query_one(
+                    "#studio-layout-apply-tab", Button
+                ).disabled,
+            )
             assert not layout.query_one("#studio-layout-apply-tab", Button).disabled
             await pilot.click("#studio-layout-apply-tab")
             await pilot.pause()
@@ -1464,7 +1527,11 @@ def test_textual_studio_manages_tabs_and_action_order_in_memory() -> None:
             assert "    tab: Summary" in app.query_one("#source-preview", TextArea).text
 
             await pilot.click("#manage-view-layout")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, StudioLayoutScreen)
+                and len(app.screen.query("#studio-layout-action-bar")) == 1,
+            )
             layout = app.screen
             assert isinstance(layout, StudioLayoutScreen)
             assert layout.query_one("#studio-layout-action-bar", Select).value == (
@@ -1502,12 +1569,15 @@ def test_textual_studio_previews_selected_role_and_terminal_size() -> None:
     async def exercise() -> None:
         async with app.run_test(size=(150, 52)) as pilot:
             await pilot.pause()
-            _select_view(app, "sales.Invoice.edit")
-            await pilot.pause()
+            await _select_view(pilot, app, "sales.Invoice.edit")
 
             assert not app.query_one("#preview-view", Button).disabled
             await pilot.click("#preview-view")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, StudioPreviewScreen)
+                and len(app.screen.query("#studio-preview-canvas")) == 1,
+            )
 
             assert isinstance(app.screen, StudioPreviewScreen)
             preview = app.screen
@@ -1537,7 +1607,10 @@ def test_textual_studio_previews_selected_role_and_terminal_size() -> None:
             assert "post:on?" in canvas.text
             assert len(canvas.text.splitlines()[0]) == 140
             await pilot.click("#studio-preview-close")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: not isinstance(app.screen, StudioPreviewScreen),
+            )
             assert not isinstance(app.screen, StudioPreviewScreen)
             assert not app.state.dirty
 
@@ -1552,8 +1625,7 @@ def test_textual_studio_keeps_lower_tools_reachable_on_compact_terminal() -> Non
     async def exercise() -> None:
         async with app.run_test(size=(100, 30)) as pilot:
             await pilot.pause()
-            _select_view(app, "sales.Invoice.edit")
-            await pilot.pause()
+            await _select_view(pilot, app, "sales.Invoice.edit")
 
             details = app.query_one("#studio-details")
             source = app.query_one("#source-preview", TextArea)
@@ -1568,10 +1640,17 @@ def test_textual_studio_keeps_lower_tools_reachable_on_compact_terminal() -> Non
             assert 0 < source.region.bottom <= app.size.height
 
             await pilot.click("#preview-view")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, StudioPreviewScreen)
+                and len(app.screen.query("#studio-preview-canvas")) == 1,
+            )
             assert isinstance(app.screen, StudioPreviewScreen)
             await pilot.press("escape")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: not isinstance(app.screen, StudioPreviewScreen),
+            )
             assert not isinstance(app.screen, StudioPreviewScreen)
             assert not app.state.dirty
 
@@ -1606,20 +1685,56 @@ def _source_state(root: Path) -> dict[str, tuple[bytes, int]]:
     }
 
 
-def _select_invoice(app: StudioApp) -> None:
+async def _select_invoice(pilot: Pilot[object], app: StudioApp) -> None:
     tree = app.query_one("#studio-tree", Tree)
     entity_group = tree.root.children[1]
     invoice_node = next(
         node for node in entity_group.children if node.label.plain == "sales.Invoice"
     )
     tree.select_node(invoice_node)
+    expected_target = DesignerDocumentReference(kind="entity", name="sales.Invoice")
+    await _wait_until(
+        pilot,
+        lambda: app.selected_target == expected_target
+        and "models/sales/invoice.yaml"
+        in str(app.query_one("#source-title", Static).content),
+    )
 
 
-def _select_view(app: StudioApp, name: str) -> None:
+async def _select_view(
+    pilot: Pilot[object],
+    app: StudioApp,
+    name: str,
+) -> None:
     tree = app.query_one("#studio-tree", Tree)
     view_group = tree.root.children[2]
     view_node = next(node for node in view_group.children if node.label.plain == name)
     tree.select_node(view_node)
+    expected_target = DesignerDocumentReference(kind="view", name=name)
+    panel = app.query_one("#view-structure", Horizontal)
+    await _wait_until(
+        pilot,
+        lambda: app.selected_target == expected_target
+        and app.view_structure is not None
+        and panel.display,
+    )
+
+
+async def _wait_until(
+    pilot: Pilot[object],
+    condition: Callable[[], bool],
+    *,
+    attempts: int = 50,
+) -> None:
+    """Drain Textual messages until an observable Studio state is reached."""
+    for _ in range(attempts):
+        await pilot.pause()
+        if condition():
+            await pilot.pause()
+            if condition():
+                return
+        await pilot.pause(0.01)
+    assert condition(), "Textual Studio did not reach the expected state"
 
 
 def _property_key(app: StudioApp, path: tuple[str | int, ...]) -> str:

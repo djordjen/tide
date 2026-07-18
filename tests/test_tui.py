@@ -46,13 +46,22 @@ async def _wait_until(
 ) -> None:
     """Drain Textual messages until an observable UI state is reached."""
     for _ in range(attempts):
-        if condition():
-            return
         await pilot.pause()
         if condition():
-            return
+            await pilot.pause()
+            if condition():
+                return
         await pilot.pause(0.01)
     assert condition(), "Textual did not reach the expected state"
+
+
+def _delete_confirmation_ready(app: TideApp) -> bool:
+    screen = app.screen
+    return (
+        isinstance(screen, DeleteConfirmationScreen)
+        and len(screen.query("#confirm-delete")) == 1
+        and len(screen.query("#cancel-delete")) == 1
+    )
 
 
 def test_textual_invoice_browse_pages_by_keyboard_and_mouse() -> None:
@@ -249,7 +258,7 @@ def test_textual_product_delete_confirms_cancels_and_reports_references(
 
             table.move_cursor(row=3)
             await pilot.press("delete")
-            await pilot.pause()
+            await _wait_until(pilot, lambda: _delete_confirmation_ready(app))
             assert isinstance(app.screen, DeleteConfirmationScreen)
             assert "Temporary product" in str(
                 app.screen.query_one("#delete-message", Static).content
@@ -264,7 +273,7 @@ def test_textual_product_delete_confirms_cancels_and_reports_references(
             delete_button.press()
             await _wait_until(
                 pilot,
-                lambda: isinstance(app.screen, DeleteConfirmationScreen),
+                lambda: _delete_confirmation_ready(app),
             )
             app.screen.query_one("#confirm-delete", Button).press()
             await _wait_until(
@@ -284,7 +293,7 @@ def test_textual_product_delete_confirms_cancels_and_reports_references(
             delete_button.press()
             await _wait_until(
                 pilot,
-                lambda: isinstance(app.screen, DeleteConfirmationScreen),
+                lambda: _delete_confirmation_ready(app),
             )
             app.screen.query_one("#confirm-delete", Button).press()
             await _wait_until(
@@ -333,7 +342,7 @@ def test_textual_customer_delete_is_permission_driven_and_compact_safe() -> None
             delete_button.press()
             await _wait_until(
                 pilot,
-                lambda: isinstance(app.screen, DeleteConfirmationScreen),
+                lambda: _delete_confirmation_ready(app),
             )
             app.screen.query_one("#confirm-delete", Button).press()
             await _wait_until(
@@ -668,7 +677,10 @@ def test_textual_form_focuses_columns_and_enter_advances() -> None:
 
             customer.focus()
             await pilot.press("space")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, LookupScreen),
+            )
             assert isinstance(app.screen, LookupScreen)
             await pilot.press("escape")
             await pilot.pause()
@@ -929,7 +941,11 @@ def test_textual_invoice_post_uses_registered_action_and_audit() -> None:
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             app.open_record(2)
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, RecordEditScreen)
+                and len(app.screen.query("#save-form")) == 1,
+            )
             assert isinstance(app.screen, RecordEditScreen)
 
             await pilot.press("ctrl+p")
