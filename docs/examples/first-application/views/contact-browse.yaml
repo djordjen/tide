@@ -1,0 +1,10 @@
+view: crm.Contact.browse
+entity: crm.Contact
+kind: browse
+
+columns: [name, email, active]
+search: [name, email]
+
+fields:
+  name: {width: 28}
+  email: {width: 36}

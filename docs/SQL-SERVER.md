@@ -92,6 +92,22 @@ mutation, and reports the dialect/mode without printing the connection URL.
 On the repository's Windows shortcut the equivalent command is
 `start.bat check`.
 
+To compare the live managed schema with the compiled application and TIDE-owned
+runtime tables without changing either, run:
+
+```powershell
+uv run --extra sqlserver tide db diff applications/invoicing --database-env
+```
+
+The deterministic proposal classifies changes and never infers renames. Its
+JSON output includes complete reflected-state and proposal fingerprints. The
+separate `tide db revision` command can bind those values, native backup/restore
+evidence, and exact non-additive change keys into an Alembic review script and
+manifest. With the optional migration adapter, `tide db render-sql` verifies
+that pair and emits SQL Server SQL plus batch separators without loading
+`pyodbc`, opening a connection, or executing the revision. It still cannot
+apply the SQL or issue DDL. See [Schema migrations](MIGRATIONS.md).
+
 The environment value is never printed by TIDE. Use encrypted connections and
 normal certificate validation for networked deployments; `Encrypt=no` above is
 only for the previously certified local development instance. Legacy-mode
@@ -151,3 +167,37 @@ round trips, then removes only the tables it created.
 For legacy mode, `create_schema()` remains forbidden regardless of dialect.
 Compatibility inspection and normal bound data operations may run against an
 existing SQL Server schema without changing it.
+
+## Backup and restore rehearsal
+
+TIDE intentionally does not implement SQL Server backup by exporting rows and
+does not grant backup authority to the normal application identity. Use the
+organization's native SQL Server/managed-service backup process so transaction
+logs, encryption, recovery models, availability groups, and point-in-time
+requirements remain under DBA control.
+
+Before a release or migration, make a new checksummed backup and restore it to
+an isolated drill database. `RESTORE VERIFYONLY ... WITH CHECKSUM` is useful as
+an initial media check but is not proof that the database can be restored. The
+drill must perform a real `RESTORE DATABASE` under a different database name
+and different data/log file paths. Use `RESTORE FILELISTONLY` to obtain the
+deployment's logical file names; do not copy placeholders from a generic
+runbook into production.
+
+After the isolated restore, point a temporary environment variable at the drill
+database and run TIDE's read-only acceptance check:
+
+```powershell
+$env:TIDE_RESTORE_CHECK_URL = "mssql+pyodbc://.../TIDE_restore_drill?..."
+uv run --extra sqlserver tide db check applications/invoicing `
+  --database-env TIDE_RESTORE_CHECK_URL
+```
+
+Then exercise representative authenticated reads, mutations, concurrency
+conflicts, actions, and audit retrieval without routing normal users to the
+drill. Record the native backup identifier, restore duration, application and
+model version, TIDE check result, operator, and cleanup result. Keep connection
+URLs and backup-encryption material out of logs and source control.
+
+The complete cross-database procedure and the executable path-based SQLite
+commands are in [Operations](OPERATIONS.md#database-changes-and-recovery).

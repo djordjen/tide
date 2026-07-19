@@ -72,6 +72,22 @@ tables, and SQL-translatable policies. A successful result names only the
 dialect, database mode, and framework-state mode; the configured URL remains
 secret. Run this after driver/server changes or before troubleshooting the TUI.
 
+To produce a deterministic, read-only schema migration proposal for the same
+SQL Server database:
+
+```powershell
+.\start.bat diff
+```
+
+This classifies differences and fingerprints both the reflected base schema and
+proposal, but never infers renames or executes DDL. Revision rendering has no
+batch shortcut because it requires deliberately copying the exact fingerprints,
+backup evidence, and any acknowledgement keys into `tide db revision`. It
+creates review files only. Run `uv run --extra migration tide db render-sql ...`
+explicitly to verify one of those revisions and produce offline SQL; this step
+has no database setting or shortcut and cannot apply the result. See
+[Schema migrations](MIGRATIONS.md).
+
 To use the isolated in-memory sample instead of SQL Server:
 
 ```powershell

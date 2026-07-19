@@ -170,6 +170,19 @@ outside application metadata and command output. `tide db check` (or
 `start.bat check` on Windows) performs a read-only connectivity, schema,
 durable-state, and SQL-policy acceptance check. See
 [Microsoft SQL Server](docs/SQL-SERVER.md#run-the-tui-against-sql-server).
+Path-based SQLite deployments can use `tide db backup` to create a verified,
+non-overwriting online snapshot plus SHA-256 manifest and
+`tide db verify-backup` to recheck it. SQL Server uses native DBA-managed
+backup and a real isolated restore followed by `tide db check`; see the
+[recovery runbook](docs/OPERATIONS.md#database-changes-and-recovery).
+`tide db diff` adds a deterministic, read-only schema proposal for managed
+databases and a no-DDL compatibility report for legacy mappings. It classifies
+changes, fingerprints the result, recognizes compiler-validated explicit rename
+declarations without guessing, and performs no DDL. Exact reviewed fingerprints
+can produce a non-overwriting Alembic-compatible revision plus SHA-256 manifest;
+the optional migration adapter verifies that artifact and renders dialect SQL
+without a database connection. TIDE still cannot apply it. See
+[Schema migrations](docs/MIGRATIONS.md).
 
 Here, "compiler" means a **metadata compiler**, not native executable or Python
 bytecode compilation. It turns an application's YAML into a validated,
@@ -254,9 +267,14 @@ wheel.
 
 Start with [the documentation index](docs/README.md). Important documents are:
 
+- [Getting started](docs/GETTING-STARTED.md)
+- [Build your first TIDE application](docs/FIRST-APPLICATION.md)
+- [Invoicing application walkthrough](docs/INVOICING-WALKTHROUGH.md)
+- [Documentation plan](docs/DOCUMENTATION-PLAN.md)
 - [Vision](docs/VISION.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Application model](docs/APPLICATION-MODEL.md)
+- [Schema migrations](docs/MIGRATIONS.md)
 - [Legacy databases](docs/LEGACY-DATABASES.md)
 - [Microsoft SQL Server](docs/SQL-SERVER.md)
 - [Windows quick start](docs/WINDOWS-QUICKSTART.md)

@@ -1,0 +1,14 @@
+schema_version: "0.1"
+
+application:
+  name: TIDE Contacts
+  version: 0.1.0
+
+model:
+  paths: [models]
+
+views:
+  paths: [views]
+
+security:
+  paths: [security]

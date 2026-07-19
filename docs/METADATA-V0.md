@@ -73,6 +73,9 @@ The v0.1 compiler checks:
 - lookup record creation declarations: `allow_create: true` requires a form
   `create_view` for the referenced TUI-exposed entity with declared create
   access (`TIDE242`);
+- globally unique dotted migration identities and collision-free explicit
+  table/column rename sources (`TIDE245-248`); rename declarations require an
+  identity, managed mode, and a persisted object;
 - explicit physical table and persisted-column mappings for legacy databases.
 
 `database.mode` is either `managed` (the default) or `legacy`. Legacy entities
@@ -81,6 +84,14 @@ scalar field must declare `column`, and every persisted reference must declare
 its existing foreign-key column through `storage`. Missing mappings are
 `TIDE228` and `TIDE229` errors. Collections and virtual computed fields are not
 persisted and therefore do not require column mappings.
+
+Managed schema evolution may attach `storage.migration_id` and
+`storage.renamed_from: {table: ..., schema: ...}` to an entity. A persisted
+field may attach `migration_id` and a previous physical column name in
+`renamed_from`. These declarations are compiler-validated identity, not
+permission to alter a database; `tide db diff` remains read-only. Migration
+identities may be retained after a rename so future model versions continue to
+refer to the same logical object. See [Schema migrations](MIGRATIONS.md).
 
 Numeric `precision` and `scale` are model constraints, not display hints.
 Record services reject values that exceed either limit. `edit_mask` may add a

@@ -18,6 +18,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+migration = [
+    "alembic>=1.18.5,<2",
+]
 tui = [
     "textual>=8.2,<9",
 ]
@@ -48,6 +51,7 @@ auth = [
     "PyJWT[crypto]>=2.10,<3",
 ]
 dev = [
+    "alembic>=1.18.5,<2",
     "build>=1.2,<1.5.1",
     "fastapi>=0.116,<1",
     "Faker>=37.4,<38",

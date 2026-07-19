@@ -339,13 +339,26 @@ The intended workflow is:
 ```bash
 tide model validate
 tide db diff
-tide db revision --name add-invoice-status
+tide db revision --name add-invoice-status \
+  --proposal-fingerprint ... --database-fingerprint ... \
+  --backup-evidence ...
 tide db migrate
 ```
 
 Migration proposals are reviewable. A renamed field must not be guessed as
-"drop old column, create new column." Stable identifiers or explicit rename
-declarations will be chosen before the model contract becomes stable.
+"drop old column, create new column." Managed entities and persisted fields can
+declare globally unique dotted `migration_id` values and bind an old physical
+name with `renamed_from`. Table rename sources use
+`{schema: optional_schema, table: old_name}`; field rename sources are old
+column names. Rename intent is rejected in legacy mode.
+
+The current `tide db diff` command implements the first read-only step. It
+reflects the database, emits deterministic safety-classified changes and a
+fingerprint, includes managed framework-state tables, recognizes only explicit
+rename declarations, and performs neither rename inference nor DDL. An exact
+fingerprinted proposal can now produce a non-overwriting, approval-bound
+Alembic review revision and manifest. TIDE still provides no migration apply
+path. See [Schema migrations](MIGRATIONS.md).
 
 Schema evolution commands apply only to `database.mode: managed`. In legacy
 mode, `tide db diff` becomes a read-only compatibility report and revision or
