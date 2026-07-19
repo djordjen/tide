@@ -831,7 +831,12 @@ def _serve_api(arguments: argparse.Namespace) -> int:
                 assert mcp_resource_url is not None
                 assert mcp_issuer_url is not None
                 hosted_mcp = build_runtime_mcp_server(
-                    RuntimeMcpService(model, records),
+                    RuntimeMcpService(
+                        model,
+                        records,
+                        actions=actions,
+                        audits=app.state.tide.audits,
+                    ),
                     authenticator,
                     issuer_url=mcp_issuer_url,
                     resource_url=mcp_resource_url,

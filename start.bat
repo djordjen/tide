@@ -1,6 +1,7 @@
 @echo off
 setlocal EnableExtensions
 cd /d "%~dp0"
+set "UV_CACHE_DIR=%CD%\.uv-cache"
 
 rem Local SQL Server deployment settings. Keep the whole SET assignment quoted:
 rem the SQLAlchemy URL contains ampersands, which otherwise have meaning to cmd.exe.
@@ -15,6 +16,7 @@ if /I "%~1"=="auditor-demo" goto auditor_demo
 if /I "%~1"=="studio" goto studio
 if /I "%~1"=="api" goto api
 if /I "%~1"=="api-demo" goto api_demo
+if /I "%~1"=="mcp" goto mcp
 if /I "%~1"=="mcp-demo" goto mcp_demo
 if /I "%~1"=="api-check" goto api_check
 if /I "%~1"=="remote" goto remote
@@ -71,11 +73,18 @@ echo Starting the API with isolated demo data...
 uv run --extra api --extra client tide serve applications/invoicing --demo --role sales_clerk --port 8000
 goto finish
 
+:mcp
+call :prepare_api_token
+echo Starting the API and secured runtime MCP server against SQL Server...
+echo MCP clients connect to http://127.0.0.1:8000/mcp using the token above.
+uv run --extra api --extra client --extra mcp --extra sqlserver tide serve applications/invoicing --database-env --role sales_clerk --role auditor --port 8000 --mcp
+goto finish
+
 :mcp_demo
 call :prepare_api_token
-echo Starting the API and read-only runtime MCP server with isolated demo data...
+echo Starting the API and secured runtime MCP server with isolated demo data...
 echo MCP clients connect to http://127.0.0.1:8000/mcp using the token above.
-uv run --extra api --extra client --extra mcp tide serve applications/invoicing --demo --role sales_clerk --port 8000 --mcp
+uv run --extra api --extra client --extra mcp tide serve applications/invoicing --demo --role sales_clerk --role auditor --port 8000 --mcp
 goto finish
 
 :api_check
@@ -122,7 +131,8 @@ echo   start.bat auditor-demo Start read-only audit/report mode with demo data
 echo   start.bat studio Inspect and edit application metadata in memory
 echo   start.bat api    Start local API against SQL Server
 echo   start.bat api-demo Start local API with demo data
-echo   start.bat mcp-demo Start local API plus read-only runtime MCP
+echo   start.bat mcp    Start local API plus secured runtime MCP against SQL Server
+echo   start.bat mcp-demo Start local API plus secured runtime MCP with demo data
 echo   start.bat api-check Verify the running API and remote client contract
 echo   start.bat remote Start the TUI as an API client with no database access
 echo   start.bat help   Show this help

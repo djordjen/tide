@@ -27,6 +27,9 @@ It deliberately avoids editable generated code, implicit framework magic, and
 deep abstraction hierarchies. Application structure is declarative; complex
 business behavior remains ordinary Python.
 
+New here? Follow [Getting Started](docs/GETTING-STARTED.md) to run the demo TUI,
+open Studio, inspect REST/OpenAPI and MCP, and optionally connect SQL Server.
+
 ## TUI preview
 
 These captures come from the real Textual client running the bundled invoicing
@@ -97,9 +100,12 @@ The separate `start.bat api-check` command securely prompts for that printed
 token and verifies authentication plus application/wire compatibility through
 the reusable remote client. `start.bat remote` then runs the same Textual
 workflow through that API without giving the TUI a database connection string.
-`start.bat mcp-demo` mounts authenticated read-only schema/record resources and
-structured search tools at `/mcp`; they reuse the same service authorization,
-protected values, exact types, and principal-bound cursors as REST.
+`start.bat mcp-demo` mounts authenticated schema/record/audit resources,
+structured search and explicitly exposed CRUD tools, plus the Invoice Post
+domain action at `/mcp`. They reuse the same service authorization, generated
+inputs, protected values, exact types, concurrency, idempotency, correlation,
+audit history, and principal-bound cursors as REST.
+Use `start.bat mcp` for the equivalent persistent local SQL Server host.
 The separate `tide mcp dev` stdio server exposes compiled project resources and
 can turn an AI-authored sequence of logical TIDE operations into a deterministic
 approval-required application proposal. It can also render that proposal into
@@ -322,8 +328,9 @@ unencrypted non-loopback URLs. Textual can now opt into this client through
 lookups, nested lines, actions, and secured report preview/export without
 database access. Provider-neutral OIDC/JWKS bearer validation and direct TLS
 for network binds now provide the production identity foundation. Authenticated
-runtime MCP now supplies metadata-opted schema/record resources and bounded
-structured search tools over stateless Streamable HTTP. Local developer MCP now
+runtime MCP now supplies metadata-opted schema/record/audit resources, bounded
+structured search, secured CRUD mutations, and idempotent domain actions over
+stateless Streamable HTTP. Local developer MCP now
 provides project inspection, typed generation proposals, isolated compiler-
 checked candidate previews, bounded in-memory runtime/renderer checks and exact
 diffs without MCP-side apply. The separate local CLI now provides candidate-

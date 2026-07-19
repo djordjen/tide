@@ -142,11 +142,24 @@ class DefineEntityOperation(GenerationModel):
     read_permission: str | None = None
     create_permission: str | None = None
     update_permission: str | None = None
+    delete_permission: str | None = None
+    audit_permission: str | None = None
     expose_tui: bool = True
     expose_rest: tuple[
         Literal["list", "get", "create", "update", "delete"], ...
     ] = ()
-    expose_mcp: tuple[Literal["schema", "record", "search"], ...] = ()
+    expose_mcp: tuple[
+        Literal[
+            "schema",
+            "record",
+            "audit",
+            "search",
+            "create",
+            "update",
+            "delete",
+        ],
+        ...,
+    ] = ()
 
     @model_validator(mode="after")
     def valid_entity(self) -> DefineEntityOperation:
@@ -162,6 +175,8 @@ class DefineEntityOperation(GenerationModel):
             self.read_permission,
             self.create_permission,
             self.update_permission,
+            self.delete_permission,
+            self.audit_permission,
         )
         if any(
             permission is not None and not QUALIFIED_IDENTIFIER.fullmatch(permission)
@@ -629,6 +644,8 @@ def _declared_permissions(
             entity.read_permission,
             entity.create_permission,
             entity.update_permission,
+            entity.delete_permission,
+            entity.audit_permission,
         )
         if permission is not None
     }

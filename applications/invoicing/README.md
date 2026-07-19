@@ -48,9 +48,15 @@ for reviewed network deployments; see
 
 `start.bat mcp-demo` additionally mounts authenticated runtime MCP at
 `http://127.0.0.1:8000/mcp`. It exposes principal-filtered entity schemas,
-record templates, and read-only structured search tools for Customers,
-Products, and Invoices. These calls reuse `RecordsService`; no database URL,
-mutation tool, or project-editing capability is given to the MCP client.
+record and audit templates, structured search and explicitly opted CRUD tools
+for Customers and Products, create/update tools for Invoices, and the
+idempotent Post Invoice action. The isolated shortcut grants both sales-clerk
+and auditor roles so the complete create/post/history proof of concept can be
+tested. Every call reuses `RecordsService`, `ActionService`, and
+`AuditHistoryService`; no database URL, repository, arbitrary SQL, or
+project-editing capability is given to the MCP client.
+Use `start.bat mcp` for the same full local role combination backed by the
+configured SQL Server database; successful mutations then persist normally.
 
 With that server still running, `start.bat remote` prompts for the printed token
 and opens the same Textual workflow as an HTTP client. It supports browse,

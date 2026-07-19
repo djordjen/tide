@@ -6,7 +6,9 @@ display: number
 expose:
   tui: true
   rest: {path: invoices, operations: [list, get, create, update]}
-  mcp: {resources: [schema, record], tools: [search]}
+  mcp:
+    resources: [schema, record, audit]
+    tools: [search, create, update]
 
 permissions:
   list: sales.invoice.read

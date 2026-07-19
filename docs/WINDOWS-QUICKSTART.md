@@ -224,29 +224,53 @@ services as the TUI.
 
 ## Local runtime MCP
 
-Start the same demo server with its metadata-opted, read-only MCP surface:
+Start the same isolated demo server with its metadata-opted, secured MCP
+surface:
 
 ```powershell
 .\start.bat mcp-demo
 ```
 
+Use `.\start.bat mcp` instead to run the same surface against the configured
+local SQL Server `TIDE` database. Both shortcuts bind only to loopback and print
+a fresh development bearer token; `mcp-demo` discards changes at shutdown,
+while `mcp` persists successful service-authorized mutations.
+
 The console prints an ephemeral bearer token. Configure an MCP Inspector or
 other Streamable HTTP client with URL `http://127.0.0.1:8000/mcp` and paste the
-token into its bearer-token setting. The client can discover schema resources,
-record resource templates, and these structured query tools:
+token into its bearer-token setting. This development shortcut grants both the
+sales-clerk and auditor roles so the whole proof-of-concept flow is available.
+The client can discover schema, record, and audit resources plus these tools:
 
 ```text
 search_catalog_product
+create_catalog_product
+update_catalog_product
+delete_catalog_product
 search_crm_customer
+create_crm_customer
+update_crm_customer
+delete_crm_customer
 search_sales_invoice
+create_sales_invoice
+update_sales_invoice
+post_sales_invoice
 ```
 
 For example, call `search_catalog_product` with `limit: 2`, or filter unit
 prices with `{"field":"unit_price","operator":"gte","value":"200.00"}`.
+Create tools take a strict `values` object. Update tools additionally take the
+record `identity`; versioned Invoice updates require the `expected_version`
+previously returned by a read/create. `post_sales_invoice` takes `identity`,
+`expected_version`, and a unique `idempotency_key`. The Invoice audit resource
+URI is, for example,
+`tide://runtime/tide_invoicing/entities/sales.Invoice/records/9/audit`.
+
 The MCP client receives no SQL Server URL. Every resource/tool call uses the
-same server-side row, field, relationship, and query authorization as REST.
-This milestone does not expose create, update, Post Invoice, reports, or
-developer/project-editing tools through MCP.
+same server-side entity, row, field, relationship, validation, concurrency,
+idempotency, and audit rules as REST. Runtime report tools are not exposed yet,
+and the separate developer/project-editing MCP remains a different process and
+trust boundary.
 
 ## Local developer MCP
 

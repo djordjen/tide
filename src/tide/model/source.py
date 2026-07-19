@@ -52,8 +52,8 @@ class RestExposureSource(SourceModel):
 
 
 class McpExposureSource(SourceModel):
-    resources: tuple[Literal["schema", "record"], ...] = ()
-    tools: tuple[Literal["search"], ...] = ()
+    resources: tuple[Literal["schema", "record", "audit"], ...] = ()
+    tools: tuple[Literal["search", "create", "update", "delete"], ...] = ()
 
     @model_validator(mode="after")
     def unique_capabilities(self) -> McpExposureSource:

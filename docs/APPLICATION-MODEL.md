@@ -105,7 +105,9 @@ display: "{first_name} {last_name}"
 expose:
   tui: true
   rest: {operations: [list, get, create, update, delete]}
-  mcp: {resources: [schema, record], tools: [search]}
+  mcp:
+    resources: [schema, record, audit]
+    tools: [search, create, update, delete]
 
 fields:
   id:         {type: integer, primary_key: true}
@@ -134,10 +136,13 @@ recheck the current reader's field permissions before returning stored values.
 
 The field identifier is stable application vocabulary. Labels, help text,
 formats, editor hints, and localization are separate facets of the field.
-Runtime MCP exposure is deny-by-default. Schema v0.1 currently accepts only
-the read-only `schema` and `record` resources plus the structured `search`
-tool; mutation and action capabilities cannot be enabled through an arbitrary
-string. Exposure creates protocol vocabulary but grants no permission.
+Runtime MCP exposure is deny-by-default. Schema v0.1 accepts the `schema`,
+`record`, and `audit` resources plus the `search`, `create`, `update`, and
+`delete` tools. Each capability must be named explicitly; `mcp: true` remains
+a compatibility shorthand for read-only schema/record/search access. Domain
+actions additionally require `actions.<name>.expose.mcp: true`. Exposure creates
+protocol vocabulary but grants no permission, and every call is reauthorized
+through the same application services as REST and local clients.
 
 ## Model facets
 

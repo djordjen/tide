@@ -167,16 +167,17 @@ an invoice entirely by keyboard or mouse.
 - secured renderer-neutral remote report transport with Textual preview and
   local HTML/PDF export; **implemented**
 - reuse the same client/service boundary for the future Qt renderer;
-- runtime MCP schema/record resources and read-only structured query tools;
-  **implemented with authenticated stateless Streamable HTTP, RFC 9728
-  metadata, DNS-rebinding controls, service reauthorization, exact protected
-  wire values, bounded pages, and principal-bound cursors**
-- opt-in MCP domain actions and mutations;
+- runtime MCP schema/record/audit resources, structured query tools, CRUD
+  mutations, and opt-in domain actions; **implemented with authenticated
+  stateless Streamable HTTP, explicit metadata exposure, RFC 9728 metadata,
+  DNS-rebinding controls, service reauthorization, strict generated inputs,
+  exact protected wire values, bounded pages, principal-bound cursors,
+  optimistic concurrency, action idempotency, correlation, and audit history**
 - shared authentication-to-Principal adapters; **implemented for local
   development tokens and provider-neutral OIDC/JWKS access tokens**
 - channel-aware audit events;
 - OpenAPI and MCP schema conformance tests; **implemented for the current REST
-  and read-only runtime MCP surfaces**
+  and secured runtime MCP read/write/action surfaces**
 
 Exit condition: TUI, REST, and MCP produce equivalent secured outcomes through
 the same services.

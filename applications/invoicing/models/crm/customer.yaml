@@ -7,7 +7,9 @@ search_fields: [code, name, email]
 expose:
   tui: true
   rest: {path: customers, operations: [list, get, create, update, delete]}
-  mcp: {resources: [schema, record], tools: [search]}
+  mcp:
+    resources: [schema, record, audit]
+    tools: [search, create, update, delete]
 
 permissions:
   list: crm.customer.read

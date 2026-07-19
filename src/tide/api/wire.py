@@ -5,8 +5,10 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Mapping
 
+from tide.api.contracts import TideAuditEvent, TideAuditFieldChange
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 from tide.security import PROTECTED
+from tide.services import ActionAuditEvent, RecordAuditEvent
 
 
 def wire_record(
@@ -33,6 +35,49 @@ def wire_record(
     if protected:
         result["_tide"] = {"protected_fields": protected}
     return result
+
+
+def wire_audit_event(event: ActionAuditEvent | RecordAuditEvent) -> TideAuditEvent:
+    """Project one stored audit event without exposing protected raw values."""
+
+    if isinstance(event, ActionAuditEvent):
+        return TideAuditEvent(
+            event_id=event.event_id,
+            entity=event.entity,
+            kind="action",
+            action=event.action,
+            identity=event.identity,
+            principal=event.principal,
+            channel=event.channel,
+            correlation_id=event.correlation_id,
+            started_at=event.started_at,
+            outcome=str(event.outcome),
+            finished_at=event.finished_at,
+            error_code=event.error_code,
+        )
+    return TideAuditEvent(
+        event_id=event.event_id,
+        entity=event.entity,
+        kind="record",
+        operation=str(event.operation),
+        identity=event.identity,
+        principal=event.principal,
+        channel=event.channel,
+        correlation_id=event.correlation_id,
+        started_at=event.occurred_at,
+        source=event.source,
+        changes=tuple(
+            TideAuditFieldChange(
+                field=change.field,
+                before_present=change.before_present,
+                after_present=change.after_present,
+                value_mode=str(change.value_mode),
+                before=change.before,
+                after=change.after,
+            )
+            for change in event.changes
+        ),
+    )
 
 
 def primary_key(entity: NormalizedEntity) -> NormalizedField:

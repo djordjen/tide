@@ -337,17 +337,21 @@ apply remains disabled until a host-level human-approval contract exists.
 
 ## Runtime MCP server
 
-Runtime MCP lets an authorized AI use a deployed application. The first
-implemented surface is deliberately read-only: entity `schema` and templated
-`record` resources plus bounded structured `search` tools. The developer opts
-each entity in independently:
+Runtime MCP lets an authorized AI use a deployed application through the same
+security and application-service boundary as REST, TUI, and future renderers.
+The developer opts each entity capability in independently:
 
 ```yaml
 expose:
   mcp:
-    resources: [schema, record]
-    tools: [search]
+    resources: [schema, record, audit]
+    tools: [search, create, update, delete]
 ```
+
+The Boolean shorthand `mcp: true` deliberately remains read-only
+schema/record/search access. A domain action becomes a tool only when its own
+metadata declares `expose.mcp: true`; general CRUD exposure does not infer
+action exposure, and action exposure does not infer CRUD.
 
 Install the stable v1 SDK line and mount the endpoint beside REST:
 
@@ -369,7 +373,12 @@ identifiers:
 ```text
 tide://runtime/tide_invoicing/entities/catalog.Product/schema
 tide://runtime/tide_invoicing/entities/catalog.Product/records/{identity}
+tide://runtime/tide_invoicing/entities/catalog.Product/records/{identity}/audit
 search_catalog_product
+create_catalog_product
+update_catalog_product
+delete_catalog_product
+post_sales_invoice
 ```
 
 Schema content is rebuilt for the authenticated principal and omits fields the
@@ -381,6 +390,29 @@ bounded limit, and opaque continuation cursor as REST. Cursors remain bound to
 the principal and effective permissions. Every invocation creates a
 `RequestContext` with `Channel.MCP` and reauthorizes entity, row, relationship,
 field, filter, and sort access through `RecordsService`.
+
+Create and update tools use strict entity-specific Pydantic inputs generated
+from the same normal writable fields as REST. Unknown, computed, read-only,
+system-owned, and action-owned fields are rejected at the protocol boundary;
+defaults, reference checks, expressions, validation, row policies, uniqueness,
+and audit still run in `RecordsService`. Successful mutation results contain
+the exact secured wire record, identity, operation, and request correlation ID.
+Delete returns the same structured result without a record body.
+
+Versioned update, delete, and action calls require `expected_version` from a
+record the caller previously observed; missing or stale observations fail
+closed. An idempotent action additionally requires `idempotency_key`. Repeating
+the same key/principal/action/target/payload reauthorizes and safely replays the
+current secured result, while conflicting reuse is rejected. Actions execute
+only through `ActionService`, including their enabled condition, handler,
+validation, concurrency, idempotency, record write, and correlated audit
+lifecycle.
+
+Audit resources are separately opt-in and require `permissions.audit` at read
+time. They return bounded safe action and CRUD history through
+`AuditHistoryService`, which rechecks protected field access. Neither the MCP
+client nor its tool inputs receive a repository, SQLAlchemy session, database
+URL, credential, arbitrary SQL operation, or project-editing capability.
 
 For OIDC hosting, enable both extras and use the production identity/TLS
 configuration documented above. A non-loopback MCP bind additionally requires
@@ -407,24 +439,16 @@ audience must identify this deployment according to the provider's resource
 indicator contract. TIDE remains a resource server: the external provider
 performs login, consent, token issuance, and refresh.
 
-Later runtime surfaces may add capabilities such as:
+Later runtime surfaces may add higher-level query/report capabilities such as:
 
 ```text
-search_people
-get_person
-create_person
-update_person
-post_invoice
 find_overdue_invoices
+render_invoice_report
 ```
 
-Create/update/action/report tools and resources are not registered by this
-milestone, even when action/report metadata contains `mcp: true`. Domain
-actions will be preferable to unrestricted generic writes because they carry
-clear intent, validation, permission, concurrency, idempotency, and audit
-semantics.
-Retryable actions declare idempotency, and adapters may bind an idempotency key
-to the principal, action, target, and payload.
+Reports remain outside the current runtime MCP contract. Domain actions are
+preferable to generic writes for business transitions because they carry clear
+intent, validation, permission, concurrency, idempotency, and audit semantics.
 
 MCP tool input and structured output schemas are derived from the normalized
 application model. Protected fields use structured redaction metadata rather

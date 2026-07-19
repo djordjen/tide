@@ -23,12 +23,10 @@ from fastapi import (
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, ConfigDict, Field, create_model
+from pydantic import BaseModel, ConfigDict
 
 from tide.api.contracts import (
     TIDE_WIRE_VERSION,
-    TideAuditEvent,
-    TideAuditFieldChange,
     TideAuditHistory,
     TideEntityCapabilities,
     TideQueryInput,
@@ -37,19 +35,20 @@ from tide.api.contracts import (
     TideReportDocument,
     TideSessionInfo,
 )
+from tide.api.inputs import build_writable_models, field_is_writable
 from tide.api.openapi import (
     DEFAULT_BASE_PATH,
     REST_OPERATIONS,
     TideApiError,
     build_openapi_preview,
     rest_exposures,
-    writable_scalar_annotation,
 )
 from tide.api.wire import (
     coerce_identity as _coerce_identity,
     decode_filter_value as _decode_filter_value,
     decode_wire_value as _decode_wire_value,
     primary_key as _primary_key,
+    wire_audit_event as _wire_audit_event,
     wire_record as _wire_record,
 )
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
@@ -72,14 +71,7 @@ from tide.runtime import (
 )
 from tide.reporting import ReportService
 from tide.security import PROTECTED
-from tide.services import (
-    ActionAuditEvent,
-    ActionService,
-    AuditHistoryReader,
-    AuditHistoryService,
-    RecordAuditEvent,
-    RecordsService,
-)
+from tide.services import ActionService, AuditHistoryReader, AuditHistoryService, RecordsService
 
 
 SERVER_OPERATIONS = REST_OPERATIONS
@@ -154,7 +146,13 @@ def build_fastapi_app(
         action_service.execution_store,
         records.security,
     )
-    create_models, update_models = _build_writable_models(model, exposures)
+    create_models, update_models = build_writable_models(
+        model,
+        {
+            entity_name: exposure.operations
+            for entity_name, exposure in exposures.items()
+        },
+    )
     app = FastAPI(
         title=f"{model.name} API",
         version=model.version,
@@ -315,7 +313,7 @@ def build_fastapi_app(
                 tuple(
                     field_name
                     for field_name, field in entity.fields.items()
-                    if _field_is_api_writable(field, "update")
+                    if field_is_writable(field, "update")
                     and records.security.can_write_field(
                         entity_name,
                         field_name,
@@ -646,196 +644,6 @@ def _audit_endpoint(
         primary_key,
     )
     return record_audit
-
-
-def _wire_audit_event(event: ActionAuditEvent | RecordAuditEvent) -> TideAuditEvent:
-    if isinstance(event, ActionAuditEvent):
-        return TideAuditEvent(
-            event_id=event.event_id,
-            entity=event.entity,
-            kind="action",
-            action=event.action,
-            identity=event.identity,
-            principal=event.principal,
-            channel=event.channel,
-            correlation_id=event.correlation_id,
-            started_at=event.started_at,
-            outcome=str(event.outcome),
-            finished_at=event.finished_at,
-            error_code=event.error_code,
-        )
-    return TideAuditEvent(
-        event_id=event.event_id,
-        entity=event.entity,
-        kind="record",
-        operation=str(event.operation),
-        identity=event.identity,
-        principal=event.principal,
-        channel=event.channel,
-        correlation_id=event.correlation_id,
-        started_at=event.occurred_at,
-        source=event.source,
-        changes=tuple(
-            TideAuditFieldChange(
-                field=change.field,
-                before_present=change.before_present,
-                after_present=change.after_present,
-                value_mode=str(change.value_mode),
-                before=change.before,
-                after=change.after,
-            )
-            for change in event.changes
-        ),
-    )
-
-
-def _build_writable_models(
-    model: ApplicationModel,
-    exposures: Mapping[str, Any],
-) -> tuple[dict[str, type[BaseModel]], dict[str, type[BaseModel]]]:
-    create_models: dict[str, type[BaseModel]] = {}
-    update_models: dict[str, type[BaseModel]] = {}
-    nested_cache: dict[tuple[str, str], type[BaseModel]] = {}
-
-    def nested_model(
-        entity: NormalizedEntity,
-        *,
-        excluded_field: str | None,
-        stack: frozenset[str],
-    ) -> type[BaseModel]:
-        cache_key = entity.name, excluded_field or ""
-        cached = nested_cache.get(cache_key)
-        if cached is not None:
-            return cached
-        if entity.name in stack:
-            raise ValueError(
-                f"writable collection cascade contains a cycle through {entity.name}"
-            )
-        fields = _writable_fields(
-            model,
-            entity,
-            mode="nested",
-            excluded_field=excluded_field,
-            nested_factory=lambda target, inverse: nested_model(
-                target,
-                excluded_field=inverse,
-                stack=stack | {entity.name},
-            ),
-        )
-        generated = create_model(
-            _component_name(entity.name, "NestedInput"),
-            __config__=_input_model_config(),
-            __module__=__name__,
-            **fields,
-        )
-        nested_cache[cache_key] = generated
-        return generated
-
-    for entity_name, exposure in exposures.items():
-        entity = model.entity(entity_name)
-        if "create" in exposure.operations:
-            create_models[entity_name] = create_model(
-                _component_name(entity_name, "CreateInput"),
-                __config__=_input_model_config(),
-                __module__=__name__,
-                **_writable_fields(
-                    model,
-                    entity,
-                    mode="create",
-                    nested_factory=lambda target, inverse: nested_model(
-                        target,
-                        excluded_field=inverse,
-                        stack=frozenset({entity.name}),
-                    ),
-                ),
-            )
-        if "update" in exposure.operations:
-            update_models[entity_name] = create_model(
-                _component_name(entity_name, "UpdateInput"),
-                __config__=_input_model_config(),
-                __module__=__name__,
-                **_writable_fields(
-                    model,
-                    entity,
-                    mode="update",
-                    nested_factory=lambda target, inverse: nested_model(
-                        target,
-                        excluded_field=inverse,
-                        stack=frozenset({entity.name}),
-                    ),
-                ),
-            )
-    return create_models, update_models
-
-
-def _writable_fields(
-    model: ApplicationModel,
-    entity: NormalizedEntity,
-    *,
-    mode: str,
-    nested_factory: Any,
-    excluded_field: str | None = None,
-) -> dict[str, tuple[Any, Any]]:
-    result: dict[str, tuple[Any, Any]] = {}
-    used_names: set[str] = set()
-    for index, (field_name, field) in enumerate(entity.fields.items()):
-        if field_name == excluded_field or not _field_is_api_writable(field, mode):
-            continue
-        internal_name = _model_field_name(field_name, index, used_names)
-        used_names.add(internal_name)
-        metadata = field.metadata
-        if metadata["type"] == "collection":
-            if not field.target_entity:
-                raise ValueError(f"collection field {entity.name}.{field_name} has no target")
-            inverse = metadata.get("inverse")
-            item_model = nested_factory(model.entity(field.target_entity), inverse)
-            annotation: Any = list[item_model]
-        else:
-            annotation = writable_scalar_annotation(model, field)
-
-        required = (
-            mode in {"create", "nested"}
-            and bool(metadata.get("required"))
-            and "default" not in metadata
-            and "default_factory" not in metadata
-            and not metadata.get("primary_key")
-        )
-        default: Any = ... if required else None
-        if not required:
-            annotation = annotation | None
-        result[internal_name] = (
-            annotation,
-            Field(
-                default,
-                alias=field_name,
-                title=str(metadata.get("label") or _humanize(field_name)),
-                description=_input_field_description(field, mode),
-            ),
-        )
-    return result
-
-
-def _field_is_api_writable(field: NormalizedField, mode: str) -> bool:
-    metadata = field.metadata
-    if metadata.get("computed") or metadata.get("readonly"):
-        return False
-    if metadata.get("write", "normal") != "normal":
-        return False
-    if metadata.get("primary_key"):
-        return mode == "nested"
-    if metadata["type"] == "collection":
-        required_cascade = "create" if mode in {"create", "nested"} else "update"
-        return required_cascade in metadata.get("cascade", ())
-    return True
-
-
-def _input_model_config() -> ConfigDict:
-    return ConfigDict(
-        extra="forbid",
-        frozen=True,
-        populate_by_name=True,
-        regex_engine="python-re",
-    )
 
 
 def _create_endpoint(
@@ -1322,46 +1130,3 @@ def _nested_operation_allowed(
             ):
                 return True
     return False
-
-
-def _input_field_description(field: NormalizedField, mode: str) -> str | None:
-    help_text = field.metadata.get("help")
-    if help_text:
-        return str(help_text)
-    if field.metadata.get("primary_key") and mode == "nested":
-        return "Existing child identity; omit for a new child."
-    if field.metadata["type"] == "collection":
-        return "Complete replacement for this writable child collection."
-    return None
-
-
-def _component_name(entity_name: str, suffix: str) -> str:
-    return "".join(_pascal_case(part) for part in entity_name.split(".")) + suffix
-
-
-def _model_field_name(
-    source_name: str,
-    index: int,
-    used_names: set[str],
-) -> str:
-    candidate = source_name
-    if (
-        not candidate.isidentifier()
-        or candidate.startswith("_")
-        or hasattr(BaseModel, candidate)
-        or candidate in used_names
-    ):
-        candidate = f"tide_field_{index}"
-    while candidate in used_names:
-        index += 1
-        candidate = f"tide_field_{index}"
-    return candidate
-
-
-def _pascal_case(value: str) -> str:
-    parts = [part for part in re.split(r"[^A-Za-z0-9]+", value) if part]
-    return "".join(part[:1].upper() + part[1:] for part in parts)
-
-
-def _humanize(value: str) -> str:
-    return re.sub(r"(?<!^)(?=[A-Z])", " ", value).replace("_", " ").title()

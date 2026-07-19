@@ -436,9 +436,15 @@ def _entity_document(
     if entity.expose_mcp:
         exposure["mcp"] = {
             "resources": [
-                item for item in entity.expose_mcp if item in {"schema", "record"}
+                item
+                for item in entity.expose_mcp
+                if item in {"schema", "record", "audit"}
             ],
-            "tools": [item for item in entity.expose_mcp if item == "search"],
+            "tools": [
+                item
+                for item in entity.expose_mcp
+                if item in {"search", "create", "update", "delete"}
+            ],
         }
     document["expose"] = exposure
     permissions = {
@@ -448,6 +454,8 @@ def _entity_document(
             ("read", entity.read_permission),
             ("create", entity.create_permission),
             ("update", entity.update_permission),
+            ("delete", entity.delete_permission),
+            ("audit", entity.audit_permission),
         )
         if value is not None
     }
@@ -965,6 +973,8 @@ def _verify_candidate(
             entity.read_permission,
             entity.create_permission,
             entity.update_permission,
+            entity.delete_permission,
+            entity.audit_permission,
         )
         if permission is not None
     }

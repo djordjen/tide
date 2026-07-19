@@ -31,7 +31,7 @@ class VersionPreconditionRequired(TideRuntimeError):
 
     def __init__(self, entity: str) -> None:
         self.entity = entity
-        super().__init__(f"deleting {entity} requires an observed record version")
+        super().__init__(f"mutating {entity} requires an observed record version")
 
 
 class DeleteRestricted(TideRuntimeError):

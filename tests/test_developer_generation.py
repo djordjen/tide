@@ -32,6 +32,8 @@ def test_invoicing_request_becomes_a_valid_structured_no_write_proposal() -> Non
     assert proposal.permissions == (
         "catalog.product.read",
         "catalog.product.write",
+        "crm.company.audit",
+        "crm.company.delete",
         "crm.company.read",
         "crm.company.write",
         "sales.invoice.create",
@@ -413,8 +415,18 @@ def _invoicing_plan() -> ApplicationGenerationPlan:
                     "read_permission": "crm.company.read",
                     "create_permission": "crm.company.write",
                     "update_permission": "crm.company.write",
-                    "expose_rest": ["list", "get", "create", "update"],
-                    "expose_mcp": ["schema", "record", "search"],
+                    "delete_permission": "crm.company.delete",
+                    "audit_permission": "crm.company.audit",
+                    "expose_rest": ["list", "get", "create", "update", "delete"],
+                    "expose_mcp": [
+                        "schema",
+                        "record",
+                        "audit",
+                        "search",
+                        "create",
+                        "update",
+                        "delete",
+                    ],
                 },
                 {
                     "operation": "define_entity",
@@ -455,7 +467,13 @@ def _invoicing_plan() -> ApplicationGenerationPlan:
                     "create_permission": "catalog.product.write",
                     "update_permission": "catalog.product.write",
                     "expose_rest": ["list", "get", "create", "update"],
-                    "expose_mcp": ["schema", "record", "search"],
+                    "expose_mcp": [
+                        "schema",
+                        "record",
+                        "search",
+                        "create",
+                        "update",
+                    ],
                 },
                 {
                     "operation": "define_entity",
@@ -526,7 +544,7 @@ def _invoicing_plan() -> ApplicationGenerationPlan:
                     "read_permission": "sales.invoice.read",
                     "create_permission": "sales.invoice.create",
                     "expose_rest": ["list", "get", "create"],
-                    "expose_mcp": ["schema", "record", "search"],
+                    "expose_mcp": ["schema", "record", "search", "create"],
                 },
                 {
                     "operation": "define_entity",
@@ -622,6 +640,8 @@ def _invoicing_plan() -> ApplicationGenerationPlan:
                     "grants": [
                         "crm.company.read",
                         "crm.company.write",
+                        "crm.company.delete",
+                        "crm.company.audit",
                         "catalog.product.read",
                         "catalog.product.write",
                         "sales.invoice.read",

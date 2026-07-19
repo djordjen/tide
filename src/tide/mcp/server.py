@@ -1,4 +1,4 @@
-"""Official MCP SDK hosting adapter for secured runtime reads."""
+"""Official MCP SDK hosting adapter for secured runtime capabilities."""
 
 from __future__ import annotations
 
@@ -16,10 +16,17 @@ from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
-from pydantic import AnyHttpUrl, Field
+from pydantic import AnyHttpUrl, BaseModel, Field
 
-from tide.api.contracts import TideFilterInput, TideQueryInput, TideSortInput
-from tide.mcp.contracts import TideMcpPage
+from tide.api.contracts import (
+    TideFilterInput,
+    TideQueryInput,
+    TideSortInput,
+)
+from tide.api.inputs import build_writable_models
+from tide.api.openapi import writable_scalar_annotation
+from tide.api.wire import primary_key
+from tide.mcp.contracts import TideMcpMutationResult, TideMcpPage
 from tide.mcp.runtime import RuntimeMcpService
 from tide.runtime import AuthorizationError, Channel, Principal, RequestContext
 
@@ -89,8 +96,8 @@ def build_runtime_mcp_server(
     fastmcp: FastMCP[Any] = FastMCP(
         name=f"{service.model.name} Runtime",
         instructions=(
-            "Read-only TIDE application access. Every schema, record, and query "
-            "is reauthorized through application services."
+            "Secured TIDE application access. Every read, mutation, and domain "
+            "action is reauthorized and executed through application services."
         ),
         token_verifier=TideMcpTokenVerifier(
             authenticator,
@@ -111,6 +118,13 @@ def build_runtime_mcp_server(
             allowed_origins=[origin],
         ),
     )
+    create_models, update_models = build_writable_models(
+        service.model,
+        {
+            entity_name: exposure.tools
+            for entity_name, exposure in service.exposures.items()
+        },
+    )
     for exposure in service.exposures.values():
         if "schema" in exposure.resources:
             fastmcp.resource(
@@ -129,6 +143,16 @@ def build_runtime_mcp_server(
                 description=f"One authorized {exposure.entity} record by identity.",
                 mime_type="application/json",
             )(_record_reader(service, exposure.entity))
+        if "audit" in exposure.resources:
+            fastmcp.resource(
+                exposure.audit_uri_template,
+                name=f"{exposure.entity} audit history",
+                description=(
+                    f"Authorized newest-first audit history for one "
+                    f"{exposure.entity} record."
+                ),
+                mime_type="application/json",
+            )(_audit_reader(service, exposure.entity))
         if "search" in exposure.tools:
             fastmcp.tool(
                 name=exposure.search_tool,
@@ -138,6 +162,63 @@ def build_runtime_mcp_server(
                 ),
                 structured_output=True,
             )(_search_tool(service, exposure.entity, exposure.search_tool))
+        if "create" in exposure.tools:
+            fastmcp.tool(
+                name=exposure.create_tool,
+                description=(
+                    f"Create an authorized {exposure.entity} record through "
+                    "TIDE validation, defaults, security, and audit services."
+                ),
+                structured_output=True,
+            )(
+                _create_tool(
+                    service,
+                    exposure.entity,
+                    exposure.create_tool,
+                    create_models[exposure.entity],
+                )
+            )
+        if "update" in exposure.tools:
+            fastmcp.tool(
+                name=exposure.update_tool,
+                description=(
+                    f"Update an authorized {exposure.entity} record. Versioned "
+                    "records require the version previously observed by the caller."
+                ),
+                structured_output=True,
+            )(
+                _update_tool(
+                    service,
+                    exposure.entity,
+                    exposure.update_tool,
+                    update_models[exposure.entity],
+                )
+            )
+        if "delete" in exposure.tools:
+            fastmcp.tool(
+                name=exposure.delete_tool,
+                description=(
+                    f"Delete an authorized {exposure.entity} record. Versioned "
+                    "records require the version previously observed by the caller."
+                ),
+                structured_output=True,
+            )(_delete_tool(service, exposure.entity, exposure.delete_tool))
+        for action in exposure.actions:
+            fastmcp.tool(
+                name=action.tool,
+                description=(
+                    f"Execute the authorized {action.label} domain action for "
+                    f"{exposure.entity}."
+                ),
+                structured_output=True,
+            )(
+                _action_tool(
+                    service,
+                    exposure.entity,
+                    action.action,
+                    action.tool,
+                )
+            )
     return HostedRuntimeMcp(
         fastmcp=fastmcp,
         service=service,
@@ -190,6 +271,20 @@ def _record_reader(service: RuntimeMcpService, entity_name: str) -> Any:
     return read_record
 
 
+def _audit_reader(service: RuntimeMcpService, entity_name: str) -> Any:
+    async def read_audit(identity: str) -> str:
+        result = await asyncio.to_thread(
+            service.audit,
+            entity_name,
+            identity,
+            _request_context(),
+        )
+        return json.dumps(result.model_dump(mode="json"), separators=(",", ":"))
+
+    read_audit.__name__ = f"read_{entity_name.replace('.', '_')}_audit"
+    return read_audit
+
+
 def _search_tool(
     service: RuntimeMcpService,
     entity_name: str,
@@ -216,6 +311,114 @@ def _search_tool(
 
     search_records.__name__ = tool_name
     return search_records
+
+
+def _create_tool(
+    service: RuntimeMcpService,
+    entity_name: str,
+    tool_name: str,
+    input_model: type[BaseModel],
+) -> Any:
+    async def create_record(values: BaseModel) -> TideMcpMutationResult:
+        return await asyncio.to_thread(
+            service.create,
+            entity_name,
+            values.model_dump(by_alias=True, exclude_unset=True),
+            _request_context(),
+        )
+
+    create_record.__name__ = tool_name
+    create_record.__annotations__["values"] = input_model
+    return create_record
+
+
+def _update_tool(
+    service: RuntimeMcpService,
+    entity_name: str,
+    tool_name: str,
+    input_model: type[BaseModel],
+) -> Any:
+    async def update_record(
+        identity: Any,
+        values: BaseModel,
+        expected_version: int | None = Field(default=None, ge=1),
+    ) -> TideMcpMutationResult:
+        return await asyncio.to_thread(
+            service.update,
+            entity_name,
+            identity,
+            values.model_dump(by_alias=True, exclude_unset=True),
+            _request_context(),
+            expected_version=expected_version,
+        )
+
+    update_record.__name__ = tool_name
+    update_record.__annotations__["identity"] = _identity_annotation(
+        service,
+        entity_name,
+    )
+    update_record.__annotations__["values"] = input_model
+    return update_record
+
+
+def _delete_tool(
+    service: RuntimeMcpService,
+    entity_name: str,
+    tool_name: str,
+) -> Any:
+    async def delete_record(
+        identity: Any,
+        expected_version: int | None = Field(default=None, ge=1),
+    ) -> TideMcpMutationResult:
+        return await asyncio.to_thread(
+            service.delete,
+            entity_name,
+            identity,
+            _request_context(),
+            expected_version=expected_version,
+        )
+
+    delete_record.__name__ = tool_name
+    delete_record.__annotations__["identity"] = _identity_annotation(
+        service,
+        entity_name,
+    )
+    return delete_record
+
+
+def _action_tool(
+    service: RuntimeMcpService,
+    entity_name: str,
+    action_name: str,
+    tool_name: str,
+) -> Any:
+    async def execute_action(
+        identity: Any,
+        expected_version: int | None = Field(default=None, ge=1),
+        idempotency_key: str | None = Field(default=None, min_length=1),
+    ) -> TideMcpMutationResult:
+        return await asyncio.to_thread(
+            service.execute_action,
+            entity_name,
+            action_name,
+            identity,
+            {},
+            _request_context(),
+            expected_version=expected_version,
+            idempotency_key=idempotency_key,
+        )
+
+    execute_action.__name__ = tool_name
+    execute_action.__annotations__["identity"] = _identity_annotation(
+        service,
+        entity_name,
+    )
+    return execute_action
+
+
+def _identity_annotation(service: RuntimeMcpService, entity_name: str) -> Any:
+    entity = service.model.entity(entity_name)
+    return writable_scalar_annotation(service.model, primary_key(entity))
 
 
 def _request_context() -> RequestContext:

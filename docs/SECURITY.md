@@ -221,15 +221,24 @@ creates a `Channel.MCP` request context and repeats application-service
 authorization. Entity exposure controls protocol existence but does not grant
 entity, row, relationship, field, filter, or sort access.
 
-The implemented MCP surface is read-only and limited to metadata-declared
-schema/record resources and search tools. Schema resources omit fields the
-principal cannot read. Record/query results use the same protected-null
-metadata as REST; query cursors are opaque and principal-bound. The transport
-publishes RFC 9728 protected-resource metadata and uses the canonical MCP
-resource URI as a Host/Origin allow-list for DNS-rebinding protection. A
-non-loopback resource URI must use HTTPS. Runtime MCP mutation, domain-action,
-and report capabilities remain disabled until their separate authorization,
-concurrency, idempotency, and audit contracts are implemented.
+The implemented MCP surface is limited to metadata-declared schema/record/audit
+resources, structured searches, CRUD mutations, and separately exposed domain
+actions. Schema resources omit fields the principal cannot read. Record/query
+and mutation results use the same protected-null metadata as REST; query
+cursors are opaque and principal-bound. Create/update inputs are generated from
+normal writable fields, versioned mutations require an observed version, and
+idempotent actions require a caller-generated key. Every successful mutation
+is audited with its MCP channel and correlation identifier. Audit resources
+repeat their independent entity and field authorization before returning safe
+history. No MCP capability exposes arbitrary SQL, repositories, connection
+strings, credentials, system/action-owned fields, or project editing.
+
+The transport publishes RFC 9728 protected-resource metadata and uses the
+canonical MCP resource URI as a Host/Origin allow-list for DNS-rebinding
+protection. A non-loopback resource URI must use HTTPS. Tool discovery is not
+an authorization decision: execution always repeats application-service
+authorization, and principal-specific schema resources list only actions the
+caller may execute.
 
 Developer MCP is a separate local stdio trust boundary. It receives a project
 root selected by the process launcher, not a path supplied to individual MCP
