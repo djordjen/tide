@@ -156,6 +156,28 @@ The shortcut prints a fresh development bearer token and starts a loopback-only
 FastAPI server. Open <http://127.0.0.1:8000/docs>, choose **Authorize**, and
 paste that token to exercise the generated contract.
 
+The unauthenticated `GET /health/live` endpoint is process-only. The
+`GET /health/ready` endpoint checks runtime persistence dependencies and returns
+HTTP 503 with a safe `not_ready` body when the server should receive no traffic.
+The server prints secret-safe JSON request events. Send `X-Correlation-ID` when
+you want to trace one REST or hosted MCP request into its service-layer audit;
+TIDE returns the accepted identifier, or a generated UUID when it was omitted
+or malformed. Use `tide serve --log-level warning ...` to reduce routine output.
+REST and hosted MCP requests also share a 1 MiB body limit, 30-second body
+receive deadline, 100-request concurrency cap, five-second idle keep-alive, and
+30-second graceful-shutdown window. For an explicitly reviewed deployment,
+override them with, for example:
+
+```powershell
+uv run tide serve applications/invoicing --database-env `
+  --max-request-body-bytes 2097152 --request-body-timeout 30 `
+  --max-concurrent-requests 50 `
+  --keep-alive-timeout 5 --graceful-shutdown-timeout 30
+```
+
+These are HTTP-host controls; they do not replace field/page limits or impose a
+hard database-operation timeout.
+
 In a second terminal, verify the server or open the TUI as a remote API client:
 
 ```powershell

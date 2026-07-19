@@ -28,6 +28,7 @@ from tide.api.openapi import writable_scalar_annotation
 from tide.api.wire import primary_key
 from tide.mcp.contracts import TideMcpMutationResult, TideMcpPage
 from tide.mcp.runtime import RuntimeMcpService
+from tide.observability import current_correlation_id, resolve_correlation_id
 from tide.runtime import AuthorizationError, Channel, Principal, RequestContext
 
 
@@ -441,6 +442,7 @@ def _request_context() -> RequestContext:
             permissions=frozenset(permissions),
         ),
         channel=Channel.MCP,
+        correlation_id=current_correlation_id() or resolve_correlation_id(None),
     )
 
 

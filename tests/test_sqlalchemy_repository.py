@@ -119,6 +119,19 @@ def _seed_invoice(repository: SQLAlchemyRepository) -> None:
     )
 
 
+def test_sqlalchemy_readiness_requires_a_compatible_schema() -> None:
+    model = compile_project(INVOICING)
+    repository = SQLAlchemyRepository(model, "sqlite+pysqlite:///:memory:")
+    try:
+        with pytest.raises(SchemaCompatibilityError):
+            repository.check_readiness()
+
+        repository.create_schema()
+        repository.check_readiness()
+    finally:
+        repository.dispose()
+
+
 @pytest.fixture
 def sql_runtime():
     model = compile_project(INVOICING)

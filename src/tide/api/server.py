@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
+import logging
 import re
 import secrets
-from typing import Any, Mapping, Protocol
+from time import perf_counter
+from typing import Any, Callable, Literal, Mapping, Protocol
 
 from fastapi import (
     Body,
@@ -35,6 +38,10 @@ from tide.api.contracts import (
     TideReportDocument,
     TideSessionInfo,
 )
+from tide.api.config import (
+    DEFAULT_MAX_REQUEST_BODY_BYTES,
+    DEFAULT_REQUEST_BODY_TIMEOUT_SECONDS,
+)
 from tide.api.inputs import build_writable_models, field_is_writable
 from tide.api.openapi import (
     DEFAULT_BASE_PATH,
@@ -53,6 +60,13 @@ from tide.api.wire import (
 )
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 from tide.data import FilterCondition, QuerySpec, SortField
+from tide.observability import (
+    CORRELATION_HEADER,
+    bind_correlation_id,
+    log_runtime_event,
+    reset_correlation_id,
+    resolve_correlation_id,
+)
 from tide.runtime import (
     AuthorizationError,
     ActionDisabled,
@@ -75,12 +89,23 @@ from tide.services import ActionService, AuditHistoryReader, AuditHistoryService
 
 
 SERVER_OPERATIONS = REST_OPERATIONS
+_RUNTIME_LOGGER = logging.getLogger("tide.runtime")
 
 
 class TideEmptyActionPayload(BaseModel):
     """Current action metadata declares no request payload fields."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class TideReadiness(BaseModel):
+    """Safe operational readiness result without dependency details."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: Literal["ready", "not_ready"]
+    application: str
+    version: str
 
 
 class BearerAuthenticator(Protocol):
@@ -123,6 +148,9 @@ class TideApiRuntime:
     audits: AuditHistoryReader
     authenticator: BearerAuthenticator
     base_path: str
+    readiness_probes: tuple[Callable[[], None], ...]
+    max_request_body_bytes: int
+    request_body_timeout_seconds: int
 
 
 def build_fastapi_app(
@@ -134,9 +162,24 @@ def build_fastapi_app(
     reports: ReportService | None = None,
     audits: AuditHistoryReader | None = None,
     base_path: str = DEFAULT_BASE_PATH,
+    logger: logging.Logger | None = None,
+    max_request_body_bytes: int = DEFAULT_MAX_REQUEST_BODY_BYTES,
+    request_body_timeout_seconds: int = DEFAULT_REQUEST_BODY_TIMEOUT_SECONDS,
 ) -> FastAPI:
     """Build an HTTP adapter over services without granting client database access."""
 
+    if (
+        isinstance(max_request_body_bytes, bool)
+        or not isinstance(max_request_body_bytes, int)
+        or max_request_body_bytes <= 0
+    ):
+        raise ValueError("maximum request body size must be a positive integer")
+    if (
+        isinstance(request_body_timeout_seconds, bool)
+        or not isinstance(request_body_timeout_seconds, int)
+        or request_body_timeout_seconds <= 0
+    ):
+        raise ValueError("request body timeout must be a positive integer")
     preview = build_openapi_preview(model, base_path=base_path)
     exposures = rest_exposures(model, allowed_operations=SERVER_OPERATIONS)
     action_service = actions or ActionService(model, records)
@@ -146,6 +189,7 @@ def build_fastapi_app(
         action_service.execution_store,
         records.security,
     )
+    runtime_logger = logger or _RUNTIME_LOGGER
     create_models, update_models = build_writable_models(
         model,
         {
@@ -169,6 +213,9 @@ def build_fastapi_app(
         audit_service,
         authenticator,
         base_path,
+        _readiness_probes(records, action_service),
+        max_request_body_bytes,
+        request_body_timeout_seconds,
     )
     bearer = HTTPBearer(
         bearerFormat=("JWT" if authenticator.authentication_type == "oidc-jwt" else "opaque"),
@@ -181,6 +228,7 @@ def build_fastapi_app(
     )
 
     def request_context(
+        request: Request,
         credentials: HTTPAuthorizationCredentials | None = Security(bearer),
     ) -> RequestContext:
         if credentials is None or credentials.scheme.casefold() != "bearer":
@@ -188,14 +236,69 @@ def build_fastapi_app(
         principal = authenticator.authenticate(credentials.credentials)
         if principal is None:
             raise _unauthorized()
-        return RequestContext(principal=principal, channel=Channel.REST)
+        return RequestContext(
+            principal=principal,
+            channel=Channel.REST,
+            correlation_id=request.state.tide_correlation_id,
+        )
 
     @app.middleware("http")
-    async def secured_response_headers(request: Request, call_next: Any) -> Any:
-        response = await call_next(request)
-        response.headers["Cache-Control"] = "no-store"
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        return response
+    async def runtime_request_boundary(request: Request, call_next: Any) -> Any:
+        correlation_id = resolve_correlation_id(
+            request.headers.get(CORRELATION_HEADER)
+        )
+        request.state.tide_correlation_id = correlation_id
+        context_token = bind_correlation_id(correlation_id)
+        started = perf_counter()
+        try:
+            try:
+                async with asyncio.timeout(request_body_timeout_seconds):
+                    body_error = await _buffer_bounded_request_body(
+                        request,
+                        max_request_body_bytes,
+                    )
+            except TimeoutError:
+                request.state.tide_operation = "requestBodyTimeout"
+                response = _request_body_timeout()
+                body_error = None
+            else:
+                response = None
+            if body_error is not None:
+                request.state.tide_operation = "requestBodyLimit"
+                response = body_error
+            elif response is None:
+                response = await call_next(request)
+        except Exception as error:
+            log_runtime_event(
+                runtime_logger,
+                logging.ERROR,
+                "http.request.failed",
+                channel=_request_channel(app, request),
+                correlation_id=correlation_id,
+                operation=_request_operation(request),
+                method=request.method,
+                duration_ms=_duration_ms(started),
+                error_type=type(error).__name__,
+            )
+            raise
+        else:
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers[CORRELATION_HEADER] = correlation_id
+            log_runtime_event(
+                runtime_logger,
+                _response_log_level(response.status_code),
+                "http.request.completed",
+                channel=_request_channel(app, request),
+                correlation_id=correlation_id,
+                operation=_request_operation(request),
+                method=request.method,
+                status_code=response.status_code,
+                duration_ms=_duration_ms(started),
+            )
+            return response
+        finally:
+            reset_correlation_id(context_token)
 
     @app.exception_handler(TideRuntimeError)
     async def tide_error_handler(
@@ -256,14 +359,37 @@ def build_fastapi_app(
         "/health/ready",
         tags=["Health"],
         summary="Application readiness",
+        response_model=TideReadiness,
+        responses={
+            503: {
+                "model": TideReadiness,
+                "description": "A required runtime dependency is unavailable",
+            }
+        },
         include_in_schema=True,
     )
-    def ready() -> dict[str, str]:
-        return {
-            "status": "ready",
-            "application": model.name,
-            "version": model.version,
-        }
+    def ready(request: Request, response: Response) -> TideReadiness:
+        status: Literal["ready", "not_ready"] = "ready"
+        try:
+            for probe in app.state.tide.readiness_probes:
+                probe()
+        except Exception as error:
+            status = "not_ready"
+            response.status_code = 503
+            log_runtime_event(
+                runtime_logger,
+                logging.ERROR,
+                "readiness.failed",
+                channel=Channel.SYSTEM.value,
+                correlation_id=request.state.tide_correlation_id,
+                operation=_probe_name(probe),
+                error_type=type(error).__name__,
+            )
+        return TideReadiness(
+            status=status,
+            application=model.name,
+            version=model.version,
+        )
 
     @app.get(
         f"{base_path.rstrip('/')}/_tide/session",
@@ -364,7 +490,7 @@ def build_fastapi_app(
         tags=["TIDE"],
         summary="Apply a secured reference selection to a draft",
         response_model=TideReferenceSelectionResult,
-        responses=_documented_errors(400, 401, 403, 409, 422),
+        responses=_documented_errors(400, 401, 403, 408, 409, 413, 422),
     )
     def reference_selection(
         payload: TideReferenceSelectionInput,
@@ -436,7 +562,7 @@ def build_fastapi_app(
                 name=f"List {entity.label}",
                 operation_id=f"list{preview.record_models[entity_name].__name__.removesuffix('Record')}",
                 tags=[tag],
-                responses=_documented_errors(400, 401, 403, 422),
+                responses=_documented_errors(400, 401, 403, 408, 413, 422),
             )
             query_endpoint = _query_endpoint(
                 records,
@@ -517,7 +643,7 @@ def build_fastapi_app(
                 name=f"Create {entity.label}",
                 operation_id=f"create{preview.record_models[entity_name].__name__.removesuffix('Record')}",
                 tags=[tag],
-                responses=_documented_errors(400, 401, 403, 409, 422),
+                responses=_documented_errors(400, 401, 403, 408, 409, 413, 422),
             )
         if "update" in exposure.operations:
             primary_key = _primary_key(entity)
@@ -538,7 +664,9 @@ def build_fastapi_app(
                 name=f"Update {entity.label}",
                 operation_id=f"update{preview.record_models[entity_name].__name__.removesuffix('Record')}",
                 tags=[tag],
-                responses=_documented_errors(400, 401, 403, 404, 409, 412, 422, 428),
+                responses=_documented_errors(
+                    400, 401, 403, 404, 408, 409, 412, 413, 422, 428
+                ),
             )
         if "delete" in exposure.operations:
             primary_key = _primary_key(entity)
@@ -589,7 +717,7 @@ def build_fastapi_app(
                 ),
                 tags=[tag],
                 responses=_documented_errors(
-                    400, 401, 403, 404, 409, 412, 422, 428
+                    400, 401, 403, 404, 408, 409, 412, 413, 422, 428
                 ),
             )
 
@@ -603,11 +731,121 @@ def build_fastapi_app(
             "wire_version": TIDE_WIRE_VERSION,
             "schema_version": model.schema_version,
             "authentication": authenticator.authentication_type,
+            "max_request_body_bytes": max_request_body_bytes,
+            "request_body_timeout_seconds": request_body_timeout_seconds,
         }
         return schema
 
     app.openapi = tide_openapi  # type: ignore[method-assign]
     return app
+
+
+def _readiness_probes(
+    records: RecordsService,
+    actions: ActionService,
+) -> tuple[Callable[[], None], ...]:
+    probes: list[Callable[[], None]] = []
+    repository_probe = getattr(records.repository, "check_readiness", None)
+    probes.append(
+        repository_probe
+        if callable(repository_probe)
+        else _missing_repository_readiness_probe
+    )
+    for store in (records.cursor_store, actions.execution_store):
+        validate_schema = getattr(store, "validate_schema", None)
+        if callable(validate_schema):
+            probes.append(validate_schema)
+    return tuple(probes)
+
+
+def _request_channel(app: FastAPI, request: Request) -> str:
+    hosted_mcp = getattr(app.state, "tide_mcp", None)
+    mcp_path = getattr(hosted_mcp, "path", None)
+    if isinstance(mcp_path, str) and (
+        request.url.path == mcp_path
+        or request.url.path.startswith(f"{mcp_path}/")
+    ):
+        return Channel.MCP.value
+    return Channel.REST.value
+
+
+async def _buffer_bounded_request_body(
+    request: Request,
+    max_request_body_bytes: int,
+) -> JSONResponse | None:
+    content_length = request.headers.get("Content-Length")
+    if content_length is not None and re.fullmatch(r"[0-9]+", content_length) is None:
+        return JSONResponse(
+            status_code=400,
+            content=TideApiError(
+                code="invalid_request",
+                message="Content-Length must be a non-negative integer",
+            ).model_dump(),
+        )
+    if content_length is not None and int(content_length) > max_request_body_bytes:
+        return _request_too_large()
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > max_request_body_bytes:
+            return _request_too_large()
+        body.extend(chunk)
+    request._body = bytes(body)
+    return None
+
+
+def _request_too_large() -> JSONResponse:
+    return JSONResponse(
+        status_code=413,
+        content=TideApiError(
+            code="request_too_large",
+            message="request body exceeds the configured limit",
+        ).model_dump(),
+    )
+
+
+def _request_body_timeout() -> JSONResponse:
+    return JSONResponse(
+        status_code=408,
+        content=TideApiError(
+            code="request_timeout",
+            message="request body was not received within the configured timeout",
+        ).model_dump(),
+    )
+
+
+def _request_operation(request: Request) -> str:
+    boundary_operation = getattr(request.state, "tide_operation", None)
+    if isinstance(boundary_operation, str) and boundary_operation:
+        return boundary_operation[:128]
+    route = request.scope.get("route")
+    for attribute in ("operation_id", "name"):
+        name = getattr(route, attribute, None)
+        if isinstance(name, str) and name:
+            return name[:128]
+    return "unmatched"
+
+
+def _response_log_level(status_code: int) -> int:
+    if status_code >= 500:
+        return logging.ERROR
+    if status_code >= 400:
+        return logging.WARNING
+    return logging.INFO
+
+
+def _duration_ms(started: float) -> float:
+    return round((perf_counter() - started) * 1000, 3)
+
+
+def _probe_name(probe: Callable[[], None]) -> str:
+    name = getattr(probe, "__qualname__", None)
+    if not isinstance(name, str) or not name:
+        name = type(probe).__qualname__
+    return name[:128]
+
+
+def _missing_repository_readiness_probe() -> None:
+    raise RuntimeError("repository does not implement the readiness contract")
 
 
 def _audit_endpoint(
@@ -1028,8 +1266,10 @@ def _documented_errors(*statuses: int) -> dict[int, dict[str, Any]]:
         401: "Authentication required",
         403: "Operation not permitted",
         404: "Record not found",
+        408: "Request body was not received within the configured timeout",
         409: "Mutation conflict or disabled action",
         412: "Observed version does not match",
+        413: "Request body exceeds the configured limit",
         422: "Request validation failed",
         428: "Required mutation precondition is missing",
     }

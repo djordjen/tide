@@ -15,6 +15,14 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
+from tide.api.config import (
+    DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
+    DEFAULT_KEEP_ALIVE_TIMEOUT_SECONDS,
+    DEFAULT_MAX_CONCURRENT_REQUESTS,
+    DEFAULT_MAX_REQUEST_BODY_BYTES,
+    DEFAULT_REQUEST_BODY_TIMEOUT_SECONDS,
+    HttpServerLimits,
+)
 from tide.api.openapi import DEFAULT_BASE_PATH, generate_openapi
 from tide.compiler.compiler import compile_project
 from tide.compiler.normalized import ApplicationModel
@@ -55,6 +63,7 @@ from tide.model.source import (
     SecurityDocumentSource,
     ViewSource,
 )
+from tide.observability import configure_runtime_logging
 from tide.runtime import Channel, Principal, RequestContext, TideRuntimeError
 from tide.services import (
     ActionExecutionStore,
@@ -241,6 +250,57 @@ def _create_parser() -> argparse.ArgumentParser:
         help="interface to bind (non-loopback requires OIDC and direct TLS)",
     )
     serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument(
+        "--log-level",
+        choices=("debug", "info", "warning", "error", "critical"),
+        default="info",
+        help="minimum TIDE structured runtime log level (default: info)",
+    )
+    serve.add_argument(
+        "--max-request-body-bytes",
+        type=int,
+        default=DEFAULT_MAX_REQUEST_BODY_BYTES,
+        help=(
+            "maximum HTTP request body size in bytes "
+            f"(default: {DEFAULT_MAX_REQUEST_BODY_BYTES})"
+        ),
+    )
+    serve.add_argument(
+        "--max-concurrent-requests",
+        type=int,
+        default=DEFAULT_MAX_CONCURRENT_REQUESTS,
+        help=(
+            "maximum concurrent HTTP requests "
+            f"(default: {DEFAULT_MAX_CONCURRENT_REQUESTS})"
+        ),
+    )
+    serve.add_argument(
+        "--request-body-timeout",
+        type=int,
+        default=DEFAULT_REQUEST_BODY_TIMEOUT_SECONDS,
+        help=(
+            "maximum request-body receive time in seconds "
+            f"(default: {DEFAULT_REQUEST_BODY_TIMEOUT_SECONDS})"
+        ),
+    )
+    serve.add_argument(
+        "--keep-alive-timeout",
+        type=int,
+        default=DEFAULT_KEEP_ALIVE_TIMEOUT_SECONDS,
+        help=(
+            "idle HTTP keep-alive timeout in seconds "
+            f"(default: {DEFAULT_KEEP_ALIVE_TIMEOUT_SECONDS})"
+        ),
+    )
+    serve.add_argument(
+        "--graceful-shutdown-timeout",
+        type=int,
+        default=DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
+        help=(
+            "maximum graceful shutdown wait in seconds "
+            f"(default: {DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS})"
+        ),
+    )
     serve.add_argument(
         "--ssl-certfile",
         type=Path,
@@ -667,6 +727,17 @@ def _serve_api(arguments: argparse.Namespace) -> int:
     if not 1 <= arguments.port <= 65535:
         print("API startup failed: port must be between 1 and 65535", file=sys.stderr)
         return 1
+    try:
+        limits = HttpServerLimits(
+            max_request_body_bytes=arguments.max_request_body_bytes,
+            request_body_timeout_seconds=arguments.request_body_timeout,
+            max_concurrent_requests=arguments.max_concurrent_requests,
+            keep_alive_timeout_seconds=arguments.keep_alive_timeout,
+            graceful_shutdown_timeout_seconds=arguments.graceful_shutdown_timeout,
+        )
+    except ValueError as error:
+        print(f"API startup failed: {error}", file=sys.stderr)
+        return 1
 
     try:
         certfile, keyfile, keyfile_password = _server_tls_configuration(arguments)
@@ -811,6 +882,10 @@ def _serve_api(arguments: argparse.Namespace) -> int:
                 authenticator,
                 actions=actions,
                 base_path=arguments.base_path,
+                max_request_body_bytes=limits.max_request_body_bytes,
+                request_body_timeout_seconds=(
+                    limits.request_body_timeout_seconds
+                ),
             )
             if arguments.mcp:
                 try:
@@ -857,7 +932,15 @@ def _serve_api(arguments: argparse.Namespace) -> int:
         configuration: dict[str, Any] = {
             "host": arguments.host,
             "port": arguments.port,
-            "log_level": "info",
+            "log_level": arguments.log_level,
+            "access_log": False,
+            "proxy_headers": False,
+            "server_header": False,
+            "limit_concurrency": limits.max_concurrent_requests,
+            "timeout_keep_alive": limits.keep_alive_timeout_seconds,
+            "timeout_graceful_shutdown": (
+                limits.graceful_shutdown_timeout_seconds
+            ),
         }
         if certfile is not None and keyfile is not None:
             configuration.update(
@@ -866,7 +949,8 @@ def _serve_api(arguments: argparse.Namespace) -> int:
             )
             if keyfile_password is not None:
                 configuration["ssl_keyfile_password"] = keyfile_password
-        uvicorn.run(app, **configuration)
+        with configure_runtime_logging(arguments.log_level):
+            uvicorn.run(app, **configuration)
         return 0
     finally:
         storage.dispose()

@@ -114,6 +114,13 @@ class SQLAlchemyRepository:
             )
         self.metadata.create_all(self.engine)
 
+    def check_readiness(self) -> None:
+        """Verify connectivity, mapped schema compatibility, and SQL policy support."""
+        with self.engine.connect() as connection:
+            connection.execute(select(1)).scalar_one()
+        self.validate_schema()
+        self.validate_query_support()
+
     def schema_issues(self) -> tuple[SchemaIssue, ...]:
         inspector = inspect(self.engine)
         issues: list[SchemaIssue] = []

@@ -9,6 +9,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from tide import compile_project
+from tide.api.config import DEFAULT_MAX_REQUEST_BODY_BYTES
 from tide.api.server import DevelopmentTokenAuthenticator, build_fastapi_app
 from tide.data import InMemoryRepository
 from tide.mcp import RuntimeMcpService
@@ -37,7 +38,10 @@ def test_streamable_http_mcp_executes_secured_runtime_workflow() -> None:
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app),
                 base_url=BASE_URL,
-                headers={"Authorization": f"Bearer {TOKEN}"},
+                headers={
+                    "Authorization": f"Bearer {TOKEN}",
+                    "X-Correlation-ID": "mcp-workflow-123",
+                },
             ) as http:
                 async with streamable_http_client(
                     MCP_URL,
@@ -182,6 +186,10 @@ def test_streamable_http_mcp_executes_secured_runtime_workflow() -> None:
             "record",
         }
         assert all(event["channel"] == "mcp" for event in audit["events"])
+        assert all(
+            event["correlation_id"] == "mcp-workflow-123"
+            for event in audit["events"]
+        )
 
     asyncio.run(exercise())
 
@@ -232,6 +240,34 @@ def test_mcp_http_authentication_and_protected_resource_metadata_fail_closed() -
     asyncio.run(exercise())
 
 
+def test_hosted_mcp_uses_the_shared_http_request_body_limit() -> None:
+    app = _app("sales_clerk", max_request_body_bytes=64)
+
+    async def exercise() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url=BASE_URL,
+        ) as client:
+            response = await client.post(
+                "/mcp",
+                headers={
+                    "Authorization": f"Bearer {TOKEN}",
+                    "X-Correlation-ID": "oversized-mcp",
+                },
+                json={"jsonrpc": "2.0", "method": "x" * 100},
+            )
+
+        assert response.status_code == 413
+        assert response.json() == {
+            "code": "request_too_large",
+            "message": "request body exceeds the configured limit",
+        }
+        assert response.headers["x-correlation-id"] == "oversized-mcp"
+        assert TOKEN not in response.text
+
+    asyncio.run(exercise())
+
+
 def test_mcp_token_verifier_preserves_server_controlled_principal_identity() -> None:
     principal = Principal(
         "oidc:user-123",
@@ -258,7 +294,11 @@ def test_mcp_token_verifier_preserves_server_controlled_principal_identity() -> 
     assert asyncio.run(verifier.verify_token("incorrect")) is None
 
 
-def _app(role: str | tuple[str, ...]) -> object:
+def _app(
+    role: str | tuple[str, ...],
+    *,
+    max_request_body_bytes: int = DEFAULT_MAX_REQUEST_BODY_BYTES,
+) -> object:
     model = compile_project(INVOICING)
     repository = InMemoryRepository()
     assert seed_demo_data(model, repository) == 14
@@ -281,6 +321,7 @@ def _app(role: str | tuple[str, ...]) -> object:
         authenticator,
         actions=actions,
         audits=audits,
+        max_request_body_bytes=max_request_body_bytes,
     )
     hosted = build_runtime_mcp_server(
         RuntimeMcpService(

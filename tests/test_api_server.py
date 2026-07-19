@@ -2,14 +2,20 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+import logging
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import httpx
 import uvicorn
 
 from tide import compile_project
 from tide.api.auth import OidcJwtAuthenticator
+from tide.api.config import (
+    DEFAULT_MAX_REQUEST_BODY_BYTES,
+    DEFAULT_REQUEST_BODY_TIMEOUT_SECONDS,
+)
 from tide.api.server import DevelopmentTokenAuthenticator, build_fastapi_app
 from tide.compiler.normalized import deep_thaw, immutable_mapping
 from tide.cli import main
@@ -30,6 +36,7 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
     async def exercise() -> None:
         async with _client(app) as client:
             live = await client.get("/health/live")
+            ready = await client.get("/health/ready")
             docs = await client.get("/docs")
             missing = await client.get("/api/v1/invoices")
             session = await client.get(
@@ -43,6 +50,12 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
 
         assert live.status_code == 200
         assert live.json() == {"status": "ok"}
+        assert ready.status_code == 200
+        assert ready.json() == {
+            "status": "ready",
+            "application": "TIDE Invoicing",
+            "version": "0.1.0",
+        }
         assert docs.status_code == 200
         assert session.status_code == 200
         assert session.json()["authentication"] == "development-bearer"
@@ -93,6 +106,8 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
         "wire_version": "0.1",
         "schema_version": "0.1",
         "authentication": "development-bearer",
+        "max_request_body_bytes": DEFAULT_MAX_REQUEST_BODY_BYTES,
+        "request_body_timeout_seconds": DEFAULT_REQUEST_BODY_TIMEOUT_SECONDS,
     }
     assert schema["components"]["securitySchemes"]["bearerAuth"] == {
         "type": "http",
@@ -102,6 +117,10 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
         ),
         "scheme": "bearer",
         "bearerFormat": "opaque",
+    }
+    assert set(schema["paths"]["/health/ready"]["get"]["responses"]) == {
+        "200",
+        "503",
     }
     assert set(schema["paths"]["/api/v1/invoices"]) == {"get", "post"}
     assert "/api/v1/invoices/{id}" in schema["paths"]
@@ -138,6 +157,8 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
         ]
     ) == {"get"}
     assert "/api/v1/invoices/{id}/actions/post" in schema["paths"]
+    assert "413" in schema["paths"]["/api/v1/invoices"]["post"]["responses"]
+    assert "408" in schema["paths"]["/api/v1/invoices"]["post"]["responses"]
     create_schema = schema["components"]["schemas"]["SalesInvoiceCreateInput"]
     update_schema = schema["components"]["schemas"]["SalesInvoiceUpdateInput"]
     nested_schema = schema["components"]["schemas"]["SalesInvoiceLineNestedInput"]
@@ -165,6 +186,231 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
         "If-Match",
         "Idempotency-Key",
     }
+
+
+def test_readiness_fails_closed_without_leaking_dependency_errors() -> None:
+    class UnavailableRepository(InMemoryRepository):
+        def check_readiness(self) -> None:
+            raise RuntimeError("database password=must-not-leak")
+
+    model = compile_project(INVOICING)
+    repository = UnavailableRepository()
+    assert seed_demo_data(model, repository) == 14
+    records = RecordsService(model, repository)
+    logger, log_handler = _recording_logger()
+    app = build_fastapi_app(
+        model,
+        records,
+        DevelopmentTokenAuthenticator(
+            TOKEN,
+            Principal("api:test", roles=frozenset({"sales_clerk"})),
+        ),
+        logger=logger,
+    )
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            live = await client.get("/health/live")
+            ready = await client.get("/health/ready")
+
+        assert live.status_code == 200
+        assert ready.status_code == 503
+        assert ready.json() == {
+            "status": "not_ready",
+            "application": "TIDE Invoicing",
+            "version": "0.1.0",
+        }
+        assert "password" not in ready.text
+        assert ready.headers["cache-control"] == "no-store"
+
+    asyncio.run(exercise())
+    readiness_failure = next(
+        record
+        for record in log_handler.records
+        if record.msg == "readiness.failed"
+    )
+    assert readiness_failure.tide_fields == {
+        "channel": "system",
+        "correlation_id": readiness_failure.tide_fields["correlation_id"],
+        "operation": (
+            "test_readiness_fails_closed_without_leaking_dependency_errors."
+            "<locals>.UnavailableRepository.check_readiness"
+        ),
+        "error_type": "RuntimeError",
+    }
+    assert "password" not in repr(readiness_failure.__dict__)
+
+
+def test_http_correlation_is_returned_logged_and_shared_with_crud_audit() -> None:
+    model = compile_project(INVOICING)
+    repository = InMemoryRepository()
+    assert seed_demo_data(model, repository) == 14
+    records = RecordsService(model, repository)
+    actions = ActionService(model, records)
+    assert configure_application_runtime(model, records, actions)
+    logger, log_handler = _recording_logger()
+    app = build_fastapi_app(
+        model,
+        records,
+        DevelopmentTokenAuthenticator(
+            TOKEN,
+            Principal("api:test", roles=frozenset({"sales_clerk"})),
+        ),
+        actions=actions,
+        logger=logger,
+    )
+    correlation_id = "client.create-product:123"
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            created = await client.post(
+                "/api/v1/products",
+                headers={
+                    **_authorization(),
+                    "X-Correlation-ID": correlation_id,
+                },
+                json={
+                    "code": "LOG-SECRET-CODE",
+                    "name": "Correlation test",
+                    "unit_price": "1.00",
+                    "active": True,
+                },
+            )
+            regenerated = await client.get(
+                "/health/live",
+                headers={"X-Correlation-ID": "invalid header value"},
+            )
+
+        assert created.status_code == 201
+        assert created.headers["x-correlation-id"] == correlation_id
+        assert regenerated.status_code == 200
+        UUID(regenerated.headers["x-correlation-id"])
+
+    asyncio.run(exercise())
+
+    events = actions.execution_store.record_audit_events(
+        correlation_id=correlation_id,
+    )
+    assert len(events) == 1
+    assert events[0].entity == "catalog.Product"
+    completed = next(
+        record
+        for record in log_handler.records
+        if record.msg == "http.request.completed"
+        and record.tide_fields.get("correlation_id") == correlation_id
+    )
+    assert completed.tide_fields == {
+        "channel": "rest",
+        "correlation_id": correlation_id,
+        "operation": "createCatalogProduct",
+        "method": "POST",
+        "status_code": 201,
+        "duration_ms": completed.tide_fields["duration_ms"],
+    }
+    assert TOKEN not in repr(completed.__dict__)
+    assert "LOG-SECRET-CODE" not in repr(completed.__dict__)
+
+
+def test_request_body_limit_rejects_declared_and_streamed_payloads_safely() -> None:
+    logger, log_handler = _recording_logger()
+    app = _app(
+        "sales_clerk",
+        logger=logger,
+        max_request_body_bytes=96,
+    )
+
+    async def streamed_body() -> Any:
+        yield b'{"code":"STREAMED",'
+        yield b'"name":"' + (b"x" * 100) + b'"}'
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            declared = await client.post(
+                "/api/v1/products",
+                headers={
+                    **_authorization(),
+                    "X-Correlation-ID": "declared-too-large",
+                },
+                json={"secret": "must-not-leak" * 20},
+            )
+            streamed = await client.post(
+                "/api/v1/products",
+                headers={
+                    **_authorization(),
+                    "Content-Type": "application/json",
+                    "X-Correlation-ID": "streamed-too-large",
+                },
+                content=streamed_body(),
+            )
+
+        for response, correlation_id in (
+            (declared, "declared-too-large"),
+            (streamed, "streamed-too-large"),
+        ):
+            assert response.status_code == 413
+            assert response.json() == {
+                "code": "request_too_large",
+                "message": "request body exceeds the configured limit",
+            }
+            assert response.headers["x-correlation-id"] == correlation_id
+            assert response.headers["cache-control"] == "no-store"
+            assert "must-not-leak" not in response.text
+
+    asyncio.run(exercise())
+
+    rejected = [
+        record
+        for record in log_handler.records
+        if record.msg == "http.request.completed"
+        and record.tide_fields.get("status_code") == 413
+    ]
+    assert len(rejected) == 2
+    assert {record.tide_fields["correlation_id"] for record in rejected} == {
+        "declared-too-large",
+        "streamed-too-large",
+    }
+    assert "must-not-leak" not in repr([record.__dict__ for record in rejected])
+
+
+def test_request_body_receive_timeout_is_safe_and_correlated() -> None:
+    logger, log_handler = _recording_logger()
+    app = _app(
+        "sales_clerk",
+        logger=logger,
+        request_body_timeout_seconds=1,
+    )
+
+    async def slow_body() -> Any:
+        await asyncio.sleep(1.1)
+        yield b'{"code":"TOO-LATE"}'
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            response = await client.post(
+                "/api/v1/products",
+                headers={
+                    **_authorization(),
+                    "Content-Type": "application/json",
+                    "X-Correlation-ID": "slow-request-body",
+                },
+                content=slow_body(),
+            )
+
+        assert response.status_code == 408
+        assert response.json() == {
+            "code": "request_timeout",
+            "message": (
+                "request body was not received within the configured timeout"
+            ),
+        }
+        assert response.headers["x-correlation-id"] == "slow-request-body"
+
+    asyncio.run(exercise())
+
+    completed = log_handler.records[-1]
+    assert completed.msg == "http.request.completed"
+    assert completed.tide_fields["status_code"] == 408
+    assert completed.tide_fields["operation"] == "requestBodyTimeout"
 
 
 def test_server_lists_gets_and_pages_secured_records() -> None:
@@ -702,6 +948,18 @@ def test_tide_serve_builds_local_app_with_server_assigned_role(
             "auditor",
             "--port",
             "8123",
+            "--log-level",
+            "warning",
+            "--max-request-body-bytes",
+            "2048",
+            "--max-concurrent-requests",
+            "7",
+            "--request-body-timeout",
+            "13",
+            "--keep-alive-timeout",
+            "11",
+            "--graceful-shutdown-timeout",
+            "12",
         ]
     )
 
@@ -709,13 +967,21 @@ def test_tide_serve_builds_local_app_with_server_assigned_role(
     assert launched["configuration"] == {
         "host": "127.0.0.1",
         "port": 8123,
-        "log_level": "info",
+        "log_level": "warning",
+        "access_log": False,
+        "proxy_headers": False,
+        "server_header": False,
+        "limit_concurrency": 7,
+        "timeout_keep_alive": 11,
+        "timeout_graceful_shutdown": 12,
     }
     runtime = launched["app"].state.tide
     assert runtime.authenticator.authenticate(TOKEN) == Principal(
         "development:api",
         roles=frozenset({"auditor"}),
     )
+    assert runtime.max_request_body_bytes == 2048
+    assert runtime.request_body_timeout_seconds == 13
     output = capsys.readouterr().out
     assert TOKEN not in output
     assert "development auth only" in output
@@ -732,6 +998,23 @@ def test_tide_serve_rejects_development_authentication_off_loopback(
     assert capsys.readouterr().err == (
         "API startup failed: development authentication may listen only on a "
         "loopback interface\n"
+    )
+
+
+def test_tide_serve_rejects_invalid_operational_limits(capsys) -> None:
+    result = main(
+        [
+            "serve",
+            str(INVOICING),
+            "--demo",
+            "--max-request-body-bytes",
+            "0",
+        ]
+    )
+
+    assert result == 1
+    assert capsys.readouterr().err == (
+        "API startup failed: maximum request body size must be a positive integer\n"
     )
 
 
@@ -851,6 +1134,12 @@ def test_tide_serve_builds_non_loopback_oidc_app_with_direct_tls(
         "host": "0.0.0.0",
         "port": 8443,
         "log_level": "info",
+        "access_log": False,
+        "proxy_headers": False,
+        "server_header": False,
+        "limit_concurrency": 100,
+        "timeout_keep_alive": 5,
+        "timeout_graceful_shutdown": 30,
         "ssl_certfile": str(certfile),
         "ssl_keyfile": str(keyfile),
     }
@@ -910,6 +1199,12 @@ def test_tide_serve_mounts_read_only_mcp_on_the_local_api(
         "host": "127.0.0.1",
         "port": 8124,
         "log_level": "info",
+        "access_log": False,
+        "proxy_headers": False,
+        "server_header": False,
+        "limit_concurrency": 100,
+        "timeout_keep_alive": 5,
+        "timeout_graceful_shutdown": 30,
     }
     assert "MCP: http://127.0.0.1:8124/mcp" in capsys.readouterr().out
 
@@ -966,7 +1261,14 @@ def test_tide_serve_requires_mcp_resource_path_to_match_endpoint(capsys) -> None
     )
 
 
-def _app(role: str | None, *, model: Any | None = None) -> Any:
+def _app(
+    role: str | None,
+    *,
+    model: Any | None = None,
+    logger: logging.Logger | None = None,
+    max_request_body_bytes: int = DEFAULT_MAX_REQUEST_BODY_BYTES,
+    request_body_timeout_seconds: int = DEFAULT_REQUEST_BODY_TIMEOUT_SECONDS,
+) -> Any:
     model = model or compile_project(INVOICING)
     repository = InMemoryRepository()
     assert seed_demo_data(model, repository) == 14
@@ -982,6 +1284,9 @@ def _app(role: str | None, *, model: Any | None = None) -> Any:
         records,
         DevelopmentTokenAuthenticator(TOKEN, principal),
         actions=actions,
+        logger=logger,
+        max_request_body_bytes=max_request_body_bytes,
+        request_body_timeout_seconds=request_body_timeout_seconds,
     )
 
 
@@ -1009,3 +1314,19 @@ def _client(app: Any) -> httpx.AsyncClient:
 
 def _authorization() -> dict[str, str]:
     return {"Authorization": f"Bearer {TOKEN}"}
+
+
+class _RecordingHandler(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__()
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+def _recording_logger() -> tuple[logging.Logger, _RecordingHandler]:
+    logger = logging.Logger("tide.test.runtime", level=logging.DEBUG)
+    handler = _RecordingHandler()
+    logger.addHandler(handler)
+    return logger, handler

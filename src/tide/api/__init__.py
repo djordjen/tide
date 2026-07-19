@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from tide.api.config import HttpServerLimits
 from tide.api.openapi import OpenApiPreview, build_openapi_preview, generate_openapi
 
 __all__ = [
     "BearerAuthenticator",
     "DevelopmentTokenAuthenticator",
+    "HttpServerLimits",
     "OidcDiscoveryError",
     "OidcJwtAuthenticator",
     "OpenApiPreview",

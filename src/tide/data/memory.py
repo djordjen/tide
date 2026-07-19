@@ -31,6 +31,11 @@ class InMemoryRepository:
         self._next_identity: dict[str, int] = {}
         self._lock = RLock()
 
+    def check_readiness(self) -> None:
+        """The process-local store is ready when its synchronization primitive works."""
+        with self._lock:
+            return
+
     def seed(self, entity: str, records: Iterable[dict[str, Any]], *, primary_key: str = "id") -> None:
         with self._lock:
             bucket = self._records.setdefault(entity, {})

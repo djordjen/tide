@@ -204,8 +204,18 @@ the same services.
   retention, purge, and broader MCP/report/export audit remain**;
 - import and controlled export;
 - deployment configuration, SSH guidance, and container packaging.
-- health/readiness checks, structured logging, backup/restore, and migration
-  recovery guidance.
+- process-only liveness plus dependency-aware persistence/durable-state
+  readiness with safe 200/503 responses; **implemented**;
+- correlated secret-safe JSON request/readiness logging shared with REST/MCP
+  service audit, including bounded `X-Correlation-ID` propagation and disabled
+  duplicate access logs; **implemented**;
+- shared REST/MCP request-body and concurrency caps, idle keep-alive and
+  graceful-shutdown limits, bounded body-receive deadlines, safe correlated
+  408/413 responses, disabled server-identification and forwarded-header
+  processing, and OpenAPI limit disclosure; **implemented**;
+- reviewed proxy allowlists, request-rate policy, and dialect-certified
+  statement timeout/cancellation behavior;
+- backup/restore and migration recovery guidance.
 
 Exit condition: multiple users can safely work against certified SQL Server
 deployments and receive clear concurrency feedback.

@@ -90,7 +90,12 @@ structured filtering and sorting; the standalone preview remains intentionally
 limited to its dependency-free list/get contract.
 
 `tide serve` exposes `/docs`, `/openapi.json`, `/health/live`, and
-`/health/ready`. The authenticated `/api/v1/_tide/session` resource publishes
+`/health/ready`. Liveness is process-only. Readiness checks persistence
+connectivity, mapped-schema and SQL-policy compatibility, plus configured
+durable cursor/action state; it returns a bounded HTTP 503 `not_ready` response
+without exposing dependency errors. Both operational probes are deliberately
+unauthenticated for supervisors and orchestrators. The authenticated
+`/api/v1/_tide/session` resource publishes
 the wire version, application identity, authentication type, principal
 identifier, and only those server-assigned roles, directly exposed operations,
 nested-draft operations, readable/writable fields, and exposed actions
@@ -98,6 +103,27 @@ available to that principal through this server. A Boolean audit capability
 reports only whether the safe record-history route is available and does not
 disclose the permission name. It is capability information for rendering and
 early feedback, never a replacement for per-request authorization.
+
+Every completed framework HTTP response includes an effective
+`X-Correlation-ID`. A caller may
+supply a bounded log-safe identifier; missing, malformed, or oversized values
+are replaced with a server UUID. REST uses that identifier in its
+`RequestContext`, and hosted MCP carries it from each Streamable HTTP exchange
+into service-layer mutations, action lifecycle events, and CRUD audit. TIDE's
+structured request log records the stable operation and status but deliberately
+omits bearer credentials, bodies, query values, raw paths, cursors, prompts, and
+exception messages. See [Operational baseline](OPERATIONS.md#logging-and-audit).
+
+REST and hosted MCP also share the server's request-body cap. The default is
+1,048,576 bytes with a 30-second receive deadline; the active values appear in
+OpenAPI as `x-tide.max_request_body_bytes` and
+`x-tide.request_body_timeout_seconds`. Oversized declared or chunked bodies
+receive a correlated HTTP 413 `request_too_large`; slow/incomplete bodies
+receive HTTP 408 `request_timeout`. Both happen before authentication or payload
+parsing. These are transport safeguards, not substitutes for the smaller field,
+collection, page, and operation-specific bounds enforced by application
+services. See
+[HTTP resource limits](OPERATIONS.md#http-resource-limits).
 
 The bounded history response contains two explicit event variants. `action`
 events retain action name, lifecycle outcome, start/finish timestamps, and safe
@@ -390,6 +416,9 @@ bounded limit, and opaque continuation cursor as REST. Cursors remain bound to
 the principal and effective permissions. Every invocation creates a
 `RequestContext` with `Channel.MCP` and reauthorizes entity, row, relationship,
 field, filter, and sort access through `RecordsService`.
+When hosted beside REST, the context also inherits the validated or generated
+HTTP `X-Correlation-ID`, allowing an operator to connect transport telemetry to
+the resulting safe audit history without exposing the MCP request body.
 
 Create and update tools use strict entity-specific Pydantic inputs generated
 from the same normal writable fields as REST. Unknown, computed, read-only,

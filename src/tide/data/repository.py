@@ -129,6 +129,10 @@ class RowPolicyMismatch(Exception):
 
 @runtime_checkable
 class Repository(Protocol):
+    def check_readiness(self) -> None:
+        """Raise when the persistence dependency cannot safely serve requests."""
+        ...
+
     def seed(
         self,
         entity: str,

@@ -1,8 +1,9 @@
 # Operational Baseline
 
 **Status: Runtime database selection, OIDC bearer validation with direct TLS,
-action audit, and shared cursor persistence are executable; the wider
-production contract remains proposed.**
+action audit, shared cursor persistence, dependency-aware HTTP health checks,
+correlated structured request logging, and bounded HTTP hosting are executable;
+the wider production contract remains proposed.**
 These requirements should be built alongside persistence rather than added
 after machine mutations ship.
 
@@ -33,9 +34,49 @@ named environment variable and are never printed.
 
 This direct-TLS contract does not yet trust reverse-proxy forwarding headers.
 Deployments must not remove the TLS check merely because a proxy is present;
-trusted proxy configuration, request/body limits, token-acquisition flows,
-structured security logging, and production process supervision remain later
-reviewed work.
+forwarded headers are explicitly disabled. Trusted proxy configuration,
+token-acquisition flows, request-rate policy, database statement cancellation,
+expanded security-event logging, and production process supervision remain
+later reviewed work.
+
+## HTTP resource limits
+
+`tide serve` applies the same HTTP boundary to REST and hosted runtime MCP. Its
+reviewable defaults are:
+
+| Control | Default | CLI option |
+|---|---:|---|
+| Maximum request body | 1,048,576 bytes | `--max-request-body-bytes` |
+| Request-body receive deadline | 30 seconds | `--request-body-timeout` |
+| Concurrent requests | 100 | `--max-concurrent-requests` |
+| Idle keep-alive | 5 seconds | `--keep-alive-timeout` |
+| Graceful shutdown wait | 30 seconds | `--graceful-shutdown-timeout` |
+
+The body boundary rejects an oversized declared `Content-Length` before
+parsing. Bodies without a length, including chunked requests, are read only up
+to the same cap. Accepted bodies are buffered once within that bound so FastAPI
+and the MCP SDK receive the original bytes. Rejection returns a safe correlated
+HTTP 413 `request_too_large` error without authenticating or parsing it and
+without logging or echoing the payload. A body that does not arrive within the receive deadline
+returns a similarly bounded correlated HTTP 408 `request_timeout`. These active
+values are published as `x-tide.max_request_body_bytes` and
+`x-tide.request_body_timeout_seconds` in OpenAPI; REST operations with declared
+bodies document both responses.
+
+The body deadline safely covers only receipt before authentication/parsing and
+database work. The concurrency limit is enforced by Uvicorn before application
+work. The keep-alive timeout bounds only idle time between requests; neither is
+a business-operation or database-statement deadline. Shutdown attempts to drain
+in-flight requests for the configured grace period before the server proceeds.
+TIDE does not yet advertise a hard execution timeout because cancelling an
+async waiter does not prove that synchronous driver/database work stopped.
+Production statement timeouts and cancellation require dialect-specific
+certification.
+
+Uvicorn's identifying server header and duplicate access log are disabled.
+Forwarded headers remain disabled until a deployment explicitly gains a
+reviewed trusted-proxy allowlist; an operator must not infer external TLS from
+untrusted forwarding headers.
 
 Runtime MCP is opt-in through `tide serve --mcp` and the separate `mcp` package
 extra. It shares the REST process, persistence, bearer validator, and
@@ -50,8 +91,9 @@ The current MCP transport is stateless and JSON-response based. Operators must
 send the bearer credential on every request, must not log credentials or opaque
 query cursors, and must configure the identity provider to issue tokens for the
 deployment's reviewed audience/resource. Interactive token acquisition remains
-client/provider work. Mutation/action audit and production request-rate/body
-limits remain prerequisites before enabling future write tools.
+client/provider work. Mutation/action audit and shared body/concurrency limits
+apply to current write tools; a deployment-specific request-rate policy remains
+future work.
 
 `tide mcp dev APPLICATION` is a local stdio development process, not a hosted
 production endpoint. The MCP client launches it with a deployment-selected
@@ -81,26 +123,60 @@ permissions and retention policy.
 ## Health and lifecycle
 
 Hosted deployments provide separate liveness and readiness checks. Liveness
-only proves the process can respond; readiness verifies that required
-configuration is present, the database is reachable, and the schema revision is
-compatible. A process that needs migration is not ready and must not attempt an
-automatic destructive migration.
+at `GET /health/live` only proves the process can respond and never touches a
+database. Readiness at `GET /health/ready` verifies repository connectivity,
+mapped-schema compatibility, SQL row-policy translation, and any configured
+durable cursor and action/audit store schemas. It returns HTTP 200 with
+`status: ready`, or HTTP 503 with `status: not_ready`.
+
+Both probe routes are unauthenticated so a container orchestrator or service
+supervisor can use them before application identity is available. Their bounded
+responses contain only application name/version and readiness state; dependency
+exceptions, URLs, credentials, schema object names, and repair advice are not
+returned. A process that needs migration is not ready and never attempts an
+automatic destructive migration from the probe.
 
 For `database.mode: legacy`, readiness uses reflection-based compatibility
-inspection rather than a TIDE schema revision. It reports mismatched mapped
-tables, columns, keys, and types but never attempts to repair or migrate the
-externally owned database.
+inspection rather than a TIDE schema revision. Mismatched mapped tables,
+columns, keys, or types make the service not ready, but their details are never
+included in the public response and the probe never attempts to repair or
+migrate the externally owned database.
 
-Graceful shutdown stops accepting new work, lets bounded in-flight transactions
-finish, and then closes adapters and database pools. Background actions carry a
-correlation identifier and service principal just like interactive work.
+Graceful shutdown stops accepting new work, gives in-flight requests the
+configured bounded drain period, and then closes adapters and database pools.
+Background actions carry a correlation identifier and service principal just
+like interactive work.
 
 ## Logging and audit
 
-Runtime logs are structured and include timestamp, level, channel, correlation
-identifier, and safe operation name. Audit events are a separate durable
-contract. Neither stream contains credentials, protected values, full request
-bodies, arbitrary SQL parameters, or MCP prompts by default.
+`tide serve` writes one JSON object per TIDE runtime event and disables
+Uvicorn's duplicate HTTP access log. Use `--log-level` with `debug`, `info`,
+`warning`, `error`, or `critical` to select the minimum level. A completed
+request contains a UTC
+timestamp, level, event, channel, correlation identifier, stable OpenAPI
+operation (or a bounded framework fallback), method, status, and duration.
+Successful requests use `info`, client errors use `warning`, and server errors
+use `error`. Readiness failures additionally name only the failed probe and
+exception type; the exception message is excluded.
+
+```json
+{"timestamp":"2026-07-19T12:30:00.000Z","level":"info","event":"http.request.completed","channel":"rest","correlation_id":"invoice-import:42","operation":"createSalesInvoice","method":"POST","status_code":201,"duration_ms":8.417}
+```
+
+HTTP clients may send `X-Correlation-ID` using 1-128 ASCII letters, digits,
+periods, underscores, colons, and hyphens. TIDE replaces absent, malformed, or
+oversized values with a UUID and returns the effective identifier in the same
+response header. REST places it in `RequestContext`; hosted runtime MCP inherits
+it from the enclosing Streamable HTTP request. Service-layer CRUD/action audit
+therefore carries the same identifier as the transport log.
+
+The formatter has a fixed field allowlist. It never records authorization
+headers, credentials, protected values, request/response bodies, query values,
+raw URL paths, arbitrary SQL parameters, opaque cursors, MCP prompts, or
+exception messages. Audit events remain a separate durable business contract;
+structured runtime logs are operational telemetry and are not an audit
+substitute. Deployment log collection, access controls, retention, rotation,
+and deletion still require an operator policy.
 
 Domain actions now write a durable audit lifecycle when configured with a
 SQLAlchemy action store. Started rows make interrupted work visible; terminal
