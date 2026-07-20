@@ -238,6 +238,17 @@ discarded when the server stops; SQL Server-mode mutations are persistent and
 pass through the same validation, authorization, concurrency, and action audit
 services as the TUI.
 
+The isolated `api-demo` token includes both `sales_clerk` and `auditor` so the
+checked-in API tutorial can exercise the complete write-and-audit boundary. In
+a second terminal, run it and paste the printed token:
+
+```powershell
+uv run --extra client python examples/invoicing_api_client.py
+```
+
+See [Call a TIDE Application Through REST](API-CLIENT-TUTORIAL.md) for the
+expected output and a route-by-route explanation.
+
 ## Local runtime MCP
 
 Start the same isolated demo server with its metadata-opted, secured MCP

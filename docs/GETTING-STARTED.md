@@ -202,6 +202,19 @@ uv run tide api export-openapi applications/invoicing
 See [REST API and MCP](API-AND-MCP.md) for filtering, ETags, idempotency,
 production identity, and deployment requirements.
 
+For a complete executable client example, follow
+[Call a TIDE Application Through REST](API-CLIENT-TUTORIAL.md). With
+`api-demo` still running, the second terminal command is:
+
+```powershell
+uv run --extra client python examples/invoicing_api_client.py
+```
+
+The client securely prompts for the printed token, then demonstrates Product
+defaults, Invoice create/update, validation and stale-ETag failures, idempotent
+Post, correlated audit history, and the secured report contract. It has no
+database connection string.
+
 ## Test runtime MCP locally
 
 Runtime MCP gives an authenticated AI client explicitly exposed application

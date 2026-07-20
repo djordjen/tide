@@ -272,6 +272,7 @@ Start with [the documentation index](docs/README.md). Important documents are:
 - [Getting started](docs/GETTING-STARTED.md)
 - [Build your first TIDE application](docs/FIRST-APPLICATION.md)
 - [Invoicing application walkthrough](docs/INVOICING-WALKTHROUGH.md)
+- [REST API client tutorial](docs/API-CLIENT-TUTORIAL.md)
 - [Documentation plan](docs/DOCUMENTATION-PLAN.md)
 - [Vision](docs/VISION.md)
 - [Architecture](docs/ARCHITECTURE.md)

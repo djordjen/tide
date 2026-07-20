@@ -25,4 +25,8 @@ def test_windows_shortcut_requests_mode_dependencies() -> None:
     )
     assert "uv run --extra tui tide run applications/invoicing --demo" in script
     assert "uv run --extra studio tide studio applications/invoicing" in script
+    assert (
+        "tide serve applications/invoicing --demo --role sales_clerk "
+        "--role auditor --port 8000" in script
+    )
     assert ".venv\\scripts\\tide.exe" not in script

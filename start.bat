@@ -75,8 +75,8 @@ goto finish
 
 :api_demo
 call :prepare_api_token
-echo Starting the API with isolated demo data...
-uv run --extra api --extra client tide serve applications/invoicing --demo --role sales_clerk --port 8000
+echo Starting the API tutorial server with isolated demo data...
+uv run --extra api --extra client tide serve applications/invoicing --demo --role sales_clerk --role auditor --port 8000
 goto finish
 
 :mcp
@@ -137,7 +137,7 @@ echo   start.bat auditor Start read-only audit/report mode against SQL Server
 echo   start.bat auditor-demo Start read-only audit/report mode with demo data
 echo   start.bat studio Inspect and edit application metadata in memory
 echo   start.bat api    Start local API against SQL Server
-echo   start.bat api-demo Start local API with demo data
+echo   start.bat api-demo Start local API tutorial server with demo data
 echo   start.bat mcp    Start local API plus secured runtime MCP against SQL Server
 echo   start.bat mcp-demo Start local API plus secured runtime MCP with demo data
 echo   start.bat api-check Verify the running API and remote client contract

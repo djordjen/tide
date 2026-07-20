@@ -16,6 +16,9 @@ and testable by a new developer.
 - [Invoicing Application Walkthrough](INVOICING-WALKTHROUGH.md): an illustrated
   task-oriented tour tied to the exact model, view, security, action, and report
   sources;
+- [REST API client tutorial](API-CLIENT-TUTORIAL.md): an executable authenticated
+  create/update/Post/report workflow with validation, ETags, idempotency, and
+  correlated audit history;
 - [Windows quick start](WINDOWS-QUICKSTART.md): `start.bat` modes and local
   setup;
 - focused reference and architecture documents listed in the
@@ -23,10 +26,7 @@ and testable by a new developer.
 
 ## Next documentation tranche
 
-1. **API client tutorial** — authenticate, list/create/update with ETags, invoke
-   an action idempotently, inspect the audit correlation, and relate each call
-   to OpenAPI.
-2. **AI-assisted generation tutorial** — use developer MCP to propose and
+1. **AI-assisted generation tutorial** — use developer MCP to propose and
    preview an application, then use the separate local approval command. This
    should follow a stable, reproducible MCP client setup.
 

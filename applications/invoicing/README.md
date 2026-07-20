@@ -43,6 +43,9 @@ The server command additionally requires a development token of at least 32
 characters in `TIDE_API_TOKEN`. On Windows, `start.bat api-demo` generates and
 prints an ephemeral token, starts the loopback-only server, and makes the
 interactive contract available at `http://127.0.0.1:8000/docs`.
+It grants the local demo token both sales-clerk and auditor capabilities so the
+executable [REST API client tutorial](../../docs/API-CLIENT-TUTORIAL.md) can
+also retrieve the safe audit event produced by its Invoice workflow.
 The contract exposes secured list/get/create/update routes for the declared
 entities and the Invoice Post action. Invoice mutations require the `ETag` from
 a prior GET as `If-Match`; Post also requires a unique `Idempotency-Key`.
