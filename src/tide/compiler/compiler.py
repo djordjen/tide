@@ -385,6 +385,238 @@ def _humanize(value: str) -> str:
     return re.sub(r"(?<!^)(?=[A-Z])", " ", value).replace("_", " ").title()
 
 
+def _validate_migration_metadata(
+    entities: dict[str, EntitySource],
+    documents: dict[str, SourceDocument],
+    diagnostics: list[Diagnostic],
+    database_mode: str,
+) -> None:
+    migration_ids: dict[str, tuple[str, tuple[str | int, ...]]] = {}
+    current_tables: dict[tuple[str, str], str] = {}
+    previous_tables: dict[tuple[str, str], str] = {}
+
+    def register_migration_id(
+        value: str | None,
+        entity_name: str,
+        path: tuple[str | int, ...],
+    ) -> None:
+        if value is None:
+            return
+        document = documents[entity_name]
+        if not IDENTIFIER.fullmatch(value):
+            _add(
+                diagnostics,
+                "TIDE245",
+                "migration_id must be a qualified dotted identifier",
+                document,
+                path,
+            )
+            return
+        key = value.casefold()
+        previous = migration_ids.get(key)
+        if previous is not None:
+            previous_entity, previous_path = previous
+            _add(
+                diagnostics,
+                "TIDE246",
+                f"migration_id {value!r} is already used by {previous_entity} at "
+                + ".".join(str(part) for part in previous_path),
+                document,
+                path,
+            )
+            return
+        migration_ids[key] = (entity_name, path)
+
+    for entity_name, entity in entities.items():
+        document = documents[entity_name]
+        storage = entity.storage
+        table_name = storage.table if storage and storage.table else _managed_table_name(
+            entity_name
+        )
+        schema = storage.schema_ if storage and storage else None
+        table_key = ((schema or "").casefold(), table_name.casefold())
+        previous_entity = current_tables.get(table_key)
+        if previous_entity is not None:
+            _add(
+                diagnostics,
+                "TIDE248",
+                f"physical table {table_name!r} is already mapped by {previous_entity}",
+                document,
+                ("storage", "table"),
+            )
+        else:
+            current_tables[table_key] = entity_name
+
+        if storage is not None:
+            register_migration_id(
+                storage.migration_id,
+                entity_name,
+                ("storage", "migration_id"),
+            )
+
+    for entity_name, entity in entities.items():
+        document = documents[entity_name]
+        storage = entity.storage
+        table_name = storage.table if storage and storage.table else _managed_table_name(
+            entity_name
+        )
+        schema = storage.schema_ if storage and storage else None
+        if storage is not None and storage.renamed_from is not None:
+            path = ("storage", "renamed_from")
+            previous = storage.renamed_from
+            previous_schema = previous.schema_ if previous.schema_ is not None else schema
+            previous_key = (
+                (previous_schema or "").casefold(),
+                previous.table.casefold(),
+            )
+            current_key = ((schema or "").casefold(), table_name.casefold())
+            if database_mode != "managed":
+                _add(
+                    diagnostics,
+                    "TIDE247",
+                    "renamed_from is allowed only for managed database storage",
+                    document,
+                    path,
+                )
+            if storage.migration_id is None:
+                _add(
+                    diagnostics,
+                    "TIDE247",
+                    "a table rename requires storage.migration_id",
+                    document,
+                    path,
+                )
+            if previous_key == current_key:
+                _add(
+                    diagnostics,
+                    "TIDE247",
+                    "renamed_from must identify a different physical table",
+                    document,
+                    path,
+                )
+            else:
+                current_owner = current_tables.get(previous_key)
+                if current_owner is not None:
+                    _add(
+                        diagnostics,
+                        "TIDE248",
+                        f"rename source is the current table mapped by {current_owner}",
+                        document,
+                        path,
+                    )
+                previous_owner = previous_tables.get(previous_key)
+                if previous_owner is not None:
+                    _add(
+                        diagnostics,
+                        "TIDE248",
+                        f"rename source is already claimed by {previous_owner}",
+                        document,
+                        path,
+                    )
+                else:
+                    previous_tables[previous_key] = entity_name
+
+        current_columns: dict[str, str] = {}
+        previous_columns: dict[str, str] = {}
+        for field_name, field in entity.fields.items():
+            field_path = ("fields", field_name)
+            register_migration_id(
+                field.migration_id,
+                entity_name,
+                (*field_path, "migration_id"),
+            )
+            if not _is_persisted_field(field):
+                if field.renamed_from is not None:
+                    _add(
+                        diagnostics,
+                        "TIDE247",
+                        "renamed_from is allowed only for persisted fields",
+                        document,
+                        (*field_path, "renamed_from"),
+                    )
+                continue
+            column_name = _source_column_name(field_name, field)
+            column_key = column_name.casefold()
+            previous_field = current_columns.get(column_key)
+            if previous_field is not None:
+                _add(
+                    diagnostics,
+                    "TIDE248",
+                    f"physical column {column_name!r} is already mapped by field "
+                    f"{previous_field!r}",
+                    document,
+                    (*field_path, "storage" if field.type == "reference" else "column"),
+                )
+            else:
+                current_columns[column_key] = field_name
+
+        for field_name, field in entity.fields.items():
+            if field.renamed_from is None:
+                continue
+            field_path = ("fields", field_name, "renamed_from")
+            previous_key = field.renamed_from.casefold()
+            if database_mode != "managed":
+                _add(
+                    diagnostics,
+                    "TIDE247",
+                    "renamed_from is allowed only for managed database storage",
+                    document,
+                    field_path,
+                )
+            if field.migration_id is None:
+                _add(
+                    diagnostics,
+                    "TIDE247",
+                    "a column rename requires migration_id",
+                    document,
+                    field_path,
+                )
+            current_key = _source_column_name(field_name, field).casefold()
+            if previous_key == current_key:
+                _add(
+                    diagnostics,
+                    "TIDE247",
+                    "renamed_from must identify a different physical column",
+                    document,
+                    field_path,
+                )
+            else:
+                current_owner = current_columns.get(previous_key)
+                if current_owner is not None:
+                    _add(
+                        diagnostics,
+                        "TIDE248",
+                        f"rename source is the current column mapped by field "
+                        f"{current_owner!r}",
+                        document,
+                        field_path,
+                    )
+                previous_owner = previous_columns.get(previous_key)
+                if previous_owner is not None:
+                    _add(
+                        diagnostics,
+                        "TIDE248",
+                        f"rename source is already claimed by field {previous_owner!r}",
+                        document,
+                        field_path,
+                    )
+                else:
+                    previous_columns[previous_key] = field_name
+
+
+def _managed_table_name(entity_name: str) -> str:
+    return "_".join(
+        re.sub(r"(?<!^)(?=[A-Z])", "_", part).lower()
+        for part in entity_name.split(".")
+    )
+
+
+def _source_column_name(field_name: str, field: FieldSource) -> str:
+    if field.type == "reference":
+        return field.storage or f"{field_name}_id"
+    return field.column or field_name
+
+
 def _validate_entities(
     entities: dict[str, EntitySource],
     documents: dict[str, SourceDocument],
@@ -394,6 +626,12 @@ def _validate_entities(
     project_root: Path,
     database_mode: str,
 ) -> None:
+    _validate_migration_metadata(
+        entities,
+        documents,
+        diagnostics,
+        database_mode,
+    )
     for entity_name, entity in entities.items():
         document = documents[entity_name]
         if not IDENTIFIER.fullmatch(entity_name):

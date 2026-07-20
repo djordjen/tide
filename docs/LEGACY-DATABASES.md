@@ -87,13 +87,23 @@ Database commands have different authority by mode:
 | Command | Managed mode | Legacy mode |
 |---|---|---|
 | schema inspection | allowed | allowed |
-| compatibility diff | migration proposal | read-only report |
+| compatibility diff | safety-classified migration proposal | read-only report (`tide db diff`) |
 | create/revision/migrate | explicitly invoked | refused |
 | application reads/writes | mapped services | mapped services |
 
 The no-DDL rule does not make data access unrestricted. Entity, row, field,
 action, and reference validation still pass through the same secured
 application services.
+
+`tide db diff --json` labels legacy output as a `compatibility_report`, marks
+every incompatibility `manual`, sets `revision_blocked`, and reports that
+revision/apply commands are unavailable. It does not inspect or require
+TIDE-owned runtime-state tables in the externally owned schema.
+
+`migration_id` may document stable logical identity, but `renamed_from` is
+rejected in legacy mode. A rename declaration would imply TIDE-owned schema
+intent, while the external database owner remains the sole authority for all
+physical renames and other DDL.
 
 Metadata-defined deletion also preserves the no-DDL boundary. The SQLAlchemy
 repository checks `restrict` references and executes declared `cascade` or

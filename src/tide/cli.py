@@ -28,11 +28,20 @@ from tide.compiler.compiler import compile_project
 from tide.compiler.normalized import ApplicationModel
 from tide.diagnostics import CompilationFailed, Severity
 from tide.data import (
+    DatabaseBackupError,
     InMemoryRepository,
+    MigrationPlanningError,
+    RevisionGenerationError,
+    RevisionSqlRenderingError,
     Repository,
     SQLAlchemyActionExecutionStore,
     SQLAlchemyCursorStore,
     SQLAlchemyRepository,
+    create_sqlite_backup,
+    generate_revision,
+    propose_migration,
+    render_revision_sql,
+    verify_sqlite_backup,
 )
 from tide.development import (
     ApplicationApplyApproval,
@@ -398,7 +407,10 @@ def _create_parser() -> argparse.ArgumentParser:
     )
     serve.set_defaults(handler=_serve_api)
 
-    database = commands.add_parser("db", help="manage development database data")
+    database = commands.add_parser(
+        "db",
+        help="inspect, seed, back up, and verify application databases",
+    )
     database_commands = database.add_subparsers(dest="database_command")
     database_check = database_commands.add_parser(
         "check",
@@ -423,6 +435,193 @@ def _create_parser() -> argparse.ArgumentParser:
         ),
     )
     database_check.set_defaults(handler=_db_check, create_schema=False)
+    database_diff = database_commands.add_parser(
+        "diff",
+        help="produce a deterministic read-only schema migration proposal",
+    )
+    database_diff.add_argument(
+        "project",
+        nargs="?",
+        default=".",
+        metavar="APPLICATION",
+        help="application root or tide.yaml (default: current directory)",
+    )
+    database_diff.add_argument(
+        "--database-env",
+        nargs="?",
+        const="TIDE_DATABASE_URL",
+        required=True,
+        metavar="NAME",
+        help=(
+            "read the SQLAlchemy database URL from environment variable NAME "
+            "(default name: TIDE_DATABASE_URL)"
+        ),
+    )
+    database_diff.add_argument(
+        "--json",
+        action="store_true",
+        help="write the complete deterministic proposal as JSON",
+    )
+    database_diff.add_argument(
+        "--require-clean",
+        action="store_true",
+        help="return a failure status when any schema difference is present",
+    )
+    database_diff.set_defaults(handler=_db_diff)
+    database_revision = database_commands.add_parser(
+        "revision",
+        help="render an approval-bound Alembic revision without applying it",
+    )
+    database_revision.add_argument(
+        "project",
+        nargs="?",
+        default=".",
+        metavar="APPLICATION",
+        help="application root or tide.yaml (default: current directory)",
+    )
+    database_revision.add_argument(
+        "--database-env",
+        nargs="?",
+        const="TIDE_DATABASE_URL",
+        required=True,
+        metavar="NAME",
+        help=(
+            "read the SQLAlchemy database URL from environment variable NAME "
+            "(default name: TIDE_DATABASE_URL)"
+        ),
+    )
+    database_revision.add_argument(
+        "--name",
+        required=True,
+        help="short human revision name used in the artifact filename",
+    )
+    database_revision.add_argument(
+        "--proposal-fingerprint",
+        required=True,
+        metavar="SHA256",
+        help="exact proposal fingerprint from the reviewed tide db diff",
+    )
+    database_revision.add_argument(
+        "--database-fingerprint",
+        required=True,
+        metavar="SHA256",
+        help="exact database fingerprint from the reviewed tide db diff",
+    )
+    database_revision.add_argument(
+        "--backup-evidence",
+        required=True,
+        metavar="REFERENCE",
+        help="non-secret backup/restore evidence reference recorded in the manifest",
+    )
+    database_revision.add_argument(
+        "--acknowledge",
+        action="append",
+        default=[],
+        metavar="CHANGE_KEY",
+        help="exact non-additive change key from the proposal; repeat as required",
+    )
+    database_revision.add_argument(
+        "--down-revision",
+        metavar="REVISION",
+        help="existing Alembic parent revision (omit only for the first revision)",
+    )
+    database_revision.add_argument(
+        "--output-dir",
+        type=Path,
+        metavar="DIRECTORY",
+        help="directory inside the application (default: migrations/versions)",
+    )
+    database_revision.set_defaults(handler=_db_revision)
+    database_render_sql = database_commands.add_parser(
+        "render-sql",
+        help="verify a review revision and render SQL without a database connection",
+    )
+    database_render_sql.add_argument(
+        "project",
+        nargs="?",
+        default=".",
+        metavar="APPLICATION",
+        help="application root or tide.yaml (default: current directory)",
+    )
+    database_render_sql.add_argument(
+        "revision",
+        type=Path,
+        metavar="REVISION",
+        help="generated revision Python file inside the application",
+    )
+    database_render_sql.add_argument(
+        "--manifest",
+        type=Path,
+        metavar="PATH",
+        help="revision manifest (default: REVISION.manifest.json)",
+    )
+    database_render_sql.add_argument(
+        "--direction",
+        choices=("upgrade", "downgrade"),
+        default="upgrade",
+        help="migration direction to render (default: upgrade)",
+    )
+    database_render_sql.add_argument(
+        "--output",
+        type=Path,
+        metavar="PATH",
+        help="new SQL file inside the application (default: beside revision)",
+    )
+    database_render_sql.set_defaults(handler=_db_render_sql)
+    database_backup = database_commands.add_parser(
+        "backup",
+        help="create a verified, non-overwriting path-based SQLite backup",
+    )
+    database_backup.add_argument(
+        "project",
+        nargs="?",
+        default=".",
+        metavar="APPLICATION",
+        help="application root or tide.yaml (default: current directory)",
+    )
+    database_backup.add_argument(
+        "--database-env",
+        nargs="?",
+        const="TIDE_DATABASE_URL",
+        required=True,
+        metavar="NAME",
+        help=(
+            "read the SQLite SQLAlchemy URL from environment variable NAME "
+            "(default name: TIDE_DATABASE_URL)"
+        ),
+    )
+    database_backup.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        metavar="PATH",
+        help="new backup file path; an existing file is never overwritten",
+    )
+    database_backup.set_defaults(handler=_db_backup)
+    database_verify_backup = database_commands.add_parser(
+        "verify-backup",
+        help="verify a SQLite backup manifest, integrity, and application schema",
+    )
+    database_verify_backup.add_argument(
+        "project",
+        nargs="?",
+        default=".",
+        metavar="APPLICATION",
+        help="application root or tide.yaml (default: current directory)",
+    )
+    database_verify_backup.add_argument(
+        "backup",
+        type=Path,
+        metavar="BACKUP",
+        help="SQLite backup file to verify",
+    )
+    database_verify_backup.add_argument(
+        "--manifest",
+        type=Path,
+        metavar="PATH",
+        help="manifest path (default: BACKUP.manifest.json)",
+    )
+    database_verify_backup.set_defaults(handler=_db_verify_backup)
     seed = database_commands.add_parser(
         "seed",
         help="seed an empty managed database with application-owned fake data",
@@ -1333,6 +1532,190 @@ def _db_check(arguments: argparse.Namespace) -> int:
         return 0
     finally:
         storage.dispose()
+
+
+def _db_diff(arguments: argparse.Namespace) -> int:
+    model = compile_project(arguments.project)
+    environment_name = arguments.database_env
+    database_url = os.environ.get(environment_name)
+    if not database_url:
+        print(
+            "Database diff failed: environment variable "
+            f"{environment_name!r} is not set",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        proposal = propose_migration(model, database_url)
+    except MigrationPlanningError as error:
+        print(f"Database diff failed: {error}", file=sys.stderr)
+        return 1
+
+    if arguments.json:
+        _print_json(proposal.as_dict())
+    else:
+        label = (
+            "Migration proposal"
+            if proposal.kind == "migration_proposal"
+            else "Legacy compatibility report"
+        )
+        print(
+            f"{label}: {proposal.application} {proposal.application_version}; "
+            f"dialect={proposal.dialect}; mode={proposal.database_mode}."
+        )
+        print(f"Fingerprint: {proposal.fingerprint}")
+        if proposal.database_fingerprint is not None:
+            print(f"Database fingerprint: {proposal.database_fingerprint}")
+        print("Writes performed: no. Rename inference performed: no.")
+        revision_availability = (
+            "yes (render-only)"
+            if proposal.kind == "migration_proposal"
+            else "no"
+        )
+        print(
+            f"Revision generation available: {revision_availability}. "
+            "Migration apply available: no."
+        )
+        if proposal.clean:
+            print("No schema differences detected.")
+        else:
+            for change in proposal.changes:
+                transition = ""
+                if change.current is not None or change.desired is not None:
+                    transition = (
+                        f" (current={change.current or '-'}; "
+                        f"desired={change.desired or '-'})"
+                    )
+                print(
+                    f"[{change.safety.upper()}] {change.operation} "
+                    f"{change.object_name}{transition}: {change.reason}"
+                )
+            counts = proposal.as_dict()["counts"]
+            print(
+                "Changes: "
+                + ", ".join(f"{name}={count}" for name, count in counts.items())
+                + "."
+            )
+        if proposal.requires_backup:
+            print("A verified restorable backup is required before any future apply.")
+        if proposal.revision_blocked and proposal.changes:
+            print(
+                "Revision rendering is blocked because at least one operation is "
+                "unsupported by the initial renderer."
+            )
+        elif proposal.required_acknowledgements:
+            print(
+                "Revision rendering requires exact acknowledgement of every "
+                "listed non-additive change key."
+            )
+    return 1 if arguments.require_clean and not proposal.clean else 0
+
+
+def _db_revision(arguments: argparse.Namespace) -> int:
+    model = compile_project(arguments.project)
+    environment_name = arguments.database_env
+    database_url = os.environ.get(environment_name)
+    if not database_url:
+        print(
+            "Database revision failed: environment variable "
+            f"{environment_name!r} is not set",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        artifact = generate_revision(
+            model,
+            database_url,
+            name=arguments.name,
+            proposal_fingerprint=arguments.proposal_fingerprint,
+            database_fingerprint=arguments.database_fingerprint,
+            backup_evidence=arguments.backup_evidence,
+            acknowledgements=arguments.acknowledge,
+            down_revision=arguments.down_revision,
+            output_dir=arguments.output_dir,
+        )
+    except (MigrationPlanningError, RevisionGenerationError) as error:
+        print(f"Database revision failed: {error}", file=sys.stderr)
+        return 1
+    print(
+        "Review revision rendered: "
+        f"revision={artifact.revision}; operations={artifact.operation_count}; "
+        f"sha256={artifact.sha256}."
+    )
+    print(f"Script: {artifact.path}")
+    print(f"Manifest: {artifact.manifest_path}")
+    print("Database writes performed: no. Migration apply available: no.")
+    return 0
+
+
+def _db_render_sql(arguments: argparse.Namespace) -> int:
+    model = compile_project(arguments.project)
+    try:
+        artifact = render_revision_sql(
+            model,
+            arguments.revision,
+            direction=arguments.direction,
+            manifest_path=arguments.manifest,
+            output=arguments.output,
+        )
+    except RevisionSqlRenderingError as error:
+        print(f"Offline SQL rendering failed: {error}", file=sys.stderr)
+        return 1
+    print(
+        "Offline SQL review rendered: "
+        f"revision={artifact.revision}; direction={artifact.direction}; "
+        f"dialect={artifact.dialect}; operations={artifact.operation_count}; "
+        f"sha256={artifact.sha256}."
+    )
+    print(f"SQL: {artifact.path}")
+    print(f"Manifest: {artifact.manifest_path}")
+    print("Database connection used: no. Database writes performed: no.")
+    print("Migration apply available: no.")
+    return 0
+
+
+def _db_backup(arguments: argparse.Namespace) -> int:
+    model = compile_project(arguments.project)
+    environment_name = arguments.database_env
+    database_url = os.environ.get(environment_name)
+    if not database_url:
+        print(
+            "Database backup failed: environment variable "
+            f"{environment_name!r} is not set",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        artifact = create_sqlite_backup(model, database_url, arguments.output)
+    except DatabaseBackupError as error:
+        print(f"Database backup failed: {error}", file=sys.stderr)
+        return 1
+    print(
+        "Database backup complete: "
+        f"{artifact.path} ({artifact.size_bytes} bytes; sha256={artifact.sha256})."
+    )
+    print(f"Manifest: {artifact.manifest_path}")
+    return 0
+
+
+def _db_verify_backup(arguments: argparse.Namespace) -> int:
+    model = compile_project(arguments.project)
+    try:
+        verification = verify_sqlite_backup(
+            model,
+            arguments.backup,
+            manifest=arguments.manifest,
+        )
+    except DatabaseBackupError as error:
+        print(f"Database backup verification failed: {error}", file=sys.stderr)
+        return 1
+    print(
+        "Database backup verification passed: "
+        f"{verification.application} {verification.application_version}; "
+        f"dialect=sqlite; mode={verification.database_mode}; "
+        f"bytes={verification.size_bytes}; sha256={verification.sha256}."
+    )
+    return 0
 
 
 def _db_seed(arguments: argparse.Namespace) -> int:

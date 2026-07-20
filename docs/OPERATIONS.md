@@ -197,11 +197,106 @@ destructive operations require a separate acknowledgement. Deployment guidance
 must document forward migration, application rollback compatibility, and what
 cannot be reversed automatically.
 
+The current inspection-only preflight is:
+
+```powershell
+uv run tide db diff applications/invoicing --database-env --json
+```
+
+It fingerprints the reflected base schema plus safety-classified differences
+without performing DDL or rename inference. `--require-clean` makes any
+difference fail a CI/deployment check. `tide db revision` can render only its
+currently supported operations after the operator supplies the exact two
+fingerprints, a non-secret backup/restore evidence reference, and every required
+non-additive change key. The script and SHA-256 manifest are review artifacts;
+`tide db render-sql` can validate them and produce upgrade/downgrade SQL through
+Alembic offline mode without a database connection. Its SQL manifest binds both
+source hashes and fingerprints. Migration apply remains unavailable. See
+[Schema migrations](MIGRATIONS.md).
+
 Before a migration, operators verify a recent restorable backup. Release tests
 exercise backup restoration into an isolated database, not merely backup-file
-creation. SQLite deployments document safe file-copy conditions; PostgreSQL
-deployments use database-native backup and point-in-time capabilities where
-configured.
+creation.
+
+### Path-based SQLite
+
+TIDE can take an online, transactionally consistent snapshot of a path-based
+SQLite database. The URL is still read only from an environment variable:
+
+```powershell
+$env:TIDE_DATABASE_URL = "sqlite+pysqlite:///C:/tide/data/invoicing.db"
+uv run tide db backup applications/invoicing --database-env `
+  --output C:/tide/backups/invoicing-2026-07-19.db
+```
+
+The output path and its adjacent `.manifest.json` must both be absent. TIDE
+never overwrites either file. It uses SQLite's online-backup API, performs
+`PRAGMA integrity_check`, validates the compiled application schema and, for a
+managed database, validates TIDE's cursor/action/audit tables. The manifest
+binds the application and metadata versions, database mode, file name, byte
+size, creation time, and SHA-256 digest without recording the source path or
+connection URL.
+
+Verify the retained artifact again before using it:
+
+```powershell
+uv run tide db verify-backup applications/invoicing `
+  C:/tide/backups/invoicing-2026-07-19.db
+```
+
+Verification detects accidental byte or manifest changes; the manifest is not
+a digital signature. Store backups and manifests together in access-controlled
+storage and apply separate signing/immutability controls when the threat model
+requires them. Backups include business data and TIDE-owned audit/runtime state
+and must be protected like the live database.
+
+A restore remains an operator action, not an automatic TIDE overwrite. Restore
+the backup under a new path first, point a temporary `TIDE_DATABASE_URL` at it,
+run `tide db check`, and exercise representative secured reads and actions. For
+an actual replacement, stop every writer, retain the failed database as
+evidence, install the already-verified file through the deployment's controlled
+file procedure, rerun `tide db check`, and only then admit traffic.
+
+In-memory SQLite and SQLite URI connections are intentionally unsupported
+because they do not provide the unambiguous path ownership required by this
+command. Legacy SQLite mappings may be backed up because the online-backup
+operation does not issue DDL or mutate the source; ownership and retention
+policy still belong to the external database operator. A legacy layout that
+uses attached databases or otherwise spans multiple files is outside this
+single-file contract and fails application-schema verification; use an
+ownership-aware native backup procedure for every component instead.
+
+### SQL Server and other server databases
+
+TIDE does not emulate a server database backup by reading tables and does not
+request `BACKUP DATABASE` authority through the application account. SQL Server
+operators use native full/differential/log backups, checksums, encryption, and
+retention appropriate to their recovery-point and recovery-time objectives.
+The database service account, not the TIDE client host, must be able to write
+the server-side backup destination.
+
+A release recovery drill must:
+
+1. create a new native SQL Server backup with checksum under the DBA process;
+2. run `RESTORE VERIFYONLY ... WITH CHECKSUM` as an initial media check;
+3. restore the backup to a separately named database with separate data/log
+   paths rather than over the live database;
+4. give a least-privilege TIDE test identity access to that restored database;
+5. set a temporary database URL and run `tide db check` against the exact
+   application release, followed by representative secured functional tests;
+6. record the backup identity, restore duration, application/model version,
+   check results, operator, and cleanup outcome.
+
+`RESTORE VERIFYONLY` alone is not a restore rehearsal. Exact T-SQL, logical file
+names, availability-group steps, encryption-key/certificate recovery, and
+point-in-time targets are deployment-specific and remain in the DBA runbook.
+See [Microsoft SQL Server](SQL-SERVER.md#backup-and-restore-rehearsal).
+
+When a migration fails, choose either a reviewed forward repair or a database
+restore paired with an application version known to accept that restored
+schema. Do not independently roll back application binaries against an
+incompatible migrated schema. PostgreSQL and future server adapters likewise
+use database-native backup and point-in-time facilities where configured.
 
 ## Minimum production checks
 

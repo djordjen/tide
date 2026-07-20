@@ -18,6 +18,7 @@ from tide.data import (
     SQLAlchemyCursorStore,
     SQLAlchemyRepository,
     SortField,
+    propose_migration,
 )
 from tide.runtime import Channel, ConcurrencyError, Principal, RequestContext
 from tide.services import (
@@ -138,6 +139,25 @@ def test_sql_server_identity_unicode_decimal_policy_and_concurrency(
             expected_version=1,
             is_new=False,
         )
+
+
+def test_sql_server_managed_migration_proposal_is_clean(
+    sqlserver_repository: SQLAlchemyRepository,
+) -> None:
+    repository = sqlserver_repository
+    cursor_store = SQLAlchemyCursorStore(repository.engine, mode="managed")
+    action_store = SQLAlchemyActionExecutionStore(repository.engine, mode="managed")
+    cursor_store.create_schema()
+    action_store.create_schema()
+    try:
+        proposal = propose_migration(repository.model, repository.engine)
+
+        assert proposal.clean is True
+        assert proposal.dialect == "mssql"
+        assert proposal.as_dict()["writes_performed"] is False
+    finally:
+        action_store.metadata.drop_all(repository.engine)
+        cursor_store.metadata.drop_all(repository.engine)
 
 
 def test_sql_server_keyset_boundary(sqlserver_repository: SQLAlchemyRepository) -> None:

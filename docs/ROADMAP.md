@@ -192,8 +192,16 @@ the same services.
 - PostgreSQL support after the SQL Server contract is stable;
 - additional SQLAlchemy dialect certification for legacy databases, based on
   demand and dialect availability;
-- Alembic migration proposal workflow;
-- explicit rename and destructive-change handling;
+- deterministic read-only managed migration proposal with application/runtime
+  table reflection, safety classifications, stable fingerprint, JSON/CI output,
+  and legacy compatibility-report behavior; **implemented as `tide db diff`;
+  approval-bound Alembic revisions plus verified driverless offline SQL and
+  manifests are also implemented. This is the early-stage stopping point;
+  revision lineage, signed review receipts, rehearsal/apply, and automated
+  rollback are deferred until real deployment demand justifies them**;
+- stable schema identity plus explicit, no-guess table/column rename handling
+  in read-only proposals; **implemented; rename execution and destructive
+  approval remain**;
 - interactive conflict inspection and permitted field-level merge assistance;
   **implemented through shared three-way comparison/resolution contracts plus
   local/remote TUI reload, safe-field rebase, and explicit Current/Mine choices**;
@@ -215,7 +223,10 @@ the same services.
   processing, and OpenAPI limit disclosure; **implemented**;
 - reviewed proxy allowlists, request-rate policy, and dialect-certified
   statement timeout/cancellation behavior;
-- backup/restore and migration recovery guidance.
+- verified, non-overwriting online backup plus manifest/integrity/application
+  checks for path-based SQLite, and a native SQL Server isolated-restore and
+  migration-recovery runbook; **implemented for this initial operator contract;
+  automated SQL Server backup is deliberately not application authority**;
 
 Exit condition: multiple users can safely work against certified SQL Server
 deployments and receive clear concurrency feedback.

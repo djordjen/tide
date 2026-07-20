@@ -4,6 +4,10 @@ This is the golden vertical-slice application proposed in the TIDE roadmap. It
 is an executable compiler and secured headless-runtime fixture with a
 metadata-driven Textual invoice workflow.
 
+For a task-oriented tour with current screenshots and direct links from each
+behavior to its metadata, see the
+[Invoicing Application Walkthrough](../../docs/INVOICING-WALKTHROUGH.md).
+
 It demonstrates:
 
 - models split by module and entity;

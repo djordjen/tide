@@ -137,6 +137,8 @@ class FieldSource(SourceModel):
     target: str | None = None
     column: str | None = Field(default=None, min_length=1)
     storage: str | None = None
+    migration_id: str | None = Field(default=None, min_length=3)
+    renamed_from: str | None = Field(default=None, min_length=1)
     inverse: str | None = None
     on_delete: Literal["restrict", "cascade", "set_null"] | None = None
     lookup_view: str | None = None
@@ -194,9 +196,18 @@ class FilterSource(SourceModel):
     criteria: str
 
 
+class PreviousTableSource(SourceModel):
+    table: str = Field(min_length=1)
+    schema_: str | None = Field(default=None, alias="schema", min_length=1)
+
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
+
+
 class EntityStorageSource(SourceModel):
     table: str | None = Field(default=None, min_length=1)
     schema_: str | None = Field(default=None, alias="schema", min_length=1)
+    migration_id: str | None = Field(default=None, min_length=3)
+    renamed_from: PreviousTableSource | None = None
 
     model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
 

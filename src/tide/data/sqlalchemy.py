@@ -908,6 +908,7 @@ def _build_column(
             ForeignKey(
                 _qualified_name(target_schema, target_table, target_column),
                 ondelete=_sql_on_delete(field.metadata.get("on_delete")),
+                link_to_name=True,
             )
         )
     return Column(

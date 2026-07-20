@@ -9,6 +9,7 @@ set "TIDE_DATABASE_URL=mssql+pyodbc://@localhost:1433/TIDE?driver=ODBC+Driver+17
 
 if /I "%~1"=="init" goto initialize
 if /I "%~1"=="check" goto check
+if /I "%~1"=="diff" goto diff
 if /I "%~1"=="seed" goto seed
 if /I "%~1"=="demo" goto demo
 if /I "%~1"=="auditor" goto auditor
@@ -35,6 +36,11 @@ goto finish
 :check
 echo Checking SQL Server connectivity, schema, durable state, and query support...
 uv run --extra sqlserver tide db check applications/invoicing --database-env
+goto finish
+
+:diff
+echo Comparing SQL Server with the compiled managed schema without writing...
+uv run --extra sqlserver tide db diff applications/invoicing --database-env
 goto finish
 
 :demo
@@ -124,6 +130,7 @@ echo.
 echo   start.bat init   Create missing managed tables, then start SQL Server mode
 echo   start.bat        Start normally against the existing SQL Server database
 echo   start.bat check  Read-only SQL Server connectivity and compatibility check
+echo   start.bat diff   Read-only SQL Server migration proposal; never applies DDL
 echo   start.bat seed   Seed an empty initialized database with fake data
 echo   start.bat demo   Start isolated in-memory demo data
 echo   start.bat auditor Start read-only audit/report mode against SQL Server

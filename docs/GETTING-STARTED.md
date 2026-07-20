@@ -18,7 +18,8 @@ permissions, posting, reports, auditing, and optimistic concurrency.
 
 ## Prerequisites
 
-- Python 3.11 or newer;
+- Python 3.11, the current development and CI-certified baseline; project
+  metadata permits newer interpreters on a best-effort basis;
 - [uv](https://docs.astral.sh/uv/) for dependency and environment management;
 - Git;
 - a terminal with at least 80 columns for the TUI;
@@ -62,6 +63,9 @@ uv run --extra tui tide run applications/invoicing --demo --page-size 5
 
 The `--demo` switch loads application-owned sample records into memory. Closing
 the process discards every change.
+
+For a screenshot-led tour that connects each screen to its application-owned
+metadata, follow the [Invoicing Application Walkthrough](INVOICING-WALKTHROUGH.md).
 
 ## Tour the Invoicing application
 
@@ -254,14 +258,38 @@ then run normally:
 ```powershell
 .\start.bat seed
 .\start.bat check
+.\start.bat diff
 .\start.bat
 ```
+
+`diff` is inspection-only: it prints the deterministic managed migration
+proposal and never applies DDL. A clean initialized database reports no
+differences. A changed database/model can be passed to the separate
+fingerprint- and approval-bound `tide db revision` command to create review
+files inside the application. `tide db render-sql` with `--extra migration`
+then verifies those files and creates dialect-specific SQL without a database
+connection; TIDE still cannot apply it. See [Schema migrations](MIGRATIONS.md).
 
 Use `start.bat auditor` for the persisted read-only audit/report workspace.
 For an externally owned schema that TIDE must not change, follow the separate
 [legacy database no-DDL contract](LEGACY-DATABASES.md). Complete driver,
 connection, and troubleshooting guidance is in
 [Microsoft SQL Server](SQL-SERVER.md).
+
+For a path-based SQLite deployment, create a non-overwriting online backup and
+verify its adjacent SHA-256 manifest with:
+
+```powershell
+uv run tide db backup applications/invoicing --database-env `
+  --output backups/invoicing.db
+uv run tide db verify-backup applications/invoicing backups/invoicing.db
+```
+
+SQL Server continues to use native DBA-managed backup and a real isolated
+restore drill; TIDE validates the restored application and framework schema
+with `tide db check`. Follow the full
+[backup and recovery runbook](OPERATIONS.md#database-changes-and-recovery)
+before a production release or migration.
 
 ## Create another application
 
@@ -273,6 +301,8 @@ reports, security, mappings, and optional handlers.
 There is not yet a general `tide new` wizard. Today, developers can either:
 
 - create the manifest and YAML files directly using the metadata references;
+- follow [Build Your First TIDE Application](FIRST-APPLICATION.md), whose small
+  Contacts example is compiler-validated in CI;
 - use the Invoicing structure as a reviewed example; or
 - use developer MCP to prepare a structured proposal, then review and apply it
   through the separate approval-required local command.

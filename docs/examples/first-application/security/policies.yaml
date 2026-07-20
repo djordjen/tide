@@ -1,0 +1,15 @@
+permissions:
+  - crm.contact.read
+  - crm.contact.write
+  - crm.contact.delete
+
+roles:
+  contact_manager:
+    grants:
+      - crm.contact.read
+      - crm.contact.write
+      - crm.contact.delete
+
+  contact_viewer:
+    grants:
+      - crm.contact.read

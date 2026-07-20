@@ -1,0 +1,9 @@
+view: crm.Contact.edit
+entity: crm.Contact
+kind: form
+
+layout:
+  - group: Contact
+    rows:
+      - [name, active]
+      - [email]
