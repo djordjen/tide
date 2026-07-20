@@ -1,0 +1,280 @@
+{
+  "operations": [
+    {
+      "operation": "create_application",
+      "application_id": "xy-invoicing",
+      "name": "XY Company Invoicing"
+    },
+    {
+      "operation": "define_entity",
+      "entity": "crm.Company",
+      "label": "Companies",
+      "display": "{code} - {name}",
+      "fields": [
+        {"name": "id", "type": "integer", "primary_key": true},
+        {
+          "name": "code",
+          "type": "string",
+          "required": true,
+          "unique": true,
+          "length": 20
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "length": 120
+        },
+        {"name": "email", "type": "string", "length": 254},
+        {
+          "name": "invoices",
+          "type": "collection",
+          "target": "sales.Invoice",
+          "inverse": "company"
+        }
+      ],
+      "list_permission": "crm.company.read",
+      "read_permission": "crm.company.read",
+      "create_permission": "crm.company.write",
+      "update_permission": "crm.company.write",
+      "delete_permission": "crm.company.delete",
+      "audit_permission": "crm.company.audit",
+      "expose_rest": ["list", "get", "create", "update", "delete"],
+      "expose_mcp": [
+        "schema",
+        "record",
+        "audit",
+        "search",
+        "create",
+        "update",
+        "delete"
+      ]
+    },
+    {
+      "operation": "define_entity",
+      "entity": "catalog.Product",
+      "label": "Products",
+      "display": "{code} - {name}",
+      "fields": [
+        {"name": "id", "type": "integer", "primary_key": true},
+        {
+          "name": "code",
+          "type": "string",
+          "required": true,
+          "unique": true,
+          "length": 30
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "length": 120
+        },
+        {
+          "name": "unit_price",
+          "type": "decimal",
+          "required": true,
+          "precision": 12,
+          "scale": 2
+        },
+        {
+          "name": "invoice_lines",
+          "type": "collection",
+          "target": "sales.InvoiceLine",
+          "inverse": "product"
+        }
+      ],
+      "list_permission": "catalog.product.read",
+      "read_permission": "catalog.product.read",
+      "create_permission": "catalog.product.write",
+      "update_permission": "catalog.product.write",
+      "expose_rest": ["list", "get", "create", "update"],
+      "expose_mcp": ["schema", "record", "search", "create", "update"]
+    },
+    {
+      "operation": "define_entity",
+      "entity": "sales.Invoice",
+      "label": "Invoices",
+      "display": "number",
+      "fields": [
+        {"name": "id", "type": "integer", "primary_key": true},
+        {
+          "name": "number",
+          "type": "string",
+          "required": true,
+          "unique": true,
+          "readonly": true,
+          "length": 30,
+          "sequence": {
+            "prefix": "INV",
+            "date_field": "invoice_date",
+            "width": 6
+          }
+        },
+        {
+          "name": "invoice_date",
+          "type": "date",
+          "required": true,
+          "default_factory": "today"
+        },
+        {
+          "name": "company",
+          "type": "reference",
+          "target": "crm.Company",
+          "inverse": "invoices",
+          "required": true,
+          "on_delete": "restrict"
+        },
+        {
+          "name": "status",
+          "type": "choice",
+          "choices": ["draft", "posted"],
+          "default": "draft",
+          "readonly": true
+        },
+        {"name": "posted_at", "type": "datetime", "readonly": true},
+        {
+          "name": "posted_by",
+          "type": "string",
+          "readonly": true,
+          "length": 120
+        },
+        {
+          "name": "lines",
+          "type": "collection",
+          "target": "sales.InvoiceLine",
+          "inverse": "invoice",
+          "cascade": ["create", "update"],
+          "orphan_delete": true
+        },
+        {
+          "name": "total",
+          "type": "decimal",
+          "precision": 12,
+          "scale": 2,
+          "readonly": true,
+          "computed_expression": "sum(lines.total)"
+        }
+      ],
+      "list_permission": "sales.invoice.read",
+      "read_permission": "sales.invoice.read",
+      "create_permission": "sales.invoice.create",
+      "expose_rest": ["list", "get", "create"],
+      "expose_mcp": ["schema", "record", "search", "create"]
+    },
+    {
+      "operation": "define_entity",
+      "entity": "sales.InvoiceLine",
+      "label": "Invoice Lines",
+      "fields": [
+        {"name": "id", "type": "integer", "primary_key": true},
+        {
+          "name": "invoice",
+          "type": "reference",
+          "target": "sales.Invoice",
+          "inverse": "lines",
+          "required": true,
+          "on_delete": "cascade"
+        },
+        {
+          "name": "product",
+          "type": "reference",
+          "target": "catalog.Product",
+          "inverse": "invoice_lines",
+          "required": true,
+          "on_delete": "restrict"
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "required": true,
+          "length": 200
+        },
+        {
+          "name": "quantity",
+          "type": "decimal",
+          "required": true,
+          "precision": 12,
+          "scale": 3
+        },
+        {
+          "name": "unit_price",
+          "type": "decimal",
+          "required": true,
+          "precision": 12,
+          "scale": 2
+        },
+        {
+          "name": "total",
+          "type": "decimal",
+          "precision": 12,
+          "scale": 2,
+          "readonly": true,
+          "computed_expression": "round(quantity * unit_price, 2)"
+        }
+      ],
+      "list_permission": "sales.invoice.read",
+      "read_permission": "sales.invoice.read"
+    },
+    {
+      "operation": "define_state_transition",
+      "entity": "sales.Invoice",
+      "action": "post",
+      "label": "Post invoice",
+      "state_field": "status",
+      "from_values": ["draft"],
+      "to_value": "posted",
+      "permission": "sales.invoice.post",
+      "requires_collection": "lines",
+      "stamp_datetime_field": "posted_at",
+      "stamp_principal_field": "posted_by",
+      "expose_rest": true,
+      "expose_mcp": true
+    },
+    {
+      "operation": "define_record_report",
+      "report": "sales.invoice",
+      "title": "Invoice",
+      "entity": "sales.Invoice",
+      "permission": "sales.invoice.report",
+      "header_fields": ["number", "invoice_date", "company", "status"],
+      "detail_collection": "lines",
+      "detail_columns": [
+        "product",
+        "description",
+        "quantity",
+        "unit_price",
+        "total"
+      ],
+      "footer_fields": ["total"],
+      "expose_rest": true,
+      "pdf_enabled": true
+    },
+    {
+      "operation": "define_role",
+      "role": "invoice_creator",
+      "grants": [
+        "crm.company.read",
+        "crm.company.write",
+        "crm.company.delete",
+        "crm.company.audit",
+        "catalog.product.read",
+        "catalog.product.write",
+        "sales.invoice.read",
+        "sales.invoice.create",
+        "sales.invoice.report"
+      ]
+    },
+    {
+      "operation": "define_role",
+      "role": "invoice_poster",
+      "grants": [
+        "crm.company.read",
+        "catalog.product.read",
+        "sales.invoice.read",
+        "sales.invoice.post",
+        "sales.invoice.report"
+      ]
+    }
+  ]
+}

@@ -19,16 +19,20 @@ and testable by a new developer.
 - [REST API client tutorial](API-CLIENT-TUTORIAL.md): an executable authenticated
   create/update/Post/report workflow with validation, ETags, idempotency, and
   correlated audit history;
+- [AI-assisted generation tutorial](AI-GENERATION-TUTORIAL.md): connect local
+  ChatGPT/Codex to developer MCP, propose and preview a structured application,
+  then cross the separate explicit local approval boundary;
 - [Windows quick start](WINDOWS-QUICKSTART.md): `start.bat` modes and local
   setup;
 - focused reference and architecture documents listed in the
   [documentation index](README.md).
 
-## Next documentation tranche
+## Next documentation work
 
-1. **AI-assisted generation tutorial** — use developer MCP to propose and
-   preview an application, then use the separate local approval command. This
-   should follow a stable, reproducible MCP client setup.
+No additional standalone documentation tranche should get ahead of the
+implementation. The next guide will accompany the next user-visible feature;
+production deployment, Qt, web rendering, and controlled migration execution
+remain deliberately deferred below.
 
 Each tranche should include runnable commands, expected output, relevant
 screenshots or a small diagram, and CI checks for local links and compilable

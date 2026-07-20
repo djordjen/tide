@@ -308,6 +308,12 @@ client. Configure that client to launch this command from the repository root:
 uv run --extra mcp tide mcp dev applications/invoicing
 ```
 
+Local ChatGPT desktop/Codex clients can launch this STDIO command directly; no
+Control Plane key, public tunnel, or separately started server is required. See
+[Generate a TIDE Application with AI and Developer MCP](AI-GENERATION-TUTORIAL.md)
+for the exact desktop fields, `config.toml` template, example prompt, and
+checked-in XY Company plan.
+
 Unlike `mcp-demo`, this process does not expose or change business data. It can
 inspect the compiled project, validate structured proposals for a new TIDE
 application, and preview them in a deleted temporary candidate tree. For
@@ -323,15 +329,15 @@ Developer MCP still has no apply tool. Save the same structured plan as JSON to
 use the separate local approval boundary:
 
 ```powershell
-uv run tide app preview plan.json --workspace .
-uv run tide app apply plan.json --workspace .
+uv run tide app preview examples/ai_generation/xy_invoicing_plan.json --workspace .
+uv run tide app apply examples/ai_generation/xy_invoicing_plan.json --workspace .
 ```
 
 The second command prints the exact diff and requires the complete displayed
 `APPLY tide-approval-...` challenge. It creates only a previously absent
 `applications/<application-id>` tree and records `.tide-apply.json`; it never
-edits or replaces an existing application. See
-[AI-assisted application generation](AI-APPLICATION-GENERATION.md).
+edits or replaces an existing application. The detailed security contract is
+in [AI-assisted application generation](AI-APPLICATION-GENERATION.md).
 
 To preview a structured edit to an existing application, save a
 `DesignerCommandBatch` as `changes.json` and run:

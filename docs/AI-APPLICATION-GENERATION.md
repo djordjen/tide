@@ -1,5 +1,11 @@
 # AI-Assisted Application Generation
 
+For a runnable local ChatGPT desktop/Codex connection, natural-language prompt,
+checked-in XY Company plan, expected preview output, and explicit approval
+walkthrough, start with
+[Generate a TIDE Application with AI and Developer MCP](AI-GENERATION-TUTORIAL.md).
+This document remains the detailed architecture and security contract.
+
 ## Two MCP trust boundaries
 
 TIDE deliberately separates two MCP servers:

@@ -238,9 +238,10 @@ as `search_catalog_product`, then exercise the generated create/update tools or
 the idempotent `post_sales_invoice` action. The demo process discards all
 changes when it stops.
 
-ChatGPT itself requires a supported remote connector or Secure MCP Tunnel;
-`localhost` cannot be registered directly. Keep that deployment step separate
-from this local functional test.
+ChatGPT web requires remotely supplied MCP tools and cannot launch this local
+HTTP process directly. Local ChatGPT desktop/Codex clients can configure MCP on
+their Codex host; keep that developer workflow separate from exposing a runtime
+data server over the internet.
 
 Developer MCP is a different, local stdio surface for inspecting and proposing
 TIDE application definitions:
@@ -251,6 +252,10 @@ uv run --extra mcp tide mcp dev applications/invoicing
 
 It can produce deterministic proposals and validated candidate artifacts, but
 cannot apply them or write arbitrary workspace files. See
+[Generate a TIDE Application with AI and Developer MCP](AI-GENERATION-TUTORIAL.md)
+for the complete ChatGPT desktop/Codex setup, example prompt, checked-in plan,
+expected output, and explicit local approval walkthrough. The architectural and
+security contract remains in
 [AI-assisted application generation](AI-APPLICATION-GENERATION.md).
 
 ## Use the local SQL Server database on Windows

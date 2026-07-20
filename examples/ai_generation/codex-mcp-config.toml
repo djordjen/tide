@@ -1,0 +1,27 @@
+# Copy this table into ~/.codex/config.toml, or add the server through
+# ChatGPT desktop Settings > MCP servers. Replace cwd with this repository's
+# absolute path before restarting the local Codex host.
+[mcp_servers.tide_developer]
+command = "uv"
+args = [
+  "run",
+  "--extra",
+  "mcp",
+  "tide",
+  "mcp",
+  "dev",
+  "applications/invoicing",
+]
+cwd = "REPLACE_WITH_ABSOLUTE_TIDE_REPOSITORY_PATH"
+required = false
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+enabled_tools = [
+  "tide_validate_project",
+  "tide_list_entities",
+  "tide_describe_entity",
+  "tide_get_resolved_view",
+  "tide_preview_openapi",
+  "tide_propose_application",
+  "tide_preview_application",
+]

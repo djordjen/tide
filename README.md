@@ -118,8 +118,11 @@ and optional PDF checks. It returns exact artifacts, hashes and a diff, but has
 no MCP-side apply/workspace-write or arbitrary code/path tool. An explicit
 local `tide app apply` command can bind those values to an absent destination,
 require the exact interactive approval challenge, and atomically publish a new
-application with an audit receipt; it never edits an existing application. See
-[AI-assisted application generation](docs/AI-APPLICATION-GENERATION.md).
+application with an audit receipt; it never edits an existing application. Try
+the complete local client workflow in the
+[AI-assisted generation tutorial](docs/AI-GENERATION-TUTORIAL.md), and see
+[AI-assisted application generation](docs/AI-APPLICATION-GENERATION.md) for the
+architecture and security contract.
 Existing applications now have a headless DesignerService with typed property/
 order commands, atomic in-memory batches, compiler validation, exact comment-
 preserving diffs and bounded undo/redo. `tide designer preview` remains no-
@@ -273,6 +276,7 @@ Start with [the documentation index](docs/README.md). Important documents are:
 - [Build your first TIDE application](docs/FIRST-APPLICATION.md)
 - [Invoicing application walkthrough](docs/INVOICING-WALKTHROUGH.md)
 - [REST API client tutorial](docs/API-CLIENT-TUTORIAL.md)
+- [AI-assisted generation tutorial](docs/AI-GENERATION-TUTORIAL.md)
 - [Documentation plan](docs/DOCUMENTATION-PLAN.md)
 - [Vision](docs/VISION.md)
 - [Architecture](docs/ARCHITECTURE.md)
