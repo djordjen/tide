@@ -99,6 +99,7 @@ def test_client_round_trips_types_mutations_versions_and_actions() -> None:
             1,
         )
         report = client.build_report_for_record("sales.invoice", 1)
+        summary = client.build_report("sales.summary")
         product = client.create_record(
             "catalog.Product",
             {
@@ -168,6 +169,8 @@ def test_client_round_trips_types_mutations_versions_and_actions() -> None:
     assert report.detail.rows[0][-1].text == "850.00"
     assert "INV-2026-0001" in render_html(report)
     assert render_pdf(report).startswith(b"%PDF-")
+    assert summary.report == "sales.summary"
+    assert summary.detail.rows[0][-1].text == "4,610.00"
     assert product.values["unit_price"] == Decimal("29.95")
     assert product.etag is None
     assert deleted_product.value.status_code == 404

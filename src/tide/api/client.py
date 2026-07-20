@@ -512,6 +512,37 @@ class TideApiClient:
             ),
             expected=(200,),
         )
+        return self._report_document(response, report_name)
+
+    def build_report(
+        self,
+        report_name: str,
+        parameters: Mapping[str, Any] | None = None,
+    ) -> ReportDocument:
+        """Build an authorized renderer-neutral summary report."""
+
+        report = self.model.reports.get(report_name)
+        if (
+            report is None
+            or report.get("kind", "record") != "summary"
+            or report.get("expose", {}).get("rest") is not True
+        ):
+            raise TideApiContractError(
+                f"summary report {report_name!r} is not exposed through REST"
+            )
+        response = self._request(
+            "POST",
+            f"{self.base_path}/_tide/reports/{quote(report_name, safe='')}",
+            json=dict(parameters or {}),
+            expected=(200,),
+        )
+        return self._report_document(response, report_name)
+
+    def _report_document(
+        self,
+        response: httpx.Response,
+        report_name: str,
+    ) -> ReportDocument:
         try:
             wire = TideReportDocument.model_validate(self._json_object(response))
         except ValidationError as error:

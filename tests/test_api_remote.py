@@ -194,12 +194,17 @@ def test_remote_capabilities_hide_mutations_and_reports_fail_closed() -> None:
             context,
         )
         assert not reports.can_generate("sales.invoice", context)
+        assert not reports.can_generate("sales.summary", context)
         with pytest.raises(AuthorizationError):
             records.begin_edit("sales.Invoice", 1, context)
         with pytest.raises(TideApiClientError) as denied:
             reports.build_for_record("sales.invoice", 1, context)
+        with pytest.raises(TideApiClientError) as denied_summary:
+            reports.build("sales.summary", {}, context)
         assert denied.value.status_code == 403
     assert denied.value.code == "forbidden"
+    assert denied_summary.value.status_code == 403
+    assert denied_summary.value.code == "forbidden"
 
 
 def test_remote_textual_delete_uses_the_secured_http_facade() -> None:
@@ -349,6 +354,18 @@ def test_remote_textual_preview_uses_the_server_report_document(
 
                 await pilot.click("#export-html")
                 assert (tmp_path / "invoice-INV-2026-0001.html").is_file()
+
+                await pilot.press("escape")
+                await pilot.pause()
+                summary = tide_app.query_one("#summary-report", Button)
+                assert summary.display
+                assert not summary.disabled
+                await pilot.click("#summary-report")
+                await pilot.pause()
+                assert isinstance(tide_app.screen, ReportPreviewScreen)
+                assert "4,610.00" in tide_app.screen.document.plain_text()
+                await pilot.click("#export-csv")
+                assert list(tmp_path.glob("sales-summary-*.csv"))
 
     asyncio.run(exercise())
 

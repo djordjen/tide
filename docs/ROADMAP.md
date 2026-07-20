@@ -233,11 +233,18 @@ deployments and receive clear concurrency feedback.
 
 ## Milestone 6 - Reporting
 
+Status: **the first business-facing summary slice is implemented**. Invoicing
+now has a secured, bounded posted-sales summary grouped by Customer/Currency,
+`count` and `sum` aggregates, local/remote Textual preview, REST transport, and
+controlled CSV export. Richer band/page behavior, parameters in the example,
+spreadsheet formats, report MCP actions, and designer tooling remain.
+
 - stable declarative band model;
 - parameters, groups, totals, headers, and footers;
 - HTML preview and PDF output;
 - page behavior and repeatable-band tests;
-- CSV and spreadsheet export;
+- CSV export; **implemented for renderer-neutral detail tables**
+- spreadsheet export;
 - report actions through TUI, REST, and MCP where exposed;
 - initial report property editor and preview tools.
 

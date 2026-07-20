@@ -514,6 +514,28 @@ def build_fastapi_app(
             values=_wire_draft(model, entity, updated),
         )
 
+    @app.post(
+        f"{base_path.rstrip('/')}/_tide/reports/{{report_name}}",
+        tags=["TIDE"],
+        summary="Build one secured summary report",
+        response_model=TideReportDocument,
+        responses=_documented_errors(400, 401, 403, 404, 422),
+    )
+    def summary_report(
+        context: RequestContext = Depends(request_context),
+        report_name: str = Path(min_length=1),
+        parameters: dict[str, Any] = Body(default_factory=dict),
+    ) -> TideReportDocument:
+        report = model.reports.get(report_name)
+        if (
+            report is None
+            or report.get("kind", "record") != "summary"
+            or report.get("expose", {}).get("rest") is not True
+        ):
+            raise NotFoundError(f"report {report_name!r} was not found")
+        document = report_service.build(report_name, parameters, context)
+        return TideReportDocument.model_validate(asdict(document))
+
     @app.get(
         f"{base_path.rstrip('/')}/_tide/reports/{{report_name}}/records/{{identity}}",
         tags=["TIDE"],
@@ -527,7 +549,11 @@ def build_fastapi_app(
         identity: str = Path(min_length=1),
     ) -> TideReportDocument:
         report = model.reports.get(report_name)
-        if report is None or report.get("expose", {}).get("rest") is not True:
+        if (
+            report is None
+            or report.get("kind", "record") != "record"
+            or report.get("expose", {}).get("rest") is not True
+        ):
             raise NotFoundError(f"report {report_name!r} was not found")
         entity = model.entity(str(report["entity"]))
         primary_key = _primary_key(entity)

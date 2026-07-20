@@ -59,7 +59,7 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
         assert docs.status_code == 200
         assert session.status_code == 200
         assert session.json()["authentication"] == "development-bearer"
-        assert session.json()["reports"] == ["sales.invoice"]
+        assert session.json()["reports"] == ["sales.invoice", "sales.summary"]
         invoice_capabilities = session.json()["entities"]["sales.Invoice"]
         assert invoice_capabilities["operations"] == [
             "list",
@@ -156,6 +156,9 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
             "/api/v1/_tide/reports/{report_name}/records/{identity}"
         ]
     ) == {"get"}
+    assert set(schema["paths"]["/api/v1/_tide/reports/{report_name}"]) == {
+        "post"
+    }
     assert "/api/v1/invoices/{id}/actions/post" in schema["paths"]
     assert "413" in schema["paths"]["/api/v1/invoices"]["post"]["responses"]
     assert "408" in schema["paths"]["/api/v1/invoices"]["post"]["responses"]
@@ -807,6 +810,11 @@ def test_server_builds_only_authorized_renderer_neutral_reports() -> None:
                 "/api/v1/_tide/reports/missing.report/records/1",
                 headers=_authorization(),
             )
+            summary = await client.post(
+                "/api/v1/_tide/reports/sales.summary",
+                headers=_authorization(),
+                json={},
+            )
         async with _client(denied_app) as client:
             session = await client.get(
                 "/api/v1/_tide/session",
@@ -815,6 +823,11 @@ def test_server_builds_only_authorized_renderer_neutral_reports() -> None:
             denied = await client.get(
                 "/api/v1/_tide/reports/sales.invoice/records/1",
                 headers=_authorization(),
+            )
+            denied_summary = await client.post(
+                "/api/v1/_tide/reports/sales.summary",
+                headers=_authorization(),
+                json={},
             )
 
         assert generated.status_code == 200
@@ -830,9 +843,13 @@ def test_server_builds_only_authorized_renderer_neutral_reports() -> None:
         assert generated.headers["cache-control"] == "no-store"
         assert unknown.status_code == 404
         assert unknown.json()["code"] == "not_found"
+        assert summary.status_code == 200
+        assert summary.json()["detail"]["rows"][0][-1]["text"] == "4,610.00"
         assert session.json()["reports"] == []
         assert denied.status_code == 403
         assert denied.json()["code"] == "forbidden"
+        assert denied_summary.status_code == 403
+        assert denied_summary.json()["code"] == "forbidden"
 
     asyncio.run(exercise())
 

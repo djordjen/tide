@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -7,7 +9,17 @@ import pytest
 
 from tide import compile_project
 from tide.data import InMemoryRepository
-from tide.reporting import ReportService, render_html, render_pdf, write_html, write_pdf
+from tide.reporting import (
+    ReportCell,
+    ReportService,
+    ReportTable,
+    render_csv,
+    render_html,
+    render_pdf,
+    write_csv,
+    write_html,
+    write_pdf,
+)
 from tide.runtime import AuthorizationError, Channel, Principal, RequestContext, ValidationFailed
 from tide.services import RecordsService
 from tide.tui import seed_demo_data
@@ -98,6 +110,69 @@ def test_report_parameters_are_typed_and_required(reporting) -> None:
         service.build("sales.invoice", {"invoice_id": "not-a-number"}, context)
     with pytest.raises(ValidationFailed, match="invoice_id.*integer"):
         service.build("sales.invoice", {"invoice_id": 1.5}, context)
+
+
+def test_summary_report_groups_secured_rows_and_exports_safe_csv(
+    reporting,
+    tmp_path: Path,
+) -> None:
+    service, context = reporting
+
+    document = service.build(
+        "sales.summary",
+        {},
+        context,
+        generated_at=datetime(2026, 7, 20, 9, 0, tzinfo=timezone.utc),
+    )
+
+    assert document.title == "Posted Sales Summary"
+    assert document.suggested_filename == "sales-summary-2026-07-20"
+    assert [column.name for column in document.detail.columns] == [
+        "customer",
+        "currency",
+        "invoice_count",
+        "sales_total",
+    ]
+    assert [cell.text for cell in document.detail.rows[0]] == [
+        "ADRIA - Adria Consulting",
+        "EUR",
+        "3",
+        "4,610.00",
+    ]
+    assert document.footer_values[0].text == "3"
+    csv_text = render_csv(document)
+    assert csv_text == (
+        "Customer,Currency,Invoices,Sales total\r\n"
+        'ADRIA - Adria Consulting,EUR,3,"4,610.00"\r\n'
+    )
+    csv_path = write_csv(document, tmp_path / "summary.csv")
+    assert csv_path.read_bytes().startswith(b"\xef\xbb\xbf")
+    assert csv_path.read_bytes()[3:].decode("utf-8") == csv_text
+
+    unsafe = replace(
+        document,
+        detail=ReportTable(
+            document.detail.columns,
+            ((ReportCell("=HYPERLINK(\"bad\")"), *document.detail.rows[0][1:]),),
+        ),
+    )
+    assert render_csv(unsafe).splitlines()[1].startswith("\"'=HYPERLINK")
+
+
+def test_summary_report_refuses_incomplete_aggregates(reporting) -> None:
+    service, context = reporting
+    repository = service.records.repository
+    template = repository.all("sales.Invoice")[0]
+    extra = []
+    for identity in range(9, 508):
+        invoice = deepcopy(template)
+        invoice["id"] = identity
+        invoice["number"] = f"INV-2026-{identity:04d}"
+        extra.append(invoice)
+    repository.seed("sales.Invoice", extra)
+
+    with pytest.raises(ValueError, match="exceeds its row limit of 500"):
+        service.build("sales.summary", {}, context)
 
 
 def test_html_and_pdf_renderers_write_standalone_documents(

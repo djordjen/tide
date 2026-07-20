@@ -387,29 +387,59 @@ bands:
     - expression: "'Page ' + page_number"
 ```
 
-The executable v0.1 subset is intentionally a secured `kind: record` report.
-Its query must bind the entity primary key to one required parameter, so the
-runtime can perform an indexed, row-policy-aware `RecordsService.get` instead
-of loading and filtering a table in memory. The compiler validates report
-access, parameter and expression types, root fields, the detail collection,
-detail columns, and named formats. Reports fail closed if any requested field
-is protected. REST delivery is independently opt-in through
-`expose.rest: true`; declaring a report permission alone does not create an
-HTTP route.
+The executable v0.1 record subset is a secured `kind: record` report. Its query
+binds the entity primary key to one required parameter, so the runtime can
+perform an indexed, row-policy-aware `RecordsService.get`. The first
+business-facing collection subset is `kind: summary`:
+
+```yaml
+report: sales.summary
+title: Posted Sales Summary
+entity: sales.Invoice
+kind: summary
+permission: sales.invoice.report
+expose: {rest: true}
+
+query:
+  criteria: "status == 'posted'"
+  sort: [customer, currency]
+
+group_by:
+  - {field: customer, label: Customer}
+  - {field: currency, label: Currency}
+
+aggregates:
+  - {name: invoice_count, function: count, label: Invoices}
+  - {name: sales_total, function: sum, field: total, format: money}
+
+row_limit: 500
+```
+
+Summary criteria are the shared typed expression syntax, restricted in this
+initial slice to direct field comparisons joined by `and` so they translate to
+the structured repository query. Group values and aggregate inputs come only
+from row/field-policy-projected records. The runtime refuses generation when a
+next page would make the totals incomplete. The compiler validates report
+access, parameters and expression types, fields, aggregate types, sorting, and
+named formats. Reports fail closed if any requested field is protected. REST
+delivery is independently opt-in through `expose.rest: true`; declaring a
+report permission alone does not create an HTTP route.
 
 ## Report capabilities
 
 The intended progression includes:
 
 - typed required parameters with validation; **implemented for record reports**
-- sorting, filtering, grouping, and totals;
+- queryable sorting/filtering plus grouping, `count`, and numeric `sum`;
+  **implemented for bounded summary reports**
 - shared formats and computed expressions; **implemented**
 - page size, orientation, and margins;
 - repeating table headers and numbered page footers; **implemented in PDF**
 - page breaks and keep-together behavior;
 - tables, text, images, and later barcodes;
 - standalone HTML output, native A4 PDF output, and TUI preview; **implemented**
-- controlled CSV and spreadsheet export;
+- controlled CSV export of formatted detail tables; **implemented**
+- spreadsheet export;
 - subreports after the core band model is stable.
 
 A browser-based designer is the likely primary visual report designer because
@@ -431,14 +461,16 @@ containing only authorized, already formatted values. Textual renders that
 document as a terminal preview. A standard-library renderer writes standalone
 print CSS/HTML, while the optional `report` package extra uses ReportLab to
 write A4 PDF directly with Unicode-capable system-font discovery, repeating
-table headings, numeric alignment, and page numbering. Output defaults to
-`output/reports/` below the process working directory.
+table headings, numeric alignment, and page numbering. The standard-library
+CSV renderer writes the authorized formatted detail table with UTF-8 BOM for
+spreadsheet compatibility and neutralizes formula-looking text cells. Output
+defaults to `output/reports/` below the process working directory.
 
 For remote Textual mode, the server builds this same secured document and
 transports its versioned structure. The client validates it and reuses the
-ordinary preview/HTML/PDF renderers; raw records and database credentials never
+ordinary preview/CSV/HTML/PDF renderers; raw records and database credentials never
 move to the reporting client.
 
 This establishes the adapter boundary without claiming a pixel-perfect report
-engine. Grouping, images, arbitrary result-set reports, configurable page
+engine. Group bands, images, arbitrary result-set reports, configurable page
 geometry, keep-together controls, and durable report audit remain later work.

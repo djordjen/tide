@@ -403,9 +403,9 @@ running and execute:
 Paste the same token when prompted. The remote TUI receives no SQL Server URL
 or database driver access: browse, search, sorting, paging, lookups,
 create/update, nested invoice lines, and posting go through FastAPI and the
-server-side services. Invoice report data is likewise authorized and formatted
-on the server; Preview and local HTML/PDF export work through the transported
-renderer-neutral document.
+server-side services. Invoice and posted-sales summary data is likewise
+authorized and formatted on the server; Preview/Summary and local CSV/HTML/PDF
+export work through the transported renderer-neutral document.
 
 The `api` and `api-demo` shortcuts deliberately use development identity and
 are restricted to the local computer. Do not change their binding to a network
@@ -444,7 +444,9 @@ this command's non-loopback mode therefore requires direct TLS.
 ## Previewing and exporting an invoice
 
 In the Invoice workspace, highlight a saved invoice and click **Preview** or
-press `V`. The report preview offers **Export HTML** and **Export PDF**. When
+press `V`; choose **Summary** or press `S` for posted sales grouped by Customer
+and Currency. The report preview offers **Export CSV**, **Export HTML**, and
+**Export PDF**. When
 started through `start.bat`, exported files are placed in the repository's
 `output\reports` directory. The documented `uv sync --extra dev --extra
 sqlserver` installation includes ReportLab; a minimal production installation

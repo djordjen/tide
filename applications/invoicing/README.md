@@ -16,7 +16,7 @@ It demonstrates:
 - computed line and invoice totals;
 - shared presentation defaults and formats;
 - named filters and an invoice browse overlay;
-- a declarative secured invoice report;
+- declarative secured invoice and posted-sales summary reports;
 - strict metadata v0.1 validation and source-located diagnostics;
 - action-owned posting state and an optimistic concurrency token;
 - idempotent posting behavior with audit stamps and decimal rounding;
@@ -69,7 +69,7 @@ With that server still running, `start.bat remote` prompts for the printed token
 and opens the same Textual workflow as an HTTP client. It supports browse,
 search, filters, sorting, paging, lookups, nested create/edit, and posting while
 receiving no database URL. Invoice report documents are built and authorized
-on the server, then previewed and exported to HTML/PDF by the remote TUI.
+on the server, then previewed and exported to CSV/HTML/PDF by the remote TUI.
 
 The `--demo` flag explicitly executes this application's `demo_data.py` and
 loads an in-memory repository; it never changes a database. Omit `--page-size`
@@ -122,10 +122,20 @@ testing persistent history.
 
 On the Invoice workspace, select a saved invoice and choose **Preview** or
 press `V`. The preview is built from the secured `sales.invoice` report and can
-export standalone HTML or A4 PDF. Files are written to `output/reports/` below
-the directory from which TIDE was started. The sales clerk and auditor roles
-have report access; a role without `sales.invoice.report` does not see the
+export its detail table as CSV, standalone HTML, or A4 PDF. Files are written
+to `output/reports/` below the directory from which TIDE was started. The sales
+clerk and auditor roles have report access; a role without
+`sales.invoice.report` does not see the
 preview action.
+
+**Export CSV** writes the visible detail table as an Excel-friendly UTF-8 file
+while neutralizing formula-looking text values. Choose **Summary** or press `S`
+from the Invoice workspace to build the secured `sales.summary` report. It
+queries only posted invoices through `RecordsService`, groups them by Customer
+and Currency, and shows invoice count and sales total. The report refuses to
+return partial totals if its declared 500-row source limit is exceeded; narrow
+criteria or revise the reviewed metadata before using a larger operational
+dataset.
 
 Running an application may also execute its fixed `runtime.py` file. That file
 does not implement persistence or UI behavior; it explicitly registers the

@@ -46,7 +46,7 @@ uv run tide model validate applications/invoicing
 Expected output:
 
 ```text
-Model is valid: TIDE Invoicing 0.1.0 (4 entities, 9 views, 1 reports, 0 warning(s)).
+Model is valid: TIDE Invoicing 0.1.0 (4 entities, 9 views, 2 reports, 0 warning(s)).
 ```
 
 On Windows, launch the isolated demo with:
@@ -88,6 +88,7 @@ Important shortcuts include:
 | `Ctrl+N` | Add a line or create a lookup record |
 | `Ctrl+P` | Post an eligible invoice |
 | `V` | Preview the selected invoice report |
+| `S` | Preview the posted-sales summary |
 | `H` | Show authorized audit history |
 | `Esc` | Cancel or close the current screen |
 

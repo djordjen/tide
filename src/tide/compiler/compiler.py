@@ -207,7 +207,15 @@ def compile_project(project: str | Path = ".") -> ApplicationModel:
         views=immutable_mapping(resolved_views),
         reports=immutable_mapping(
             {
-                name: report.model_dump(mode="json", exclude_none=True)
+                name: report.model_dump(
+                    mode="json",
+                    exclude_none=True,
+                    exclude=(
+                        {"group_by", "aggregates"}
+                        if report.kind == "record"
+                        else None
+                    ),
+                )
                 for name, report in sorted(reports.items())
             }
         ),
@@ -1929,6 +1937,15 @@ def _validate_reports(
                 parameters=parameters,
                 expected_type="boolean",
             )
+        if report.kind == "summary":
+            _validate_summary_report(
+                report,
+                entity,
+                formats,
+                document,
+                diagnostics,
+            )
+            continue
         primary_key = next(
             (name for name, field in entity.fields.items() if field.primary_key),
             None,
@@ -1955,6 +1972,7 @@ def _validate_reports(
                 ("parameters", parameter_name, "required"),
             )
 
+        assert report.bands is not None
         for band_name in (
             "report_header",
             "record_header",
@@ -2029,6 +2047,164 @@ def _validate_reports(
                     document,
                     (*detail_path, "columns", index),
                 )
+
+
+def _validate_summary_report(
+    report: ReportSource,
+    entity: EntitySource,
+    formats: set[str],
+    document: SourceDocument,
+    diagnostics: list[Diagnostic],
+) -> None:
+    if report.query.criteria and not _summary_criteria_is_queryable(
+        report.query.criteria
+    ):
+        _add(
+            diagnostics,
+            "TIDE257",
+            "summary criteria must use direct field comparisons joined by 'and'",
+            document,
+            ("query", "criteria"),
+        )
+    for index, sort_name in enumerate(report.query.sort):
+        field_name = sort_name.lstrip("+-")
+        field = entity.fields.get(field_name)
+        if field is None:
+            _add(
+                diagnostics,
+                "TIDE254",
+                f"unknown report sort field {field_name!r}",
+                document,
+                ("query", "sort", index),
+            )
+        elif field.type == "collection" or (
+            field.computed and field.computed.materialization == "virtual"
+        ):
+            _add(
+                diagnostics,
+                "TIDE257",
+                f"report sort field {field_name!r} is not queryable",
+                document,
+                ("query", "sort", index),
+            )
+
+    output_names: set[str] = set()
+    for index, group in enumerate(report.group_by):
+        field = entity.fields.get(group.field)
+        path = ("group_by", index)
+        if group.field in output_names:
+            _add(
+                diagnostics,
+                "TIDE254",
+                f"duplicate summary output {group.field!r}",
+                document,
+                (*path, "field"),
+            )
+        output_names.add(group.field)
+        if field is None:
+            _add(
+                diagnostics,
+                "TIDE254",
+                f"unknown summary group field {group.field!r}",
+                document,
+                (*path, "field"),
+            )
+        elif field.type == "collection":
+            _add(
+                diagnostics,
+                "TIDE254",
+                "summary groups cannot use collection fields",
+                document,
+                (*path, "field"),
+            )
+        if group.format is not None and group.format not in formats:
+            _add(
+                diagnostics,
+                "TIDE255",
+                f"unknown report format {group.format!r}",
+                document,
+                (*path, "format"),
+            )
+
+    for index, aggregate in enumerate(report.aggregates):
+        path = ("aggregates", index)
+        if aggregate.name in output_names:
+            _add(
+                diagnostics,
+                "TIDE254",
+                f"duplicate summary output {aggregate.name!r}",
+                document,
+                (*path, "name"),
+            )
+        output_names.add(aggregate.name)
+        if aggregate.function == "sum" and aggregate.field is not None:
+            field = entity.fields.get(aggregate.field)
+            if field is None:
+                _add(
+                    diagnostics,
+                    "TIDE254",
+                    f"unknown summary aggregate field {aggregate.field!r}",
+                    document,
+                    (*path, "field"),
+                )
+            elif field.type not in {"integer", "decimal"}:
+                _add(
+                    diagnostics,
+                    "TIDE257",
+                    "sum aggregates require an integer or decimal field",
+                    document,
+                    (*path, "field"),
+                )
+        if aggregate.format is not None and aggregate.format not in formats:
+            _add(
+                diagnostics,
+                "TIDE255",
+                f"unknown report format {aggregate.format!r}",
+                document,
+                (*path, "format"),
+            )
+
+
+def _summary_criteria_is_queryable(criteria: str) -> bool:
+    rewritten = re.sub(
+        r"\$([A-Za-z_][A-Za-z0-9_]*)",
+        r"__tide_parameter_\1",
+        criteria,
+    )
+    try:
+        expression = ast.parse(rewritten, mode="eval").body
+    except SyntaxError:
+        return False
+    clauses = (
+        tuple(expression.values)
+        if isinstance(expression, ast.BoolOp) and isinstance(expression.op, ast.And)
+        else (expression,)
+    )
+    for clause in clauses:
+        if (
+            not isinstance(clause, ast.Compare)
+            or len(clause.ops) != 1
+            or len(clause.comparators) != 1
+            or not isinstance(clause.left, ast.Name)
+            or not isinstance(
+                clause.ops[0],
+                (ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE),
+            )
+        ):
+            return False
+        comparator = clause.comparators[0]
+        if isinstance(comparator, ast.Name):
+            if not (
+                comparator.id.startswith("__tide_parameter_")
+                or comparator.id in {"true", "false", "null"}
+            ):
+                return False
+        else:
+            try:
+                ast.literal_eval(comparator)
+            except (ValueError, TypeError):
+                return False
+    return True
 
 
 def _record_report_parameter(criteria: str, primary_key: str) -> str | None:

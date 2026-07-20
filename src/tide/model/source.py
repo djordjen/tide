@@ -293,6 +293,28 @@ class ReportBandsSource(SourceModel):
     page_footer: tuple[ReportContentSource, ...] = ()
 
 
+class ReportGroupSource(SourceModel):
+    field: str = Field(min_length=1)
+    label: str | None = None
+    format: str | None = None
+
+
+class ReportAggregateSource(SourceModel):
+    name: str = Field(min_length=1)
+    function: Literal["count", "sum"]
+    field: str | None = None
+    label: str | None = None
+    format: str | None = None
+
+    @model_validator(mode="after")
+    def valid_aggregate_field(self) -> ReportAggregateSource:
+        if self.function == "sum" and self.field is None:
+            raise ValueError("sum aggregates require a field")
+        if self.function == "count" and self.field is not None:
+            raise ValueError("count aggregates do not accept a field")
+        return self
+
+
 class ReportExposureSource(SourceModel):
     rest: bool = False
     mcp: bool = False
@@ -302,18 +324,31 @@ class ReportSource(SourceModel):
     report: str
     title: str
     entity: str
-    kind: Literal["record"] = "record"
+    kind: Literal["record", "summary"] = "record"
     permission: str | None = None
     unrestricted: bool = False
     expose: ReportExposureSource = Field(default_factory=ReportExposureSource)
     parameters: dict[str, ParameterSource] = Field(default_factory=dict)
     query: QuerySource = Field(default_factory=QuerySource)
-    bands: ReportBandsSource
+    bands: ReportBandsSource | None = None
+    group_by: tuple[ReportGroupSource, ...] = ()
+    aggregates: tuple[ReportAggregateSource, ...] = ()
+    row_limit: int | None = Field(default=None, ge=1, le=500)
 
     @model_validator(mode="after")
-    def explicit_access(self) -> ReportSource:
+    def valid_report_shape(self) -> ReportSource:
         if self.permission is not None and self.unrestricted:
             raise ValueError("report cannot declare both permission and unrestricted access")
+        if self.kind == "record":
+            if self.bands is None:
+                raise ValueError("record reports require bands")
+            if self.group_by or self.aggregates or self.row_limit is not None:
+                raise ValueError("record reports do not accept summary fields")
+        else:
+            if self.bands is not None:
+                raise ValueError("summary reports do not accept bands")
+            if not self.aggregates:
+                raise ValueError("summary reports require at least one aggregate")
         return self
 
 

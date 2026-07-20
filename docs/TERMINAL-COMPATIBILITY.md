@@ -73,9 +73,11 @@ blocked during entry and fixed decimal places are completed on focus loss.
 Regular-expression masks validate completed string values and remain backed by
 the same service-side rule used by non-terminal adapters.
 Invoice report coverage opens the selected record with **Preview** or `V`,
-checks the secured document contents, exports HTML and PDF, and closes without
-altering the browse or record session. Report data, formatting, and export are
-owned by headless services/renderers rather than reconstructed by Textual.
+checks the secured document contents, and exports CSV, HTML, and PDF. Summary
+coverage opens the bounded posted-sales report without requiring a selected
+record. Both close without altering the browse or record session. Report data,
+formatting, and export are owned by headless services/renderers rather than
+reconstructed by Textual.
 Windows Terminal, xterm/SSH, reduced-color/no-color, latency, wheel, and
 reconnect cases remain manual release certification until their harnesses are
 implemented.

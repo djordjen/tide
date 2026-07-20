@@ -142,11 +142,19 @@ still enforced when the same operation arrives through REST or MCP.
 
 Select a saved invoice and press `V`, or choose **Preview**. TIDE builds the
 secured [invoice report](../applications/invoicing/reports/sales/invoice.yaml)
-and can export standalone HTML or A4 PDF to `output/reports/` below the launch
-directory.
+and can export its line table as CSV, standalone HTML, or A4 PDF to
+`output/reports/` below the launch directory.
 
 Report access requires `sales.invoice.report`. A role without it does not see
 the Preview action and cannot request the report through another interface.
+
+Press `S`, or choose **Summary**, to build the secured
+[posted-sales summary](../applications/invoicing/reports/sales/sales-summary.yaml).
+It groups posted invoices by Customer and Currency and shows invoice count and
+sales total. The same `sales.invoice.report` permission controls this action.
+The service refuses to present incomplete aggregates when the report's bounded
+source-row limit is exceeded. **Export CSV** writes an Excel-friendly UTF-8
+table and neutralizes formula-looking text cells.
 
 ## Inspect audit history
 

@@ -158,11 +158,15 @@ declare a `permission` or explicitly opt into `unrestricted: true`. Declaring
 both forms is rejected with `TIDE227`.
 
 Reports have the same fail-closed access rule as actions: each report declares
-`permission` or explicitly sets `unrestricted: true`. The executable v0.1
-report kind binds one required parameter to its entity primary key and permits
-one collection detail band. Report REST delivery is separately deny-by-default
-and requires `expose: {rest: true}`. Richer set-based/grouped queries remain
-outside this contract until they have a bounded SQL-translatable query plan.
+`permission` or explicitly sets `unrestricted: true`. A `kind: record` report
+binds one required parameter to its entity primary key and permits one
+collection detail band. A `kind: summary` report uses SQL-queryable direct
+field comparisons joined by `and`, stable stored-field sorting, zero or more
+grouping fields, and one or more `count`/numeric `sum` aggregates. Summary
+source reads are bounded to `row_limit` (maximum 500) and fail rather than
+returning incomplete totals. Report REST delivery is separately deny-by-default
+and requires `expose: {rest: true}`. Arbitrary result sets, OR predicates,
+group bands, and broader aggregate functions remain outside this contract.
 
 Entity MCP exposure is also typed rather than an open capability list. The
 implemented v0.1 values are `resources: [schema, record]` and

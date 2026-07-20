@@ -97,8 +97,8 @@ class TideApp(App[None]):
     }
 
     #browse-toolbar Button {
-        min-width: 12;
-        margin: 0 0 0 1;
+        min-width: 9;
+        margin: 0;
     }
 
     #records {
@@ -148,6 +148,7 @@ class TideApp(App[None]):
         Binding("n", "next_page", "Next"),
         Binding("r", "reload", "Refresh"),
         Binding("v", "preview_report", "Preview"),
+        Binding("s", "summary_report", "Summary"),
         Binding("h", "audit_history", "History"),
         Binding("q", "quit", "Quit"),
     ]
@@ -286,6 +287,7 @@ class TideApp(App[None]):
             delete_button.display = self._delete_allowed
             yield delete_button
             yield Button("Preview", id="preview-report", disabled=True)
+            yield Button("Summary", id="summary-report", disabled=True)
             history_button = Button("History", id="audit-history", disabled=True)
             history_button.display = self._audit_allowed
             yield history_button
@@ -327,6 +329,8 @@ class TideApp(App[None]):
             self.action_delete_record()
         elif event.button.id == "preview-report":
             self.action_preview_report()
+        elif event.button.id == "summary-report":
+            self.action_summary_report()
         elif event.button.id == "audit-history":
             self.action_audit_history()
         elif event.button.id == "create-record":
@@ -459,7 +463,7 @@ class TideApp(App[None]):
         return f"Cannot delete {_display_record(self.entity, record)!r}: {reason}."
 
     def action_preview_report(self) -> None:
-        report_name = self._active_report()
+        report_name = self._active_report("record")
         table = self.query_one("#records", DataTable)
         if report_name is None or not self._current_records or table.cursor_row < 0:
             return
@@ -472,6 +476,19 @@ class TideApp(App[None]):
             )
         except (TideRuntimeError, ValueError) as error:
             self.notify(f"Report preview failed: {error}", severity="error")
+            return
+        self.push_screen(
+            ReportPreviewScreen(document, self.report_output_directory)
+        )
+
+    def action_summary_report(self) -> None:
+        report_name = self._active_report("summary")
+        if report_name is None:
+            return
+        try:
+            document = self.report_service.build(report_name, {}, self.context)
+        except (TideRuntimeError, ValueError) as error:
+            self.notify(f"Summary report failed: {error}", severity="error")
             return
         self.push_screen(
             ReportPreviewScreen(document, self.report_output_directory)
@@ -771,6 +788,11 @@ class TideApp(App[None]):
                 f"Page {self.page_number}  ·  {count} {noun}  ·  "
                 f"{self.source_label}{self._query_summary()}  ·  "
                 "C create  E edit  V preview  P/N page  R refresh"
+                + (
+                    "  S summary"
+                    if self._active_report("summary") is not None
+                    else ""
+                )
                 + ("  Del delete" if self._delete_allowed else "")
                 + ("  H history" if self._audit_allowed else "")
             )
@@ -797,12 +819,13 @@ class TideApp(App[None]):
             self.query_one("#audit-history", Button).disabled = True
             self._update_report_control(False)
 
-    def _active_report(self) -> str | None:
+    def _active_report(self, kind: str) -> str | None:
         return next(
             (
                 name
                 for name, report in self.model.reports.items()
                 if report["entity"] == self.entity.name
+                and report.get("kind", "record") == kind
                 and self.report_service.can_generate(name, self.context)
             ),
             None,
@@ -812,9 +835,14 @@ class TideApp(App[None]):
         buttons = list(self.query("#preview-report"))
         if not buttons:
             return
-        report_name = self._active_report()
+        report_name = self._active_report("record")
         buttons[0].display = report_name is not None
         buttons[0].disabled = report_name is None or not has_records
+        summary_buttons = list(self.query("#summary-report"))
+        if summary_buttons:
+            summary_name = self._active_report("summary")
+            summary_buttons[0].display = summary_name is not None
+            summary_buttons[0].disabled = summary_name is None
 
     def _query_filters(self) -> tuple[FilterCondition, ...]:
         filters: list[FilterCondition] = []

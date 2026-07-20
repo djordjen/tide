@@ -88,6 +88,7 @@ def test_api_tutorial_runs_against_the_in_process_generated_server() -> None:
         "/api/v1/invoices/{id}",
         "/api/v1/invoices/{id}/actions/post",
         "/api/v1/invoices/{id}/_audit",
+        "/api/v1/_tide/reports/{report_name}",
         "/api/v1/_tide/reports/{report_name}/records/{identity}",
     } <= set(paths)
 

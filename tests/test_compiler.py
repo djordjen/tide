@@ -59,6 +59,14 @@ def test_invoicing_fixture_compiles_to_immutable_model() -> None:
     assert model.reports["sales.invoice"]["bands"]["record_header"][0]["field"] == (
         "number"
     )
+    assert model.reports["sales.summary"]["kind"] == "summary"
+    assert model.reports["sales.summary"]["aggregates"][1] == {
+        "name": "sales_total",
+        "function": "sum",
+        "field": "total",
+        "label": "Sales total",
+        "format": "money",
+    }
     assert model.diagnostics == ()
     resolved = model.views["sales.Invoice.edit"]
     assert resolved.data["settings"]["label_width"] == 18
@@ -530,6 +538,59 @@ def test_record_report_contract_is_compiler_validated(tmp_path: Path) -> None:
 
     codes = {diagnostic.code for diagnostic in caught.value.diagnostics}
     assert {"TIDE252", "TIDE253", "TIDE254", "TIDE255", "TIDE256"} <= codes
+
+
+def test_summary_report_contract_is_compiler_validated(tmp_path: Path) -> None:
+    project = tmp_path / "invalid-summary"
+    (project / "models").mkdir(parents=True)
+    (project / "reports").mkdir()
+    (project / "tide.yaml").write_text(
+        "\n".join(
+            [
+                'schema_version: "0.1"',
+                "application: {name: Invalid Summary, version: 0.1.0}",
+                "model: {paths: [models]}",
+                "reports: {paths: [reports]}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (project / "models" / "item.yaml").write_text(
+        "\n".join(
+            [
+                "entity: demo.Item",
+                "fields:",
+                "  id: {type: integer, primary_key: true}",
+                "  name: {type: string}",
+                "  amount: {type: decimal, precision: 12, scale: 2}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (project / "reports" / "broken.yaml").write_text(
+        "\n".join(
+            [
+                "report: demo.summary",
+                "title: Broken Summary",
+                "entity: demo.Item",
+                "kind: summary",
+                "unrestricted: true",
+                "query:",
+                '  criteria: "name == \'A\' or name == \'B\'"',
+                "  sort: [missing]",
+                "group_by: [{field: missing}]",
+                "aggregates:",
+                "  - {name: invalid_total, function: sum, field: name}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(project)
+
+    codes = {diagnostic.code for diagnostic in caught.value.diagnostics}
+    assert {"TIDE254", "TIDE257"} <= codes
 
 
 def test_project_discovery_cannot_escape_project_root(tmp_path: Path) -> None:

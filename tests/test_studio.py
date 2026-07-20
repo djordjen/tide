@@ -40,7 +40,7 @@ def test_studio_service_builds_semantic_tree_without_writing_sources() -> None:
     assert (workspace.entity_count, workspace.view_count, workspace.report_count) == (
         4,
         9,
-        1,
+        2,
     )
     assert [group.label for group in workspace.groups] == [
         "Application",
@@ -849,8 +849,8 @@ def test_textual_studio_browses_properties_and_yaml_without_writes() -> None:
                 "Application (1)",
                 "Entities (4)",
                 "Views (9)",
-                "Reports (1)",
-                "Source files (19)",
+                    "Reports (2)",
+                    "Source files (20)",
             ]
             entity_group = tree.root.children[1]
             invoice_node = next(

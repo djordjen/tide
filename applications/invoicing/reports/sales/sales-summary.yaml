@@ -1,0 +1,29 @@
+# TIDE application metadata.
+report: sales.summary
+title: Posted Sales Summary
+entity: sales.Invoice
+kind: summary
+permission: sales.invoice.report
+expose: {rest: true}
+
+query:
+  criteria: "status == 'posted'"
+  sort: [customer, currency, invoice_date, number]
+
+group_by:
+  - field: customer
+    label: Customer
+  - field: currency
+    label: Currency
+
+aggregates:
+  - name: invoice_count
+    function: count
+    label: Invoices
+  - name: sales_total
+    function: sum
+    field: total
+    label: Sales total
+    format: money
+
+row_limit: 500

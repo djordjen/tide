@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -10,6 +11,7 @@ from typing import Any, Mapping
 
 from tide.compiler.expressions import evaluate_expression
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
+from tide.data import FilterCondition, QuerySpec, SortField
 from tide.runtime import Channel, RequestContext, TideRuntimeError
 from tide.runtime.errors import AuthorizationError, ValidationFailed, ValidationIssue
 from tide.security import PROTECTED
@@ -44,6 +46,14 @@ class ReportService:
             raise ValueError(f"unknown report {report_name!r}")
         self.records.security.authorize_report(report_name, report, context)
         parameter_values = _coerce_parameters(report, parameters)
+        if report.get("kind", "record") == "summary":
+            return self._build_summary(
+                report_name,
+                report,
+                parameter_values,
+                context,
+                generated_at=generated_at,
+            )
         entity = self.model.entity(str(report["entity"]))
         primary_key = _primary_key(entity)
         parameter_name = _record_parameter(str(report["query"]["criteria"]), primary_key)
@@ -121,6 +131,8 @@ class ReportService:
         report = self.model.reports.get(report_name)
         if report is None:
             raise ValueError(f"unknown report {report_name!r}")
+        if report.get("kind", "record") != "record":
+            raise ValueError(f"report {report_name!r} is not a record report")
         entity = self.model.entity(str(report["entity"]))
         parameter = _record_parameter(
             str(report["query"]["criteria"]),
@@ -133,6 +145,134 @@ class ReportService:
             {parameter: identity},
             context,
             generated_at=generated_at,
+        )
+
+    def _build_summary(
+        self,
+        report_name: str,
+        report: Mapping[str, Any],
+        parameters: Mapping[str, Any],
+        context: RequestContext,
+        *,
+        generated_at: datetime | None,
+    ) -> ReportDocument:
+        entity = self.model.entity(str(report["entity"]))
+        report_context = replace(context, channel=Channel.REPORT)
+        row_limit = int(report.get("row_limit", 500))
+        query = report.get("query", {})
+        page = self.records.query_page(
+            entity.name,
+            QuerySpec(
+                filters=_summary_filters(str(query.get("criteria") or ""), parameters),
+                sort=tuple(_summary_sort(str(name)) for name in query.get("sort", ())),
+                limit=row_limit,
+            ),
+            report_context,
+        )
+        if page.next_cursor is not None:
+            raise ValueError(
+                f"summary report {report_name!r} exceeds its row limit of "
+                f"{row_limit}; narrow the report criteria"
+            )
+
+        group_definitions = tuple(report.get("group_by", ()))
+        aggregate_definitions = tuple(report["aggregates"])
+        groups: dict[tuple[Any, ...], list[int | Decimal]] = {}
+        if not group_definitions:
+            groups[()] = _initial_aggregates(aggregate_definitions)
+        for record in page.records:
+            key = tuple(
+                _read_report_value(entity.name, str(group["field"]), record)
+                for group in group_definitions
+            )
+            values = groups.setdefault(
+                key,
+                _initial_aggregates(aggregate_definitions),
+            )
+            for index, aggregate in enumerate(aggregate_definitions):
+                if aggregate["function"] == "count":
+                    values[index] = int(values[index]) + 1
+                    continue
+                field_name = str(aggregate["field"])
+                raw = _read_report_value(entity.name, field_name, record)
+                if raw is not None:
+                    values[index] = Decimal(values[index]) + Decimal(raw)
+
+        columns = tuple(
+            ReportColumn(
+                str(group["field"]),
+                str(
+                    group.get("label")
+                    or _field_label(entity.field(str(group["field"])))
+                ),
+                _alignment(
+                    entity.field(str(group["field"])),
+                    self.model.formats,
+                    group.get("format"),
+                ),
+            )
+            for group in group_definitions
+        ) + tuple(
+            ReportColumn(
+                str(aggregate["name"]),
+                str(aggregate.get("label") or _humanize(str(aggregate["name"]))),
+                "right",
+            )
+            for aggregate in aggregate_definitions
+        )
+
+        rows: list[tuple[ReportCell, ...]] = []
+        for key, aggregate_values in sorted(
+            groups.items(),
+            key=lambda item: tuple("" if value is None else str(value) for value in item[0]),
+        ):
+            group_cells = tuple(
+                ReportCell(
+                    self._format_field(
+                        entity.field(str(group["field"])),
+                        value,
+                        report_context,
+                        format_name=group.get("format"),
+                    ),
+                    _alignment(
+                        entity.field(str(group["field"])),
+                        self.model.formats,
+                        group.get("format"),
+                    ),
+                )
+                for group, value in zip(group_definitions, key)
+            )
+            aggregate_cells: list[ReportCell] = []
+            for aggregate, value in zip(aggregate_definitions, aggregate_values):
+                if aggregate["function"] == "count":
+                    text = self._format_scalar(value, aggregate.get("format"))
+                else:
+                    text = self._format_field(
+                        entity.field(str(aggregate["field"])),
+                        value,
+                        report_context,
+                        format_name=aggregate.get("format"),
+                    )
+                aggregate_cells.append(ReportCell(text, "right"))
+            rows.append(group_cells + tuple(aggregate_cells))
+
+        now = generated_at or datetime.now(timezone.utc)
+        return ReportDocument(
+            report=report_name,
+            title=str(report["title"]),
+            application=self.model.name,
+            generated_at=now,
+            header_text=(),
+            record_values=(),
+            detail=ReportTable(columns, tuple(rows)),
+            footer_values=(
+                ReportValue("Source records", str(len(page.records)), "right"),
+            ),
+            page_footer_template="Page {page_number} of {page_count}",
+            suggested_filename=(
+                f"{_safe_filename(report_name.replace('.', '-'))}-"
+                f"{now.astimezone(timezone.utc).date().isoformat()}"
+            ),
         )
 
     def _content_values(
@@ -330,6 +470,67 @@ def _coerce_parameters(
     if issues:
         raise ValidationFailed(issues)
     return result
+
+
+def _summary_filters(
+    criteria: str,
+    parameters: Mapping[str, Any],
+) -> tuple[FilterCondition, ...]:
+    if not criteria:
+        return ()
+    rewritten = re.sub(
+        r"\$([A-Za-z_][A-Za-z0-9_]*)",
+        r"__tide_parameter_\1",
+        criteria,
+    )
+    expression = ast.parse(rewritten, mode="eval").body
+    clauses = (
+        tuple(expression.values)
+        if isinstance(expression, ast.BoolOp) and isinstance(expression.op, ast.And)
+        else (expression,)
+    )
+    operators = {
+        ast.Eq: "eq",
+        ast.NotEq: "ne",
+        ast.Lt: "lt",
+        ast.LtE: "lte",
+        ast.Gt: "gt",
+        ast.GtE: "gte",
+    }
+    result: list[FilterCondition] = []
+    for clause in clauses:
+        if not isinstance(clause, ast.Compare) or not isinstance(clause.left, ast.Name):
+            raise ValueError("summary report criteria is not queryable")
+        comparator = clause.comparators[0]
+        if isinstance(comparator, ast.Name) and comparator.id.startswith(
+            "__tide_parameter_"
+        ):
+            value = parameters[comparator.id.removeprefix("__tide_parameter_")]
+        elif isinstance(comparator, ast.Name):
+            value = {"true": True, "false": False, "null": None}[comparator.id]
+        else:
+            value = ast.literal_eval(comparator)
+        result.append(
+            FilterCondition(
+                clause.left.id,
+                operators[type(clause.ops[0])],
+                value,
+            )
+        )
+    return tuple(result)
+
+
+def _summary_sort(value: str) -> SortField:
+    return SortField(value.lstrip("+-"), descending=value.startswith("-"))
+
+
+def _initial_aggregates(
+    aggregates: tuple[Mapping[str, Any], ...],
+) -> list[int | Decimal]:
+    return [
+        0 if aggregate["function"] == "count" else Decimal(0)
+        for aggregate in aggregates
+    ]
 
 
 def _coerce_parameter(field_type: str, value: Any) -> Any:

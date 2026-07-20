@@ -105,6 +105,7 @@ the original deterministic data.
 | `execute_action(...)` | `POST /api/v1/invoices/{id}/actions/post` | Requires `If-Match` and a caller-generated `Idempotency-Key`. |
 | `audit_history(...)` | `GET /api/v1/invoices/{id}/_audit` | Returns only permission-approved, redacted history and correlation IDs. |
 | `build_report_for_record(...)` | `GET /api/v1/_tide/reports/sales.invoice/records/{id}` | Authorizes and builds a renderer-neutral report document on the server. |
+| `build_report(...)` | `POST /api/v1/_tide/reports/sales.summary` | Validates parameters and builds the bounded, secured posted-sales summary. |
 
 The client compiles the local application metadata only to decode exact types
 and reject a mismatched server contract. It does not use that metadata to

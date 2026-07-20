@@ -144,6 +144,7 @@ def test_textual_browse_and_form_keep_actions_reachable_at_supported_sizes() -> 
                     "create-record",
                     "edit-record",
                     "preview-report",
+                    "summary-report",
                     "previous-page",
                     "next-page",
                     "refresh-page",
@@ -394,15 +395,29 @@ def test_textual_invoice_report_preview_and_exports(tmp_path: Path) -> None:
 
             await pilot.click("#export-html")
             await pilot.click("#export-pdf")
+            await pilot.click("#export-csv")
             await pilot.pause()
             assert (tmp_path / "invoice-INV-2026-0001.html").is_file()
             assert (tmp_path / "invoice-INV-2026-0001.pdf").read_bytes().startswith(
                 b"%PDF-"
             )
+            assert (tmp_path / "invoice-INV-2026-0001.csv").is_file()
 
             await pilot.press("escape")
             await pilot.pause()
             assert not isinstance(app.screen, ReportPreviewScreen)
+
+            summary_button = app.query_one("#summary-report", Button)
+            assert summary_button.display
+            assert not summary_button.disabled
+            await pilot.click("#summary-report")
+            await pilot.pause()
+            assert isinstance(app.screen, ReportPreviewScreen)
+            assert "Posted Sales Summary" in app.screen.document.plain_text()
+            assert "4,610.00" in app.screen.document.plain_text()
+            await pilot.click("#export-csv")
+            await pilot.pause()
+            assert list(tmp_path.glob("sales-summary-*.csv"))
 
     asyncio.run(exercise())
 

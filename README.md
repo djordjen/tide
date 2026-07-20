@@ -231,8 +231,10 @@ nested create-and-select lookups, and confirmed, permission-driven Customer and
 Product deletion with readable reference-conflict feedback in local or remote
 mode. An explicit deterministic Faker seeder supports empty managed development
 databases. The selected Invoice can now be rendered
-through a secured report service into a Textual preview, standalone HTML, or an
-A4 PDF with shared field formats.
+through a secured report service into a Textual preview, controlled CSV,
+standalone HTML, or an A4 PDF with shared field formats. A second bounded
+posted-sales report groups authorized invoices by Customer/Currency and
+calculates invoice count and Decimal sales totals.
 
 ## Repository layout
 
@@ -342,9 +344,10 @@ create/edit forms, master-detail line editing, validation and concurrency
 feedback, audited posting, invoice-number incremental search, named filters,
 sortable stored scalar columns, and permission-gated action/record history
 through keyboard or mouse controls. Secured
-single-record invoice reporting now provides a terminal preview plus HTML and
-PDF export. A loopback-only FastAPI server hosts secured list/get/create/update
-and Invoice Post routes with typed input, ETag concurrency, idempotency, and
+invoice and posted-sales summary reporting now provides terminal preview plus
+CSV, HTML, and PDF export. A loopback-only FastAPI server hosts secured
+list/get/create/update and Invoice Post routes with typed input, ETag
+concurrency, idempotency, and
 interactive OpenAPI documentation. An authenticated session-capability contract
 and typed HTTP client now preserve exact field types, protected values, cursors,
 ETags, and stable errors while rejecting mismatched applications and unsafe
@@ -386,8 +389,8 @@ live browse/form runtime, compact terminals scroll instead of clipping tools,
 and invalid view candidates retain an explanation while designer actions fail
 closed.
 Interactive identity-provider login/refresh, trusted reverse proxies, MCP
-mutations/actions, developer-MCP designer/save tools, migrations, expanded
-report queries/grouping, and broader lookup-query capabilities remain roadmap
+mutations/actions, developer-MCP designer/save tools, richer report
+parameters/group bands, and broader lookup-query capabilities remain roadmap
 work.
 
 Metadata v0.1 is an executable experimental contract. Breaking authoring

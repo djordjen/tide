@@ -273,9 +273,12 @@ presentation metadata locally but performs browse, structured filter/sort,
 lookup selection, create/update, and actions through HTTP. Future Qt clients
 can reuse the same boundary. Authorized record reports are built through
 `ReportService` at `GET /api/v1/_tide/reports/{report}/records/{identity}` and
-returned as a versioned renderer-neutral document. HTML and PDF remain client
-renderers, so report data access and permissions stay server-side without
-forcing a particular presentation technology.
+authorized summary reports at `POST /api/v1/_tide/reports/{report}` with a
+parameter object validated against the compiled definitions. Both return a
+versioned renderer-neutral document.
+CSV, HTML, and PDF remain client renderers, so report data access and
+permissions stay server-side without forcing a particular presentation
+technology.
 
 Structured filtering and sorting use `POST /api/v1/{resource}/_query` with a
 typed, read-only query body. This avoids putting search values into access-log

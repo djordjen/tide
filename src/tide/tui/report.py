@@ -17,6 +17,7 @@ from textual.widgets import Button, Footer, Header, Static
 from tide.reporting import (
     PdfDependencyMissing,
     ReportDocument,
+    write_csv,
     write_html,
     write_pdf,
 )
@@ -62,6 +63,7 @@ class ReportPreviewScreen(Screen[None]):
     """
 
     BINDINGS = [
+        Binding("c", "export_csv", "Export CSV"),
         Binding("h", "export_html", "Export HTML"),
         Binding("p", "export_pdf", "Export PDF"),
         Binding("escape", "close", "Close"),
@@ -84,6 +86,7 @@ class ReportPreviewScreen(Screen[None]):
             yield Static(_preview_renderable(self.document), id="report-preview")
         with Horizontal(id="report-actions"):
             yield Button("Close", id="close-report")
+            yield Button("Export CSV", id="export-csv")
             yield Button("Export HTML", id="export-html")
             yield Button("Export PDF", id="export-pdf", variant="primary")
         yield Footer()
@@ -91,6 +94,7 @@ class ReportPreviewScreen(Screen[None]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         handlers = {
             "close-report": self.action_close,
+            "export-csv": self.action_export_csv,
             "export-html": self.action_export_html,
             "export-pdf": self.action_export_pdf,
         }
@@ -100,6 +104,15 @@ class ReportPreviewScreen(Screen[None]):
 
     def action_close(self) -> None:
         self.dismiss(None)
+
+    def action_export_csv(self) -> None:
+        path = self.output_directory / f"{self.document.suggested_filename}.csv"
+        try:
+            write_csv(self.document, path)
+        except OSError as error:
+            self.notify(f"CSV export failed: {error}", severity="error")
+            return
+        self.notify(f"CSV exported to {path}", severity="information")
 
     def action_export_html(self) -> None:
         path = self.output_directory / f"{self.document.suggested_filename}.html"

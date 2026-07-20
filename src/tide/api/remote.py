@@ -429,6 +429,18 @@ class RemoteReportService:
             raise ValueError("remote report generation timestamp is server-owned")
         return self.client.build_report_for_record(report_name, identity)
 
+    def build(
+        self,
+        report_name: str,
+        parameters: Mapping[str, Any],
+        _context: RequestContext,
+        *,
+        generated_at: datetime | None = None,
+    ) -> ReportDocument:
+        if generated_at is not None:
+            raise ValueError("remote report generation timestamp is server-owned")
+        return self.client.build_report(report_name, parameters)
+
 
 def _mutation_payload(
     model: ApplicationModel,
