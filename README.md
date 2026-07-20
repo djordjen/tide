@@ -3,7 +3,7 @@
 **Terminal Integrated Data Environment**
 
 [![CI](https://github.com/djordjen/tide/actions/workflows/ci.yml/badge.svg)](https://github.com/djordjen/tide/actions/workflows/ci.yml)
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Python 3.11](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Tested on Windows and Linux](https://img.shields.io/badge/Tested-Windows%20%7C%20Linux-4C8BF5)](https://github.com/djordjen/tide/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-2EA44F.svg)](LICENSE)
 
@@ -75,7 +75,9 @@ core itself.
 
 ## Runnable headless slice
 
-The initial metadata compiler and CLI are executable on Python 3.11 or later:
+Python 3.11 is the current development and CI-certified baseline. Project
+metadata permits Python 3.11 or later, but newer interpreters are currently
+best-effort rather than part of the required CI matrix.
 
 ```bash
 uv sync --extra dev

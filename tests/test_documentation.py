@@ -5,6 +5,7 @@ import re
 from urllib.parse import unquote
 
 import pytest
+import yaml
 
 from tide import compile_project
 
@@ -22,6 +23,7 @@ DOCUMENTS = tuple(
 MARKDOWN_LINK = re.compile(r"(?<!!)\[[^]]+]\(([^)]+)\)")
 FIRST_APPLICATION = ROOT / "docs" / "examples" / "first-application"
 INVOICING = ROOT / "applications" / "invoicing"
+CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
 
 @pytest.mark.parametrize(
@@ -68,3 +70,28 @@ def test_invoicing_walkthrough_references_current_contract() -> None:
     assert model.entity("sales.Invoice").actions["post"]["permission"] == (
         "sales.invoice.post"
     )
+
+
+def test_ci_uses_the_certified_python_baseline_without_duplicate_branch_runs() -> None:
+    workflow = yaml.load(
+        CI_WORKFLOW.read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
+    )
+
+    assert workflow["on"] == {
+        "push": {"branches": ["main"]},
+        "pull_request": {"branches": ["main"]},
+    }
+    job = workflow["jobs"]["test"]
+    assert job["strategy"]["matrix"] == {
+        "os": ["ubuntu-latest", "windows-latest"]
+    }
+    assert job["name"] == "Python 3.11 / ${{ matrix.os }}"
+    setup = next(
+        step for step in job["steps"] if step.get("uses") == "actions/setup-python@v6"
+    )
+    assert setup["with"]["python-version"] == "3.11"
+    build = next(
+        step for step in job["steps"] if step.get("run") == "python -m build"
+    )
+    assert build["if"] == "matrix.os == 'ubuntu-latest'"

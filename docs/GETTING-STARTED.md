@@ -18,7 +18,8 @@ permissions, posting, reports, auditing, and optimistic concurrency.
 
 ## Prerequisites
 
-- Python 3.11 or newer;
+- Python 3.11, the current development and CI-certified baseline; project
+  metadata permits newer interpreters on a best-effort basis;
 - [uv](https://docs.astral.sh/uv/) for dependency and environment management;
 - Git;
 - a terminal with at least 80 columns for the TUI;
