@@ -197,6 +197,43 @@ def _create_parser() -> argparse.ArgumentParser:
     )
     run.set_defaults(handler=_run_tui)
 
+    gui = commands.add_parser(
+        "gui",
+        help="run the remote PySide6 desktop prototype",
+    )
+    gui.add_argument(
+        "project",
+        nargs="?",
+        default=".",
+        metavar="APPLICATION",
+        help="application root or tide.yaml (default: current directory)",
+    )
+    gui.add_argument(
+        "--api-url",
+        default="http://127.0.0.1:8000",
+        help="remote TIDE application server (default: http://127.0.0.1:8000)",
+    )
+    gui.add_argument("--view", help="browse view to open (default: application default)")
+    gui.add_argument("--page-size", type=int, help="override the view page size")
+    gui.add_argument(
+        "--api-base-path",
+        default=DEFAULT_BASE_PATH,
+        help=f"remote REST base path (default: {DEFAULT_BASE_PATH})",
+    )
+    gui.add_argument(
+        "--api-token-env",
+        default="TIDE_API_TOKEN",
+        metavar="NAME",
+        help="read the remote bearer token from environment variable NAME",
+    )
+    gui.add_argument(
+        "--api-timeout",
+        type=float,
+        default=10.0,
+        help="remote request timeout in seconds (default: 10)",
+    )
+    gui.set_defaults(handler=_run_qt_gui)
+
     studio = commands.add_parser(
         "studio",
         help="inspect and edit an in-memory application-metadata candidate",
@@ -919,6 +956,64 @@ def _run_studio(arguments: argparse.Namespace) -> int:
         raise
     StudioApp(service).run()
     return 0
+
+
+def _run_qt_gui(arguments: argparse.Namespace) -> int:
+    model = compile_project(arguments.project)
+    token = os.environ.get(arguments.api_token_env)
+    if not token:
+        print(
+            "Qt GUI startup failed: bearer-token environment variable "
+            f"{arguments.api_token_env!r} is not set",
+            file=sys.stderr,
+        )
+        return 1
+    if arguments.api_timeout <= 0:
+        print(
+            "Qt GUI startup failed: --api-timeout must be positive",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        from tide.api.client import TideApiClient
+        from tide.qt import run_qt_application
+    except ModuleNotFoundError as error:
+        if error.name == "httpx" or (error.name or "").startswith("httpx."):
+            print(
+                "The TIDE API client is not installed. Install the 'gui' extra "
+                "(for example: uv sync --extra gui).",
+                file=sys.stderr,
+            )
+            return 1
+        if error.name == "PySide6" or (error.name or "").startswith("PySide6."):
+            print(
+                "The Qt adapter is not installed. Install the 'gui' extra "
+                "(for example: uv sync --extra gui).",
+                file=sys.stderr,
+            )
+            return 1
+        raise
+
+    try:
+        with TideApiClient(
+            model,
+            arguments.api_url,
+            token,
+            base_path=arguments.api_base_path,
+            timeout=arguments.api_timeout,
+        ) as client:
+            session = client.connect()
+            return run_qt_application(
+                model,
+                client,
+                session,
+                view_name=arguments.view,
+                page_size=arguments.page_size,
+                source_label=f"remote API {arguments.api_url}",
+            )
+    except (TideRuntimeError, ValueError) as error:
+        print(f"Qt GUI startup failed: {error}", file=sys.stderr)
+        return 1
 
 
 def _serve_api(arguments: argparse.Namespace) -> int:

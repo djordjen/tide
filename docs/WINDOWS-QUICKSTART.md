@@ -411,6 +411,19 @@ The `api` and `api-demo` shortcuts deliberately use development identity and
 are restricted to the local computer. Do not change their binding to a network
 address or expose them through a firewall.
 
+To test the first native desktop renderer, leave `start.bat api-demo` running
+and use another terminal:
+
+```powershell
+.\start.bat gui
+```
+
+Paste the printed API token into the hidden prompt. This starts a read-only Qt
+Invoice browse and installs the optional `gui` dependencies through `uv` when
+needed. The GUI has no SQL Server URL or driver; it uses the same authenticated
+API client as remote Textual mode. See [Qt GUI Prototype](QT-GUI.md) for the
+current scope and explicit CLI form.
+
 For a reviewed network test, first install the production identity adapter:
 
 ```powershell

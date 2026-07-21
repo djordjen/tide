@@ -36,7 +36,9 @@ Record/action facades present this client behind the interfaces already
 consumed by Textual; widgets do not construct URLs or authorize operations.
 Local edit drafts remain `RecordSession` objects, while every load, lookup
 assignment, commit, and action crosses the authenticated service boundary. The
-same split is intended for Qt.
+initial Qt adapter implements the read-only half of this split: a Qt-neutral
+browse controller consumes `TideApiClient`, and a lazy optional PySide6 widget
+adapter renders it without database packages or credentials.
 
 ```text
 applications/<name>/ (YAML + Python handlers + overlays)

@@ -18,51 +18,53 @@ decision log rather than being silently assumed in implementation code.
 5. [AI-assisted generation tutorial](AI-GENERATION-TUTORIAL.md) connects local
    ChatGPT/Codex to developer MCP and carries an exact candidate through the
    separate explicit local approval boundary.
-6. [Documentation plan](DOCUMENTATION-PLAN.md) records the small, testable
+6. [Qt GUI prototype](QT-GUI.md) runs the first native read-only renderer over
+   the secured FastAPI client boundary without database credentials.
+7. [Documentation plan](DOCUMENTATION-PLAN.md) records the small, testable
    tutorial tranches planned next.
-7. [Vision](VISION.md) explains the product and its boundaries.
-8. [Architecture](ARCHITECTURE.md) defines the major runtime contracts.
-9. [Application model](APPLICATION-MODEL.md) defines application organization,
+8. [Vision](VISION.md) explains the product and its boundaries.
+9. [Architecture](ARCHITECTURE.md) defines the major runtime contracts.
+10. [Application model](APPLICATION-MODEL.md) defines application organization,
    entities, relationships, and schema evolution.
-10. [Schema migrations](MIGRATIONS.md) defines deterministic database diff
+11. [Schema migrations](MIGRATIONS.md) defines deterministic database diff
    proposals, safety classifications, rename refusal, and the future
    approval-bound Alembic workflow.
-11. [Legacy databases](LEGACY-DATABASES.md) defines physical mapping and the
+12. [Legacy databases](LEGACY-DATABASES.md) defines physical mapping and the
     no-DDL contract for externally owned schemas.
-12. [Microsoft SQL Server](SQL-SERVER.md) defines the first multi-user dialect,
+13. [Microsoft SQL Server](SQL-SERVER.md) defines the first multi-user dialect,
     driver, connection, and test contract.
-13. [Windows quick start](WINDOWS-QUICKSTART.md) documents the repository
+14. [Windows quick start](WINDOWS-QUICKSTART.md) documents the repository
     shortcut, local SQL Server initialization, and normal/demo launch modes.
-14. [Compilation and application layout](COMPILATION-AND-LAYOUT.md)
+15. [Compilation and application layout](COMPILATION-AND-LAYOUT.md)
     distinguishes metadata compilation from bytecode/native compilation and
     fixes the runtime/application directory boundary.
-15. [Metadata contract v0.1](METADATA-V0.md) defines what the current compiler
+16. [Metadata contract v0.1](METADATA-V0.md) defines what the current compiler
     accepts and diagnoses.
-16. [Presentation model](PRESENTATION.md) defines generated views, presets,
+17. [Presentation model](PRESENTATION.md) defines generated views, presets,
     overlays, formats, and renderer-specific settings.
-17. [Expressions and validation](EXPRESSIONS-AND-VALIDATION.md) defines computed
+18. [Expressions and validation](EXPRESSIONS-AND-VALIDATION.md) defines computed
     fields, criteria, filters, action conditions, and validation.
-18. [Security](SECURITY.md) and the [threat model](THREAT-MODEL.md) define the
+19. [Security](SECURITY.md) and the [threat model](THREAT-MODEL.md) define the
     permission model, protected values, boundaries, and baseline controls.
-19. [REST API and MCP](API-AND-MCP.md),
+20. [REST API and MCP](API-AND-MCP.md),
     [query and concurrency](QUERY-AND-CONCURRENCY.md), and
     [shared cursor storage](CURSOR-STORAGE.md) define machine-facing query and
     continuation contracts.
-20. [Action audit and idempotency](AUDIT-AND-IDEMPOTENCY.md) defines durable
+21. [Action audit and idempotency](AUDIT-AND-IDEMPOTENCY.md) defines durable
     reservations, audit rows, replay, and crash reconciliation.
-21. [AI-assisted application generation](AI-APPLICATION-GENERATION.md) defines
+22. [AI-assisted application generation](AI-APPLICATION-GENERATION.md) defines
     developer MCP proposals, isolated runtime-checked candidates, approval, and
     source-write boundaries.
-22. [Designers and reporting](DESIGNERS-AND-REPORTING.md) describes TIDE Studio,
+23. [Designers and reporting](DESIGNERS-AND-REPORTING.md) describes TIDE Studio,
     view designers, and the banded report model.
-23. [Terminal compatibility](TERMINAL-COMPATIBILITY.md) defines the initial
+24. [Terminal compatibility](TERMINAL-COMPATIBILITY.md) defines the initial
     terminal test matrix.
-24. [Operational baseline](OPERATIONS.md) defines deployment, health, logging,
+25. [Operational baseline](OPERATIONS.md) defines deployment, health, logging,
     backup, and recovery expectations.
-25. [Headless runtime](HEADLESS-RUNTIME.md) documents the executable in-memory
+26. [Headless runtime](HEADLESS-RUNTIME.md) documents the executable in-memory
     application-service contract.
-26. [Roadmap](ROADMAP.md) orders the work into testable vertical slices.
-27. [Decision log](DECISIONS.md) records accepted and unresolved decisions.
+27. [Roadmap](ROADMAP.md) orders the work into testable vertical slices.
+28. [Decision log](DECISIONS.md) records accepted and unresolved decisions.
 
 ## Status vocabulary
 

@@ -166,7 +166,9 @@ an invoice entirely by keyboard or mouse.
   actions; **implemented**
 - secured renderer-neutral remote report transport with Textual preview and
   local HTML/PDF export; **implemented**
-- reuse the same client/service boundary for the future Qt renderer;
+- first read-only PySide6 browse over the typed remote client/session contract,
+  with no local database dependency; **implemented as an intentionally small
+  GUI prototype; editing/actions remain later work**
 - runtime MCP schema/record/audit resources, structured query tools, CRUD
   mutations, and opt-in domain actions; **implemented with authenticated
   stateless Streamable HTTP, explicit metadata exposure, RFC 9728 metadata,

@@ -640,6 +640,119 @@ def test_tide_run_remote_rejects_client_selected_identity(capsys) -> None:
     )
 
 
+def test_tide_gui_requires_a_bearer_token(monkeypatch, capsys) -> None:
+    monkeypatch.delenv("MISSING_QT_TOKEN", raising=False)
+
+    result = main(
+        [
+            "gui",
+            str(INVOICING),
+            "--api-token-env",
+            "MISSING_QT_TOKEN",
+        ]
+    )
+
+    assert result == 1
+    assert capsys.readouterr().err == (
+        "Qt GUI startup failed: bearer-token environment variable "
+        "'MISSING_QT_TOKEN' is not set\n"
+    )
+
+
+def test_tide_gui_builds_remote_qt_adapter_without_local_storage(
+    monkeypatch,
+    capsys,
+) -> None:
+    import tide.qt
+
+    captured: dict[str, object] = {}
+    token = "remote-qt-secret-token"
+    monkeypatch.setenv("QT_TIDE_TOKEN", token)
+
+    class StubClient:
+        def __init__(
+            self,
+            model,
+            url,
+            received_token,
+            *,
+            base_path,
+            timeout,
+        ) -> None:
+            captured.update(
+                model=model,
+                url=url,
+                token=received_token,
+                base_path=base_path,
+                timeout=timeout,
+            )
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc) -> None:
+            return None
+
+        def connect(self):
+            return SimpleNamespace(
+                principal="api:qt-user",
+                roles=("sales_clerk",),
+            )
+
+    def run_qt_application(model, client, session, **configuration) -> int:
+        captured["application"] = (model, client, session, configuration)
+        return 0
+
+    monkeypatch.setattr("tide.api.client.TideApiClient", StubClient)
+    monkeypatch.setitem(
+        tide.qt.__dict__,
+        "run_qt_application",
+        run_qt_application,
+    )
+
+    result = main(
+        [
+            "gui",
+            str(INVOICING),
+            "--api-url",
+            "http://127.0.0.1:8768",
+            "--api-token-env",
+            "QT_TIDE_TOKEN",
+            "--api-timeout",
+            "7.5",
+            "--page-size",
+            "4",
+        ]
+    )
+
+    assert result == 0
+    assert captured["url"] == "http://127.0.0.1:8768"
+    assert captured["token"] == token
+    assert captured["base_path"] == "/api/v1"
+    assert captured["timeout"] == 7.5
+    _model, _client, session, configuration = captured["application"]
+    assert session.principal == "api:qt-user"
+    assert configuration == {
+        "view_name": None,
+        "page_size": 4,
+        "source_label": "remote API http://127.0.0.1:8768",
+    }
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert token not in output.out
+
+
+def test_tide_gui_rejects_non_positive_timeout(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("TIDE_API_TOKEN", "test-token")
+
+    result = main(["gui", str(INVOICING), "--api-timeout", "0"])
+
+    assert result == 1
+    assert capsys.readouterr().err == (
+        "Qt GUI startup failed: --api-timeout must be positive\n"
+    )
+
+
 def test_tide_run_database_error_does_not_echo_environment_value(
     monkeypatch,
     capsys,

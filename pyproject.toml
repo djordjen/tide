@@ -43,6 +43,10 @@ api = [
 client = [
     "httpx>=0.28,<1",
 ]
+gui = [
+    "httpx>=0.28,<1",
+    "PySide6-Essentials>=6.10,<7",
+]
 mcp = [
     "mcp>=1.28,<2",
 ]

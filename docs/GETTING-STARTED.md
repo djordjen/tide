@@ -194,6 +194,17 @@ Both commands securely prompt for the printed token. The remote TUI receives
 no database URL: browse, lookup, mutation, report, concurrency, and action calls
 all pass through FastAPI and the server-side services.
 
+The first native Qt proof uses that same server. With `api-demo` still running,
+open another terminal and run:
+
+```powershell
+.\start.bat gui
+```
+
+Paste the same token to open a read-only metadata-driven Invoice browse. The
+prototype is intentionally limited to browse formatting and paging; see the
+[Qt GUI prototype](QT-GUI.md) for its exact scope and commands.
+
 To inspect the generated OpenAPI document without starting a server:
 
 ```powershell

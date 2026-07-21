@@ -29,6 +29,8 @@ business behavior remains ordinary Python.
 
 New here? Follow [Getting Started](docs/GETTING-STARTED.md) to run the demo TUI,
 open Studio, inspect REST/OpenAPI and MCP, and optionally connect SQL Server.
+The first native [Qt GUI prototype](docs/QT-GUI.md) can also browse the same
+secured remote application without database credentials.
 
 ## TUI preview
 
@@ -279,6 +281,7 @@ Start with [the documentation index](docs/README.md). Important documents are:
 - [Invoicing application walkthrough](docs/INVOICING-WALKTHROUGH.md)
 - [REST API client tutorial](docs/API-CLIENT-TUTORIAL.md)
 - [AI-assisted generation tutorial](docs/AI-GENERATION-TUTORIAL.md)
+- [Qt GUI prototype](docs/QT-GUI.md)
 - [Documentation plan](docs/DOCUMENTATION-PLAN.md)
 - [Vision](docs/VISION.md)
 - [Architecture](docs/ARCHITECTURE.md)

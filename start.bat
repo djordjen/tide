@@ -21,6 +21,7 @@ if /I "%~1"=="mcp" goto mcp
 if /I "%~1"=="mcp-demo" goto mcp_demo
 if /I "%~1"=="api-check" goto api_check
 if /I "%~1"=="remote" goto remote
+if /I "%~1"=="gui" goto gui
 if /I "%~1"=="help" goto help
 if not "%~1"=="" goto unknown
 
@@ -105,6 +106,12 @@ if errorlevel 1 goto finish
 uv run --extra tui --extra client tide run applications/invoicing --api-url http://127.0.0.1:8000 --page-size 5
 goto finish
 
+:gui
+call :read_api_token
+if errorlevel 1 goto finish
+uv run --extra gui tide gui applications/invoicing --api-url http://127.0.0.1:8000 --page-size 5
+goto finish
+
 :read_api_token
 set "TIDE_API_TOKEN="
 for /f "delims=" %%I in ('powershell -NoProfile -Command "$s = Read-Host 'Paste API token' -AsSecureString; [System.Net.NetworkCredential]::new('', $s).Password"') do set "TIDE_API_TOKEN=%%I"
@@ -142,6 +149,7 @@ echo   start.bat mcp    Start local API plus secured runtime MCP against SQL Ser
 echo   start.bat mcp-demo Start local API plus secured runtime MCP with demo data
 echo   start.bat api-check Verify the running API and remote client contract
 echo   start.bat remote Start the TUI as an API client with no database access
+echo   start.bat gui    Start the read-only Qt GUI as an API client
 echo   start.bat help   Show this help
 exit /b 0
 
