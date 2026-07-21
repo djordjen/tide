@@ -65,6 +65,9 @@ Use `--view catalog.Product.browse` to open another accessible browse, or
 - reference identities are resolved through secured API reads and cached only
   for the current client session;
 - opaque server cursors support Previous/Next paging;
+- browse columns start at practical content-based widths and every divider is
+  draggable; double-click a divider to auto-fit it, and manual widths survive
+  paging and refreshes for the lifetime of the window;
 - inaccessible views fail closed instead of falling back to local data;
 - the presentation/controller contract is testable without installing Qt in
   ordinary CI.

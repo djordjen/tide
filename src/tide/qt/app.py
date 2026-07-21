@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -39,6 +40,7 @@ class TideQtWindow(QMainWindow):
         super().__init__()
         self.controller = controller
         self.source_label = source_label
+        self._column_widths_initialized = False
         self.setWindowTitle(f"{controller.model.name} — {controller.title}")
         self.resize(1100, 650)
 
@@ -61,8 +63,9 @@ class TideQtWindow(QMainWindow):
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        header.setStretchLastSection(True)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setMinimumSectionSize(56)
+        header.setStretchLastSection(False)
         layout.addWidget(self.table, 1)
 
         actions = QHBoxLayout()
@@ -86,6 +89,39 @@ class TideQtWindow(QMainWindow):
         self.next.clicked.connect(lambda: self._load(self.controller.next_page))
         close.clicked.connect(self.close)
         self._load(self.controller.refresh)
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        if not self._column_widths_initialized:
+            self._initialize_column_widths()
+
+    def _initialize_column_widths(self) -> None:
+        """Fit once, then leave every section under direct user control."""
+
+        self.table.resizeColumnsToContents()
+        for index in range(self.table.columnCount()):
+            fitted = self.table.columnWidth(index)
+            self.table.setColumnWidth(index, min(max(fitted, 72), 360))
+
+        left_aligned = tuple(
+            index
+            for index, column in enumerate(self.controller.columns)
+            if column.alignment == "left"
+        )
+        if left_aligned:
+            flexible = max(left_aligned, key=self.table.columnWidth)
+            used = sum(
+                self.table.columnWidth(index)
+                for index in range(self.table.columnCount())
+            )
+            available = self.table.viewport().width()
+            extra = max(available - used - 2, 0)
+            flexible_limit = max(280, int(available * 0.55))
+            self.table.setColumnWidth(
+                flexible,
+                min(self.table.columnWidth(flexible) + extra, flexible_limit),
+            )
+        self._column_widths_initialized = True
 
     def _load(self, operation: Callable[[], QtBrowsePage]) -> None:
         try:

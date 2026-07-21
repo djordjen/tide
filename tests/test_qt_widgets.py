@@ -13,7 +13,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QHeaderView
 
 from tide import compile_project
 from tide.api.contracts import TideEntityCapabilities, TideSessionInfo
@@ -76,6 +76,7 @@ def test_qt_widget_adapter_renders_the_presented_page() -> None:
     controller = QtBrowseController(model, _WidgetClient(), session, page_size=5)
 
     window = TideQtWindow(controller, source_label="off-screen test")
+    window.show()
     application.processEvents()
 
     assert window.windowTitle() == "TIDE Invoicing — Invoices"
@@ -85,4 +86,16 @@ def test_qt_widget_adapter_renders_the_presented_page() -> None:
     assert window.table.item(0, 4).text() == "1,250.00"
     assert window.previous.isEnabled() is False
     assert window.next.isEnabled() is False
+    header = window.table.horizontalHeader()
+    assert header.stretchLastSection() is False
+    assert all(
+        header.sectionResizeMode(index) == QHeaderView.ResizeMode.Interactive
+        for index in range(window.table.columnCount())
+    )
+    assert window.table.columnWidth(2) > window.table.columnWidth(4)
+
+    window.table.setColumnWidth(0, 222)
+    window.refresh.click()
+    application.processEvents()
+    assert window.table.columnWidth(0) == 222
     window.close()
