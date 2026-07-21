@@ -37,6 +37,7 @@ class _WidgetClient:
         return SimpleNamespace(
             records=(
                 {
+                    "id": 1,
                     "number": "INV-QT-001",
                     "invoice_date": date(2026, 7, 21),
                     "customer": 1,
@@ -48,6 +49,37 @@ class _WidgetClient:
         )
 
     def get_record(self, entity_name: str, identity: Any) -> Any:
+        if entity_name == "sales.Invoice":
+            assert identity == 1
+            return SimpleNamespace(
+                values={
+                    "id": 1,
+                    "number": "INV-QT-001",
+                    "invoice_date": date(2026, 7, 21),
+                    "currency": "EUR",
+                    "status": "draft",
+                    "posted_at": None,
+                    "posted_by": None,
+                    "version": 1,
+                    "customer": 1,
+                    "lines": [
+                        {
+                            "line_number": 1,
+                            "product": 10,
+                            "description": "Consulting day",
+                            "quantity": Decimal("2"),
+                            "unit_price": Decimal("625.00"),
+                            "total": Decimal("1250.00"),
+                        }
+                    ],
+                    "total": Decimal("1250.00"),
+                }
+            )
+        if entity_name == "catalog.Product":
+            assert identity == 10
+            return SimpleNamespace(
+                values={"id": 10, "code": "CONSULT", "name": "Consulting"}
+            )
         assert entity_name == "crm.Customer"
         assert identity == 1
         return SimpleNamespace(
@@ -98,4 +130,19 @@ def test_qt_widget_adapter_renders_the_presented_page() -> None:
     window.refresh.click()
     application.processEvents()
     assert window.table.columnWidth(0) == 222
+
+    window.table.selectRow(0)
+    application.processEvents()
+    assert window.view.isEnabled() is True
+    window.table.itemActivated.emit(window.table.item(0, 0))
+    application.processEvents()
+    assert len(window._detail_dialogs) == 1
+    detail = next(iter(window._detail_dialogs))
+    assert detail.field_editors["number"].text() == "INV-QT-001"
+    assert detail.field_editors["customer"].text() == "ADRIA - Adria Consulting"
+    lines = detail.collection_tables["lines"]
+    assert lines.rowCount() == 1
+    assert lines.item(0, 1).text() == "CONSULT - Consulting"
+    assert lines.item(0, 5).text() == "1,250.00"
+    detail.close()
     window.close()

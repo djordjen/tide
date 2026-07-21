@@ -9,22 +9,36 @@ from __future__ import annotations
 
 from typing import Any
 
-from .presenter import QtBrowseColumn, QtBrowseController, QtBrowsePage
+from .presenter import (
+    QtBrowseColumn,
+    QtBrowseController,
+    QtBrowsePage,
+    QtDetailCollection,
+    QtDetailField,
+    QtDetailGroup,
+    QtDetailRecord,
+)
 
 __all__ = [
     "QtBrowseColumn",
     "QtBrowseController",
     "QtBrowsePage",
+    "QtDetailCollection",
+    "QtDetailField",
+    "QtDetailGroup",
+    "QtDetailRecord",
+    "TideQtDetailDialog",
     "TideQtWindow",
     "run_qt_application",
 ]
 
 
 def __getattr__(name: str) -> Any:
-    if name in {"TideQtWindow", "run_qt_application"}:
-        from .app import TideQtWindow, run_qt_application
+    if name in {"TideQtDetailDialog", "TideQtWindow", "run_qt_application"}:
+        from .app import TideQtDetailDialog, TideQtWindow, run_qt_application
 
         return {
+            "TideQtDetailDialog": TideQtDetailDialog,
             "TideQtWindow": TideQtWindow,
             "run_qt_application": run_qt_application,
         }[name]

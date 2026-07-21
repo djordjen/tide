@@ -1,4 +1,4 @@
-"""Qt-neutral browse presentation over the secured HTTP client contract."""
+"""Qt-neutral browse/detail presentation over the secured HTTP client."""
 
 from __future__ import annotations
 
@@ -46,13 +46,47 @@ class QtBrowseColumn:
 class QtBrowsePage:
     columns: tuple[QtBrowseColumn, ...]
     rows: tuple[tuple[str, ...], ...]
+    identities: tuple[Any, ...]
     page_number: int
     previous_available: bool
     next_available: bool
 
 
+@dataclass(frozen=True, slots=True)
+class QtDetailField:
+    name: str
+    label: str
+    value: str
+    alignment: Alignment = "left"
+
+
+@dataclass(frozen=True, slots=True)
+class QtDetailGroup:
+    label: str
+    rows: tuple[tuple[QtDetailField, ...], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class QtDetailCollection:
+    name: str
+    label: str
+    columns: tuple[QtBrowseColumn, ...]
+    rows: tuple[tuple[str, ...], ...]
+    protected: bool = False
+
+
+QtDetailSection = QtDetailGroup | QtDetailCollection
+
+
+@dataclass(frozen=True, slots=True)
+class QtDetailRecord:
+    identity: Any
+    title: str
+    sections: tuple[QtDetailSection, ...]
+
+
 class QtBrowseController:
-    """Build a metadata-driven read-only browse without importing PySide6."""
+    """Build metadata-driven read-only browse/detail without importing PySide6."""
 
     def __init__(
         self,
@@ -68,6 +102,7 @@ class QtBrowseController:
         self.session = session
         self.view = _select_browse_view(model, session, view_name)
         self.entity = model.entity(self.view.entity)
+        self.detail_view = _select_form_view(model, session, self.entity.name)
         self.field_names = _browse_columns(self.view, self.entity)
         configured_page_size = int(
             self.view.data.get("settings", {}).get("page_size", 25)
@@ -97,6 +132,10 @@ class QtBrowseController:
     def context_text(self) -> str:
         roles = ", ".join(sorted(self.session.roles)) or "no role"
         return f"{self.view.name}  ·  {self.session.principal}  ·  {roles}"
+
+    @property
+    def detail_available(self) -> bool:
+        return self.detail_view is not None
 
     def refresh(self) -> QtBrowsePage:
         self._reference_cache.clear()
@@ -131,6 +170,25 @@ class QtBrowseController:
         self._current = page
         return page
 
+    def load_detail(self, row_index: int) -> QtDetailRecord:
+        if self.detail_view is None:
+            raise ValueError(
+                f"{self.entity.name} does not define an accessible form view"
+            )
+        current = self._current or self.refresh()
+        if row_index < 0 or row_index >= len(current.identities):
+            raise ValueError("Qt detail row is not available on the current page")
+        identity = current.identities[row_index]
+        if identity is None or identity is PROTECTED:
+            raise ValueError("Qt detail record identity is unavailable")
+        values = self.client.get_record(self.entity.name, identity).values
+        display = _display_record(self.entity, values)
+        return QtDetailRecord(
+            identity=identity,
+            title=f"{self.entity.label} — {display}",
+            sections=self._detail_sections(values),
+        )
+
     def _load(
         self,
         cursor: str | None,
@@ -153,6 +211,10 @@ class QtBrowseController:
         page = QtBrowsePage(
             columns=self.columns,
             rows=rows,
+            identities=tuple(
+                record.get(_primary_key_name(self.entity))
+                for record in remote.records
+            ),
             page_number=page_index + 1,
             previous_available=page_index > 0,
             next_available=remote.next_cursor is not None,
@@ -162,6 +224,104 @@ class QtBrowseController:
             self._page_index = page_index
             self._current = page
         return page
+
+    def _detail_sections(
+        self,
+        values: Mapping[str, Any],
+    ) -> tuple[QtDetailSection, ...]:
+        assert self.detail_view is not None
+        sections: list[QtDetailSection] = []
+        for configuration in self.detail_view.data.get("layout", ()):
+            if configuration.get("group"):
+                rows = tuple(
+                    tuple(
+                        self._detail_field(self.entity.field(str(name)), values)
+                        for name in row
+                        if str(name) in self.entity.fields
+                        and self.entity.field(str(name)).metadata["type"]
+                        != "collection"
+                        and not _field_is_hidden(self.detail_view, str(name))
+                    )
+                    for row in configuration.get("rows", ())
+                )
+                visible_rows = tuple(row for row in rows if row)
+                if visible_rows:
+                    sections.append(
+                        QtDetailGroup(
+                            label=str(configuration["group"]),
+                            rows=visible_rows,
+                        )
+                    )
+                continue
+            if configuration.get("collection"):
+                collection = self._detail_collection(configuration, values)
+                if collection is not None:
+                    sections.append(collection)
+        if sections:
+            return tuple(sections)
+        rows = tuple(
+            (self._detail_field(field, values),)
+            for field in self.entity.fields.values()
+            if field.metadata["type"] != "collection"
+            and not _field_is_hidden(self.detail_view, field.name)
+        )
+        return (QtDetailGroup(label=self.entity.label, rows=rows),)
+
+    def _detail_field(
+        self,
+        field: NormalizedField,
+        values: Mapping[str, Any],
+    ) -> QtDetailField:
+        return QtDetailField(
+            name=field.name,
+            label=_field_label(field),
+            value=self._format_value(field, values.get(field.name)),
+            alignment=_field_alignment(field, self.model.formats),
+        )
+
+    def _detail_collection(
+        self,
+        configuration: Mapping[str, Any],
+        values: Mapping[str, Any],
+    ) -> QtDetailCollection | None:
+        assert self.detail_view is not None
+        name = str(configuration["collection"])
+        if name not in self.entity.fields or _field_is_hidden(self.detail_view, name):
+            return None
+        field = self.entity.field(name)
+        inline_name = configuration.get("view")
+        if field.target_entity is None or not inline_name:
+            return None
+        inline = self.model.views.get(str(inline_name))
+        if inline is None or inline.kind != "inline_edit":
+            return None
+        target = self.model.entity(field.target_entity)
+        field_names = _browse_columns(inline, target)
+        columns = tuple(
+            QtBrowseColumn(
+                item.name,
+                _field_label(item),
+                _field_alignment(item, self.model.formats),
+            )
+            for item in (target.field(field_name) for field_name in field_names)
+        )
+        raw_rows = values.get(name)
+        protected = raw_rows is PROTECTED
+        records = raw_rows if isinstance(raw_rows, list) else ()
+        rows = tuple(
+            tuple(
+                self._format_value(target.field(field_name), record.get(field_name))
+                for field_name in field_names
+            )
+            for record in records
+        )
+        return QtDetailCollection(
+            name=name,
+            label=_field_label(field),
+            columns=columns,
+            rows=rows,
+            protected=protected,
+        )
 
     def _format_value(self, field: NormalizedField, value: Any) -> str:
         if value is PROTECTED:
@@ -234,6 +394,24 @@ def _select_browse_view(
     return selected
 
 
+def _select_form_view(
+    model: ApplicationModel,
+    session: TideSessionInfo,
+    entity_name: str,
+) -> ResolvedView | None:
+    capabilities = session.entities.get(entity_name, _EMPTY_CAPABILITIES)
+    if "get" not in capabilities.operations:
+        return None
+    return next(
+        (
+            view
+            for view in model.views.values()
+            if view.kind == "form" and view.entity == entity_name
+        ),
+        None,
+    )
+
+
 class _EmptyCapabilities:
     operations: tuple[str, ...] = ()
 
@@ -263,6 +441,15 @@ def _browse_columns(
     )
 
 
+def _field_is_hidden(view: ResolvedView, field_name: str) -> bool:
+    field_configuration = view.data.get("fields", {})
+    return bool(
+        isinstance(field_configuration, Mapping)
+        and isinstance(field_configuration.get(field_name), Mapping)
+        and field_configuration[field_name].get("hidden", False)
+    )
+
+
 def _field_label(field: NormalizedField) -> str:
     return str(field.metadata.get("label") or _humanize(field.name))
 
@@ -278,9 +465,7 @@ def _field_alignment(
 
 
 def _display_record(entity: NormalizedEntity, values: Mapping[str, Any]) -> str:
-    primary_key = next(
-        name for name, field in entity.fields.items() if field.metadata.get("primary_key")
-    )
+    primary_key = _primary_key_name(entity)
     if not entity.display:
         return str(values.get(primary_key, ""))
     if "{" not in entity.display:
@@ -291,6 +476,12 @@ def _display_record(entity: NormalizedEntity, values: Mapping[str, Any]) -> str:
         )
     except (KeyError, ValueError):
         return str(values.get(primary_key, ""))
+
+
+def _primary_key_name(entity: NormalizedEntity) -> str:
+    return next(
+        name for name, field in entity.fields.items() if field.metadata.get("primary_key")
+    )
 
 
 def _safe_display_value(value: Any) -> str:

@@ -201,9 +201,10 @@ open another terminal and run:
 .\start.bat gui
 ```
 
-Paste the same token to open a read-only metadata-driven Invoice browse. The
-prototype is intentionally limited to browse formatting and paging; see the
-[Qt GUI prototype](QT-GUI.md) for its exact scope and commands.
+Paste the same token to open a read-only metadata-driven Invoice browse. Select
+a row and use **View**, double-click, or press **Enter** to inspect its compiled
+form groups and line items. See the [Qt GUI prototype](QT-GUI.md) for its exact
+scope and commands.
 
 To inspect the generated OpenAPI document without starting a server:
 

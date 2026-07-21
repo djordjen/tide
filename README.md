@@ -29,8 +29,8 @@ business behavior remains ordinary Python.
 
 New here? Follow [Getting Started](docs/GETTING-STARTED.md) to run the demo TUI,
 open Studio, inspect REST/OpenAPI and MCP, and optionally connect SQL Server.
-The first native [Qt GUI prototype](docs/QT-GUI.md) can also browse the same
-secured remote application without database credentials.
+The first native [Qt GUI prototype](docs/QT-GUI.md) can also browse and inspect
+records in the same secured remote application without database credentials.
 
 ## TUI preview
 

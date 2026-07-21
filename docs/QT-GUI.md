@@ -4,8 +4,8 @@ Status: **initial read-only vertical slice**.
 
 TIDE now includes a small PySide6 desktop adapter that proves the normalized
 application model and secured remote-client boundary can drive a native GUI.
-It intentionally stops at browsing: editing, actions, lookups, reports, and
-desktop sign-in remain later work.
+It supports browsing and read-only record detail; editing, actions, lookup
+selection, reports, and desktop sign-in remain later work.
 
 ## Security and architecture
 
@@ -46,6 +46,12 @@ when needed and opens the default `sales.Invoice.browse` view. The desktop
 process uses `http://127.0.0.1:8000`; plain HTTP is allowed only for loopback
 development.
 
+Select an Invoice and press **View**, double-click it, or press **Enter**. The
+detail window follows the compiled `sales.Invoice.edit` structure but remains
+read-only: it shows the Invoice, Totals, and Posting groups plus the nested
+line-item table. Customer and Product labels are resolved through secured API
+reads rather than direct database access.
+
 The equivalent explicit setup is:
 
 ```powershell
@@ -68,13 +74,15 @@ Use `--view catalog.Product.browse` to open another accessible browse, or
 - browse columns start at practical content-based widths and every divider is
   draggable; double-click a divider to auto-fit it, and manual widths survive
   paging and refreshes for the lifetime of the window;
+- selected records open through their real primary-key identity into compiled
+  form groups and inline collection columns, with no client-side database path;
 - inaccessible views fail closed instead of falling back to local data;
 - the presentation/controller contract is testable without installing Qt in
   ordinary CI.
 
 ## Deliberately deferred
 
-- create/edit forms, lookups, domain actions, and reports;
+- create/edit forms, lookup selection, domain actions, and reports;
 - background request scheduling and cancellation for larger remote workloads;
 - OIDC desktop login, access-token refresh, and secure token storage;
 - native application packaging, signing, and installers;
