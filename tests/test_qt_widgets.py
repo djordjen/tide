@@ -19,15 +19,18 @@ from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QHeaderView,
     QLineEdit,
     QTableView,
 )
 
 from tide import compile_project
+from tide.api import TideApiClientError
 from tide.api.contracts import TideEntityCapabilities, TideSessionInfo
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.qt import QtBrowseController, TideQtReferenceEditor, TideQtWindow
+from tide.sessions import ConflictValueChoice
 
 
 ROOT = Path(__file__).parents[1]
@@ -166,6 +169,44 @@ class _ProductWidgetClient:
         record = next(item for item in self.records if item["id"] == identity)
         record.update(values)
         return SimpleNamespace(values=dict(record), etag='"4"')
+
+
+class _ConflictingProductWidgetClient(_ProductWidgetClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.etag = '"3"'
+        self.stale_attempts: list[tuple[Any, dict[str, Any], Any]] = []
+        self._raised_stale = False
+
+    def get_record(self, entity_name: str, identity: Any) -> Any:
+        assert entity_name == "catalog.Product"
+        record = next(item for item in self.records if item["id"] == identity)
+        return SimpleNamespace(values=dict(record), etag=self.etag)
+
+    def update_record(
+        self,
+        entity_name: str,
+        identity: Any,
+        values: dict[str, Any],
+        *,
+        if_match: str | int | None = None,
+    ) -> Any:
+        self.mutation_threads.append(threading.get_ident())
+        if not self._raised_stale:
+            self._raised_stale = True
+            self.stale_attempts.append((identity, dict(values), if_match))
+            self.records[0]["name"] = "Server consulting"
+            self.etag = '"4"'
+            raise TideApiClientError(
+                409,
+                "stale_version",
+                "record changed after it was loaded",
+            )
+        assert if_match == '"4"'
+        self.updated.append((identity, dict(values), if_match))
+        self.records[0].update(values)
+        self.etag = '"5"'
+        return SimpleNamespace(values=dict(self.records[0]), etag=self.etag)
 
 
 class _InvoiceLookupWidgetClient:
@@ -626,6 +667,107 @@ def test_qt_flat_product_form_creates_and_updates_through_api(
         (10, {"name": "Consulting day"}, '"3"')
     ]
     assert all(thread != gui_thread for thread in client.mutation_threads)
+
+    window.close()
+    assert window.wait_for_done(1000)
+
+
+def test_qt_stale_product_edit_opens_three_way_review_and_rebase(
+    tmp_path: Path,
+) -> None:
+    application = QApplication.instance() or QApplication([])
+    model = compile_project(INVOICING)
+    client = _ConflictingProductWidgetClient()
+    window = TideQtWindow(
+        QtBrowseController(
+            model,
+            client,
+            _product_session(model),
+            view_name="catalog.Product.browse",
+            page_size=5,
+        ),
+        source_label="conflict edit test",
+        layout_settings=_layout_settings(tmp_path / "conflict-layout.ini"),
+    )
+    window.show()
+    _wait_until(
+        application,
+        lambda: window.table_model.rowCount() == 1
+        and not window.table_model.loading,
+    )
+    window.table.selectRow(0)
+    application.processEvents()
+    window.edit.click()
+    _wait_until(application, lambda: len(window._edit_dialogs) == 1)
+    stale_form = next(iter(window._edit_dialogs))
+    name = stale_form.editors["name"]
+    unit_price = stale_form.editors["unit_price"]
+    assert isinstance(name, QLineEdit)
+    assert isinstance(unit_price, QLineEdit)
+    name.setText("My consulting")
+    unit_price.setText("525.00")
+    stale_form.save_button.click()
+
+    _wait_until(
+        application,
+        lambda: len(stale_form._conflict_dialogs) == 1,
+    )
+    review = next(iter(stale_form._conflict_dialogs))
+    assert review.table.rowCount() == 2
+    assert review.table.horizontalHeaderItem(1).text() == "Original"
+    assert review.table.horizontalHeaderItem(2).text() == "Current"
+    assert review.table.horizontalHeaderItem(3).text() == "Your draft"
+    name_choice = review.choice_editors["name"]
+    assert isinstance(name_choice, QComboBox)
+    assert review.apply_resolution.isEnabled() is False
+    name_choice.setCurrentIndex(
+        name_choice.findData(ConflictValueChoice.DRAFT)
+    )
+    assert review.apply_resolution.isEnabled() is True
+    review.apply_resolution.click()
+
+    _wait_until(
+        application,
+        lambda: stale_form not in window._edit_dialogs
+        and len(window._edit_dialogs) == 1,
+    )
+    rebased_form = next(iter(window._edit_dialogs))
+    rebased_name = rebased_form.editors["name"]
+    rebased_price = rebased_form.editors["unit_price"]
+    assert isinstance(rebased_name, QLineEdit)
+    assert isinstance(rebased_price, QLineEdit)
+    assert rebased_form.form.etag == '"4"'
+    assert rebased_name.text() == "My consulting"
+    assert rebased_price.text() == "525.00"
+    assert "Review and save again" in rebased_form.message.text()
+    assert client.stale_attempts == [
+        (
+            10,
+            {
+                "unit_price": Decimal("525.00"),
+                "name": "My consulting",
+            },
+            '"3"',
+        )
+    ]
+
+    rebased_form.save_button.click()
+    _wait_until(
+        application,
+        lambda: len(client.updated) == 1
+        and not window._edit_dialogs
+        and not window.table_model.loading,
+    )
+    assert client.updated == [
+        (
+            10,
+            {
+                "unit_price": Decimal("525.00"),
+                "name": "My consulting",
+            },
+            '"4"',
+        )
+    ]
 
     window.close()
     assert window.wait_for_done(1000)

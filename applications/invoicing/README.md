@@ -110,6 +110,11 @@ sits above the Line Details fields, Add/Apply/Remove change the local draft,
 Product lookup applies Description and Unit Price through the server, and line
 plus Invoice totals preview before one ETag-protected nested save. Customer and
 Product lookup windows both support authorized **Save & Select**.
+If another process saves the same record first, Qt reloads it into the shared
+three-way Original/Current/Your draft review. Genuine overlaps require an
+explicit Current/Mine decision; applying the plan reopens a current ETag-backed
+form for review and normal validation. Invoice lines are treated as one
+collection conflict unit in this first safe implementation.
 The browse search applies incrementally to invoice numbers. The filter selector
 exposes **Draft invoices** and **High-value invoices** from view metadata, and
 the sort selector or eligible column headers toggle secured ascending and

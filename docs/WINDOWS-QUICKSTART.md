@@ -448,6 +448,12 @@ the local draft only. The Invoice **Save** button automatically applies the
 selected line and sends one ETag-protected nested update through FastAPI.
 Authorized Product lookup creation also uses **Save & Select**.
 
+If the record changes between opening and saving, Qt displays Original,
+Current, and Your draft rather than overwriting it. Choose Current or Mine for
+each overlapping field, then **Apply Resolution** to reopen the result against
+the latest ETag. **Reload Current** discards the stale draft, while **Continue
+Editing** leaves it open and unsaved. The conflict dialog itself never writes.
+
 To test metadata-driven Qt creation and editing for flat master data, keep the
 same API server running and open either:
 
@@ -460,8 +466,8 @@ Use **New**, or select a row and use **Edit**. The Product form demonstrates
 the `0.00` Decimal mask and the Customer/Product code fields demonstrate regex
 masks; both forms follow the YAML row layout and writable capabilities. Tab or
 Enter traverses the left field column before the right. Saving runs through
-FastAPI in the background and refreshes the secured list. Qt actions, conflict
-review, and reports remain later tranches.
+FastAPI in the background and refreshes the secured list. Qt domain actions and
+reports remain later tranches.
 
 For a reviewed network test, first install the production identity adapter:
 

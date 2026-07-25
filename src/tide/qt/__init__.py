@@ -19,9 +19,11 @@ from .presenter import (
     QtDetailGroup,
     QtDetailRecord,
     QtEditCollection,
+    QtEditConflict,
     QtEditField,
     QtEditForm,
     QtEditGroup,
+    QtEditRebase,
     QtLookupRecord,
     QtLookupSelection,
     QtLookupSpec,
@@ -37,13 +39,16 @@ __all__ = [
     "QtDetailGroup",
     "QtDetailRecord",
     "QtEditCollection",
+    "QtEditConflict",
     "QtEditField",
     "QtEditForm",
     "QtEditGroup",
+    "QtEditRebase",
     "QtLookupRecord",
     "QtLookupSelection",
     "QtLookupSpec",
     "TideQtCollectionEditor",
+    "TideQtConflictDialog",
     "TideQtEditDialog",
     "TideQtDetailDialog",
     "TideQtLookupDialog",
@@ -57,6 +62,7 @@ def __getattr__(name: str) -> Any:
     if name in {
         "TideQtDetailDialog",
         "TideQtCollectionEditor",
+        "TideQtConflictDialog",
         "TideQtEditDialog",
         "TideQtLookupDialog",
         "TideQtReferenceEditor",
@@ -65,6 +71,7 @@ def __getattr__(name: str) -> Any:
     }:
         from .app import (
             TideQtCollectionEditor,
+            TideQtConflictDialog,
             TideQtDetailDialog,
             TideQtEditDialog,
             TideQtLookupDialog,
@@ -75,6 +82,7 @@ def __getattr__(name: str) -> Any:
 
         return {
             "TideQtCollectionEditor": TideQtCollectionEditor,
+            "TideQtConflictDialog": TideQtConflictDialog,
             "TideQtDetailDialog": TideQtDetailDialog,
             "TideQtEditDialog": TideQtEditDialog,
             "TideQtLookupDialog": TideQtLookupDialog,

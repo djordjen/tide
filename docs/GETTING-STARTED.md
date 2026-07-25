@@ -224,6 +224,13 @@ enter Quantity and use **Apply line** to preview line Total and Invoice Total.
 The final **Save** sends one sanitized nested Invoice payload with the observed
 ETag.
 
+To see the concurrency safeguard, open the same Product or draft Invoice in two
+GUI instances, edit it in both, and save the first. Saving the second opens a
+three-way **Original / Current / Your draft** review. Choose Current or Mine for
+each genuine overlap, or reload the server version. **Apply Resolution** opens
+a fresh form on the latest ETag so you can inspect the result before pressing
+Save; the review dialog never writes or silently overwrites the other edit.
+
 The first editable Qt slice covers the flat Product and Customer forms:
 
 ```powershell

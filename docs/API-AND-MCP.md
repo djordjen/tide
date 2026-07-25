@@ -274,7 +274,11 @@ lookup selection, create/update, and actions through HTTP. The Qt client now
 reuses this boundary for browse queries, forms, reference selection, and nested
 **Save & Select** creation. Its InvoiceLine editor sends sanitized nested
 collection input through the ordinary Invoice create/update contract; no
-renderer-only mutation route is introduced. Authorized record reports are
+renderer-only mutation route is introduced. A `stale_version` response causes
+Qt to issue an ordinary authorized `get`, compare Original/Current/Draft through
+the shared conflict contract, and reopen a resolved form with the new ETag.
+The review dialog does not receive a bypass route and does not write data.
+Authorized record reports are
 built through
 `ReportService` at `GET /api/v1/_tide/reports/{report}/records/{identity}` and
 authorized summary reports at `POST /api/v1/_tide/reports/{report}` with a

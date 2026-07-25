@@ -150,8 +150,11 @@ application-owned Faker profile and the real secured services.
   **implemented**
 - Qt InvoiceLine Add/Apply/Remove, Product lookup and server-owned selection
   defaults, nested Product **Save & Select**, computed total previews, and
-  ETag-protected nested Invoice save; **implemented**; conflict review, actions,
-  and reports remain deferred
+  ETag-protected nested Invoice save; **implemented**
+- Qt three-way stale-edit review with Original/Current/Draft values, explicit
+  Current/Mine overlap choices, safe rebase into a fresh ETag-backed form, and
+  workflow-lock reevaluation; **implemented**; domain actions and reports remain
+  deferred
 - basic secured printable invoice with TUI preview, HTML, and PDF;
   **implemented**
 - opt-in REST list/get/create/update/delete and domain-action routes plus OpenAPI;

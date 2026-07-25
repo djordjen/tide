@@ -67,7 +67,7 @@ Publishing a changed shared default is a distinct privileged designer action.
 It must use the compiler-validated Designer service and approved YAML save
 boundary rather than promoting a personal GUI setting implicitly.
 
-The first editable Qt form contract is deliberately limited to flat forms. It
+The first editable Qt form tranche was deliberately limited to flat forms. It
 uses compiled group/row placement, traverses the left field column before the
 right with Tab or Enter, distinguishes read-only fields, and chooses Boolean,
 choice, numeric-mask, regex-mask, and ordinary text editors from field
@@ -75,9 +75,9 @@ metadata. Session capabilities are only advisory control visibility: create
 and update requests still go through FastAPI, where permissions, row rules,
 normalization, uniqueness, validation, and concurrency remain authoritative.
 Blocking form loads and saves run outside the GUI thread, and updates send the
-observed strong ETag when the entity defines one. Transactional collections,
-references/lookups, conflict review, and domain actions remain outside this
-flat-form tranche.
+observed strong ETag when the entity defines one. The later contracts below add
+references, transactional collections, and conflict review while domain
+actions remain deferred.
 
 The next Qt tranche extends that form contract to compiler-approved reference
 lookups. A reference must opt into `editor: lookup` and resolve a lookup view
@@ -134,7 +134,17 @@ Field permissions and `immutable_when` are reevaluated against the current
 record before rebasing, so a concurrent workflow transition cannot carry an
 edit into a newly read-only field. The user reviews and saves the resulting
 form through normal validation. The same contract works with local and
-HTTP-backed services and can be rendered later by Qt/Web.
+HTTP-backed services and is now rendered by both Textual and Qt.
+
+Qt reacts to the typed API `stale_version` error by re-reading the current
+secured record and passing the same field set to that comparer. Its modal table
+shows Original, Current, Your draft, and Resolution columns. A complete plan
+reopens a new metadata-driven form with the current ETag; the dialog itself
+never retries or writes. Current-only values win automatically, draft-only
+values are carried when still writable, and every overlap requires an explicit
+Current/Mine choice. Nested lines are intentionally one collection conflict
+unit until TIDE defines stable row identity and ordering semantics for a safe
+child-level merge.
 
 Named presets capture recurring patterns such as `standard_browse`,
 `standard_form`, and `master_detail`.

@@ -7,8 +7,8 @@ application model and secured remote-client boundary can drive a native GUI.
 It supports an incrementally loaded browse list, metadata-defined search and
 named filters, global header sorting, read-only record detail, Customer/Product
 create and update, and complete Invoice draft editing with Customer/Product
-lookups plus authorized nested creation. Domain actions, conflict review,
-reports, and desktop sign-in remain later work.
+lookups plus authorized nested creation and three-way stale-edit review.
+Domain actions, reports, and desktop sign-in remain later work.
 
 ## Security and architecture
 
@@ -102,6 +102,23 @@ selected line, removes protected/computed/inverse fields from the nested
 payload, and updates the Invoice once with its observed ETag. The server still
 normalizes, validates, recomputes, authorizes, and commits transactionally.
 
+If that ETag is stale, Qt does not overwrite the other change or stop at a
+generic error. It securely reloads the current record and opens a three-way
+table with **Original**, **Current**, and **Your draft** values. Changes made
+only in the local draft are retained automatically; changes made only on the
+server use the current value; identical edits need no decision. Every genuine
+overlap requires an explicit **Use Current** or **Use Mine** choice.
+
+**Continue Editing** leaves the stale draft open without saving. **Reload
+Current** discards it and opens the current version. **Apply Resolution**
+copies the completed plan into a fresh form carrying the latest ETag; it does
+not write from the review dialog. Review that form and press **Save** to run
+ordinary current authorization, workflow immutability, normalization, and
+validation. If a concurrent workflow transition has locked a field, the
+dialog names it and does not carry that draft value forward. For this first
+safe master-detail contract, the line collection is compared and resolved as
+one field rather than attempting an ambiguous row-level merge.
+
 To exercise the editable flat-form slice, open either workspace instead:
 
 ```bat
@@ -162,13 +179,16 @@ complete launcher contract.
 - compiled inline collection metadata drives the InvoiceLine table, field
   layout, actions, masks, Product lookup/default assignments, computed previews,
   and sanitized ETag-protected nested save;
+- stale edits use the renderer-neutral three-way conflict comparer, explicit
+  per-overlap choices, current workflow locks, and a fresh review-before-save
+  form instead of client-side last-write-wins;
 - inaccessible views fail closed instead of falling back to local data;
 - the presentation/controller contract is testable without installing Qt in
   ordinary CI.
 
 ## Deliberately deferred
 
-- three-way Qt conflict review, domain actions, and reports;
+- Qt domain actions and reports;
 - privileged designer publishing of validated application layout defaults;
 - OIDC desktop login, access-token refresh, and secure token storage;
 - native application packaging, signing, and installers;

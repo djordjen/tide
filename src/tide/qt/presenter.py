@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from decimal import Decimal
 import re
@@ -27,6 +27,12 @@ from tide.presentation import (
 )
 from tide.runtime import TideRuntimeError
 from tide.security import PROTECTED
+from tide.sessions import (
+    ConflictValueChoice,
+    RecordConflict,
+    compare_record_conflict,
+    resolve_record_conflict,
+)
 
 Alignment = Literal["left", "center", "right"]
 
@@ -166,6 +172,25 @@ class QtEditForm:
             for row in group.rows
             for field in row
         )
+
+
+@dataclass(frozen=True, slots=True)
+class QtEditConflict:
+    """A stale Qt draft compared with the latest secured server record."""
+
+    current_form: QtEditForm
+    comparison: RecordConflict
+    draft: Mapping[str, Any]
+    locked_fields: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class QtEditRebase:
+    """A fresh form carrying only the explicitly resolved draft values."""
+
+    form: QtEditForm
+    retained_fields: tuple[str, ...]
+    dropped_fields: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -545,6 +570,131 @@ class QtBrowseController:
             raise ValueError(
                 f"{self.entity.name} {form.operation} is not available"
             )
+        draft = self._form_draft(form, values)
+        if form.operation == "create":
+            return self.client.create_record(self.entity.name, draft).values
+        original = self._comparable_form_values(form, form.original)
+        changes = {
+            name: value
+            for name, value in draft.items()
+            if original.get(name) != value
+        }
+        if not changes:
+            return deepcopy(dict(form.original))
+        return self.client.update_record(
+            self.entity.name,
+            form.identity,
+            changes,
+            if_match=form.etag,
+        ).values
+
+    def review_edit_conflict(
+        self,
+        form: QtEditForm,
+        values: Mapping[str, Any],
+    ) -> QtEditConflict:
+        """Compare a stale draft with a freshly authorized server record."""
+
+        if form.entity != self.entity.name or form.operation != "update":
+            raise ValueError("Qt conflict review requires an update form")
+        draft = self._form_draft(form, values)
+        remote = self.client.get_record(self.entity.name, form.identity)
+        current_form = self._edit_form(
+            operation="update",
+            identity=form.identity,
+            etag=remote.etag,
+            values=remote.values,
+        )
+        field_names = tuple(
+            (
+                field.name
+                for field in form.fields
+                if field.editable
+            )
+        ) + tuple(
+            collection.name
+            for collection in form.collections
+            if collection.editable
+        )
+        original = self._comparable_form_values(form, form.original)
+        current = self._comparable_form_values(form, remote.values)
+        current_editable = {
+            field.name for field in current_form.fields if field.editable
+        } | {
+            collection.name
+            for collection in current_form.collections
+            if collection.editable
+        }
+        return QtEditConflict(
+            current_form=current_form,
+            comparison=compare_record_conflict(
+                original,
+                current,
+                draft,
+                fields=field_names,
+            ),
+            draft=deepcopy(draft),
+            locked_fields=tuple(
+                name for name in field_names if name not in current_editable
+            ),
+        )
+
+    def rebase_edit_conflict(
+        self,
+        conflict: QtEditConflict,
+        choices: Mapping[str, ConflictValueChoice],
+    ) -> QtEditRebase:
+        """Carry a complete explicit resolution onto the latest form version."""
+
+        resolution = resolve_record_conflict(conflict.comparison, choices)
+        if not resolution.complete:
+            raise ValueError(
+                "Qt conflict resolution is incomplete for field(s): "
+                + ", ".join(resolution.unresolved_fields)
+            )
+        current_form = conflict.current_form
+        current_editable = {
+            field.name for field in current_form.fields if field.editable
+        } | {
+            collection.name
+            for collection in current_form.collections
+            if collection.editable
+        }
+        retained = tuple(
+            name for name in resolution.draft_fields if name in current_editable
+        )
+        dropped = tuple(
+            name for name in resolution.draft_fields if name not in current_editable
+        )
+        rebased_values = deepcopy(dict(current_form.original))
+        for name in retained:
+            rebased_values[name] = deepcopy(conflict.draft.get(name))
+        return QtEditRebase(
+            form=self._form_with_values(current_form, rebased_values),
+            retained_fields=retained,
+            dropped_fields=dropped,
+        )
+
+    def conflict_field_label(self, field_name: str) -> str:
+        """Return the compiled label used by a conflict-review renderer."""
+
+        return _field_label(self.entity.field(field_name))
+
+    def format_conflict_value(self, field_name: str, value: Any) -> str:
+        """Format a scalar or summarize a nested conflict value safely."""
+
+        if isinstance(value, (list, tuple)):
+            suffix = "item" if len(value) == 1 else "items"
+            return f"{len(value)} {suffix}"
+        if isinstance(value, Mapping):
+            return "Record"
+        return self._format_value(self.entity.field(field_name), value)
+
+    def _form_draft(
+        self,
+        form: QtEditForm,
+        values: Mapping[str, Any],
+    ) -> dict[str, Any]:
         editable = {field.name for field in form.fields if field.editable}
         editable_collections = {
             collection.name
@@ -575,31 +725,77 @@ class QtBrowseController:
                 collection,
                 raw_records,
             )
-        if form.operation == "create":
-            return self.client.create_record(self.entity.name, draft).values
-        original = deepcopy(dict(form.original))
+        return draft
+
+    def _comparable_form_values(
+        self,
+        form: QtEditForm,
+        values: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        result = deepcopy(dict(values))
         for collection in form.collections:
             if not collection.editable:
                 continue
-            raw_original = original.get(collection.name, ())
-            if isinstance(raw_original, (list, tuple)):
-                original[collection.name] = self._collection_payload(
+            raw_records = result.get(collection.name, ())
+            if isinstance(raw_records, (list, tuple)):
+                result[collection.name] = self._collection_payload(
                     collection,
-                    raw_original,
+                    raw_records,
                 )
-        changes = {
-            name: value
-            for name, value in draft.items()
-            if original.get(name) != value
-        }
-        if not changes:
-            return deepcopy(dict(form.original))
-        return self.client.update_record(
-            self.entity.name,
-            form.identity,
-            changes,
-            if_match=form.etag,
-        ).values
+        return result
+
+    def _form_with_values(
+        self,
+        form: QtEditForm,
+        values: Mapping[str, Any],
+    ) -> QtEditForm:
+        def updated_field(field: QtEditField) -> QtEditField:
+            if field.name not in values:
+                return field
+            value = deepcopy(values[field.name])
+            return replace(
+                field,
+                value=value,
+                reference_display=(
+                    self.reference_display(field, value)
+                    if field.field_type == "reference"
+                    else field.reference_display
+                ),
+            )
+
+        groups = tuple(
+            replace(
+                group,
+                rows=tuple(
+                    tuple(updated_field(field) for field in row)
+                    for row in group.rows
+                ),
+            )
+            for group in form.groups
+        )
+        collections = tuple(
+            replace(
+                collection,
+                records=self._rebased_collection_records(
+                    collection,
+                    values.get(collection.name, collection.records),
+                ),
+            )
+            for collection in form.collections
+        )
+        return replace(form, groups=groups, collections=collections)
+
+    def _rebased_collection_records(
+        self,
+        collection: QtEditCollection,
+        raw_records: Any,
+    ) -> tuple[Mapping[str, Any], ...]:
+        if not isinstance(raw_records, (list, tuple)):
+            return collection.records
+        return tuple(
+            self.preview_collection_record(collection, record)
+            for record in raw_records
+        )
 
     def lookup_spec(
         self,

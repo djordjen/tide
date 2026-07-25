@@ -32,7 +32,8 @@ open Studio, inspect REST/OpenAPI and MCP, and optionally connect SQL Server.
 The native [Qt GUI prototype](docs/QT-GUI.md) can browse and inspect records,
 create/edit Customer and Product forms, and edit complete Invoice drafts with
 Customer/Product lookups, nested **Save & Select**, and line totals—all without
-database credentials.
+database credentials. Stale GUI edits open an explicit three-way conflict
+review rather than failing with a generic message or silently overwriting data.
 
 ## TUI preview
 
@@ -234,8 +235,11 @@ losing the Invoice draft. Qt mutation controls follow session capabilities,
 preserve Decimal values and ETag preconditions, and run network work outside
 the GUI thread. InvoiceLine Add/Apply/Remove, Product lookup defaults, nested
 Product creation, line/Invoice total previews, and sanitized nested saves now
-use the same compiled inline metadata and FastAPI boundary.
-Stale TUI edits now open a three-way Original/Current/Your draft review. Users
+use the same compiled inline metadata and FastAPI boundary. Stale Qt edits now
+reuse the shared three-way comparison: the dialog shows Original, Current, and
+Your draft, requires Current/Mine choices for genuine overlaps, and reopens a
+fresh ETag-backed form for review before the next save.
+Stale TUI edits likewise open a three-way Original/Current/Your draft review. Users
 may reload, continue inspecting their draft, or explicitly choose Current/Mine
 for every overlapping field before rebasing. Non-conflicting draft fields are
 retained automatically, while newly immutable workflow fields are never carried

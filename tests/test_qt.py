@@ -18,6 +18,7 @@ from tide.qt import (
     QtDetailCollection,
     QtDetailGroup,
 )
+from tide.sessions import ConflictDisposition, ConflictValueChoice
 
 
 ROOT = Path(__file__).parents[1]
@@ -279,6 +280,43 @@ class _InvoiceLinesClient(_InvoiceLookupClient):
             return super().create_record(entity_name, values)
         self.created_products.append(dict(values))
         return SimpleNamespace(values={"id": 11, **values}, etag=None)
+
+
+class _ConflictingInvoiceLinesClient(_InvoiceLinesClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.etag = '"7"'
+        self.invoice = {
+            "id": 1,
+            "number": "INV-2026-001",
+            "invoice_date": date(2026, 7, 1),
+            "currency": "EUR",
+            "status": "draft",
+            "posted_at": None,
+            "posted_by": None,
+            "version": 1,
+            "customer": 1,
+            "lines": [
+                {
+                    "line_number": 1,
+                    "product": 10,
+                    "description": "Consulting day",
+                    "quantity": Decimal("2"),
+                    "unit_price": Decimal("500.00"),
+                    "total": Decimal("1000.00"),
+                }
+            ],
+            "total": Decimal("1000.00"),
+        }
+
+    def get_record(self, entity_name: str, identity: Any) -> Any:
+        if entity_name == "sales.Invoice":
+            assert identity == 1
+            return SimpleNamespace(
+                values=deepcopy(self.invoice),
+                etag=self.etag,
+            )
+        return super().get_record(entity_name, identity)
 
 
 def test_qt_browse_formats_incremental_cursor_batches() -> None:
@@ -558,6 +596,83 @@ def test_qt_flat_product_form_uses_defaults_writable_fields_and_etag() -> None:
         controller.save_form(edited, {"id": 20})
 
 
+def test_qt_product_conflict_review_rebases_only_resolved_draft_fields() -> None:
+    model = compile_project(INVOICING)
+    client = _ProductClient()
+    controller = QtBrowseController(
+        model,
+        client,
+        _product_session(model),
+        view_name="catalog.Product.browse",
+        page_size=5,
+    )
+    form = controller.edit_form(10)
+    client.product["name"] = "Server consulting"
+    client.product["active"] = False
+
+    conflict = controller.review_edit_conflict(
+        form,
+        {
+            "code": "CONSULT",
+            "unit_price": Decimal("525.00"),
+            "name": "My consulting",
+            "active": True,
+        },
+    )
+
+    assert conflict.current_form.etag == '"4"'
+    assert conflict.comparison.conflicting_fields == ("name",)
+    assert conflict.comparison.rebase_fields == ("unit_price",)
+    dispositions = {
+        field.name: field.disposition
+        for field in conflict.comparison.fields
+    }
+    assert dispositions == {
+        "unit_price": ConflictDisposition.YOUR_CHANGE,
+        "name": ConflictDisposition.CONFLICT,
+        "active": ConflictDisposition.CURRENT_CHANGE,
+    }
+
+    rebased = controller.rebase_edit_conflict(
+        conflict,
+        {"name": ConflictValueChoice.DRAFT},
+    )
+
+    assert rebased.retained_fields == ("unit_price", "name")
+    assert rebased.dropped_fields == ()
+    assert rebased.form.original["name"] == "Server consulting"
+    assert next(
+        field.value for field in rebased.form.fields if field.name == "name"
+    ) == "My consulting"
+    assert next(
+        field.value
+        for field in rebased.form.fields
+        if field.name == "unit_price"
+    ) == Decimal("525.00")
+    assert next(
+        field.value for field in rebased.form.fields if field.name == "active"
+    ) is False
+
+    controller.save_form(
+        rebased.form,
+        {
+            field.name: field.value
+            for field in rebased.form.fields
+            if field.editable
+        },
+    )
+    assert client.updated == [
+        (
+            10,
+            {
+                "unit_price": Decimal("525.00"),
+                "name": "My consulting",
+            },
+            '"4"',
+        )
+    ]
+
+
 def test_qt_invoice_header_resolves_lookup_and_nested_create_contract() -> None:
     model = compile_project(INVOICING)
     client = _InvoiceLookupClient()
@@ -750,6 +865,61 @@ def test_qt_invoice_inline_lines_apply_product_defaults_and_nested_payload() -> 
         "unit_price": Decimal("500.00"),
     }
     assert "total" not in changes["lines"][-1]
+
+
+def test_qt_invoice_conflict_treats_lines_as_one_unit_and_honors_new_locks() -> None:
+    model = compile_project(INVOICING)
+    client = _ConflictingInvoiceLinesClient()
+    controller = QtBrowseController(
+        model,
+        client,
+        _invoice_lines_session(model),
+        page_size=2,
+    )
+    form = controller.edit_form(1)
+    local_lines = deepcopy(list(form.collections[0].records))
+    local_lines[0]["quantity"] = Decimal("4")
+    local_lines[0]["total"] = Decimal("2000.00")
+    client.invoice["status"] = "posted"
+    client.invoice["version"] = 2
+    client.invoice["lines"][0]["quantity"] = Decimal("3")
+    client.invoice["lines"][0]["total"] = Decimal("1500.00")
+    client.invoice["total"] = Decimal("1500.00")
+    client.etag = '"8"'
+
+    conflict = controller.review_edit_conflict(
+        form,
+        {
+            "invoice_date": date(2026, 7, 2),
+            "currency": "EUR",
+            "customer": 1,
+            "lines": local_lines,
+        },
+    )
+
+    assert conflict.comparison.conflicting_fields == ("lines",)
+    assert conflict.comparison.rebase_fields == ("invoice_date",)
+    assert conflict.locked_fields == (
+        "invoice_date",
+        "currency",
+        "customer",
+        "lines",
+    )
+    rebased = controller.rebase_edit_conflict(
+        conflict,
+        {"lines": ConflictValueChoice.DRAFT},
+    )
+    assert rebased.retained_fields == ()
+    assert rebased.dropped_fields == ("invoice_date", "lines")
+    assert rebased.form.etag == '"8"'
+    assert next(
+        field.value
+        for field in rebased.form.fields
+        if field.name == "invoice_date"
+    ) == date(2026, 7, 1)
+    assert all(not field.editable for field in rebased.form.fields)
+    assert rebased.form.collections[0].editable is False
+    assert rebased.form.collections[0].records[0]["quantity"] == Decimal("3")
 
 
 def _session(

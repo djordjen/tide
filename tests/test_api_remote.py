@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from pathlib import Path
@@ -34,11 +35,30 @@ from tide.tui.form import RecordEditScreen
 from tide.tui.report import ReportPreviewScreen
 from tide.tui.confirm import DeleteConfirmationScreen
 from textual.widgets import Button, DataTable, Input, Select
+from textual.pilot import Pilot
 
 ROOT = Path(__file__).parents[1]
 INVOICING = ROOT / "applications" / "invoicing"
 TOKEN = "tide-remote-facade-test-token-long-enough"
 BASE_URL = "http://127.0.0.1"
+
+
+async def _wait_until(
+    pilot: Pilot[object],
+    condition: Callable[[], bool],
+    *,
+    attempts: int = 50,
+) -> None:
+    """Drain remote Textual work until a stable observable state is ready."""
+
+    for _ in range(attempts):
+        await pilot.pause()
+        if condition():
+            await pilot.pause()
+            if condition():
+                return
+        await pilot.pause(0.01)
+    assert condition(), "remote Textual UI did not reach the expected state"
 
 
 def test_remote_audit_history_uses_server_capabilities_and_safe_contract() -> None:
@@ -342,8 +362,11 @@ def test_remote_textual_preview_uses_the_server_report_document(
                 source_label="remote report test",
             )
             async with tide_app.run_test(size=(120, 36)) as pilot:
-                await pilot.pause()
                 preview = tide_app.query_one("#preview-report", Button)
+                await _wait_until(
+                    pilot,
+                    lambda: preview.display and not preview.disabled,
+                )
                 assert preview.display
                 assert not preview.disabled
 
