@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QApplication, QHeaderView, QTableView
 
 from tide import compile_project
 from tide.api.contracts import TideEntityCapabilities, TideSessionInfo
+from tide.data import FilterCondition, QuerySpec, SortField
 from tide.qt import QtBrowseController, TideQtWindow
 
 
@@ -28,21 +29,19 @@ INVOICING = ROOT / "applications" / "invoicing"
 
 class _WidgetClient:
     def __init__(self) -> None:
-        self.list_cursors: list[str | None] = []
-        self.list_threads: list[int] = []
+        self.queries: list[QuerySpec] = []
+        self.query_threads: list[int] = []
 
-    def list_records(
+    def query_records(
         self,
         entity_name: str,
-        *,
-        limit: int = 100,
-        cursor: str | None = None,
+        query: QuerySpec,
     ) -> Any:
         assert entity_name == "sales.Invoice"
-        assert limit == 5
-        self.list_cursors.append(cursor)
-        self.list_threads.append(threading.get_ident())
-        if cursor is None:
+        assert query.limit == 5
+        self.queries.append(query)
+        self.query_threads.append(threading.get_ident())
+        if query.cursor is None:
             return SimpleNamespace(
                 records=(
                     {
@@ -56,7 +55,7 @@ class _WidgetClient:
                 ),
                 next_cursor="qt-batch-2",
             )
-        assert cursor == "qt-batch-2"
+        assert query.cursor == "qt-batch-2"
         return SimpleNamespace(
             records=(
                 {
@@ -149,8 +148,11 @@ def test_qt_widget_adapter_incrementally_loads_the_server_list() -> None:
     assert window.table_model.index(0, 2).data() == "ADRIA - Adria Consulting"
     assert window.table_model.index(0, 4).data() == "1,250.00"
     assert window.table_model.index(1, 0).data() == "INV-QT-002"
-    assert client.list_cursors[:2] == [None, "qt-batch-2"]
-    assert all(thread != gui_thread for thread in client.list_threads)
+    assert [query.cursor for query in client.queries[:2]] == [
+        None,
+        "qt-batch-2",
+    ]
+    assert all(thread != gui_thread for thread in client.query_threads)
     assert "All available records loaded" in window.status.text()
     header = window.table.horizontalHeader()
     assert header.stretchLastSection() is False
@@ -166,7 +168,7 @@ def test_qt_widget_adapter_incrementally_loads_the_server_list() -> None:
         application,
         lambda: window.table_model.rowCount() == 2
         and not window.table_model.loading
-        and len(client.list_cursors) >= 4,
+        and len(client.queries) >= 4,
     )
     assert window.table.columnWidth(0) == 222
 
@@ -184,6 +186,69 @@ def test_qt_widget_adapter_incrementally_loads_the_server_list() -> None:
     assert lines.item(0, 1).text() == "CONSULT - Consulting"
     assert lines.item(0, 5).text() == "1,250.00"
     detail.close()
+
+    window.search.setText("QT-002")
+    _wait_until(
+        application,
+        lambda: any(
+            query.filters
+            == (FilterCondition("number", "contains", "QT-002"),)
+            for query in client.queries
+        )
+        and not window.table_model.loading,
+    )
+    assert "search 'QT-002'" in window.status.text()
+
+    drafts_index = window.named_filter.findData("drafts")
+    assert drafts_index > 0
+    window.named_filter.setCurrentIndex(drafts_index)
+    _wait_until(
+        application,
+        lambda: any(
+            query.filters
+            == (
+                FilterCondition("number", "contains", "QT-002"),
+                FilterCondition("status", "eq", "draft"),
+            )
+            for query in client.queries
+        )
+        and not window.table_model.loading,
+    )
+    assert "Draft invoices" in window.status.text()
+
+    header.sectionClicked.emit(4)
+    _wait_until(
+        application,
+        lambda: any(
+            query.sort == (SortField("total"),)
+            for query in client.queries
+        )
+        and not window.table_model.loading,
+    )
+    assert "Total ascending" in window.status.text()
+
+    header.sectionClicked.emit(4)
+    _wait_until(
+        application,
+        lambda: any(
+            query.sort == (SortField("total", descending=True),)
+            for query in client.queries
+        )
+        and not window.table_model.loading,
+    )
+    assert "Total descending" in window.status.text()
+
+    window.clear_query.click()
+    _wait_until(
+        application,
+        lambda: client.queries[-1].filters == ()
+        and client.queries[-1].sort == ()
+        and not window.table_model.loading,
+    )
+    assert window.search.text() == ""
+    assert window.named_filter.currentData() is None
+    assert header.isSortIndicatorShown() is False
+
     window.close()
     assert window.table_model.wait_for_done(1000)
 

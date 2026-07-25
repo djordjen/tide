@@ -9,7 +9,9 @@ from PySide6.QtCore import (
     QModelIndex,
     QObject,
     QRunnable,
+    QSignalBlocker,
     QThreadPool,
+    QTimer,
     Qt,
     Signal,
     Slot,
@@ -18,6 +20,7 @@ from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QGridLayout,
@@ -46,6 +49,7 @@ from .presenter import (
     QtBrowseBatch,
     QtBrowseColumn,
     QtBrowseController,
+    QtBrowseQuery,
     QtDetailCollection,
     QtDetailGroup,
     QtDetailRecord,
@@ -160,17 +164,22 @@ class _BatchWorker(QRunnable):
         controller: QtBrowseController,
         generation: int,
         cursor: str | None,
+        query: QtBrowseQuery,
     ) -> None:
         super().__init__()
         self.controller = controller
         self.generation = generation
         self.cursor = cursor
+        self.query = query
         self.signals = _BatchSignals()
 
     @Slot()
     def run(self) -> None:
         try:
-            batch = self.controller.fetch_batch(self.cursor)
+            batch = self.controller.fetch_batch(
+                self.cursor,
+                query=self.query,
+            )
         except Exception as error:  # Qt worker boundary reports failures to the GUI.
             self.signals.failed.emit(
                 self.generation,
@@ -209,6 +218,7 @@ class TideQtTableModel(QAbstractTableModel):
         self._loading = False
         self._load_error: str | None = None
         self._generation = 0
+        self._query = QtBrowseQuery()
         self._workers: set[_BatchWorker] = set()
         self._thread_pool = QThreadPool(self)
         self._thread_pool.setMaxThreadCount(1)
@@ -224,6 +234,10 @@ class TideQtTableModel(QAbstractTableModel):
     @property
     def has_more(self) -> bool:
         return not self._started or self._next_cursor is not None
+
+    @property
+    def query(self) -> QtBrowseQuery:
+        return self._query
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return 0 if parent.isValid() else len(self._rows)
@@ -287,6 +301,14 @@ class TideQtTableModel(QAbstractTableModel):
         self._set_loading(False)
         self.fetchMore()
 
+    def set_query(self, query: QtBrowseQuery) -> None:
+        """Restart the cursor sequence when structured query inputs change."""
+
+        if query == self._query:
+            return
+        self._query = query
+        self.reload()
+
     def wait_for_done(self, milliseconds: int = -1) -> bool:
         """Wait for this model's HTTP workers before their client is closed."""
 
@@ -294,7 +316,12 @@ class TideQtTableModel(QAbstractTableModel):
 
     def _start_fetch(self, cursor: str | None) -> None:
         self._set_loading(True)
-        worker = _BatchWorker(self.controller, self._generation, cursor)
+        worker = _BatchWorker(
+            self.controller,
+            self._generation,
+            cursor,
+            self._query,
+        )
         self._workers.add(worker)
         worker.signals.completed.connect(self._batch_ready)
         worker.signals.failed.connect(self._worker_failed)
@@ -388,6 +415,31 @@ class TideQtWindow(QMainWindow):
         layout.addWidget(heading)
         layout.addWidget(context)
 
+        query_controls = QHBoxLayout()
+        self.search = QLineEdit()
+        self.search.setObjectName("browse-search")
+        self.search.setClearButtonEnabled(True)
+        self.search.setPlaceholderText(
+            (
+                f"Search {controller.search_label}…"
+                if controller.search_label is not None
+                else "Search is not configured"
+            )
+        )
+        self.search.setEnabled(controller.search_field is not None)
+        self.named_filter = QComboBox()
+        self.named_filter.setObjectName("browse-filter")
+        self.named_filter.addItem("All records", None)
+        for named_filter in controller.named_filters.values():
+            self.named_filter.addItem(named_filter.label, named_filter.name)
+        self.named_filter.setEnabled(bool(controller.named_filters))
+        self.clear_query = QPushButton("Clear")
+        self.clear_query.setObjectName("clear-query")
+        query_controls.addWidget(self.search, 2)
+        query_controls.addWidget(self.named_filter, 1)
+        query_controls.addWidget(self.clear_query)
+        layout.addLayout(query_controls)
+
         self.table = QTableView()
         self.table_model = TideQtTableModel(controller, self)
         self.table.setModel(self.table_model)
@@ -400,6 +452,9 @@ class TideQtWindow(QMainWindow):
         )
         self.table.verticalHeader().setVisible(False)
         _configure_interactive_header(self.table)
+        header = self.table.horizontalHeader()
+        header.setSectionsClickable(True)
+        header.setSortIndicatorShown(False)
         layout.addWidget(self.table, 1)
 
         actions = QHBoxLayout()
@@ -415,6 +470,14 @@ class TideQtWindow(QMainWindow):
         self.setCentralWidget(root)
 
         self.refresh.clicked.connect(self.table_model.reload)
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(300)
+        self._search_timer.timeout.connect(self._apply_query_controls)
+        self.search.textChanged.connect(self._queue_search)
+        self.named_filter.currentIndexChanged.connect(self._apply_query_controls)
+        self.clear_query.clicked.connect(self._clear_query)
+        header.sectionClicked.connect(self._sort_by_section)
         self.view.clicked.connect(self._open_selected_detail)
         self.table.selectionModel().selectionChanged.connect(
             self._update_detail_action
@@ -489,6 +552,61 @@ class TideQtWindow(QMainWindow):
         self._update_status()
         QMessageBox.critical(self, "TIDE Qt", f"Unable to load records: {message}")
 
+    def _queue_search(self, _text: str) -> None:
+        self._search_timer.start()
+
+    def _apply_query_controls(self, *_args: Any) -> None:
+        self._search_timer.stop()
+        current = self.table_model.query
+        self.table_model.set_query(
+            QtBrowseQuery(
+                search_text=self.search.text(),
+                filter_name=self.named_filter.currentData(),
+                sort_field=current.sort_field,
+                sort_descending=current.sort_descending,
+            )
+        )
+
+    def _sort_by_section(self, section: int) -> None:
+        if section < 0 or section >= len(self.controller.columns):
+            return
+        field_name = self.controller.columns[section].name
+        if field_name not in self.controller.sortable_fields:
+            return
+        current = self.table_model.query
+        descending = (
+            not current.sort_descending
+            if current.sort_field == field_name
+            else False
+        )
+        self.table.horizontalHeader().setSortIndicator(
+            section,
+            (
+                Qt.SortOrder.DescendingOrder
+                if descending
+                else Qt.SortOrder.AscendingOrder
+            ),
+        )
+        self.table.horizontalHeader().setSortIndicatorShown(True)
+        self.table_model.set_query(
+            QtBrowseQuery(
+                search_text=current.search_text,
+                filter_name=current.filter_name,
+                sort_field=field_name,
+                sort_descending=descending,
+            )
+        )
+
+    def _clear_query(self) -> None:
+        self._search_timer.stop()
+        search_blocker = QSignalBlocker(self.search)
+        filter_blocker = QSignalBlocker(self.named_filter)
+        self.search.clear()
+        self.named_filter.setCurrentIndex(0)
+        del search_blocker, filter_blocker
+        self.table.horizontalHeader().setSortIndicatorShown(False)
+        self.table_model.set_query(QtBrowseQuery())
+
     def _update_status(self) -> None:
         count = self.table_model.rowCount()
         noun = "record" if count == 1 else "records"
@@ -500,8 +618,11 @@ class TideQtWindow(QMainWindow):
             state = "Scroll for more"
         else:
             state = "All available records loaded"
+        summary = self.controller.query_summary(self.table_model.query)
+        query_text = f"  ·  {summary}" if summary else ""
         self.status.setText(
-            f"{count} {noun} loaded  ·  {state}  ·  {self.source_label}"
+            f"{count} {noun} loaded  ·  {state}  ·  "
+            f"{self.source_label}{query_text}"
         )
 
     def _prefetch_if_near_end(self, *_args: Any) -> None:

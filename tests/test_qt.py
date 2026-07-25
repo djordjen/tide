@@ -10,7 +10,13 @@ import pytest
 
 from tide import compile_project
 from tide.api.contracts import TideEntityCapabilities, TideSessionInfo
-from tide.qt import QtBrowseController, QtDetailCollection, QtDetailGroup
+from tide.data import FilterCondition, QuerySpec, SortField
+from tide.qt import (
+    QtBrowseController,
+    QtBrowseQuery,
+    QtDetailCollection,
+    QtDetailGroup,
+)
 
 
 ROOT = Path(__file__).parents[1]
@@ -19,21 +25,19 @@ INVOICING = ROOT / "applications" / "invoicing"
 
 class _BrowseClient:
     def __init__(self) -> None:
-        self.list_cursors: list[str | None] = []
+        self.queries: list[QuerySpec] = []
         self.reference_reads = 0
         self.invoice_reads = 0
 
-    def list_records(
+    def query_records(
         self,
         entity_name: str,
-        *,
-        limit: int = 100,
-        cursor: str | None = None,
+        query: QuerySpec,
     ) -> Any:
         assert entity_name == "sales.Invoice"
-        assert limit == 2
-        self.list_cursors.append(cursor)
-        if cursor is None:
+        assert query.limit == 2
+        self.queries.append(query)
+        if query.cursor is None:
             return SimpleNamespace(
                 records=(
                     {
@@ -55,7 +59,7 @@ class _BrowseClient:
                 ),
                 next_cursor="invoice-page-2",
             )
-        assert cursor == "invoice-page-2"
+        assert query.cursor == "invoice-page-2"
         return SimpleNamespace(
             records=(
                 {
@@ -158,7 +162,55 @@ def test_qt_browse_formats_incremental_cursor_batches() -> None:
     second = controller.fetch_batch(first.next_cursor)
     assert second.rows[0][2] == "NORTH - Northwind"
     assert second.next_cursor is None
-    assert client.list_cursors == [None, "invoice-page-2"]
+    assert [query.cursor for query in client.queries] == [
+        None,
+        "invoice-page-2",
+    ]
+
+
+def test_qt_browse_builds_metadata_search_filter_and_sort_query() -> None:
+    model = compile_project(INVOICING)
+    controller = QtBrowseController(
+        model,
+        _BrowseClient(),
+        _session(model),
+        page_size=2,
+    )
+
+    query = QtBrowseQuery(
+        search_text="2026-007",
+        filter_name="drafts",
+        sort_field="total",
+        sort_descending=True,
+    )
+    spec = controller.query_spec(query, "opaque-next")
+
+    assert controller.search_field == "number"
+    assert controller.search_label == "Number"
+    assert tuple(controller.named_filters) == ("drafts", "high_value")
+    assert controller.sortable_fields == (
+        "number",
+        "invoice_date",
+        "status",
+        "total",
+    )
+    assert spec == QuerySpec(
+        filters=(
+            FilterCondition("number", "contains", "2026-007"),
+            FilterCondition("status", "eq", "draft"),
+        ),
+        sort=(SortField("total", descending=True),),
+        limit=2,
+        cursor="opaque-next",
+    )
+    assert controller.query_summary(query) == (
+        "search '2026-007'  ·  Draft invoices  ·  Total descending"
+    )
+
+    with pytest.raises(ValueError, match="filter 'missing' is not configured"):
+        controller.query_spec(QtBrowseQuery(filter_name="missing"))
+    with pytest.raises(ValueError, match="field 'customer' is not sortable"):
+        controller.query_spec(QtBrowseQuery(sort_field="customer"))
 
 
 def test_qt_detail_uses_form_groups_and_nested_inline_collection() -> None:

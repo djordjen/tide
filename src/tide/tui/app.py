@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import asyncio
 from datetime import date, datetime
 from decimal import Decimal
@@ -25,6 +24,11 @@ from tide.compiler.normalized import (
     ResolvedView,
 )
 from tide.data import FilterCondition, QuerySpec, SortField
+from tide.presentation import (
+    browse_named_filters,
+    browse_search_field,
+    browse_sortable_fields,
+)
 from tide.runtime import DeleteRestricted, RequestContext, TideRuntimeError
 from tide.reporting import ReportService
 from tide.security import PROTECTED
@@ -272,7 +276,7 @@ class TideApp(App[None]):
             )
             yield Select(
                 tuple(
-                    (str(filter_data["label"]), filter_name)
+                    (filter_data.label, filter_name)
                     for filter_name, filter_data in self.named_filters.items()
                 ),
                 prompt="All records",
@@ -638,10 +642,10 @@ class TideApp(App[None]):
         self.view = view
         self.entity = self.model.entity(view.entity)
         self.form_view = select_form_view(self.model, self.entity.name)
-        self.search_field = _search_field(view, self.entity)
-        self.named_filters = _named_filters(view)
+        self.search_field = browse_search_field(view, self.entity)
+        self.named_filters = browse_named_filters(view)
         self.columns = _browse_columns(view, self.entity)
-        self.sort_fields = _sortable_fields(self.columns, self.entity)
+        self.sort_fields = browse_sortable_fields(self.columns, self.entity)
         self._audit_allowed = bool(
             self.audit_history is not None
             and self.audit_history.can_view(self.entity.name, self.context)
@@ -715,7 +719,7 @@ class TideApp(App[None]):
                 filters = self.query_one("#named-filter", Select)
                 filters.set_options(
                     tuple(
-                        (str(data["label"]), name)
+                        (data.label, name)
                         for name, data in self.named_filters.items()
                     )
                 )
@@ -959,7 +963,7 @@ class TideApp(App[None]):
                 FilterCondition(self.search_field, "contains", self._search_text)
             )
         if self._filter_name is not None:
-            filters.extend(self.named_filters[self._filter_name]["conditions"])
+            filters.extend(self.named_filters[self._filter_name].conditions)
         return tuple(filters)
 
     def _query_summary(self) -> str:
@@ -967,7 +971,7 @@ class TideApp(App[None]):
         if self._search_text:
             parts.append(f"search {self._search_text!r}")
         if self._filter_name is not None:
-            parts.append(str(self.named_filters[self._filter_name]["label"]))
+            parts.append(self.named_filters[self._filter_name].label)
         if self._sort_field is not None:
             direction = "descending" if self._sort_descending else "ascending"
             parts.append(
@@ -1119,95 +1123,6 @@ def _browse_columns(
             and field_configuration[name].get("hidden", False)
         )
     )
-
-
-def _search_field(
-    view: ResolvedView,
-    entity: NormalizedEntity,
-) -> str | None:
-    configured = tuple(str(name) for name in view.data.get("search", ()))
-    return next(
-        (
-            name
-            for name in configured
-            if name in entity.fields
-            and entity.field(name).metadata["type"] in {"string", "choice"}
-            and not entity.field(name).metadata.get("computed")
-        ),
-        None,
-    )
-
-
-def _sortable_fields(
-    columns: tuple[str, ...],
-    entity: NormalizedEntity,
-) -> tuple[str, ...]:
-    return tuple(
-        name
-        for name in columns
-        if entity.field(name).metadata["type"] not in {"collection", "reference"}
-        and not (
-            entity.field(name).metadata.get("computed")
-            and entity.field(name).metadata["computed"].get("materialization")
-            == "virtual"
-        )
-    )
-
-
-def _named_filters(view: ResolvedView) -> dict[str, dict[str, Any]]:
-    result: dict[str, dict[str, Any]] = {}
-    for name, filter_data in view.data.get("filters", {}).items():
-        criteria = filter_data.get("criteria")
-        if not isinstance(criteria, str):
-            continue
-        try:
-            conditions = _criteria_conditions(criteria)
-        except ValueError:
-            continue
-        result[str(name)] = {
-            "label": str(filter_data.get("label") or _humanize(str(name))),
-            "conditions": conditions,
-        }
-    return result
-
-
-def _criteria_conditions(criteria: str) -> tuple[FilterCondition, ...]:
-    try:
-        expression = ast.parse(criteria, mode="eval").body
-    except SyntaxError as error:
-        raise ValueError("named filter has invalid syntax") from error
-    clauses = (
-        tuple(expression.values)
-        if isinstance(expression, ast.BoolOp) and isinstance(expression.op, ast.And)
-        else (expression,)
-    )
-    return tuple(_comparison_condition(clause) for clause in clauses)
-
-
-def _comparison_condition(expression: ast.expr) -> FilterCondition:
-    if (
-        not isinstance(expression, ast.Compare)
-        or len(expression.ops) != 1
-        or len(expression.comparators) != 1
-        or not isinstance(expression.left, ast.Name)
-    ):
-        raise ValueError("named filters must use direct field comparisons")
-    operators: dict[type[ast.cmpop], str] = {
-        ast.Eq: "eq",
-        ast.NotEq: "ne",
-        ast.Lt: "lt",
-        ast.LtE: "lte",
-        ast.Gt: "gt",
-        ast.GtE: "gte",
-    }
-    operator = operators.get(type(expression.ops[0]))
-    if operator is None:
-        raise ValueError("named filter comparison is not queryable")
-    try:
-        value = ast.literal_eval(expression.comparators[0])
-    except (ValueError, TypeError) as error:
-        raise ValueError("named filter value must be a literal") from error
-    return FilterCondition(expression.left.id, operator, value)
 
 
 def _primary_key(entity: NormalizedEntity) -> str:

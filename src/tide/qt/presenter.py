@@ -16,6 +16,13 @@ from tide.compiler.normalized import (
     NormalizedField,
     ResolvedView,
 )
+from tide.data import FilterCondition, QuerySpec, SortField
+from tide.presentation import (
+    BrowseNamedFilter,
+    browse_named_filters,
+    browse_search_field,
+    browse_sortable_fields,
+)
 from tide.runtime import TideRuntimeError
 from tide.security import PROTECTED
 
@@ -25,12 +32,10 @@ Alignment = Literal["left", "center", "right"]
 class BrowseApiClient(Protocol):
     """Small typed-client surface consumed by the initial Qt presenter."""
 
-    def list_records(
+    def query_records(
         self,
         entity_name: str,
-        *,
-        limit: int = 100,
-        cursor: str | None = None,
+        query: QuerySpec,
     ) -> Any: ...
 
     def get_record(self, entity_name: str, identity: Any) -> Any: ...
@@ -49,6 +54,16 @@ class QtBrowseBatch:
     rows: tuple[tuple[str, ...], ...]
     identities: tuple[Any, ...]
     next_cursor: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class QtBrowseQuery:
+    """Renderer query state that starts one server-owned cursor sequence."""
+
+    search_text: str = ""
+    filter_name: str | None = None
+    sort_field: str | None = None
+    sort_descending: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +118,14 @@ class QtBrowseController:
         self.entity = model.entity(self.view.entity)
         self.detail_view = _select_form_view(model, session, self.entity.name)
         self.field_names = _browse_columns(self.view, self.entity)
+        self.search_field = browse_search_field(self.view, self.entity)
+        self.named_filters: dict[str, BrowseNamedFilter] = browse_named_filters(
+            self.view
+        )
+        self.sortable_fields = browse_sortable_fields(
+            self.field_names,
+            self.entity,
+        )
         configured_page_size = int(
             self.view.data.get("settings", {}).get("page_size", 25)
         )
@@ -133,19 +156,90 @@ class QtBrowseController:
     def detail_available(self) -> bool:
         return self.detail_view is not None
 
+    @property
+    def search_label(self) -> str | None:
+        if self.search_field is None:
+            return None
+        return _field_label(self.entity.field(self.search_field))
+
     def reset_browse(self) -> None:
         """Discard browse-only display caches before a fresh server query."""
 
         with self._reference_cache_lock:
             self._reference_cache.clear()
 
-    def fetch_batch(self, cursor: str | None = None) -> QtBrowseBatch:
-        """Fetch and format one opaque server-owned continuation batch."""
+    def query_spec(
+        self,
+        query: QtBrowseQuery,
+        cursor: str | None = None,
+    ) -> QuerySpec:
+        """Validate renderer state and build one structured server query."""
 
-        remote = self.client.list_records(
-            self.entity.name,
+        filters: list[FilterCondition] = []
+        if query.search_text:
+            if self.search_field is None:
+                raise ValueError("Qt browse search is not configured")
+            filters.append(
+                FilterCondition(self.search_field, "contains", query.search_text)
+            )
+        if query.filter_name is not None:
+            named_filter = self.named_filters.get(query.filter_name)
+            if named_filter is None:
+                raise ValueError(
+                    f"Qt browse filter {query.filter_name!r} is not configured"
+                )
+            filters.extend(named_filter.conditions)
+        if (
+            query.sort_field is not None
+            and query.sort_field not in self.sortable_fields
+        ):
+            raise ValueError(
+                f"Qt browse field {query.sort_field!r} is not sortable"
+            )
+        return QuerySpec(
+            filters=tuple(filters),
+            sort=(
+                (
+                    SortField(
+                        query.sort_field,
+                        descending=query.sort_descending,
+                    ),
+                )
+                if query.sort_field is not None
+                else ()
+            ),
             limit=self.batch_size,
             cursor=cursor,
+        )
+
+    def query_summary(self, query: QtBrowseQuery) -> str:
+        """Return a compact human-readable summary for the browse status."""
+
+        parts: list[str] = []
+        if query.search_text:
+            parts.append(f"search {query.search_text!r}")
+        if query.filter_name is not None:
+            named_filter = self.named_filters.get(query.filter_name)
+            if named_filter is not None:
+                parts.append(named_filter.label)
+        if query.sort_field is not None:
+            direction = "descending" if query.sort_descending else "ascending"
+            parts.append(
+                f"{_field_label(self.entity.field(query.sort_field))} {direction}"
+            )
+        return "  ·  ".join(parts)
+
+    def fetch_batch(
+        self,
+        cursor: str | None = None,
+        *,
+        query: QtBrowseQuery | None = None,
+    ) -> QtBrowseBatch:
+        """Fetch and format one opaque server-owned continuation batch."""
+
+        remote = self.client.query_records(
+            self.entity.name,
+            self.query_spec(query or QtBrowseQuery(), cursor),
         )
         rows = tuple(
             tuple(

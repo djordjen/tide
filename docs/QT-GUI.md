@@ -1,12 +1,12 @@
 # Qt GUI Prototype
 
-Status: **read-only vertical slice with incremental server-mode browsing**.
+Status: **read-only vertical slice with interactive server-mode browsing**.
 
 TIDE now includes a small PySide6 desktop adapter that proves the normalized
 application model and secured remote-client boundary can drive a native GUI.
-It supports an incrementally loaded browse list and read-only record detail;
-editing, actions, lookup selection, reports, and desktop sign-in remain later
-work.
+It supports an incrementally loaded browse list, metadata-defined search and
+named filters, global header sorting, and read-only record detail. Editing,
+actions, lookup selection, reports, and desktop sign-in remain later work.
 
 ## Security and architecture
 
@@ -49,6 +49,13 @@ development. The first batch uses the view's configured size (25 records in the
 Invoicing presentation defaults). Scroll to the end of the loaded records and
 the next secured cursor batch is fetched in the background and appended.
 
+Type in **Search Number** to start a new server query after a short typing
+pause. Choose **Draft invoices** or **High-value invoices** from the filter
+list, and click a supported column heading to sort the complete result
+ascending; click the same heading again for descending order. **Clear** restores
+the default query. These operations reset the cursor sequence rather than
+sorting or filtering only the rows already loaded.
+
 Select an Invoice and press **View**, double-click it, or press **Enter**. The
 detail window follows the compiled `sales.Invoice.edit` structure but remains
 read-only: it shows the Invoice, Totals, and Posting groups plus the nested
@@ -77,8 +84,14 @@ complete launcher contract.
   for the current client session;
 - a `QTableView`/`QAbstractTableModel` boundary accumulates opaque server cursor
   batches as the user scrolls, without Previous/Next page navigation;
+- search, named filters, and sortable fields are interpreted from the same
+  compiled browse metadata helper used by Textual, then sent through the typed
+  FastAPI query endpoint;
+- sortable header clicks order the whole secured server result, while
+  300-millisecond search debounce avoids a request for every keystroke;
 - blocking HTTP batches run on a dedicated Qt worker pool, keep the interface
-  responsive, reject repeated cursors, and surface a refreshable loading error;
+  responsive, suppress stale query generations, reject repeated cursors, and
+  surface a refreshable loading error;
 - browse columns start at practical content-based widths and every divider is
   draggable; double-click a divider to auto-fit it, and manual widths survive
   incremental loading and refreshes for the lifetime of the window;
@@ -91,8 +104,6 @@ complete launcher contract.
 ## Deliberately deferred
 
 - create/edit forms, lookup selection, domain actions, and reports;
-- server-side browse sorting, search/filter controls, and stale-request
-  cancellation when those query inputs change;
 - persisted personal column order/width preferences and privileged publishing
   of validated application defaults;
 - OIDC desktop login, access-token refresh, and secure token storage;

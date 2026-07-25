@@ -138,7 +138,7 @@ application-owned Faker profile and the real secured services.
   browse text; **implemented**; Windows Terminal/xterm/SSH and reduced/no-color
   release certification remain;
 - server-side sorting, seamless incremental cursor loading, search, and named
-  filters;
+  filters; **implemented for Textual and Qt browse**
 - basic secured printable invoice with TUI preview, HTML, and PDF;
   **implemented**
 - opt-in REST list/get/create/update/delete and domain-action routes plus OpenAPI;
