@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -211,6 +212,73 @@ class _InvoiceLookupClient(_BrowseClient):
         assert entity_name == "crm.Customer"
         self.created_customers.append(dict(values))
         return SimpleNamespace(values={"id": 3, **values}, etag=None)
+
+
+class _InvoiceLinesClient(_InvoiceLookupClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.updated_invoices: list[tuple[Any, dict[str, Any], Any]] = []
+        self.created_products: list[dict[str, Any]] = []
+
+    def query_records(self, entity_name: str, query: QuerySpec) -> Any:
+        if entity_name != "catalog.Product":
+            return super().query_records(entity_name, query)
+        return SimpleNamespace(
+            records=(
+                {
+                    "id": 10,
+                    "code": "CONSULT",
+                    "name": "Consulting",
+                    "unit_price": Decimal("500.00"),
+                    "active": True,
+                },
+            ),
+            next_cursor=None,
+        )
+
+    def apply_reference_selection(
+        self,
+        entity_name: str,
+        field_name: str,
+        values: dict[str, Any],
+        identity: Any,
+    ) -> dict[str, Any]:
+        if entity_name != "sales.InvoiceLine":
+            return super().apply_reference_selection(
+                entity_name,
+                field_name,
+                values,
+                identity,
+            )
+        return {
+            **values,
+            field_name: identity,
+            "description": "Consulting",
+            "unit_price": Decimal("500.00"),
+        }
+
+    def update_record(
+        self,
+        entity_name: str,
+        identity: Any,
+        values: dict[str, Any],
+        *,
+        if_match: str | int | None = None,
+    ) -> Any:
+        assert entity_name == "sales.Invoice"
+        self.updated_invoices.append((identity, deepcopy(values), if_match))
+        stored = {**super().get_record(entity_name, identity).values, **values}
+        return SimpleNamespace(values=stored, etag='"8"')
+
+    def create_record(
+        self,
+        entity_name: str,
+        values: dict[str, Any],
+    ) -> Any:
+        if entity_name != "catalog.Product":
+            return super().create_record(entity_name, values)
+        self.created_products.append(dict(values))
+        return SimpleNamespace(values={"id": 11, **values}, etag=None)
 
 
 def test_qt_browse_formats_incremental_cursor_batches() -> None:
@@ -503,7 +571,10 @@ def test_qt_invoice_header_resolves_lookup_and_nested_create_contract() -> None:
     assert controller.create_available is True
     assert controller.update_available is True
     form = controller.edit_form(1)
-    assert form.omitted_collections == ("lines",)
+    assert form.omitted_collections == ()
+    assert len(form.collections) == 1
+    assert form.collections[0].name == "lines"
+    assert form.collections[0].editable is False
     customer = next(field for field in form.fields if field.name == "customer")
     assert customer.field_type == "reference"
     assert customer.lookup_view == "crm.Customer.lookup"
@@ -565,6 +636,120 @@ def test_qt_invoice_header_resolves_lookup_and_nested_create_contract() -> None:
     created = controller.lookup_record(spec, stored)
     assert created.identity == 3
     assert created.display == "NORTH - Northwind"
+
+
+def test_qt_invoice_inline_lines_apply_product_defaults_and_nested_payload() -> None:
+    model = compile_project(INVOICING)
+    client = _InvoiceLinesClient()
+    controller = QtBrowseController(
+        model,
+        client,
+        _invoice_lines_session(model),
+        page_size=2,
+    )
+    form = controller.edit_form(1)
+
+    assert form.omitted_collections == ()
+    lines = form.collections[0]
+    assert lines.name == "lines"
+    assert lines.entity == "sales.InvoiceLine"
+    assert lines.editable is True
+    assert tuple(column.name for column in lines.columns) == (
+        "line_number",
+        "product",
+        "description",
+        "quantity",
+        "unit_price",
+        "total",
+    )
+    assert tuple(
+        tuple(field.name for field in row)
+        for row in lines.groups[0].rows
+    ) == (
+        ("line_number", "unit_price"),
+        ("product", "quantity"),
+        ("description",),
+    )
+
+    unchanged = controller.save_form(
+        form,
+        {
+            "invoice_date": date(2026, 7, 1),
+            "currency": "EUR",
+            "customer": 1,
+            "lines": list(lines.records),
+        },
+    )
+    assert unchanged["number"] == "INV-2026-001"
+    assert client.updated_invoices == []
+
+    added = controller.new_collection_record(
+        lines,
+        lines.records,
+    )
+    assert added["line_number"] == 2
+    product_spec = controller.lookup_spec(
+        "product",
+        collection_name="lines",
+    )
+    assert product_spec.target_entity == "catalog.Product"
+    assert product_spec.create_view == "catalog.Product.edit"
+    product_controller = controller.related_create_controller(product_spec)
+    product_form = product_controller.new_form()
+    created_product = product_controller.save_form(
+        product_form,
+        {
+            "code": "SUPPORT",
+            "unit_price": Decimal("75.00"),
+            "name": "Support",
+            "active": True,
+        },
+    )
+    assert controller.lookup_record(
+        product_spec,
+        created_product,
+    ).display == "SUPPORT - Support"
+    product = controller.search_lookup(product_spec, "consult")[0]
+    selected = controller.apply_lookup_selection(
+        form,
+        "product",
+        {
+            **added,
+            "quantity": Decimal("2.000"),
+        },
+        product,
+        collection_name="lines",
+    )
+    preview = controller.preview_collection_record(
+        lines,
+        selected.values,
+    )
+    assert preview["description"] == "Consulting"
+    assert preview["unit_price"] == Decimal("500.00")
+    assert preview["total"] == Decimal("1000.00")
+    assert controller.collection_cells(lines, preview)[-1] == "1,000.00"
+
+    stored = controller.save_form(
+        form,
+        {
+            "invoice_date": date(2026, 7, 1),
+            "currency": "EUR",
+            "customer": 1,
+            "lines": [*lines.records, preview],
+        },
+    )
+    assert stored["lines"]
+    identity, changes, etag = client.updated_invoices[0]
+    assert identity == 1
+    assert etag == '"7"'
+    assert changes["lines"][-1] == {
+        "line_number": 2,
+        "product": 10,
+        "description": "Consulting",
+        "quantity": Decimal("2.000"),
+        "unit_price": Decimal("500.00"),
+    }
+    assert "total" not in changes["lines"][-1]
 
 
 def _session(
@@ -632,4 +817,43 @@ def _invoice_edit_session(model: Any) -> TideSessionInfo:
                 writable_fields=("code", "name", "email", "active"),
             ),
         },
+    )
+
+
+def _invoice_lines_session(model: Any) -> TideSessionInfo:
+    base = _invoice_edit_session(model)
+    line = model.entity("sales.InvoiceLine")
+    product = model.entity("catalog.Product")
+    return base.model_copy(
+        update={
+            "entities": {
+                **base.entities,
+                "sales.Invoice": base.entities["sales.Invoice"].model_copy(
+                    update={
+                        "writable_fields": (
+                            "invoice_date",
+                            "currency",
+                            "customer",
+                            "lines",
+                        )
+                    }
+                ),
+                "sales.InvoiceLine": TideEntityCapabilities(
+                    draft_operations=("create", "update"),
+                    readable_fields=tuple(line.fields),
+                    writable_fields=(
+                        "line_number",
+                        "description",
+                        "quantity",
+                        "unit_price",
+                        "product",
+                    ),
+                ),
+                "catalog.Product": TideEntityCapabilities(
+                    operations=("list", "get", "create", "update"),
+                    readable_fields=tuple(product.fields),
+                    writable_fields=("code", "name", "unit_price", "active"),
+                ),
+            }
+        }
     )

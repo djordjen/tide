@@ -208,13 +208,21 @@ and use **View**, double-click, or press **Enter** to inspect its compiled form
 groups and line items. Reaching the bottom automatically appends the next
 secured server batch; there are no page-navigation buttons.
 
-Select a draft Invoice and use **Edit** to change its supported header fields.
+Select a draft Invoice and use **Edit** to change its header and line items.
 The Customer editor opens the compiled `crm.Customer.lookup` as a searchable
 multi-column dialog. Search matches code, name, or email through FastAPI; select
 a result, or use **New** / Ctrl+N when authorized. The nested Customer form ends
 with **Save & Select**, returning the new identity to the preserved Invoice
-draft. Line items are clearly reported as unchanged and remain available
-through **View** until Qt master-detail editing is added.
+draft.
+
+The Lines section follows `sales.InvoiceLine.inline_edit`: its table fills the
+available height, the metadata-ordered Line Details fields sit below it, and
+**Add line**, **Apply line**, and **Remove line** stay at bottom left. Product
+uses its own multi-column lookup and may create a missing Product through
+**Save & Select**. Selection asks FastAPI to copy Description and Unit Price;
+enter Quantity and use **Apply line** to preview line Total and Invoice Total.
+The final **Save** sends one sanitized nested Invoice payload with the observed
+ETag.
 
 The first editable Qt slice covers the flat Product and Customer forms:
 
@@ -226,8 +234,7 @@ The first editable Qt slice covers the flat Product and Customer forms:
 Use **New** or select a row and use **Edit**. These dialogs follow compiled form
 rows, writable-field capabilities, required fields, Boolean controls, regex
 masks, and exact Decimal input. Save calls FastAPI in the background and
-refreshes the secured list; the GUI never receives a database URL. Invoice line
-editing remains deliberately separate. See the
+refreshes the secured list; the GUI never receives a database URL. See the
 [Qt GUI prototype](QT-GUI.md) for the exact current scope.
 
 To inspect the generated OpenAPI document without starting a server:

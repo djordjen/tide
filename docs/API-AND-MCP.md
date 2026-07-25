@@ -272,7 +272,10 @@ applications/invoicing --api-url http://127.0.0.1:8000`; the TUI compiles
 presentation metadata locally but performs browse, structured filter/sort,
 lookup selection, create/update, and actions through HTTP. The Qt client now
 reuses this boundary for browse queries, forms, reference selection, and nested
-**Save & Select** creation. Authorized record reports are built through
+**Save & Select** creation. Its InvoiceLine editor sends sanitized nested
+collection input through the ordinary Invoice create/update contract; no
+renderer-only mutation route is introduced. Authorized record reports are
+built through
 `ReportService` at `GET /api/v1/_tide/reports/{report}/records/{identity}` and
 authorized summary reports at `POST /api/v1/_tide/reports/{report}` with a
 parameter object validated against the compiled definitions. Both return a

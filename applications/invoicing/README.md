@@ -105,6 +105,11 @@ The workspace selector opens Invoices, Customers, or Products. Customer and
 Product forms support secured create/edit operations. Customer and Product
 lookups also expose **New** (Ctrl+N) when authorized; the nested form uses
 **Save & Select**, preserving the unsaved invoice and applying Product defaults.
+The Qt Invoice editor follows the same metadata and API contract. Its line table
+sits above the Line Details fields, Add/Apply/Remove change the local draft,
+Product lookup applies Description and Unit Price through the server, and line
+plus Invoice totals preview before one ETag-protected nested save. Customer and
+Product lookup windows both support authorized **Save & Select**.
 The browse search applies incrementally to invoice numbers. The filter selector
 exposes **Draft invoices** and **High-value invoices** from view metadata, and
 the sort selector or eligible column headers toggle secured ascending and

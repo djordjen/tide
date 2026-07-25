@@ -121,6 +121,30 @@ class QtEditGroup:
 
 
 @dataclass(frozen=True, slots=True)
+class QtEditCollection:
+    """One compiler-resolved inline collection editor."""
+
+    name: str
+    label: str
+    entity: str
+    columns: tuple[QtBrowseColumn, ...]
+    groups: tuple[QtEditGroup, ...]
+    actions: tuple[str, ...]
+    records: tuple[Mapping[str, Any], ...]
+    defaults: Mapping[str, Any]
+    editable: bool
+
+    @property
+    def fields(self) -> tuple[QtEditField, ...]:
+        return tuple(
+            field
+            for group in self.groups
+            for row in group.rows
+            for field in row
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class QtEditForm:
     """One create/update draft opened through an authenticated API capability."""
 
@@ -131,6 +155,7 @@ class QtEditForm:
     etag: str | None
     original: Mapping[str, Any]
     groups: tuple[QtEditGroup, ...]
+    collections: tuple[QtEditCollection, ...] = ()
     omitted_collections: tuple[str, ...] = ()
 
     @property
@@ -151,6 +176,7 @@ class QtLookupSpec:
     field_name: str
     title: str
     target_entity: str
+    collection_name: str | None
     columns: tuple[QtBrowseColumn, ...]
     search_fields: tuple[str, ...]
     limit: int
@@ -337,10 +363,17 @@ class QtBrowseController:
     def _has_writable_form_field(self) -> bool:
         if self.detail_view is None:
             return False
-        return any(
+        scalar_writable = any(
             name in self._entity_capabilities.writable_fields
             for name in _form_field_names(self.detail_view, self.entity)
         )
+        collection_writable = any(
+            str(configuration.get("collection"))
+            in self._entity_capabilities.writable_fields
+            for configuration in self.detail_view.data.get("layout", ())
+            if configuration.get("collection")
+        )
+        return scalar_writable or collection_writable
 
     def reset_browse(self) -> None:
         """Discard browse-only display caches before a fresh server query."""
@@ -464,7 +497,9 @@ class QtBrowseController:
         defaults: dict[str, Any] = {}
         for field_name, field in self.entity.fields.items():
             metadata = field.metadata
-            if metadata.get("default_factory") == "today":
+            if metadata["type"] == "collection" and field.target_entity:
+                defaults[field_name] = []
+            elif metadata.get("default_factory") == "today":
                 defaults[field_name] = date.today()
             elif "default" in metadata:
                 defaults[field_name] = deepcopy(metadata["default"])
@@ -511,7 +546,13 @@ class QtBrowseController:
                 f"{self.entity.name} {form.operation} is not available"
             )
         editable = {field.name for field in form.fields if field.editable}
-        unknown = set(values) - editable
+        editable_collections = {
+            collection.name
+            for collection in form.collections
+            if collection.editable
+        }
+        allowed = editable | editable_collections
+        unknown = set(values) - allowed
         if unknown:
             raise ValueError(
                 "Qt edit form contains non-writable field(s): "
@@ -522,12 +563,34 @@ class QtBrowseController:
             for field in form.fields
             if field.editable and field.value is not PROTECTED
         }
+        for collection in form.collections:
+            if not collection.editable:
+                continue
+            raw_records = values.get(collection.name, collection.records)
+            if not isinstance(raw_records, (list, tuple)):
+                raise ValueError(
+                    f"Qt collection {collection.name!r} requires a sequence"
+                )
+            draft[collection.name] = self._collection_payload(
+                collection,
+                raw_records,
+            )
         if form.operation == "create":
             return self.client.create_record(self.entity.name, draft).values
+        original = deepcopy(dict(form.original))
+        for collection in form.collections:
+            if not collection.editable:
+                continue
+            raw_original = original.get(collection.name, ())
+            if isinstance(raw_original, (list, tuple)):
+                original[collection.name] = self._collection_payload(
+                    collection,
+                    raw_original,
+                )
         changes = {
             name: value
             for name, value in draft.items()
-            if form.original.get(name) != value
+            if original.get(name) != value
         }
         if not changes:
             return deepcopy(dict(form.original))
@@ -538,15 +601,23 @@ class QtBrowseController:
             if_match=form.etag,
         ).values
 
-    def lookup_spec(self, field_name: str) -> QtLookupSpec:
+    def lookup_spec(
+        self,
+        field_name: str,
+        *,
+        collection_name: str | None = None,
+    ) -> QtLookupSpec:
         """Resolve one reference lookup without granting any server access."""
 
-        if self.detail_view is None or field_name not in self.entity.fields:
+        if self.detail_view is None:
             raise ValueError(f"Qt lookup field {field_name!r} is not available")
-        field = self.entity.field(field_name)
+        owner, view = self._lookup_owner(collection_name)
+        if field_name not in owner.fields:
+            raise ValueError(f"Qt lookup field {field_name!r} is not available")
+        field = owner.field(field_name)
         if field.metadata["type"] != "reference" or not field.target_entity:
             raise ValueError(f"field {field_name!r} is not a reference")
-        configuration = _view_field_configuration(self.detail_view, field_name)
+        configuration = _view_field_configuration(view, field_name)
         if configuration.get("editor") != "lookup":
             raise ValueError(f"field {field_name!r} does not use a lookup editor")
         lookup_name = configuration.get(
@@ -599,10 +670,11 @@ class QtBrowseController:
             and capabilities.writable_fields
         )
         return QtLookupSpec(
-            owner_entity=self.entity.name,
+            owner_entity=owner.name,
             field_name=field_name,
             title=f"Select {target.label.removesuffix('s') or target.label}",
             target_entity=target.name,
+            collection_name=collection_name,
             columns=tuple(
                 QtBrowseColumn(
                     name,
@@ -629,8 +701,7 @@ class QtBrowseController:
     ) -> tuple[QtLookupRecord, ...]:
         """Return bounded secured matches using the ordinary query API."""
 
-        if spec.owner_entity != self.entity.name:
-            raise ValueError("Qt lookup belongs to a different entity")
+        self._validate_lookup_spec(spec)
         target = self.model.entity(spec.target_entity)
         key_name = _primary_key_name(target)
         candidate = search_text.strip()
@@ -675,13 +746,12 @@ class QtBrowseController:
     ) -> QtLookupRecord:
         """Format one selected or newly created target record consistently."""
 
-        if spec.owner_entity != self.entity.name:
-            raise ValueError("Qt lookup belongs to a different entity")
+        self._validate_lookup_spec(spec)
         target = self.model.entity(spec.target_entity)
         identity = values.get(_primary_key_name(target))
         if identity is None or identity is PROTECTED:
             raise ValueError("Qt lookup record identity is unavailable")
-        return QtLookupRecord(
+        record = QtLookupRecord(
             identity=identity,
             display=_display_record(target, values),
             cells=tuple(
@@ -690,6 +760,9 @@ class QtBrowseController:
             ),
             values=deepcopy(dict(values)),
         )
+        with self._reference_cache_lock:
+            self._reference_cache[(target.name, identity)] = record.display
+        return record
 
     def apply_lookup_selection(
         self,
@@ -697,16 +770,22 @@ class QtBrowseController:
         field_name: str,
         values: Mapping[str, Any],
         record: QtLookupRecord,
+        *,
+        collection_name: str | None = None,
     ) -> QtLookupSelection:
         """Apply a selected identity through the server-owned draft operation."""
 
         if form.entity != self.entity.name:
             raise ValueError("Qt edit form belongs to a different entity")
-        spec = self.lookup_spec(field_name)
-        if spec.target_entity != self.entity.field(field_name).target_entity:
+        spec = self.lookup_spec(
+            field_name,
+            collection_name=collection_name,
+        )
+        owner = self.model.entity(spec.owner_entity)
+        if spec.target_entity != owner.field(field_name).target_entity:
             raise ValueError("Qt lookup target does not match the reference")
         updated = self.client.apply_reference_selection(
-            self.entity.name,
+            owner.name,
             field_name,
             values,
             record.identity,
@@ -717,6 +796,48 @@ class QtBrowseController:
             display=record.display,
             values=deepcopy(dict(updated)),
         )
+
+    def _lookup_owner(
+        self,
+        collection_name: str | None,
+    ) -> tuple[NormalizedEntity, ResolvedView]:
+        assert self.detail_view is not None
+        if collection_name is None:
+            return self.entity, self.detail_view
+        if collection_name not in self.entity.fields:
+            raise ValueError(
+                f"Qt collection {collection_name!r} is not available"
+            )
+        collection = self.entity.field(collection_name)
+        if collection.metadata["type"] != "collection" or not collection.target_entity:
+            raise ValueError(f"field {collection_name!r} is not a collection")
+        inline_name = next(
+            (
+                configuration.get("view")
+                for configuration in self.detail_view.data.get("layout", ())
+                if str(configuration.get("collection")) == collection_name
+            ),
+            None,
+        )
+        inline = self.model.views.get(str(inline_name)) if inline_name else None
+        if (
+            inline is None
+            or inline.kind != "inline_edit"
+            or inline.entity != collection.target_entity
+        ):
+            raise ValueError(
+                f"collection {collection_name!r} has no valid inline view"
+            )
+        return self.model.entity(collection.target_entity), inline
+
+    def _validate_lookup_spec(self, spec: QtLookupSpec) -> None:
+        owner, _view = self._lookup_owner(spec.collection_name)
+        if (
+            spec.owner_entity != owner.name
+            or spec.field_name not in owner.fields
+            or owner.field(spec.field_name).target_entity != spec.target_entity
+        ):
+            raise ValueError("Qt lookup belongs to a different entity")
 
     def related_create_controller(
         self,
@@ -762,11 +883,20 @@ class QtBrowseController:
     ) -> QtEditForm:
         assert self.detail_view is not None
         groups: list[QtEditGroup] = []
+        collections: list[QtEditCollection] = []
         omitted_collections: list[str] = []
         for configuration in self.detail_view.data.get("layout", ()):
             collection_name = configuration.get("collection")
             if collection_name:
-                omitted_collections.append(str(collection_name))
+                collection = self._edit_collection(
+                    configuration,
+                    values,
+                    operation=operation,
+                )
+                if collection is None:
+                    omitted_collections.append(str(collection_name))
+                else:
+                    collections.append(collection)
                 continue
             label = configuration.get("group")
             if not label:
@@ -811,8 +941,354 @@ class QtBrowseController:
             etag=etag,
             original=deepcopy(dict(values)),
             groups=tuple(groups),
+            collections=tuple(collections),
             omitted_collections=tuple(omitted_collections),
         )
+
+    def _edit_collection(
+        self,
+        configuration: Mapping[str, Any],
+        values: Mapping[str, Any],
+        *,
+        operation: Literal["create", "update"],
+    ) -> QtEditCollection | None:
+        name = str(configuration.get("collection") or "")
+        inline_name = configuration.get("view")
+        if name not in self.entity.fields or not inline_name:
+            return None
+        field = self.entity.field(name)
+        inline = self.model.views.get(str(inline_name))
+        if (
+            field.metadata["type"] != "collection"
+            or not field.target_entity
+            or inline is None
+            or inline.kind != "inline_edit"
+            or inline.entity != field.target_entity
+        ):
+            return None
+        raw_records = values.get(name, ())
+        if raw_records is PROTECTED or not isinstance(
+            raw_records,
+            (list, tuple),
+        ):
+            return None
+        target = self.model.entity(field.target_entity)
+        capabilities = self.session.entities.get(
+            target.name,
+            _EMPTY_CAPABILITIES,
+        )
+        allowed_operations = set(capabilities.operations) | set(
+            capabilities.draft_operations
+        )
+        immutable_when = field.metadata.get("immutable_when")
+        editable = bool(
+            name in self._entity_capabilities.writable_fields
+            and operation in allowed_operations
+            and not field.metadata.get("readonly")
+            and field.metadata.get("write", "normal") == "normal"
+            and not (
+                immutable_when
+                and bool(evaluate_expression(str(immutable_when), values))
+            )
+        )
+        defaults = _entity_defaults(target)
+        inverse = field.metadata.get("inverse")
+        column_names = _lookup_columns(inline, target)
+        editor_names = tuple(
+            name
+            for name in column_names
+            if name in target.fields
+            and name != inverse
+            and not target.field(name).metadata.get("primary_key")
+            and not target.field(name).metadata.get("computed")
+            and not target.field(name).metadata.get("readonly")
+            and target.field(name).metadata.get("write", "normal") == "normal"
+            and not _field_is_hidden(inline, name)
+        )
+        groups: list[QtEditGroup] = []
+        for section in inline.data.get("layout", ()):
+            label = section.get("group")
+            if not label:
+                continue
+            rows = tuple(
+                tuple(
+                    self._collection_edit_field(
+                        target,
+                        target.field(str(raw_name)),
+                        defaults,
+                        _view_field_configuration(
+                            inline,
+                            str(raw_name),
+                        ),
+                        editable=editable,
+                    )
+                    for raw_name in raw_row
+                    if str(raw_name) in editor_names
+                )
+                for raw_row in section.get("rows", ())
+            )
+            visible = tuple(row for row in rows if row)
+            if visible:
+                groups.append(QtEditGroup(str(label), visible))
+        if not groups:
+            groups.append(
+                QtEditGroup(
+                    target.label,
+                    tuple(
+                        (
+                            self._collection_edit_field(
+                                target,
+                                target.field(field_name),
+                                defaults,
+                                _view_field_configuration(
+                                    inline,
+                                    field_name,
+                                ),
+                                editable=editable,
+                            ),
+                        )
+                        for field_name in editor_names
+                    ),
+                )
+            )
+        actions = tuple(str(item) for item in configuration.get("actions", ()))
+        records = tuple(deepcopy(dict(record)) for record in raw_records)
+        for record in records:
+            for target_field in target.fields.values():
+                reference_value = record.get(target_field.name)
+                if (
+                    target_field.metadata["type"] == "reference"
+                    and target_field.target_entity
+                    and reference_value is not None
+                    and reference_value is not PROTECTED
+                ):
+                    self._reference_display(
+                        target_field.target_entity,
+                        reference_value,
+                    )
+        return QtEditCollection(
+            name=name,
+            label=_field_label(field),
+            entity=target.name,
+            columns=tuple(
+                QtBrowseColumn(
+                    column_name,
+                    _field_label(target.field(column_name)),
+                    _field_alignment(
+                        target.field(column_name),
+                        self.model.formats,
+                    ),
+                )
+                for column_name in column_names
+            ),
+            groups=tuple(groups),
+            actions=actions or ("add", "apply", "remove"),
+            records=records,
+            defaults=defaults,
+            editable=editable,
+        )
+
+    def _collection_edit_field(
+        self,
+        entity: NormalizedEntity,
+        field: NormalizedField,
+        values: Mapping[str, Any],
+        configuration: Mapping[str, Any],
+        *,
+        editable: bool,
+    ) -> QtEditField:
+        metadata = field.metadata
+        edit_mask = metadata.get("edit_mask")
+        value = values.get(field.name)
+        writable = bool(
+            editable
+            and field.name
+            in self.session.entities.get(
+                entity.name,
+                _EMPTY_CAPABILITIES,
+            ).writable_fields
+            and not metadata.get("primary_key")
+            and not metadata.get("computed")
+            and not metadata.get("readonly")
+            and metadata.get("write", "normal") == "normal"
+        )
+        lookup_name = configuration.get(
+            "lookup_view",
+            metadata.get("lookup_view"),
+        )
+        return QtEditField(
+            name=field.name,
+            label=_field_label(field),
+            field_type=str(metadata["type"]),
+            value=value,
+            editable=writable,
+            required=bool(metadata.get("required")),
+            max_length=(
+                int(metadata["length"]) if metadata.get("length") else None
+            ),
+            choices=tuple(metadata.get("choices", ())),
+            regex=(
+                str(edit_mask["regex"])
+                if isinstance(edit_mask, Mapping)
+                and edit_mask.get("regex") is not None
+                else None
+            ),
+            numeric_mask=edit_mask if isinstance(edit_mask, str) else None,
+            precision=(
+                int(metadata["precision"])
+                if metadata.get("precision") is not None
+                else None
+            ),
+            scale=(
+                int(metadata["scale"])
+                if metadata.get("scale") is not None
+                else None
+            ),
+            minimum=metadata.get("minimum"),
+            maximum=metadata.get("maximum"),
+            target_entity=field.target_entity,
+            lookup_view=(
+                str(lookup_name)
+                if metadata["type"] == "reference"
+                and configuration.get("editor") == "lookup"
+                and lookup_name
+                else None
+            ),
+        )
+
+    def new_collection_record(
+        self,
+        collection: QtEditCollection,
+        existing: tuple[Mapping[str, Any], ...],
+    ) -> dict[str, Any]:
+        """Return metadata defaults plus the next conventional line number."""
+
+        self._validate_collection(collection)
+        result = deepcopy(dict(collection.defaults))
+        entity = self.model.entity(collection.entity)
+        if (
+            "line_number" in entity.fields
+            and entity.field("line_number").metadata["type"] == "integer"
+        ):
+            result["line_number"] = (
+                max(
+                    (
+                        int(record.get("line_number") or 0)
+                        for record in existing
+                    ),
+                    default=0,
+                )
+                + 1
+            )
+        return result
+
+    def preview_collection_record(
+        self,
+        collection: QtEditCollection,
+        values: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Evaluate stored computed fields for a local, non-authoritative preview."""
+
+        self._validate_collection(collection)
+        entity = self.model.entity(collection.entity)
+        result = deepcopy(dict(values))
+        _preview_computed_fields(entity, result)
+        return result
+
+    def preview_form(
+        self,
+        form: QtEditForm,
+        values: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Evaluate parent stored computed fields for a local UI preview."""
+
+        if form.entity != self.entity.name:
+            raise ValueError("Qt edit form belongs to a different entity")
+        result = deepcopy(dict(form.original))
+        result.update(deepcopy(dict(values)))
+        _preview_computed_fields(self.entity, result)
+        return result
+
+    def collection_cells(
+        self,
+        collection: QtEditCollection,
+        values: Mapping[str, Any],
+    ) -> tuple[str, ...]:
+        """Format one editable collection row for its table."""
+
+        self._validate_collection(collection)
+        entity = self.model.entity(collection.entity)
+        return tuple(
+            self._format_value(entity.field(column.name), values.get(column.name))
+            for column in collection.columns
+        )
+
+    def reference_display(
+        self,
+        field: QtEditField,
+        value: Any,
+    ) -> str:
+        """Resolve a reference value through the authenticated API client."""
+
+        if value is None or value is PROTECTED or not field.target_entity:
+            return ""
+        return self._reference_display(field.target_entity, value)
+
+    def format_form_value(self, field_name: str, value: Any) -> str:
+        """Format one root form value with the compiled presentation rules."""
+
+        return self._format_value(self.entity.field(field_name), value)
+
+    def _validate_collection(self, collection: QtEditCollection) -> None:
+        if (
+            self.detail_view is None
+            or collection.name not in self.entity.fields
+            or self.entity.field(collection.name).target_entity
+            != collection.entity
+        ):
+            raise ValueError("Qt collection belongs to a different entity")
+
+    def _collection_payload(
+        self,
+        collection: QtEditCollection,
+        records: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
+    ) -> list[dict[str, Any]]:
+        self._validate_collection(collection)
+        target = self.model.entity(collection.entity)
+        inverse = self.entity.field(collection.name).metadata.get("inverse")
+        writable = set(
+            self.session.entities.get(
+                target.name,
+                _EMPTY_CAPABILITIES,
+            ).writable_fields
+        )
+        result: list[dict[str, Any]] = []
+        for raw_record in records:
+            record: dict[str, Any] = {}
+            for field_name, value in raw_record.items():
+                if (
+                    field_name == inverse
+                    or field_name not in target.fields
+                    or value is PROTECTED
+                ):
+                    continue
+                field = target.field(field_name)
+                metadata = field.metadata
+                if metadata.get("primary_key"):
+                    if value is not None:
+                        record[field_name] = deepcopy(value)
+                    continue
+                if (
+                    field_name not in writable
+                    or metadata.get("computed")
+                    or metadata.get("readonly")
+                    or metadata.get("write", "normal") != "normal"
+                    or metadata["type"] == "collection"
+                ):
+                    continue
+                record[field_name] = deepcopy(value)
+            result.append(record)
+        return result
 
     def _edit_field(
         self,
@@ -1196,6 +1672,51 @@ def _lookup_search_fields(
         and entity.field(name).metadata["type"] in {"string", "choice"}
         and not entity.field(name).metadata.get("computed")
     )
+
+
+def _entity_defaults(entity: NormalizedEntity) -> dict[str, Any]:
+    defaults: dict[str, Any] = {}
+    for field_name, field in entity.fields.items():
+        metadata = field.metadata
+        if metadata["type"] == "collection" and field.target_entity:
+            defaults[field_name] = []
+        elif metadata.get("default_factory") == "today":
+            defaults[field_name] = date.today()
+        elif "default" in metadata:
+            defaults[field_name] = deepcopy(metadata["default"])
+    return defaults
+
+
+def _preview_computed_fields(
+    entity: NormalizedEntity,
+    values: dict[str, Any],
+) -> None:
+    remaining = {
+        name
+        for name, field in entity.fields.items()
+        if field.metadata.get("computed", {}).get("materialization") == "stored"
+    }
+    while remaining:
+        progressed = False
+        for field_name in tuple(remaining):
+            field = entity.field(field_name)
+            local_dependencies = {
+                dependency.split(".", 1)[0]
+                for dependency in field.dependencies
+            }
+            if local_dependencies & remaining:
+                continue
+            try:
+                values[field_name] = evaluate_expression(
+                    field.metadata["computed"]["expression"],
+                    values,
+                )
+            except (ArithmeticError, TypeError, ValueError):
+                values[field_name] = None
+            remaining.remove(field_name)
+            progressed = True
+        if not progressed:
+            break
 
 
 def _field_label(field: NormalizedField) -> str:

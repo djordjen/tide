@@ -438,9 +438,15 @@ In **Edit Invoice**, use **Select…** beside Customer or press F4. The
 multi-column lookup searches code, name, and email through FastAPI. Selecting a
 row applies the reference through the shared server draft operation. When your
 role can create Customers, **New** or Ctrl+N opens the Customer form;
-**Save & Select** returns to the still-unsaved Invoice. The line-items
-collection is preserved and explicitly marked unchanged in this header-only
-editing tranche.
+**Save & Select** returns to the still-unsaved Invoice.
+
+The Lines table and Line Details editor are in the same dialog. Use **Add line**,
+select Product through its multi-column lookup, enter Quantity, and choose
+**Apply line**. Product selection brings Description and Unit Price from the
+server; applying previews line Total and Invoice Total. **Remove line** changes
+the local draft only. The Invoice **Save** button automatically applies the
+selected line and sends one ETag-protected nested update through FastAPI.
+Authorized Product lookup creation also uses **Save & Select**.
 
 To test metadata-driven Qt creation and editing for flat master data, keep the
 same API server running and open either:
@@ -454,8 +460,8 @@ Use **New**, or select a row and use **Edit**. The Product form demonstrates
 the `0.00` Decimal mask and the Customer/Product code fields demonstrate regex
 masks; both forms follow the YAML row layout and writable capabilities. Tab or
 Enter traverses the left field column before the right. Saving runs through
-FastAPI in the background and refreshes the secured list. InvoiceLine editing,
-actions, and conflict review belong to the later master-detail tranche.
+FastAPI in the background and refreshes the secured list. Qt actions, conflict
+review, and reports remain later tranches.
 
 For a reviewed network test, first install the production identity adapter:
 

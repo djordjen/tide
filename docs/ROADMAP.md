@@ -123,7 +123,8 @@ application-owned Faker profile and the real secured services.
   InvoiceLine details); **implemented for the Textual invoice workflow**
 - Customer and Product browse/edit/delete workspaces and create-enabled
   lookups; **implemented with permission/action visibility and confirmation**
-- transactional Invoice/InvoiceLine master-detail editing;
+- transactional Invoice/InvoiceLine master-detail editing; **implemented for
+  Textual and Qt**
 - selectable in-memory or SQLAlchemy runtime persistence, with explicit managed
   schema creation and legacy no-DDL behavior;
 - deterministic, empty-database-only Faker development seeding;
@@ -146,8 +147,11 @@ application-owned Faker profile and the real secured services.
   authenticated Qt API client; **implemented**
 - Qt Invoice-header create/update with a compiled, searchable multi-column
   Customer lookup and authorized nested **Save & Select** creation;
-  **implemented**; InvoiceLine master-detail, conflict review, actions, and
-  reports remain deferred
+  **implemented**
+- Qt InvoiceLine Add/Apply/Remove, Product lookup and server-owned selection
+  defaults, nested Product **Save & Select**, computed total previews, and
+  ETag-protected nested Invoice save; **implemented**; conflict review, actions,
+  and reports remain deferred
 - basic secured printable invoice with TUI preview, HTML, and PDF;
   **implemented**
 - opt-in REST list/get/create/update/delete and domain-action routes plus OpenAPI;

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 import json
@@ -70,6 +71,7 @@ from .presenter import (
     QtDetailCollection,
     QtDetailGroup,
     QtDetailRecord,
+    QtEditCollection,
     QtEditField,
     QtEditForm,
     QtLookupRecord,
@@ -346,6 +348,275 @@ class TideQtLookupDialog(QDialog):
         self.accept()
 
 
+class TideQtCollectionEditor(QGroupBox):
+    """Editable inline collection with a table and explicit local line draft."""
+
+    def __init__(
+        self,
+        dialog: TideQtEditDialog,
+        collection: QtEditCollection,
+    ) -> None:
+        super().__init__(collection.label, dialog)
+        self.dialog = dialog
+        self.controller = dialog.controller
+        self.collection = collection
+        self.rows: list[dict[str, Any]] = [
+            deepcopy(dict(record)) for record in collection.records
+        ]
+        self.editors: dict[str, QWidget] = {}
+        self._fields = {
+            field.name: field
+            for field in collection.fields
+        }
+        self._selected_row: int | None = None
+
+        layout = QVBoxLayout(self)
+        self.table = QTableWidget(0, len(collection.columns))
+        self.table.setObjectName(f"collection-{collection.name}")
+        self.table.setHorizontalHeaderLabels(
+            [column.label for column in collection.columns]
+        )
+        self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.verticalHeader().setVisible(False)
+        _configure_interactive_header(self.table)
+        layout.addWidget(self.table, 1)
+        layout.addSpacing(8)
+
+        focus_order: list[QWidget] = []
+        for group in collection.groups:
+            details = QGroupBox(group.label)
+            grid = QGridLayout(details)
+            positioned: dict[tuple[int, int], QWidget] = {}
+            for row_index, row in enumerate(group.rows):
+                for column_index, field in enumerate(row):
+                    offset = column_index * 2
+                    label = QLabel(
+                        f"{field.label} *" if field.required else field.label
+                    )
+                    editor = dialog._field_editor(
+                        field,
+                        lookup_handler=(
+                            lambda item=field: self._open_lookup(item)
+                        ),
+                    )
+                    self.editors[field.name] = editor
+                    positioned[row_index, column_index] = editor
+                    if not field.editable:
+                        label.setStyleSheet(
+                            "color: palette(mid); font-style: italic;"
+                        )
+                    grid.addWidget(label, row_index, offset)
+                    grid.addWidget(editor, row_index, offset + 1)
+            grid.setColumnStretch(1, 1)
+            grid.setColumnStretch(3, 1)
+            layout.addWidget(details)
+            column_count = max((len(row) for row in group.rows), default=0)
+            for column_index in range(column_count):
+                for row_index in range(len(group.rows)):
+                    editor = positioned.get((row_index, column_index))
+                    if (
+                        editor is not None
+                        and editor.isEnabled()
+                        and editor.focusPolicy() != Qt.FocusPolicy.NoFocus
+                    ):
+                        focus_order.append(editor)
+        for current, following in zip(focus_order, focus_order[1:]):
+            QWidget.setTabOrder(current, following)
+
+        actions = QHBoxLayout()
+        self.action_buttons: dict[str, QPushButton] = {}
+        labels = {
+            "add": "Add line",
+            "apply": "Apply line",
+            "remove": "Remove line",
+        }
+        for action in collection.actions:
+            if action not in labels:
+                continue
+            button = QPushButton(labels[action])
+            button.setObjectName(f"{action}-{collection.name}")
+            self.action_buttons[action] = button
+            actions.addWidget(button)
+        actions.addStretch(1)
+        layout.addLayout(actions)
+
+        if "add" in self.action_buttons:
+            self.action_buttons["add"].clicked.connect(self.add_line)
+        if "apply" in self.action_buttons:
+            self.action_buttons["apply"].clicked.connect(self.apply_line)
+        if "remove" in self.action_buttons:
+            self.action_buttons["remove"].clicked.connect(self.remove_line)
+        self.table.itemSelectionChanged.connect(self._table_selection_changed)
+        self._refresh(select=0 if self.rows else None)
+
+    def values(self) -> list[dict[str, Any]]:
+        return deepcopy(self.rows)
+
+    def current_draft(
+        self,
+        *,
+        enforce_required: bool,
+    ) -> dict[str, Any]:
+        if self._selected_row is None:
+            raise ValueError("Add or select a line before choosing a value")
+        draft = deepcopy(self.rows[self._selected_row])
+        for name, editor in self.editors.items():
+            draft[name] = _editor_value(
+                self._fields[name],
+                editor,
+                enforce_required=enforce_required,
+            )
+        return draft
+
+    def prepare_save(self) -> None:
+        if self.collection.editable and self._selected_row is not None:
+            self.apply_line()
+
+    def add_line(self) -> None:
+        if not self.collection.editable:
+            return
+        record = self.controller.new_collection_record(
+            self.collection,
+            tuple(self.rows),
+        )
+        self.rows.append(record)
+        self._refresh(select=len(self.rows) - 1)
+        self.dialog.message.setText(
+            "Line added locally; Apply updates its preview and Save commits it."
+        )
+
+    def apply_line(self) -> None:
+        if not self.collection.editable or self._selected_row is None:
+            return
+        draft = self.current_draft(enforce_required=True)
+        self.rows[self._selected_row] = self.controller.preview_collection_record(
+            self.collection,
+            draft,
+        )
+        selected = self._selected_row
+        self._refresh(select=selected)
+        self.dialog.refresh_computed_preview()
+        self.dialog.message.setText(
+            "Line applied locally; Save commits the invoice."
+        )
+
+    def remove_line(self) -> None:
+        if not self.collection.editable or self._selected_row is None:
+            return
+        removed = self._selected_row
+        del self.rows[removed]
+        self._selected_row = None
+        select = min(removed, len(self.rows) - 1)
+        self._refresh(select=select if select >= 0 else None)
+        self.dialog.refresh_computed_preview()
+        self.dialog.message.setText(
+            "Line removed locally; Save commits the invoice."
+        )
+
+    def set_working(self, working: bool) -> None:
+        self.setEnabled(not working)
+        if not working:
+            self.setEnabled(True)
+            self._update_actions()
+
+    def apply_lookup_selection(self, selection: QtLookupSelection) -> None:
+        for name, value in selection.values.items():
+            editor = self.editors.get(name)
+            field = self._fields.get(name)
+            if editor is None or field is None or not field.editable:
+                continue
+            _set_editor_value(
+                field,
+                editor,
+                value,
+                reference_display=(
+                    selection.display if name == selection.field_name else None
+                ),
+            )
+
+    def _open_lookup(self, field: QtEditField) -> None:
+        if self._selected_row is None:
+            self.dialog.message.setText(
+                "Add or select a line before choosing a lookup value."
+            )
+            return
+        self.dialog._open_lookup(field, collection_editor=self)
+
+    def _table_selection_changed(self) -> None:
+        row = self.table.currentRow()
+        if 0 <= row < len(self.rows):
+            self._select_row(row)
+
+    def _select_row(self, row: int) -> None:
+        self._selected_row = row
+        values = self.rows[row]
+        for name, editor in self.editors.items():
+            field = self._fields[name]
+            value = values.get(name)
+            _set_editor_value(
+                field,
+                editor,
+                value,
+                reference_display=(
+                    self.controller.reference_display(field, value)
+                    if field.field_type == "reference"
+                    else None
+                ),
+            )
+        self._update_actions()
+
+    def _refresh(self, *, select: int | None) -> None:
+        self.table.setRowCount(len(self.rows))
+        for row_index, record in enumerate(self.rows):
+            cells = self.controller.collection_cells(
+                self.collection,
+                record,
+            )
+            for column_index, text in enumerate(cells):
+                item = QTableWidgetItem(text)
+                item.setTextAlignment(
+                    _qt_alignment(
+                        self.collection.columns[column_index].alignment
+                    )
+                )
+                self.table.setItem(row_index, column_index, item)
+        if self.rows:
+            _fit_interactive_columns(self.table, self.collection.columns)
+        if select is not None and 0 <= select < len(self.rows):
+            self.table.selectRow(select)
+            self._select_row(select)
+        else:
+            self._selected_row = None
+            self._clear_editors()
+        self._update_actions()
+
+    def _clear_editors(self) -> None:
+        for name, editor in self.editors.items():
+            _set_editor_value(
+                self._fields[name],
+                editor,
+                None,
+                reference_display="",
+            )
+
+    def _update_actions(self) -> None:
+        selected = self._selected_row is not None
+        if "add" in self.action_buttons:
+            self.action_buttons["add"].setEnabled(self.collection.editable)
+        for action in ("apply", "remove"):
+            if action in self.action_buttons:
+                self.action_buttons[action].setEnabled(
+                    self.collection.editable and selected
+                )
+
+
 class TideQtEditDialog(QDialog):
     """Metadata-driven create/update dialog for supported form fields."""
 
@@ -363,15 +634,20 @@ class TideQtEditDialog(QDialog):
         self.controller = controller
         self.form = form
         self.editors: dict[str, QWidget] = {}
+        self.collection_editors: dict[str, TideQtCollectionEditor] = {}
         self._fields = {field.name: field for field in form.fields}
         self._workers: set[_CallWorker] = set()
+        self._lookup_targets: dict[
+            _CallWorker,
+            TideQtCollectionEditor | None,
+        ] = {}
         self._lookup_dialogs: set[TideQtLookupDialog] = set()
         self._thread_pool = QThreadPool(self)
         self._thread_pool.setMaxThreadCount(1)
         self._saving = False
         self._save_label = save_label
         self.setWindowTitle(f"{controller.model.name} — {form.title}")
-        self.resize(760, 360)
+        self.resize(1050 if form.collections else 760, 720 if form.collections else 360)
 
         layout = QVBoxLayout(self)
         heading = QLabel(form.title)
@@ -437,6 +713,11 @@ class TideQtEditDialog(QDialog):
         for current, following in zip(focus_order, focus_order[1:]):
             QWidget.setTabOrder(current, following)
 
+        for collection in form.collections:
+            editor = TideQtCollectionEditor(self, collection)
+            self.collection_editors[collection.name] = editor
+            layout.addWidget(editor, 1)
+
         self.message = QLabel()
         self.message.setWordWrap(True)
         self.message.setStyleSheet("color: palette(link-visited);")
@@ -491,7 +772,12 @@ class TideQtEditDialog(QDialog):
         )
         return work_done and lookups_done
 
-    def _field_editor(self, field: QtEditField) -> QWidget:
+    def _field_editor(
+        self,
+        field: QtEditField,
+        *,
+        lookup_handler: Callable[[], None] | None = None,
+    ) -> QWidget:
         if (
             field.field_type == "reference"
             and field.lookup_view is not None
@@ -499,7 +785,9 @@ class TideQtEditDialog(QDialog):
         ):
             editor = TideQtReferenceEditor(field)
             editor.lookupRequested.connect(
-                lambda item=field: self._open_lookup(item)
+                lookup_handler
+                if lookup_handler is not None
+                else (lambda item=field: self._open_lookup(item))
             )
             return editor
         if field.field_type == "boolean" and field.editable:
@@ -553,7 +841,16 @@ class TideQtEditDialog(QDialog):
         if self._saving:
             return
         try:
+            for collection in self.collection_editors.values():
+                collection.prepare_save()
             values = self._editor_values()
+            values.update(
+                {
+                    name: collection.values()
+                    for name, collection in self.collection_editors.items()
+                    if collection.collection.editable
+                }
+            )
         except ValueError as error:
             self.message.setText(str(error))
             return
@@ -583,11 +880,46 @@ class TideQtEditDialog(QDialog):
             )
         return values
 
-    def _open_lookup(self, field: QtEditField) -> None:
+    def refresh_computed_preview(self) -> None:
+        try:
+            values = self._editor_values(enforce_required=False)
+        except ValueError:
+            return
+        values.update(
+            {
+                name: collection.values()
+                for name, collection in self.collection_editors.items()
+            }
+        )
+        preview = self.controller.preview_form(self.form, values)
+        for name, editor in self.editors.items():
+            if (
+                name not in self.controller.entity.fields
+                or not self.controller.entity.field(name).metadata.get("computed")
+                or not isinstance(editor, QLineEdit)
+            ):
+                continue
+            editor.setText(
+                self.controller.format_form_value(name, preview.get(name))
+            )
+
+    def _open_lookup(
+        self,
+        field: QtEditField,
+        *,
+        collection_editor: TideQtCollectionEditor | None = None,
+    ) -> None:
         if self._saving:
             return
         try:
-            spec = self.controller.lookup_spec(field.name)
+            spec = self.controller.lookup_spec(
+                field.name,
+                collection_name=(
+                    collection_editor.collection.name
+                    if collection_editor is not None
+                    else None
+                ),
+            )
         except ValueError as error:
             self.message.setText(f"Lookup unavailable: {error}")
             return
@@ -598,6 +930,7 @@ class TideQtEditDialog(QDialog):
                 current,
                 item,
                 result,
+                collection_editor,
             )
         )
         dialog.show()
@@ -607,11 +940,16 @@ class TideQtEditDialog(QDialog):
         dialog: TideQtLookupDialog,
         field: QtEditField,
         result: int,
+        collection_editor: TideQtCollectionEditor | None,
     ) -> None:
         if result != QDialog.DialogCode.Accepted or dialog.selected_record is None:
             return
         try:
-            values = self._editor_values(enforce_required=False)
+            values = (
+                collection_editor.current_draft(enforce_required=False)
+                if collection_editor is not None
+                else self._editor_values(enforce_required=False)
+            )
         except ValueError as error:
             self.message.setText(str(error))
             return
@@ -626,9 +964,15 @@ class TideQtEditDialog(QDialog):
                 field.name,
                 values,
                 dialog.selected_record,
+                collection_name=(
+                    collection_editor.collection.name
+                    if collection_editor is not None
+                    else None
+                ),
             )
         )
         self._workers.add(worker)
+        self._lookup_targets[worker] = collection_editor
         worker.signals.completed.connect(self._lookup_applied)
         worker.signals.failed.connect(self._lookup_failed)
         self._thread_pool.start(worker)
@@ -640,19 +984,25 @@ class TideQtEditDialog(QDialog):
         worker: _CallWorker,
     ) -> None:
         self._workers.discard(worker)
-        for name, value in selection.values.items():
-            editor = self.editors.get(name)
-            field = self._fields.get(name)
-            if editor is None or field is None or not field.editable:
-                continue
-            _set_editor_value(
-                field,
-                editor,
-                value,
-                reference_display=(
-                    selection.display if name == selection.field_name else None
-                ),
-            )
+        collection_editor = self._lookup_targets.pop(worker, None)
+        if collection_editor is not None:
+            collection_editor.apply_lookup_selection(selection)
+        else:
+            for name, value in selection.values.items():
+                editor = self.editors.get(name)
+                field = self._fields.get(name)
+                if editor is None or field is None or not field.editable:
+                    continue
+                _set_editor_value(
+                    field,
+                    editor,
+                    value,
+                    reference_display=(
+                        selection.display
+                        if name == selection.field_name
+                        else None
+                    ),
+                )
         self._set_saving(False)
         self.message.setText(
             f"{selection.display} selected; initial values applied."
@@ -661,6 +1011,7 @@ class TideQtEditDialog(QDialog):
     @Slot(object, object)
     def _lookup_failed(self, error: Exception, worker: _CallWorker) -> None:
         self._workers.discard(worker)
+        self._lookup_targets.pop(worker, None)
         self._set_saving(False)
         self.message.setText(f"Lookup selection failed: {error}")
 
@@ -692,6 +1043,8 @@ class TideQtEditDialog(QDialog):
         for field_name, editor in self.editors.items():
             if self._fields[field_name].editable:
                 editor.setEnabled(not saving)
+        for collection in self.collection_editors.values():
+            collection.set_working(saving)
         self.save_button.setEnabled(not saving)
         self.cancel_button.setEnabled(not saving)
         self.save_button.setText(label if saving else self._save_label)
@@ -1796,7 +2149,12 @@ def _set_editor_value(
         editor.setCurrentIndex(max(index, 0))
         return
     if isinstance(editor, QLineEdit):
-        editor.setText(_value_text(field, value))
+        editor.setText(
+            reference_display
+            if field.field_type == "reference"
+            and reference_display is not None
+            else _value_text(field, value)
+        )
 
 
 def _parse_edit_date(value: str) -> date:

@@ -273,6 +273,57 @@ class _InvoiceLookupWidgetClient:
         return {**values, field_name: identity}
 
 
+class _InvoiceLinesWidgetClient(_InvoiceLookupWidgetClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.product = {
+            "id": 10,
+            "code": "CONSULT",
+            "name": "Consulting",
+            "unit_price": Decimal("500.00"),
+            "active": True,
+        }
+
+    def query_records(self, entity_name: str, query: QuerySpec) -> Any:
+        if entity_name != "catalog.Product":
+            return super().query_records(entity_name, query)
+        self.network_threads.append(threading.get_ident())
+        self.queries.append((entity_name, query))
+        return SimpleNamespace(records=(dict(self.product),), next_cursor=None)
+
+    def get_record(self, entity_name: str, identity: Any) -> Any:
+        if entity_name != "catalog.Product":
+            return super().get_record(entity_name, identity)
+        self.network_threads.append(threading.get_ident())
+        assert identity == 10
+        return SimpleNamespace(values=dict(self.product), etag='"2"')
+
+    def apply_reference_selection(
+        self,
+        entity_name: str,
+        field_name: str,
+        values: dict[str, Any],
+        identity: Any,
+    ) -> dict[str, Any]:
+        if entity_name != "sales.InvoiceLine":
+            return super().apply_reference_selection(
+                entity_name,
+                field_name,
+                values,
+                identity,
+            )
+        self.network_threads.append(threading.get_ident())
+        self.reference_selections.append(
+            (entity_name, field_name, dict(values), identity)
+        )
+        return {
+            **values,
+            field_name: identity,
+            "description": self.product["name"],
+            "unit_price": self.product["unit_price"],
+        }
+
+
 def test_qt_widget_adapter_incrementally_loads_the_server_list(
     tmp_path: Path,
 ) -> None:
@@ -610,7 +661,8 @@ def test_qt_invoice_customer_lookup_search_create_and_select(
     window.edit.click()
     _wait_until(application, lambda: len(window._edit_dialogs) == 1)
     edit_dialog = next(iter(window._edit_dialogs))
-    assert edit_dialog.form.omitted_collections == ("lines",)
+    assert edit_dialog.form.omitted_collections == ()
+    assert edit_dialog.form.collections[0].editable is False
     customer = edit_dialog.editors["customer"]
     assert isinstance(customer, TideQtReferenceEditor)
     assert customer.identity == 1
@@ -713,6 +765,134 @@ def test_qt_invoice_customer_lookup_search_create_and_select(
     assert window.wait_for_done(1000)
 
 
+def test_qt_invoice_line_editor_applies_product_defaults_and_total(
+    tmp_path: Path,
+) -> None:
+    gui_thread = threading.get_ident()
+    application = QApplication.instance() or QApplication([])
+    model = compile_project(INVOICING)
+    client = _InvoiceLinesWidgetClient()
+    window = TideQtWindow(
+        QtBrowseController(
+            model,
+            client,
+            _invoice_lines_session(model),
+            page_size=5,
+        ),
+        source_label="line edit test",
+        layout_settings=_layout_settings(tmp_path / "invoice-lines.ini"),
+    )
+    window.show()
+    _wait_until(
+        application,
+        lambda: window.table_model.rowCount() == 1
+        and not window.table_model.loading,
+    )
+    window.table.selectRow(0)
+    application.processEvents()
+    window.edit.click()
+    _wait_until(application, lambda: len(window._edit_dialogs) == 1)
+    edit_dialog = next(iter(window._edit_dialogs))
+    lines = edit_dialog.collection_editors["lines"]
+    assert lines.collection.editable is True
+    assert lines.table.rowCount() == 0
+
+    lines.action_buttons["add"].click()
+    application.processEvents()
+    assert lines.table.rowCount() == 1
+    assert lines._selected_row == 0
+    line_number = lines.editors["line_number"]
+    product = lines.editors["product"]
+    description = lines.editors["description"]
+    quantity = lines.editors["quantity"]
+    unit_price = lines.editors["unit_price"]
+    assert isinstance(line_number, QLineEdit)
+    assert isinstance(product, TideQtReferenceEditor)
+    assert isinstance(description, QLineEdit)
+    assert isinstance(quantity, QLineEdit)
+    assert isinstance(unit_price, QLineEdit)
+    assert line_number.text() == "1"
+
+    product.select_button.click()
+    _wait_until(
+        application,
+        lambda: any(
+            dialog.isVisible()
+            and dialog.spec.target_entity == "catalog.Product"
+            and dialog.table.rowCount() == 1
+            for dialog in edit_dialog._lookup_dialogs
+        ),
+    )
+    lookup = next(
+        dialog
+        for dialog in edit_dialog._lookup_dialogs
+        if dialog.isVisible()
+        and dialog.spec.target_entity == "catalog.Product"
+    )
+    assert tuple(
+        lookup.table.horizontalHeaderItem(index).text()
+        for index in range(lookup.table.columnCount())
+    ) == ("Code", "Name", "Unit Price")
+    lookup.select_button.click()
+    _wait_until(
+        application,
+        lambda: product.identity == 10
+        and description.text() == "Consulting"
+        and unit_price.text() == "500.00"
+        and not edit_dialog._saving,
+    )
+    assert product.display.text() == "CONSULT - Consulting"
+
+    quantity.setText("2.000")
+    lines.action_buttons["apply"].click()
+    application.processEvents()
+    assert lines.table.item(0, 1).text() == "CONSULT - Consulting"
+    assert lines.table.item(0, 5).text() == "1,000.00"
+    total = edit_dialog.editors["total"]
+    assert isinstance(total, QLineEdit)
+    assert total.text() == "1,000.00"
+    assert "applied locally" in edit_dialog.message.text()
+
+    lines.action_buttons["add"].click()
+    application.processEvents()
+    assert lines.table.rowCount() == 2
+    lines.action_buttons["remove"].click()
+    application.processEvents()
+    assert lines.table.rowCount() == 1
+    assert lines._selected_row == 0
+
+    edit_dialog.save_button.click()
+    _wait_until(
+        application,
+        lambda: len(client.updated) == 1
+        and not window._edit_dialogs
+        and not window.table_model.loading,
+    )
+    assert client.updated[0] == (
+        1,
+        {
+            "lines": [
+                {
+                    "line_number": 1,
+                    "product": 10,
+                    "description": "Consulting",
+                    "quantity": Decimal("2.000"),
+                    "unit_price": Decimal("500.00"),
+                }
+            ]
+        },
+        '"9"',
+    )
+    assert client.reference_selections[-1][0:2] == (
+        "sales.InvoiceLine",
+        "product",
+    )
+    assert all(thread != gui_thread for thread in client.network_threads)
+
+    window.close()
+    assert window.wait_for_done(1000)
+
+
 def _session(
     model: Any,
     *,
@@ -776,6 +956,45 @@ def _invoice_edit_session(model: Any) -> TideSessionInfo:
                 writable_fields=("code", "name", "email", "active"),
             ),
         },
+    )
+
+
+def _invoice_lines_session(model: Any) -> TideSessionInfo:
+    base = _invoice_edit_session(model)
+    line = model.entity("sales.InvoiceLine")
+    product = model.entity("catalog.Product")
+    return base.model_copy(
+        update={
+            "entities": {
+                **base.entities,
+                "sales.Invoice": base.entities["sales.Invoice"].model_copy(
+                    update={
+                        "writable_fields": (
+                            "invoice_date",
+                            "currency",
+                            "customer",
+                            "lines",
+                        )
+                    }
+                ),
+                "sales.InvoiceLine": TideEntityCapabilities(
+                    draft_operations=("create", "update"),
+                    readable_fields=tuple(line.fields),
+                    writable_fields=(
+                        "line_number",
+                        "description",
+                        "quantity",
+                        "unit_price",
+                        "product",
+                    ),
+                ),
+                "catalog.Product": TideEntityCapabilities(
+                    operations=("list", "get", "create", "update"),
+                    readable_fields=tuple(product.fields),
+                    writable_fields=("code", "name", "unit_price", "active"),
+                ),
+            }
+        }
     )
 
 

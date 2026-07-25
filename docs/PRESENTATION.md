@@ -92,10 +92,26 @@ When the reference configuration declares `allow_create: true`, resolves a
 target form, and the session advertises target create access, **New** opens that
 same metadata-driven Qt form. **Save & Select** commits the referenced record
 independently and then applies its identity to the still-unsaved parent draft.
-Invoice header editing uses this contract for Customer today. Collection
-sections are omitted with an explicit unchanged-or-empty notice, so InvoiceLine
-editing cannot be mistaken for an implemented transactional master-detail
-workflow.
+Invoice editing uses this contract for Customer and for Product inside
+InvoiceLine.
+
+The Qt inline-collection contract resolves the collection field, target entity,
+inline view, table columns, editor rows, actions, nested draft operations, and
+writable fields. The InvoiceLine table takes flexible height above the Line
+Details fields; the editor follows metadata row placement with column-first
+focus order, and Add/Apply/Remove remain explicit local-draft operations.
+Product selection goes through the shared server reference-selection endpoint,
+so Description and Unit Price assignments use the same authorization and
+`on_select` semantics as Textual and API clients.
+
+Applying a line evaluates stored computed fields locally for a non-authoritative
+line/Invoice total preview. Final Save applies the selected line, includes
+existing nested identities, and filters inverse, computed, read-only, protected,
+and unknown fields before one ETag-protected parent mutation. The application
+service remains authoritative for normalization, validation, recomputation,
+row/field policy, concurrency, and the transaction. If nested draft capability
+is absent, Qt keeps the collection visible but read-only rather than bypassing
+the server contract.
 
 Textual consumes the resolved browse action list rather than inventing a
 separate toolbar contract. `delete` is shown only when it is present in that

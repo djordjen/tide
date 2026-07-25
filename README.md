@@ -30,8 +30,8 @@ business behavior remains ordinary Python.
 New here? Follow [Getting Started](docs/GETTING-STARTED.md) to run the demo TUI,
 open Studio, inspect REST/OpenAPI and MCP, and optionally connect SQL Server.
 The native [Qt GUI prototype](docs/QT-GUI.md) can browse and inspect records,
-create/edit Customer and Product forms, and edit Invoice headers with a secured
-multi-column Customer lookup and nested **Save & Select** creation—all without
+create/edit Customer and Product forms, and edit complete Invoice drafts with
+Customer/Product lookups, nested **Save & Select**, and line totals—all without
 database credentials.
 
 ## TUI preview
@@ -232,7 +232,9 @@ metadata drives a debounced multi-column Customer lookup; authorized users may
 open the compiled Customer form and return through **Save & Select** without
 losing the Invoice draft. Qt mutation controls follow session capabilities,
 preserve Decimal values and ETag preconditions, and run network work outside
-the GUI thread; Invoice line editing remains a later tranche.
+the GUI thread. InvoiceLine Add/Apply/Remove, Product lookup defaults, nested
+Product creation, line/Invoice total previews, and sanitized nested saves now
+use the same compiled inline metadata and FastAPI boundary.
 Stale TUI edits now open a three-way Original/Current/Your draft review. Users
 may reload, continue inspecting their draft, or explicitly choose Current/Mine
 for every overlapping field before rebasing. Non-conflicting draft fields are
