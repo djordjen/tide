@@ -117,6 +117,51 @@ class _BrowseClient:
         return SimpleNamespace(values=values[identity])
 
 
+class _ProductClient:
+    def __init__(self) -> None:
+        self.product = {
+            "id": 10,
+            "code": "CONSULT",
+            "name": "Consulting",
+            "unit_price": Decimal("500.00"),
+            "active": True,
+        }
+        self.created: list[dict[str, Any]] = []
+        self.updated: list[tuple[Any, dict[str, Any], Any]] = []
+
+    def query_records(self, entity_name: str, query: QuerySpec) -> Any:
+        assert entity_name == "catalog.Product"
+        return SimpleNamespace(records=(self.product,), next_cursor=None)
+
+    def get_record(self, entity_name: str, identity: Any) -> Any:
+        assert entity_name == "catalog.Product"
+        assert identity == 10
+        return SimpleNamespace(values=dict(self.product), etag='"4"')
+
+    def create_record(
+        self,
+        entity_name: str,
+        values: dict[str, Any],
+    ) -> Any:
+        assert entity_name == "catalog.Product"
+        self.created.append(dict(values))
+        stored = {"id": 11, **values}
+        return SimpleNamespace(values=stored, etag=None)
+
+    def update_record(
+        self,
+        entity_name: str,
+        identity: Any,
+        values: dict[str, Any],
+        *,
+        if_match: str | int | None = None,
+    ) -> Any:
+        assert entity_name == "catalog.Product"
+        self.updated.append((identity, dict(values), if_match))
+        self.product.update(values)
+        return SimpleNamespace(values=dict(self.product), etag='"5"')
+
+
 def test_qt_browse_formats_incremental_cursor_batches() -> None:
     model = compile_project(INVOICING)
     client = _BrowseClient()
@@ -314,6 +359,86 @@ def test_qt_detail_requires_get_capability() -> None:
         controller.load_detail(1)
 
 
+def test_qt_flat_product_form_uses_defaults_writable_fields_and_etag() -> None:
+    model = compile_project(INVOICING)
+    invoice = QtBrowseController(
+        model,
+        _BrowseClient(),
+        _session(
+            model,
+            entity_names=("sales.Invoice",),
+            operations=("list", "get", "create", "update"),
+        ),
+        page_size=2,
+    )
+    assert invoice.create_available is False
+    assert invoice.update_available is False
+
+    client = _ProductClient()
+    controller = QtBrowseController(
+        model,
+        client,
+        _product_session(model),
+        view_name="catalog.Product.browse",
+        page_size=5,
+    )
+
+    assert controller.create_available is True
+    assert controller.update_available is True
+    created = controller.new_form()
+    assert created.title == "New Product"
+    assert tuple(field.name for field in created.fields) == (
+        "code",
+        "unit_price",
+        "name",
+        "active",
+    )
+    assert all(field.editable for field in created.fields)
+    assert next(field for field in created.fields if field.name == "active").value is True
+    price = next(field for field in created.fields if field.name == "unit_price")
+    assert price.numeric_mask == "0.00"
+    assert price.precision == 12
+    assert price.scale == 2
+
+    stored = controller.save_form(
+        created,
+        {
+            "code": "SUPPORT",
+            "unit_price": Decimal("75.00"),
+            "name": "Support hour",
+            "active": True,
+        },
+    )
+    assert stored["id"] == 11
+    assert client.created == [
+        {
+            "code": "SUPPORT",
+            "unit_price": Decimal("75.00"),
+            "name": "Support hour",
+            "active": True,
+        }
+    ]
+
+    edited = controller.edit_form(10)
+    assert edited.title == "Edit Product — CONSULT - Consulting"
+    assert edited.etag == '"4"'
+    controller.save_form(
+        edited,
+        {
+            "code": "CONSULT",
+            "unit_price": Decimal("500.00"),
+            "name": "Consulting day",
+            "active": True,
+        },
+    )
+    assert client.updated == [
+        (10, {"name": "Consulting day"}, '"4"')
+    ]
+
+    with pytest.raises(ValueError, match="non-writable field"):
+        controller.save_form(edited, {"id": 20})
+
+
 def _session(
     model: Any,
     *,
@@ -334,5 +459,24 @@ def _session(
                 readable_fields=tuple(model.entity(name).fields),
             )
             for name in accessible
+        },
+    )
+
+
+def _product_session(model: Any) -> TideSessionInfo:
+    product = model.entity("catalog.Product")
+    return TideSessionInfo(
+        application=model.name,
+        application_version=model.version,
+        schema_version=model.schema_version,
+        authentication="development",
+        principal="qt:editor",
+        roles=("sales_clerk",),
+        entities={
+            "catalog.Product": TideEntityCapabilities(
+                operations=("list", "get", "create", "update"),
+                readable_fields=tuple(product.fields),
+                writable_fields=("code", "name", "unit_price", "active"),
+            )
         },
     )

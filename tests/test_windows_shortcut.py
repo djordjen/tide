@@ -33,4 +33,6 @@ def test_windows_shortcut_requests_mode_dependencies() -> None:
         "uv run --extra gui tide gui applications/invoicing "
         "--api-url http://127.0.0.1:8000" in script
     )
+    assert "--view catalog.product.browse" in script
+    assert "--view crm.customer.browse" in script
     assert ".venv\\scripts\\tide.exe" not in script

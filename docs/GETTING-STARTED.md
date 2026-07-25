@@ -203,11 +203,24 @@ open another terminal and run:
 .\start.bat gui
 ```
 
-Paste the same token to open a read-only metadata-driven Invoice browse. Select
-a row and use **View**, double-click, or press **Enter** to inspect its compiled
-form groups and line items. Reaching the bottom automatically appends the next
-secured server batch; there are no page-navigation buttons. See the
-[Qt GUI prototype](QT-GUI.md) for its exact scope and commands.
+Paste the same token to open the metadata-driven Invoice browse. Select a row
+and use **View**, double-click, or press **Enter** to inspect its compiled form
+groups and line items. Reaching the bottom automatically appends the next
+secured server batch; there are no page-navigation buttons.
+
+The first editable Qt slice covers the flat Product and Customer forms:
+
+```powershell
+.\start.bat gui-products
+.\start.bat gui-customers
+```
+
+Use **New** or select a row and use **Edit**. The dialog follows compiled form
+rows, writable-field capabilities, required fields, Boolean controls, regex
+masks, and exact Decimal input. Save calls FastAPI in the background and
+refreshes the secured list; the GUI never receives a database URL. Invoice
+master-detail editing remains deliberately separate. See the
+[Qt GUI prototype](QT-GUI.md) for the exact current scope.
 
 To inspect the generated OpenAPI document without starting a server:
 

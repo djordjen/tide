@@ -67,6 +67,18 @@ Publishing a changed shared default is a distinct privileged designer action.
 It must use the compiler-validated Designer service and approved YAML save
 boundary rather than promoting a personal GUI setting implicitly.
 
+The first editable Qt form contract is deliberately limited to flat forms. It
+uses compiled group/row placement, traverses the left field column before the
+right with Tab or Enter, distinguishes read-only fields, and chooses Boolean,
+choice, numeric-mask, regex-mask, and ordinary text editors from field
+metadata. Session capabilities are only advisory control visibility: create
+and update requests still go through FastAPI, where permissions, row rules,
+normalization, uniqueness, validation, and concurrency remain authoritative.
+Blocking form loads and saves run outside the GUI thread, and updates send the
+observed strong ETag when the entity defines one. Transactional collections,
+references/lookups, conflict review, and domain actions remain outside this
+flat-form tranche.
+
 Textual consumes the resolved browse action list rather than inventing a
 separate toolbar contract. `delete` is shown only when it is present in that
 list and the current principal has the entity's explicit delete permission.

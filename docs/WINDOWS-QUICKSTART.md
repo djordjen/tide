@@ -433,6 +433,22 @@ background. The GUI has no SQL Server URL or driver; it uses the same
 authenticated API client as remote Textual mode. See
 [Qt GUI Prototype](QT-GUI.md) for the current scope and explicit CLI form.
 
+To test metadata-driven Qt creation and editing for flat master data, keep the
+same API server running and open either:
+
+```powershell
+.\start.bat gui-products
+.\start.bat gui-customers
+```
+
+Use **New**, or select a row and use **Edit**. The Product form demonstrates
+the `0.00` Decimal mask and the Customer/Product code fields demonstrate regex
+masks; both forms follow the YAML row layout and writable capabilities. Tab or
+Enter traverses the left field column before the right. Saving runs through
+FastAPI in the background and refreshes the secured list. Invoice editing is
+still read-only because transactional lines, lookups, actions, and conflict
+review belong to the later master-detail tranche.
+
 For a reviewed network test, first install the production identity adapter:
 
 ```powershell

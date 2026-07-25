@@ -16,7 +16,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QApplication, QHeaderView, QTableView
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QHeaderView,
+    QLineEdit,
+    QTableView,
+)
 
 from tide import compile_project
 from tide.api.contracts import TideEntityCapabilities, TideSessionInfo
@@ -108,6 +114,58 @@ class _WidgetClient:
         return SimpleNamespace(
             values={"id": 1, "code": "ADRIA", "name": "Adria Consulting"}
         )
+
+
+class _ProductWidgetClient:
+    def __init__(self) -> None:
+        self.records = [
+            {
+                "id": 10,
+                "code": "CONSULT",
+                "name": "Consulting",
+                "unit_price": Decimal("500.00"),
+                "active": True,
+            }
+        ]
+        self.created: list[dict[str, Any]] = []
+        self.updated: list[tuple[Any, dict[str, Any], Any]] = []
+        self.mutation_threads: list[int] = []
+
+    def query_records(self, entity_name: str, query: QuerySpec) -> Any:
+        assert entity_name == "catalog.Product"
+        return SimpleNamespace(records=tuple(self.records), next_cursor=None)
+
+    def get_record(self, entity_name: str, identity: Any) -> Any:
+        assert entity_name == "catalog.Product"
+        record = next(item for item in self.records if item["id"] == identity)
+        return SimpleNamespace(values=dict(record), etag='"3"')
+
+    def create_record(
+        self,
+        entity_name: str,
+        values: dict[str, Any],
+    ) -> Any:
+        assert entity_name == "catalog.Product"
+        self.mutation_threads.append(threading.get_ident())
+        self.created.append(dict(values))
+        stored = {"id": 11, **values}
+        self.records.append(stored)
+        return SimpleNamespace(values=dict(stored), etag=None)
+
+    def update_record(
+        self,
+        entity_name: str,
+        identity: Any,
+        values: dict[str, Any],
+        *,
+        if_match: str | int | None = None,
+    ) -> Any:
+        assert entity_name == "catalog.Product"
+        self.mutation_threads.append(threading.get_ident())
+        self.updated.append((identity, dict(values), if_match))
+        record = next(item for item in self.records if item["id"] == identity)
+        record.update(values)
+        return SimpleNamespace(values=dict(record), etag='"4"')
 
 
 def test_qt_widget_adapter_incrementally_loads_the_server_list(
@@ -329,6 +387,94 @@ def test_qt_column_layout_is_personal_and_resettable(tmp_path: Path) -> None:
     assert second.table_model.wait_for_done(1000)
 
 
+def test_qt_flat_product_form_creates_and_updates_through_api(
+    tmp_path: Path,
+) -> None:
+    gui_thread = threading.get_ident()
+    application = QApplication.instance() or QApplication([])
+    model = compile_project(INVOICING)
+    client = _ProductWidgetClient()
+    window = TideQtWindow(
+        QtBrowseController(
+            model,
+            client,
+            _product_session(model),
+            view_name="catalog.Product.browse",
+            page_size=5,
+        ),
+        source_label="flat edit test",
+        layout_settings=_layout_settings(tmp_path / "product-layout.ini"),
+    )
+    window.show()
+    _wait_until(
+        application,
+        lambda: window.table_model.rowCount() == 1
+        and not window.table_model.loading,
+    )
+
+    assert window.new.isEnabled() is True
+    assert window.edit.isEnabled() is False
+    window.new.click()
+    _wait_until(application, lambda: len(window._edit_dialogs) == 1)
+    create_dialog = next(iter(window._edit_dialogs))
+    code = create_dialog.editors["code"]
+    name = create_dialog.editors["name"]
+    unit_price = create_dialog.editors["unit_price"]
+    active = create_dialog.editors["active"]
+    assert isinstance(code, QLineEdit)
+    assert isinstance(name, QLineEdit)
+    assert isinstance(unit_price, QLineEdit)
+    assert isinstance(active, QCheckBox)
+    assert active.isChecked() is True
+
+    code.setText("lowercase")
+    name.setText("Support")
+    unit_price.setText("12.50")
+    create_dialog.save_button.click()
+    application.processEvents()
+    assert "invalid format" in create_dialog.message.text()
+    assert client.created == []
+
+    code.setText("SUPPORT")
+    create_dialog.save_button.click()
+    _wait_until(
+        application,
+        lambda: len(client.created) == 1
+        and not window._edit_dialogs
+        and window.table_model.rowCount() == 2
+        and not window.table_model.loading,
+    )
+    assert client.created[0] == {
+        "code": "SUPPORT",
+        "unit_price": Decimal("12.50"),
+        "name": "Support",
+        "active": True,
+    }
+
+    window.table.selectRow(0)
+    application.processEvents()
+    assert window.edit.isEnabled() is True
+    window.edit.click()
+    _wait_until(application, lambda: len(window._edit_dialogs) == 1)
+    edit_dialog = next(iter(window._edit_dialogs))
+    edit_name = edit_dialog.editors["name"]
+    assert isinstance(edit_name, QLineEdit)
+    assert edit_name.text() == "Consulting"
+    edit_name.setText("Consulting day")
+    edit_dialog.save_button.click()
+    _wait_until(
+        application,
+        lambda: len(client.updated) == 1 and not window._edit_dialogs,
+    )
+    assert client.updated == [
+        (10, {"name": "Consulting day"}, '"3"')
+    ]
+    assert all(thread != gui_thread for thread in client.mutation_threads)
+
+    window.close()
+    assert window.wait_for_done(1000)
+
+
 def _session(
     model: Any,
     *,
@@ -347,6 +493,25 @@ def _session(
                 readable_fields=tuple(entity.fields),
             )
             for name, entity in model.entities.items()
+        },
+    )
+
+
+def _product_session(model: Any) -> TideSessionInfo:
+    product = model.entity("catalog.Product")
+    return TideSessionInfo(
+        application=model.name,
+        application_version=model.version,
+        schema_version=model.schema_version,
+        authentication="development",
+        principal="qt:editor",
+        roles=("sales_clerk",),
+        entities={
+            "catalog.Product": TideEntityCapabilities(
+                operations=("list", "get", "create", "update"),
+                readable_fields=tuple(product.fields),
+                writable_fields=("code", "name", "unit_price", "active"),
+            )
         },
     )
 

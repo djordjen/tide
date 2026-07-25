@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 import json
-from typing import Any
+import re
+from typing import Any, Callable, Mapping
 from urllib.parse import quote
 
 from PySide6.QtCore import (
     QAbstractTableModel,
+    QEvent,
     QModelIndex,
     QObject,
     QRunnable,
+    QRegularExpression,
     QSettings,
     QSignalBlocker,
     QThreadPool,
@@ -19,10 +24,18 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
-from PySide6.QtGui import QCloseEvent, QShowEvent
+from PySide6.QtGui import (
+    QCloseEvent,
+    QKeyEvent,
+    QKeySequence,
+    QRegularExpressionValidator,
+    QShortcut,
+    QShowEvent,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -46,6 +59,7 @@ from PySide6.QtWidgets import (
 from tide.api.contracts import TideSessionInfo
 from tide.compiler.normalized import ApplicationModel
 from tide.runtime import TideRuntimeError
+from tide.security import PROTECTED
 
 from .presenter import (
     BrowseApiClient,
@@ -56,7 +70,245 @@ from .presenter import (
     QtDetailCollection,
     QtDetailGroup,
     QtDetailRecord,
+    QtEditField,
+    QtEditForm,
 )
+
+
+class _CallSignals(QObject):
+    completed = Signal(object, object)
+    failed = Signal(object, object)
+
+
+class _CallWorker(QRunnable):
+    """Run one arbitrary blocking controller call outside Qt's GUI thread."""
+
+    def __init__(self, operation: Callable[[], Any]) -> None:
+        super().__init__()
+        self.operation = operation
+        self.signals = _CallSignals()
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            result = self.operation()
+        except Exception as error:  # Qt worker boundary reports failures to the GUI.
+            self.signals.failed.emit(error, self)
+            return
+        self.signals.completed.emit(result, self)
+
+
+class TideQtEditDialog(QDialog):
+    """Metadata-driven create/update dialog for one flat entity."""
+
+    recordSaved = Signal(object)
+
+    def __init__(
+        self,
+        controller: QtBrowseController,
+        form: QtEditForm,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.controller = controller
+        self.form = form
+        self.editors: dict[str, QWidget] = {}
+        self._fields = {field.name: field for field in form.fields}
+        self._workers: set[_CallWorker] = set()
+        self._thread_pool = QThreadPool(self)
+        self._thread_pool.setMaxThreadCount(1)
+        self._saving = False
+        self.setWindowTitle(f"{controller.model.name} — {form.title}")
+        self.resize(760, 360)
+
+        layout = QVBoxLayout(self)
+        heading = QLabel(form.title)
+        heading.setStyleSheet("font-size: 20px; font-weight: 600;")
+        layout.addWidget(heading)
+        focus_order: list[QWidget] = []
+        for group in form.groups:
+            container = QGroupBox(group.label)
+            grid = QGridLayout(container)
+            positioned: dict[tuple[int, int], QWidget] = {}
+            for row_index, row in enumerate(group.rows):
+                for column_index, field in enumerate(row):
+                    offset = column_index * 2
+                    label = QLabel(
+                        f"{field.label} *" if field.required else field.label
+                    )
+                    editor = self._field_editor(field)
+                    self.editors[field.name] = editor
+                    positioned[row_index, column_index] = editor
+                    if not field.editable:
+                        label.setStyleSheet("color: palette(mid); font-style: italic;")
+                    grid.addWidget(label, row_index, offset)
+                    grid.addWidget(editor, row_index, offset + 1)
+            grid.setColumnStretch(1, 1)
+            grid.setColumnStretch(3, 1)
+            layout.addWidget(container)
+            column_count = max((len(row) for row in group.rows), default=0)
+            for column_index in range(column_count):
+                for row_index in range(len(group.rows)):
+                    editor = positioned.get((row_index, column_index))
+                    if (
+                        editor is not None
+                        and editor.isEnabled()
+                        and editor.focusPolicy() != Qt.FocusPolicy.NoFocus
+                    ):
+                        focus_order.append(editor)
+
+        for current, following in zip(focus_order, focus_order[1:]):
+            QWidget.setTabOrder(current, following)
+
+        self.message = QLabel()
+        self.message.setWordWrap(True)
+        self.message.setStyleSheet("color: palette(link-visited);")
+        layout.addWidget(self.message)
+
+        self.buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        self.save_button = self.buttons.button(
+            QDialogButtonBox.StandardButton.Save
+        )
+        self.cancel_button = self.buttons.button(
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        self.save_button.clicked.connect(self._save)
+        self.cancel_button.clicked.connect(self.reject)
+        layout.addWidget(self.buttons)
+        QShortcut(QKeySequence.StandardKey.Save, self).activated.connect(self._save)
+
+        if focus_order:
+            focus_order[0].setFocus()
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if (
+            event.type() == QEvent.Type.KeyPress
+            and isinstance(event, QKeyEvent)
+            and event.key() in {Qt.Key.Key_Return, Qt.Key.Key_Enter}
+            and watched in self.editors.values()
+            and not isinstance(watched, QComboBox)
+        ):
+            self.focusNextChild()
+            return True
+        return super().eventFilter(watched, event)
+
+    def reject(self) -> None:
+        if not self._saving:
+            super().reject()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self._saving:
+            event.ignore()
+            return
+        super().closeEvent(event)
+
+    def wait_for_done(self, milliseconds: int = -1) -> bool:
+        return self._thread_pool.waitForDone(milliseconds)
+
+    def _field_editor(self, field: QtEditField) -> QWidget:
+        if field.field_type == "boolean" and field.editable:
+            editor = QCheckBox()
+            editor.setChecked(bool(field.value))
+            editor.setObjectName(f"edit-field-{field.name}")
+            editor.installEventFilter(self)
+            return editor
+        if field.field_type == "choice" and field.editable:
+            editor = QComboBox()
+            editor.setObjectName(f"edit-field-{field.name}")
+            if not field.required:
+                editor.addItem("", None)
+            for choice in field.choices:
+                editor.addItem(
+                    str(choice).replace("_", " ").title(),
+                    choice,
+                )
+            current = editor.findData(field.value)
+            editor.setCurrentIndex(max(current, 0))
+            editor.installEventFilter(self)
+            return editor
+
+        editor = QLineEdit(_edit_text(field))
+        editor.setObjectName(f"edit-field-{field.name}")
+        editor.setReadOnly(not field.editable)
+        if not field.editable:
+            editor.setStyleSheet(
+                "background: palette(alternate-base); color: palette(mid);"
+            )
+            editor.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            return editor
+        if field.max_length is not None:
+            editor.setMaxLength(field.max_length)
+        validator = _field_validator(field, editor)
+        if validator is not None:
+            editor.setValidator(validator)
+        if field.field_type == "date":
+            editor.setPlaceholderText("DD.MM.YYYY")
+        if field.numeric_mask is not None:
+            editor.editingFinished.connect(
+                lambda current=editor, item=field: _normalize_numeric_editor(
+                    current,
+                    item,
+                )
+            )
+        editor.installEventFilter(self)
+        return editor
+
+    def _save(self) -> None:
+        if self._saving:
+            return
+        try:
+            values = self._editor_values()
+        except ValueError as error:
+            self.message.setText(str(error))
+            return
+        self._set_saving(True)
+        worker = _CallWorker(
+            lambda: self.controller.save_form(self.form, values)
+        )
+        self._workers.add(worker)
+        worker.signals.completed.connect(self._save_completed)
+        worker.signals.failed.connect(self._save_failed)
+        self._thread_pool.start(worker)
+
+    def _editor_values(self) -> dict[str, Any]:
+        values: dict[str, Any] = {}
+        for field_name, editor in self.editors.items():
+            field = self._fields[field_name]
+            if not field.editable:
+                continue
+            values[field_name] = _editor_value(field, editor)
+        return values
+
+    @Slot(object, object)
+    def _save_completed(
+        self,
+        stored: Mapping[str, Any],
+        worker: _CallWorker,
+    ) -> None:
+        self._workers.discard(worker)
+        self._set_saving(False)
+        self.recordSaved.emit(dict(stored))
+        super().accept()
+
+    @Slot(object, object)
+    def _save_failed(self, error: Exception, worker: _CallWorker) -> None:
+        self._workers.discard(worker)
+        self._set_saving(False)
+        self.message.setText(f"Save failed: {error}")
+
+    def _set_saving(self, saving: bool) -> None:
+        self._saving = saving
+        for field_name, editor in self.editors.items():
+            if self._fields[field_name].editable:
+                editor.setEnabled(not saving)
+        self.save_button.setEnabled(not saving)
+        self.cancel_button.setEnabled(not saving)
+        self.save_button.setText("Saving…" if saving else "Save")
+        if saving:
+            self.message.setText("Saving through the TIDE API…")
 
 
 class TideQtDetailDialog(QDialog):
@@ -414,6 +666,12 @@ class TideQtWindow(QMainWindow):
         self._restoring_column_layout = False
         self._column_widths_initialized = False
         self._detail_dialogs: set[TideQtDetailDialog] = set()
+        self._edit_dialogs: set[TideQtEditDialog] = set()
+        self._operation_workers: set[_CallWorker] = set()
+        self._operation_pool = QThreadPool(self)
+        self._operation_pool.setMaxThreadCount(1)
+        self._form_loading = False
+        self._notice: str | None = None
         self.setWindowTitle(f"{controller.model.name} — {controller.title}")
         self.resize(1100, 650)
 
@@ -471,6 +729,10 @@ class TideQtWindow(QMainWindow):
 
         actions = QHBoxLayout()
         self.status = QLabel()
+        self.new = QPushButton("New")
+        self.new.setObjectName("new-record")
+        self.edit = QPushButton("Edit")
+        self.edit.setObjectName("edit-record")
         self.view = QPushButton("View")
         self.best_fit = QPushButton("Best Fit")
         self.best_fit.setObjectName("best-fit-columns")
@@ -483,6 +745,8 @@ class TideQtWindow(QMainWindow):
         self.refresh = QPushButton("Refresh")
         close = QPushButton("Close")
         actions.addWidget(self.status, 1)
+        actions.addWidget(self.new)
+        actions.addWidget(self.edit)
         actions.addWidget(self.view)
         actions.addWidget(self.best_fit)
         actions.addWidget(self.reset_layout)
@@ -506,6 +770,8 @@ class TideQtWindow(QMainWindow):
         header.sectionClicked.connect(self._sort_by_section)
         header.sectionMoved.connect(self._queue_column_layout_save)
         header.sectionResized.connect(self._queue_column_layout_save)
+        self.new.clicked.connect(self._open_new_form)
+        self.edit.clicked.connect(self._open_selected_form)
         self.view.clicked.connect(self._open_selected_detail)
         self.best_fit.clicked.connect(self._best_fit_all_columns)
         self.reset_layout.clicked.connect(self._reset_column_layout)
@@ -535,6 +801,17 @@ class TideQtWindow(QMainWindow):
             self._save_column_layout()
         self._layout_settings.sync()
         super().closeEvent(event)
+
+    def wait_for_done(self, milliseconds: int = -1) -> bool:
+        """Wait for browse, form-load, and active form-save workers."""
+
+        browse_done = self.table_model.wait_for_done(milliseconds)
+        operations_done = self._operation_pool.waitForDone(milliseconds)
+        edits_done = all(
+            dialog.wait_for_done(milliseconds)
+            for dialog in tuple(self._edit_dialogs)
+        )
+        return browse_done and operations_done and edits_done
 
     def _initialize_column_widths(self) -> None:
         """Fit once, then leave every section under direct user control."""
@@ -656,9 +933,87 @@ class TideQtWindow(QMainWindow):
         self._column_widths_initialized = True
 
     def _update_detail_action(self, *_args: Any) -> None:
-        self.view.setEnabled(
-            self.controller.detail_available and self.table.currentIndex().isValid()
+        selected = self.table.currentIndex().isValid()
+        self.new.setEnabled(
+            self.controller.create_available and not self._form_loading
         )
+        self.edit.setEnabled(
+            self.controller.update_available
+            and selected
+            and not self._form_loading
+        )
+        self.view.setEnabled(
+            self.controller.detail_available
+            and selected
+            and not self._form_loading
+        )
+
+    def _open_new_form(self) -> None:
+        if self.controller.create_available:
+            self._start_form_load(self.controller.new_form)
+
+    def _open_selected_form(self) -> None:
+        index = self.table.currentIndex()
+        if not index.isValid() or not self.controller.update_available:
+            return
+        try:
+            identity = self.table_model.identity_at(index.row())
+        except ValueError as error:
+            QMessageBox.critical(self, "TIDE Qt", str(error))
+            return
+        self._start_form_load(lambda: self.controller.edit_form(identity))
+
+    def _start_form_load(self, operation: Callable[[], QtEditForm]) -> None:
+        if self._form_loading:
+            return
+        self._form_loading = True
+        self._notice = None
+        self._update_detail_action()
+        self._update_status()
+        worker = _CallWorker(operation)
+        self._operation_workers.add(worker)
+        worker.signals.completed.connect(self._form_ready)
+        worker.signals.failed.connect(self._form_load_failed)
+        self._operation_pool.start(worker)
+
+    @Slot(object, object)
+    def _form_ready(
+        self,
+        form: QtEditForm,
+        worker: _CallWorker,
+    ) -> None:
+        self._operation_workers.discard(worker)
+        self._form_loading = False
+        self._update_detail_action()
+        self._update_status()
+        dialog = TideQtEditDialog(self.controller, form, parent=self)
+        self._edit_dialogs.add(dialog)
+        dialog.recordSaved.connect(self._record_saved)
+        dialog.finished.connect(
+            lambda _result, current=dialog: self._edit_dialogs.discard(current)
+        )
+        dialog.show()
+
+    @Slot(object, object)
+    def _form_load_failed(
+        self,
+        error: Exception,
+        worker: _CallWorker,
+    ) -> None:
+        self._operation_workers.discard(worker)
+        self._form_loading = False
+        self._update_detail_action()
+        self._update_status()
+        QMessageBox.critical(
+            self,
+            "TIDE Qt",
+            f"Unable to open record form: {error}",
+        )
+
+    @Slot(object)
+    def _record_saved(self, _stored: Mapping[str, Any]) -> None:
+        self._notice = "Record saved"
+        self.table_model.reload()
 
     def _open_selected_detail(self) -> None:
         index = self.table.currentIndex()
@@ -769,8 +1124,11 @@ class TideQtWindow(QMainWindow):
             state = "All available records loaded"
         summary = self.controller.query_summary(self.table_model.query)
         query_text = f"  ·  {summary}" if summary else ""
+        if self._form_loading:
+            state = "Loading record form…"
+        notice = f"{self._notice}  ·  " if self._notice else ""
         self.status.setText(
-            f"{count} {noun} loaded  ·  {state}  ·  "
+            f"{notice}{count} {noun} loaded  ·  {state}  ·  "
             f"{self.source_label}{query_text}"
         )
 
@@ -806,7 +1164,7 @@ def run_qt_application(
     window = TideQtWindow(controller, source_label=source_label)
     window.show()
     result = int(application.exec())
-    window.table_model.wait_for_done()
+    window.wait_for_done()
     return result
 
 
@@ -905,3 +1263,126 @@ def _apply_column_order(
         current_visual = header.visualIndex(logical_index)
         if current_visual != target_visual:
             header.moveSection(current_visual, target_visual)
+
+
+def _edit_text(field: QtEditField) -> str:
+    value = field.value
+    if value is PROTECTED:
+        return "Protected"
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ", timespec="minutes")
+    if isinstance(value, date):
+        return value.strftime("%d.%m.%Y")
+    return str(value)
+
+
+def _field_validator(
+    field: QtEditField,
+    parent: QObject,
+) -> QRegularExpressionValidator | None:
+    pattern: str | None = None
+    if field.regex is not None:
+        pattern = rf"^(?:{field.regex})$"
+    elif field.field_type == "integer":
+        pattern = r"^-?\d*$"
+    elif field.field_type == "decimal":
+        pattern = _decimal_input_pattern(field)
+    if pattern is None:
+        return None
+    expression = QRegularExpression(pattern)
+    if not expression.isValid():
+        return None
+    return QRegularExpressionValidator(expression, parent)
+
+
+def _decimal_input_pattern(field: QtEditField) -> str:
+    mask = field.numeric_mask
+    match = re.fullmatch(r"0(?:([.,])(0+))?", mask or "")
+    scale = (
+        len(match.group(2))
+        if match is not None
+        else int(field.scale or 0)
+    )
+    integer_digits = (
+        max(1, field.precision - int(field.scale or 0))
+        if field.precision is not None
+        else None
+    )
+    integer = rf"\d{{0,{integer_digits}}}" if integer_digits else r"\d*"
+    if scale <= 0:
+        return rf"^-?{integer}$"
+    separator = re.escape(match.group(1)) if match and match.group(1) else r"[.,]"
+    return rf"^-?{integer}(?:{separator}\d{{0,{scale}}})?$"
+
+
+def _normalize_numeric_editor(
+    editor: QLineEdit,
+    field: QtEditField,
+) -> None:
+    raw = editor.text().strip()
+    match = re.fullmatch(r"0(?:([.,])(0+))?", field.numeric_mask or "")
+    if not raw or match is None:
+        return
+    try:
+        value = Decimal(raw.replace(",", "."))
+    except InvalidOperation:
+        return
+    places = len(match.group(2) or "")
+    formatted = f"{value:.{places}f}"
+    if match.group(1) == ",":
+        formatted = formatted.replace(".", ",")
+    editor.setText(formatted)
+
+
+def _editor_value(field: QtEditField, editor: QWidget) -> Any:
+    if isinstance(editor, QCheckBox):
+        return editor.isChecked()
+    if isinstance(editor, QComboBox):
+        value = editor.currentData()
+        if value is None and field.required:
+            raise ValueError(f"{field.label} is required")
+        return value
+    if not isinstance(editor, QLineEdit):
+        raise ValueError(f"{field.label} uses an unsupported editor")
+    raw = editor.text().strip()
+    if not raw:
+        if field.required:
+            raise ValueError(f"{field.label} is required")
+        return None
+    if not editor.hasAcceptableInput():
+        raise ValueError(f"{field.label} has an invalid format")
+    try:
+        if field.field_type == "integer":
+            value: Any = int(raw)
+        elif field.field_type == "decimal":
+            value = Decimal(raw.replace(",", "."))
+        elif field.field_type == "date":
+            value = _parse_edit_date(raw)
+        elif field.field_type == "datetime":
+            value = datetime.fromisoformat(raw)
+        else:
+            value = raw
+    except (InvalidOperation, ValueError) as error:
+        raise ValueError(f"{field.label} has an invalid value") from error
+    if field.minimum is not None and value < field.minimum:
+        raise ValueError(f"{field.label} must be at least {field.minimum}")
+    if field.maximum is not None and value > field.maximum:
+        raise ValueError(f"{field.label} must be at most {field.maximum}")
+    return value
+
+
+def _parse_edit_date(value: str) -> date:
+    for parser in (
+        date.fromisoformat,
+        lambda candidate: datetime.strptime(candidate, "%d.%m.%Y").date(),
+        lambda candidate: datetime.strptime(candidate, "%d/%m/%Y").date(),
+    ):
+        try:
+            return parser(value)
+        except ValueError:
+            continue
+    raise ValueError("invalid date")

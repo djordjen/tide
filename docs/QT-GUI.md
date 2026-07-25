@@ -1,12 +1,13 @@
 # Qt GUI Prototype
 
-Status: **read-only vertical slice with interactive server-mode browsing**.
+Status: **interactive server-mode browse plus flat master-data editing**.
 
 TIDE now includes a small PySide6 desktop adapter that proves the normalized
 application model and secured remote-client boundary can drive a native GUI.
 It supports an incrementally loaded browse list, metadata-defined search and
-named filters, global header sorting, and read-only record detail. Editing,
-actions, lookup selection, reports, and desktop sign-in remain later work.
+named filters, global header sorting, read-only record detail, and flat
+Customer/Product create and update forms. Invoice editing, domain actions,
+lookup selection, reports, and desktop sign-in remain later work.
 
 ## Security and architecture
 
@@ -69,6 +70,22 @@ read-only: it shows the Invoice, Totals, and Posting groups plus the nested
 line-item table. Customer and Product labels are resolved through secured API
 reads rather than direct database access.
 
+To exercise the editable flat-form slice, open either workspace instead:
+
+```bat
+start.bat gui-products
+start.bat gui-customers
+```
+
+Use **New**, or select a row and use **Edit**. Product and Customer form groups
+and row placement come from their compiled `*.edit` views. Tab and Enter move
+through the left field column before the right. Required fields, code regex
+masks, Product's `0.00` Decimal mask, Boolean defaults, writable capabilities,
+and read-only styling are reflected locally. Save runs outside the GUI thread,
+calls only the authenticated FastAPI create/update route, carries an observed
+ETag when present, and refreshes the secured list. Server-side permissions,
+row policies, uniqueness, normalization, and validation remain authoritative.
+
 The equivalent explicit setup is:
 
 ```powershell
@@ -104,13 +121,17 @@ complete launcher contract.
   stable field-name layouts survive refreshes and later GUI sessions;
 - selected records open through their real primary-key identity into compiled
   form groups and inline collection columns, with no client-side database path;
+- flat Product and Customer forms use compiled group/row order, typed metadata
+  controls, capability-gated New/Edit actions, background API mutations, and
+  refresh through the same cursor-backed list;
 - inaccessible views fail closed instead of falling back to local data;
 - the presentation/controller contract is testable without installing Qt in
   ordinary CI.
 
 ## Deliberately deferred
 
-- create/edit forms, lookup selection, domain actions, and reports;
+- transactional Invoice/InvoiceLine editing, lookup selection, conflict
+  review, domain actions, and reports;
 - privileged designer publishing of validated application layout defaults;
 - OIDC desktop login, access-token refresh, and secure token storage;
 - native application packaging, signing, and installers;

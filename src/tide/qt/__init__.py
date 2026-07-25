@@ -18,6 +18,9 @@ from .presenter import (
     QtDetailField,
     QtDetailGroup,
     QtDetailRecord,
+    QtEditField,
+    QtEditForm,
+    QtEditGroup,
 )
 
 __all__ = [
@@ -29,6 +32,10 @@ __all__ = [
     "QtDetailField",
     "QtDetailGroup",
     "QtDetailRecord",
+    "QtEditField",
+    "QtEditForm",
+    "QtEditGroup",
+    "TideQtEditDialog",
     "TideQtDetailDialog",
     "TideQtWindow",
     "run_qt_application",
@@ -36,11 +43,22 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
-    if name in {"TideQtDetailDialog", "TideQtWindow", "run_qt_application"}:
-        from .app import TideQtDetailDialog, TideQtWindow, run_qt_application
+    if name in {
+        "TideQtDetailDialog",
+        "TideQtEditDialog",
+        "TideQtWindow",
+        "run_qt_application",
+    }:
+        from .app import (
+            TideQtDetailDialog,
+            TideQtEditDialog,
+            TideQtWindow,
+            run_qt_application,
+        )
 
         return {
             "TideQtDetailDialog": TideQtDetailDialog,
+            "TideQtEditDialog": TideQtEditDialog,
             "TideQtWindow": TideQtWindow,
             "run_qt_application": run_qt_application,
         }[name]

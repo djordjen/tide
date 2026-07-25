@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -9,13 +10,14 @@ import re
 from threading import Lock
 from typing import Any, Literal, Mapping, Protocol
 
-from tide.api.contracts import TideSessionInfo
+from tide.api.contracts import TideEntityCapabilities, TideSessionInfo
 from tide.compiler.normalized import (
     ApplicationModel,
     NormalizedEntity,
     NormalizedField,
     ResolvedView,
 )
+from tide.compiler.expressions import evaluate_expression
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.presentation import (
     BrowseNamedFilter,
@@ -39,6 +41,21 @@ class BrowseApiClient(Protocol):
     ) -> Any: ...
 
     def get_record(self, entity_name: str, identity: Any) -> Any: ...
+
+    def create_record(
+        self,
+        entity_name: str,
+        values: Mapping[str, Any],
+    ) -> Any: ...
+
+    def update_record(
+        self,
+        entity_name: str,
+        identity: Any,
+        values: Mapping[str, Any],
+        *,
+        if_match: str | int | None = None,
+    ) -> Any: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +81,54 @@ class QtBrowseQuery:
     filter_name: str | None = None
     sort_field: str | None = None
     sort_descending: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class QtEditField:
+    """One flat-form field and the metadata needed by a Qt editor."""
+
+    name: str
+    label: str
+    field_type: str
+    value: Any
+    editable: bool
+    required: bool = False
+    max_length: int | None = None
+    choices: tuple[Any, ...] = ()
+    regex: str | None = None
+    numeric_mask: str | None = None
+    precision: int | None = None
+    scale: int | None = None
+    minimum: int | Decimal | None = None
+    maximum: int | Decimal | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class QtEditGroup:
+    label: str
+    rows: tuple[tuple[QtEditField, ...], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class QtEditForm:
+    """One create/update draft opened through an authenticated API capability."""
+
+    entity: str
+    title: str
+    operation: Literal["create", "update"]
+    identity: Any
+    etag: str | None
+    original: Mapping[str, Any]
+    groups: tuple[QtEditGroup, ...]
+
+    @property
+    def fields(self) -> tuple[QtEditField, ...]:
+        return tuple(
+            field
+            for group in self.groups
+            for row in group.rows
+            for field in row
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,13 +219,61 @@ class QtBrowseController:
 
     @property
     def detail_available(self) -> bool:
-        return self.detail_view is not None
+        return bool(
+            self.detail_view is not None
+            and "get" in self._entity_capabilities.operations
+        )
+
+    @property
+    def create_available(self) -> bool:
+        return bool(
+            self._flat_form_available
+            and "create" in self._entity_capabilities.operations
+        )
+
+    @property
+    def update_available(self) -> bool:
+        return bool(
+            self._flat_form_available
+            and "get" in self._entity_capabilities.operations
+            and "update" in self._entity_capabilities.operations
+        )
 
     @property
     def search_label(self) -> str | None:
         if self.search_field is None:
             return None
         return _field_label(self.entity.field(self.search_field))
+
+    @property
+    def _entity_capabilities(self) -> TideEntityCapabilities | _EmptyCapabilities:
+        return self.session.entities.get(self.entity.name, _EMPTY_CAPABILITIES)
+
+    @property
+    def _flat_form_available(self) -> bool:
+        if self.detail_view is None:
+            return False
+        field_names = _flat_form_field_names(self.detail_view, self.entity)
+        return bool(
+            field_names
+            and not any(
+                section.get("collection")
+                for section in self.detail_view.data.get("layout", ())
+            )
+            and all(
+                self.entity.field(name).metadata["type"]
+                in {
+                    "boolean",
+                    "choice",
+                    "date",
+                    "datetime",
+                    "decimal",
+                    "integer",
+                    "string",
+                }
+                for name in field_names
+            )
+        )
 
     def reset_browse(self) -> None:
         """Discard browse-only display caches before a fresh server query."""
@@ -259,10 +372,11 @@ class QtBrowseController:
         )
 
     def load_detail(self, identity: Any) -> QtDetailRecord:
-        if self.detail_view is None:
+        if not self.detail_available:
             raise ValueError(
                 f"{self.entity.name} does not define an accessible form view"
             )
+        assert self.detail_view is not None
         if identity is None or identity is PROTECTED:
             raise ValueError("Qt detail record identity is unavailable")
         values = self.client.get_record(self.entity.name, identity).values
@@ -271,6 +385,192 @@ class QtBrowseController:
             identity=identity,
             title=f"{self.entity.label} — {display}",
             sections=self._detail_sections(values),
+        )
+
+    def new_form(self) -> QtEditForm:
+        """Open a metadata-defaulted flat create form without touching storage."""
+
+        if not self.create_available:
+            raise ValueError(
+                f"{self.entity.name} does not define an accessible flat create form"
+            )
+        defaults: dict[str, Any] = {}
+        for field_name, field in self.entity.fields.items():
+            metadata = field.metadata
+            if metadata.get("default_factory") == "today":
+                defaults[field_name] = date.today()
+            elif "default" in metadata:
+                defaults[field_name] = deepcopy(metadata["default"])
+        return self._edit_form(
+            operation="create",
+            identity=None,
+            etag=None,
+            values=defaults,
+        )
+
+    def edit_form(self, identity: Any) -> QtEditForm:
+        """Load one editable flat record through the authenticated API."""
+
+        if not self.update_available:
+            raise ValueError(
+                f"{self.entity.name} does not define an accessible flat update form"
+            )
+        if identity is None or identity is PROTECTED:
+            raise ValueError("Qt edit record identity is unavailable")
+        remote = self.client.get_record(self.entity.name, identity)
+        return self._edit_form(
+            operation="update",
+            identity=identity,
+            etag=remote.etag,
+            values=remote.values,
+        )
+
+    def save_form(
+        self,
+        form: QtEditForm,
+        values: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Commit one flat draft through typed create/update API methods."""
+
+        if form.entity != self.entity.name:
+            raise ValueError("Qt edit form belongs to a different entity")
+        available = (
+            self.create_available
+            if form.operation == "create"
+            else self.update_available
+        )
+        if not available:
+            raise ValueError(
+                f"{self.entity.name} {form.operation} is not available"
+            )
+        editable = {field.name for field in form.fields if field.editable}
+        unknown = set(values) - editable
+        if unknown:
+            raise ValueError(
+                "Qt edit form contains non-writable field(s): "
+                + ", ".join(sorted(unknown))
+            )
+        draft = {
+            field.name: deepcopy(values.get(field.name, field.value))
+            for field in form.fields
+            if field.editable and field.value is not PROTECTED
+        }
+        if form.operation == "create":
+            return self.client.create_record(self.entity.name, draft).values
+        changes = {
+            name: value
+            for name, value in draft.items()
+            if form.original.get(name) != value
+        }
+        if not changes:
+            return deepcopy(dict(form.original))
+        return self.client.update_record(
+            self.entity.name,
+            form.identity,
+            changes,
+            if_match=form.etag,
+        ).values
+
+    def _edit_form(
+        self,
+        *,
+        operation: Literal["create", "update"],
+        identity: Any,
+        etag: str | None,
+        values: Mapping[str, Any],
+    ) -> QtEditForm:
+        assert self.detail_view is not None
+        groups: list[QtEditGroup] = []
+        for configuration in self.detail_view.data.get("layout", ()):
+            label = configuration.get("group")
+            if not label:
+                continue
+            rows = tuple(
+                tuple(
+                    self._edit_field(self.entity.field(str(name)), values)
+                    for name in row
+                    if str(name) in self.entity.fields
+                    and self.entity.field(str(name)).metadata["type"]
+                    != "collection"
+                    and not _field_is_hidden(self.detail_view, str(name))
+                )
+                for row in configuration.get("rows", ())
+            )
+            visible_rows = tuple(row for row in rows if row)
+            if visible_rows:
+                groups.append(QtEditGroup(str(label), visible_rows))
+        if not groups:
+            rows = tuple(
+                (self._edit_field(self.entity.field(name), values),)
+                for name in _flat_form_field_names(self.detail_view, self.entity)
+            )
+            groups.append(QtEditGroup(self.entity.label, rows))
+        singular = self.entity.label.removesuffix("s") or self.entity.label
+        return QtEditForm(
+            entity=self.entity.name,
+            title=(
+                f"New {singular}"
+                if operation == "create"
+                else f"Edit {singular} — {_display_record(self.entity, values)}"
+            ),
+            operation=operation,
+            identity=identity,
+            etag=etag,
+            original=deepcopy(dict(values)),
+            groups=tuple(groups),
+        )
+
+    def _edit_field(
+        self,
+        field: NormalizedField,
+        values: Mapping[str, Any],
+    ) -> QtEditField:
+        metadata = field.metadata
+        edit_mask = metadata.get("edit_mask")
+        value = values.get(field.name)
+        immutable_when = metadata.get("immutable_when")
+        editable = bool(
+            field.name in self._entity_capabilities.writable_fields
+            and value is not PROTECTED
+            and not metadata.get("primary_key")
+            and not metadata.get("computed")
+            and not metadata.get("readonly")
+            and metadata.get("write", "normal") == "normal"
+            and not (
+                immutable_when
+                and bool(evaluate_expression(str(immutable_when), values))
+            )
+        )
+        return QtEditField(
+            name=field.name,
+            label=_field_label(field),
+            field_type=str(metadata["type"]),
+            value=value,
+            editable=editable,
+            required=bool(metadata.get("required")),
+            max_length=(
+                int(metadata["length"]) if metadata.get("length") else None
+            ),
+            choices=tuple(metadata.get("choices", ())),
+            regex=(
+                str(edit_mask["regex"])
+                if isinstance(edit_mask, Mapping)
+                and edit_mask.get("regex") is not None
+                else None
+            ),
+            numeric_mask=edit_mask if isinstance(edit_mask, str) else None,
+            precision=(
+                int(metadata["precision"])
+                if metadata.get("precision") is not None
+                else None
+            ),
+            scale=(
+                int(metadata["scale"])
+                if metadata.get("scale") is not None
+                else None
+            ),
+            minimum=metadata.get("minimum"),
+            maximum=metadata.get("maximum"),
         )
 
     def _detail_sections(
@@ -450,7 +750,10 @@ def _select_form_view(
     entity_name: str,
 ) -> ResolvedView | None:
     capabilities = session.entities.get(entity_name, _EMPTY_CAPABILITIES)
-    if "get" not in capabilities.operations:
+    if not (
+        {"get", "create", "update"} & set(capabilities.operations)
+        or capabilities.draft_operations
+    ):
         return None
     return next(
         (
@@ -464,6 +767,8 @@ def _select_form_view(
 
 class _EmptyCapabilities:
     operations: tuple[str, ...] = ()
+    draft_operations: tuple[str, ...] = ()
+    writable_fields: tuple[str, ...] = ()
 
 
 _EMPTY_CAPABILITIES = _EmptyCapabilities()
@@ -498,6 +803,32 @@ def _field_is_hidden(view: ResolvedView, field_name: str) -> bool:
         isinstance(field_configuration, Mapping)
         and isinstance(field_configuration.get(field_name), Mapping)
         and field_configuration[field_name].get("hidden", False)
+    )
+
+
+def _flat_form_field_names(
+    view: ResolvedView,
+    entity: NormalizedEntity,
+) -> tuple[str, ...]:
+    result: list[str] = []
+    for section in view.data.get("layout", ()):
+        for row in section.get("rows", ()):
+            for raw_name in row:
+                name = str(raw_name)
+                if (
+                    name in entity.fields
+                    and entity.field(name).metadata["type"] != "collection"
+                    and not _field_is_hidden(view, name)
+                    and name not in result
+                ):
+                    result.append(name)
+    if result:
+        return tuple(result)
+    return tuple(
+        name
+        for name, field in entity.fields.items()
+        if field.metadata["type"] != "collection"
+        and not _field_is_hidden(view, name)
     )
 
 
