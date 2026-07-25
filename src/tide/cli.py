@@ -214,7 +214,11 @@ def _create_parser() -> argparse.ArgumentParser:
         help="remote TIDE application server (default: http://127.0.0.1:8000)",
     )
     gui.add_argument("--view", help="browse view to open (default: application default)")
-    gui.add_argument("--page-size", type=int, help="override the view page size")
+    gui.add_argument(
+        "--page-size",
+        type=int,
+        help="override the incremental server fetch batch size",
+    )
     gui.add_argument(
         "--api-base-path",
         default=DEFAULT_BASE_PATH,

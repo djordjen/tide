@@ -10,9 +10,9 @@ from __future__ import annotations
 from typing import Any
 
 from .presenter import (
+    QtBrowseBatch,
     QtBrowseColumn,
     QtBrowseController,
-    QtBrowsePage,
     QtDetailCollection,
     QtDetailField,
     QtDetailGroup,
@@ -20,9 +20,9 @@ from .presenter import (
 )
 
 __all__ = [
+    "QtBrowseBatch",
     "QtBrowseColumn",
     "QtBrowseController",
-    "QtBrowsePage",
     "QtDetailCollection",
     "QtDetailField",
     "QtDetailGroup",

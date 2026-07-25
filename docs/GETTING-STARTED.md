@@ -203,8 +203,9 @@ open another terminal and run:
 
 Paste the same token to open a read-only metadata-driven Invoice browse. Select
 a row and use **View**, double-click, or press **Enter** to inspect its compiled
-form groups and line items. See the [Qt GUI prototype](QT-GUI.md) for its exact
-scope and commands.
+form groups and line items. Reaching the bottom automatically appends the next
+secured server batch; there are no page-navigation buttons. See the
+[Qt GUI prototype](QT-GUI.md) for its exact scope and commands.
 
 To inspect the generated OpenAPI document without starting a server:
 

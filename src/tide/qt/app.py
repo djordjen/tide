@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import (
+    QAbstractTableModel,
+    QModelIndex,
+    QObject,
+    QRunnable,
+    QThreadPool,
+    Qt,
+    Signal,
+    Slot,
+)
 from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -21,6 +30,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QTableView,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -33,9 +43,9 @@ from tide.runtime import TideRuntimeError
 
 from .presenter import (
     BrowseApiClient,
+    QtBrowseBatch,
     QtBrowseColumn,
     QtBrowseController,
-    QtBrowsePage,
     QtDetailCollection,
     QtDetailGroup,
     QtDetailRecord,
@@ -137,6 +147,221 @@ class TideQtDetailDialog(QDialog):
         return group
 
 
+class _BatchSignals(QObject):
+    completed = Signal(int, object, object, object)
+    failed = Signal(int, object, object, object)
+
+
+class _BatchWorker(QRunnable):
+    """Run one blocking HTTP batch outside Qt's GUI thread."""
+
+    def __init__(
+        self,
+        controller: QtBrowseController,
+        generation: int,
+        cursor: str | None,
+    ) -> None:
+        super().__init__()
+        self.controller = controller
+        self.generation = generation
+        self.cursor = cursor
+        self.signals = _BatchSignals()
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            batch = self.controller.fetch_batch(self.cursor)
+        except Exception as error:  # Qt worker boundary reports failures to the GUI.
+            self.signals.failed.emit(
+                self.generation,
+                self.cursor,
+                error,
+                self,
+            )
+            return
+        self.signals.completed.emit(
+            self.generation,
+            self.cursor,
+            batch,
+            self,
+        )
+
+
+class TideQtTableModel(QAbstractTableModel):
+    """Incremental read-only table over opaque FastAPI continuation cursors."""
+
+    loadingChanged = Signal(bool)
+    batchLoaded = Signal(int, bool)
+    loadFailed = Signal(str)
+
+    def __init__(
+        self,
+        controller: QtBrowseController,
+        parent: QObject | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.controller = controller
+        self.columns = controller.columns
+        self._rows: list[tuple[str, ...]] = []
+        self._identities: list[Any] = []
+        self._next_cursor: str | None = None
+        self._started = False
+        self._loading = False
+        self._load_error: str | None = None
+        self._generation = 0
+        self._workers: set[_BatchWorker] = set()
+        self._thread_pool = QThreadPool(self)
+        self._thread_pool.setMaxThreadCount(1)
+
+    @property
+    def loading(self) -> bool:
+        return self._loading
+
+    @property
+    def load_error(self) -> str | None:
+        return self._load_error
+
+    @property
+    def has_more(self) -> bool:
+        return not self._started or self._next_cursor is not None
+
+    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+        return 0 if parent.isValid() else len(self._rows)
+
+    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
+        return 0 if parent.isValid() else len(self.columns)
+
+    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
+        if not index.isValid():
+            return None
+        if role == Qt.ItemDataRole.DisplayRole:
+            return self._rows[index.row()][index.column()]
+        if role == Qt.ItemDataRole.TextAlignmentRole:
+            return _qt_alignment(self.columns[index.column()].alignment)
+        return None
+
+    def headerData(
+        self,
+        section: int,
+        orientation: Qt.Orientation,
+        role: int = Qt.ItemDataRole.DisplayRole,
+    ) -> Any:
+        if (
+            role == Qt.ItemDataRole.DisplayRole
+            and orientation == Qt.Orientation.Horizontal
+            and 0 <= section < len(self.columns)
+        ):
+            return self.columns[section].label
+        return super().headerData(section, orientation, role)
+
+    def identity_at(self, row: int) -> Any:
+        if row < 0 or row >= len(self._identities):
+            raise ValueError("Qt detail row is not available in the loaded records")
+        return self._identities[row]
+
+    def canFetchMore(self, parent: QModelIndex = QModelIndex()) -> bool:
+        return (
+            not parent.isValid()
+            and not self._loading
+            and self._load_error is None
+            and self.has_more
+        )
+
+    def fetchMore(self, parent: QModelIndex = QModelIndex()) -> None:
+        if not self.canFetchMore(parent):
+            return
+        self._start_fetch(self._next_cursor)
+
+    def reload(self) -> None:
+        """Discard loaded rows and start a fresh first batch."""
+
+        self._generation += 1
+        self.beginResetModel()
+        self._rows.clear()
+        self._identities.clear()
+        self._next_cursor = None
+        self._started = False
+        self._load_error = None
+        self.endResetModel()
+        self.controller.reset_browse()
+        self._set_loading(False)
+        self.fetchMore()
+
+    def wait_for_done(self, milliseconds: int = -1) -> bool:
+        """Wait for this model's HTTP workers before their client is closed."""
+
+        return self._thread_pool.waitForDone(milliseconds)
+
+    def _start_fetch(self, cursor: str | None) -> None:
+        self._set_loading(True)
+        worker = _BatchWorker(self.controller, self._generation, cursor)
+        self._workers.add(worker)
+        worker.signals.completed.connect(self._batch_ready)
+        worker.signals.failed.connect(self._worker_failed)
+        self._thread_pool.start(worker)
+
+    @Slot(int, object, object, object)
+    def _batch_ready(
+        self,
+        generation: int,
+        requested_cursor: str | None,
+        batch: QtBrowseBatch,
+        worker: _BatchWorker,
+    ) -> None:
+        self._workers.discard(worker)
+        if generation != self._generation:
+            return
+        if batch.next_cursor is not None and batch.next_cursor == requested_cursor:
+            self._batch_failed(
+                generation,
+                requested_cursor,
+                ValueError("server repeated the current continuation cursor"),
+            )
+            return
+        if batch.rows:
+            first = len(self._rows)
+            last = first + len(batch.rows) - 1
+            self.beginInsertRows(QModelIndex(), first, last)
+            self._rows.extend(batch.rows)
+            self._identities.extend(batch.identities)
+            self.endInsertRows()
+        self._started = True
+        self._next_cursor = batch.next_cursor
+        self._load_error = None
+        self._set_loading(False)
+        self.batchLoaded.emit(len(batch.rows), self.has_more)
+
+    @Slot(int, object, object, object)
+    def _worker_failed(
+        self,
+        generation: int,
+        requested_cursor: str | None,
+        error: Exception,
+        worker: _BatchWorker,
+    ) -> None:
+        self._workers.discard(worker)
+        self._batch_failed(generation, requested_cursor, error)
+
+    @Slot(int, object, object)
+    def _batch_failed(
+        self,
+        generation: int,
+        _requested_cursor: str | None,
+        error: Exception,
+    ) -> None:
+        if generation != self._generation:
+            return
+        self._load_error = str(error)
+        self._set_loading(False)
+        self.loadFailed.emit(self._load_error)
+
+    def _set_loading(self, value: bool) -> None:
+        if self._loading == value:
+            return
+        self._loading = value
+        self.loadingChanged.emit(value)
+
+
 class TideQtWindow(QMainWindow):
     """Read-only Qt browse that delegates all data access to TideApiClient."""
 
@@ -163,14 +388,16 @@ class TideQtWindow(QMainWindow):
         layout.addWidget(heading)
         layout.addWidget(context)
 
-        self.table = QTableWidget(0, len(controller.columns))
-        self.table.setHorizontalHeaderLabels(
-            [column.label for column in controller.columns]
-        )
+        self.table = QTableView()
+        self.table_model = TideQtTableModel(controller, self)
+        self.table.setModel(self.table_model)
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setVerticalScrollMode(
+            QAbstractItemView.ScrollMode.ScrollPerItem
+        )
         self.table.verticalHeader().setVisible(False)
         _configure_interactive_header(self.table)
         layout.addWidget(self.table, 1)
@@ -178,31 +405,30 @@ class TideQtWindow(QMainWindow):
         actions = QHBoxLayout()
         self.status = QLabel()
         self.view = QPushButton("View")
-        self.previous = QPushButton("Previous")
         self.refresh = QPushButton("Refresh")
-        self.next = QPushButton("Next")
         close = QPushButton("Close")
         actions.addWidget(self.status, 1)
         actions.addWidget(self.view)
-        actions.addWidget(self.previous)
         actions.addWidget(self.refresh)
-        actions.addWidget(self.next)
         actions.addWidget(close)
         layout.addLayout(actions)
         self.setCentralWidget(root)
 
-        self.previous.clicked.connect(
-            lambda: self._load(self.controller.previous_page)
-        )
-        self.refresh.clicked.connect(lambda: self._load(self.controller.refresh))
-        self.next.clicked.connect(lambda: self._load(self.controller.next_page))
+        self.refresh.clicked.connect(self.table_model.reload)
         self.view.clicked.connect(self._open_selected_detail)
-        self.table.itemSelectionChanged.connect(self._update_detail_action)
-        self.table.itemActivated.connect(
-            lambda item: self._open_detail(item.row())
+        self.table.selectionModel().selectionChanged.connect(
+            self._update_detail_action
+        )
+        self.table.activated.connect(lambda index: self._open_detail(index.row()))
+        self.table_model.loadingChanged.connect(self._loading_changed)
+        self.table_model.batchLoaded.connect(self._batch_loaded)
+        self.table_model.loadFailed.connect(self._load_failed)
+        self.table.verticalScrollBar().valueChanged.connect(
+            self._prefetch_if_near_end
         )
         close.clicked.connect(self.close)
-        self._load(self.controller.refresh)
+        self._update_detail_action()
+        self.table_model.reload()
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
@@ -212,22 +438,25 @@ class TideQtWindow(QMainWindow):
     def _initialize_column_widths(self) -> None:
         """Fit once, then leave every section under direct user control."""
 
+        if self.table_model.rowCount() == 0:
+            return
         _fit_interactive_columns(self.table, self.controller.columns)
         self._column_widths_initialized = True
 
-    def _update_detail_action(self) -> None:
+    def _update_detail_action(self, *_args: Any) -> None:
         self.view.setEnabled(
-            self.controller.detail_available and self.table.currentRow() >= 0
+            self.controller.detail_available and self.table.currentIndex().isValid()
         )
 
     def _open_selected_detail(self) -> None:
-        row_index = self.table.currentRow()
-        if row_index >= 0:
-            self._open_detail(row_index)
+        index = self.table.currentIndex()
+        if index.isValid():
+            self._open_detail(index.row())
 
     def _open_detail(self, row_index: int) -> None:
         try:
-            detail = self.controller.load_detail(row_index)
+            identity = self.table_model.identity_at(row_index)
+            detail = self.controller.load_detail(identity)
         except (TideRuntimeError, ValueError) as error:
             QMessageBox.critical(
                 self,
@@ -246,29 +475,42 @@ class TideQtWindow(QMainWindow):
         )
         dialog.show()
 
-    def _load(self, operation: Callable[[], QtBrowsePage]) -> None:
-        try:
-            page = operation()
-        except (TideRuntimeError, ValueError) as error:
-            QMessageBox.critical(self, "TIDE Qt", f"Unable to load records: {error}")
-            return
-        self.table.setRowCount(len(page.rows))
-        for row_index, row in enumerate(page.rows):
-            for column_index, text in enumerate(row):
-                item = QTableWidgetItem(text)
-                item.setTextAlignment(
-                    _qt_alignment(page.columns[column_index].alignment)
-                )
-                self.table.setItem(row_index, column_index, item)
-        self.previous.setEnabled(page.previous_available)
-        self.next.setEnabled(page.next_available)
-        self.table.clearSelection()
-        self._update_detail_action()
-        noun = "record" if len(page.rows) == 1 else "records"
+    def _loading_changed(self, loading: bool) -> None:
+        self.refresh.setEnabled(not loading)
+        self._update_status()
+
+    def _batch_loaded(self, _count: int, _has_more: bool) -> None:
+        if not self._column_widths_initialized and self.isVisible():
+            self._initialize_column_widths()
+        self._update_status()
+        self._prefetch_if_near_end()
+
+    def _load_failed(self, message: str) -> None:
+        self._update_status()
+        QMessageBox.critical(self, "TIDE Qt", f"Unable to load records: {message}")
+
+    def _update_status(self) -> None:
+        count = self.table_model.rowCount()
+        noun = "record" if count == 1 else "records"
+        if self.table_model.loading:
+            state = "Loading more records…" if count else "Loading records…"
+        elif self.table_model.load_error:
+            state = "Loading failed · Refresh to retry"
+        elif self.table_model.has_more:
+            state = "Scroll for more"
+        else:
+            state = "All available records loaded"
         self.status.setText(
-            f"Page {page.page_number}  ·  {len(page.rows)} {noun}  ·  "
-            f"{self.source_label}"
+            f"{count} {noun} loaded  ·  {state}  ·  {self.source_label}"
         )
+
+    def _prefetch_if_near_end(self, *_args: Any) -> None:
+        scrollbar = self.table.verticalScrollBar()
+        if (
+            scrollbar.maximum() - scrollbar.value() <= 2
+            and self.table_model.canFetchMore()
+        ):
+            self.table_model.fetchMore()
 
 
 def run_qt_application(
@@ -293,7 +535,9 @@ def run_qt_application(
     )
     window = TideQtWindow(controller, source_label=source_label)
     window.show()
-    return int(application.exec())
+    result = int(application.exec())
+    window.table_model.wait_for_done()
+    return result
 
 
 def _qt_alignment(value: str) -> Any:
@@ -305,7 +549,7 @@ def _qt_alignment(value: str) -> Any:
     return horizontal | Qt.AlignmentFlag.AlignVCenter
 
 
-def _configure_interactive_header(table: QTableWidget) -> None:
+def _configure_interactive_header(table: QTableView | QTableWidget) -> None:
     header = table.horizontalHeader()
     header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
     header.setMinimumSectionSize(56)
@@ -313,11 +557,12 @@ def _configure_interactive_header(table: QTableWidget) -> None:
 
 
 def _fit_interactive_columns(
-    table: QTableWidget,
+    table: QTableView | QTableWidget,
     columns: tuple[QtBrowseColumn, ...],
 ) -> None:
     table.resizeColumnsToContents()
-    for index in range(table.columnCount()):
+    column_count = _table_column_count(table)
+    for index in range(column_count):
         fitted = table.columnWidth(index)
         table.setColumnWidth(index, min(max(fitted, 72), 360))
 
@@ -327,7 +572,7 @@ def _fit_interactive_columns(
     if not left_aligned:
         return
     flexible = max(left_aligned, key=table.columnWidth)
-    used = sum(table.columnWidth(index) for index in range(table.columnCount()))
+    used = sum(table.columnWidth(index) for index in range(column_count))
     available = table.viewport().width()
     extra = max(available - used - 2, 0)
     flexible_limit = max(280, int(available * 0.55))
@@ -335,3 +580,8 @@ def _fit_interactive_columns(
         flexible,
         min(table.columnWidth(flexible) + extra, flexible_limit),
     )
+
+
+def _table_column_count(table: QTableView | QTableWidget) -> int:
+    model = table.model()
+    return 0 if model is None else model.columnCount()

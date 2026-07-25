@@ -109,7 +109,7 @@ goto finish
 :gui
 call :read_api_token
 if errorlevel 1 goto finish
-uv run --extra gui tide gui applications/invoicing --api-url http://127.0.0.1:8000 --page-size 5
+uv run --extra gui tide gui applications/invoicing --api-url http://127.0.0.1:8000
 goto finish
 
 :read_api_token

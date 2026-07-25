@@ -113,7 +113,7 @@ class _BrowseClient:
         return SimpleNamespace(values=values[identity])
 
 
-def test_qt_browse_uses_metadata_formatting_references_and_cursor_paging() -> None:
+def test_qt_browse_formats_incremental_cursor_batches() -> None:
     model = compile_project(INVOICING)
     client = _BrowseClient()
     controller = QtBrowseController(
@@ -123,7 +123,7 @@ def test_qt_browse_uses_metadata_formatting_references_and_cursor_paging() -> No
         page_size=2,
     )
 
-    first = controller.refresh()
+    first = controller.fetch_batch()
 
     assert controller.view.name == "sales.Invoice.browse"
     assert controller.title == "Invoices"
@@ -152,21 +152,13 @@ def test_qt_browse_uses_metadata_formatting_references_and_cursor_paging() -> No
     )
     assert first.columns[-1].alignment == "right"
     assert first.identities == (1, 2)
-    assert first.page_number == 1
-    assert first.previous_available is False
-    assert first.next_available is True
+    assert first.next_cursor == "invoice-page-2"
     assert client.reference_reads == 1
 
-    second = controller.next_page()
+    second = controller.fetch_batch(first.next_cursor)
     assert second.rows[0][2] == "NORTH - Northwind"
-    assert second.page_number == 2
-    assert second.previous_available is True
-    assert second.next_available is False
-
-    previous = controller.previous_page()
-    assert previous.rows == first.rows
-    assert previous.page_number == 1
-    assert client.list_cursors == [None, "invoice-page-2", None]
+    assert second.next_cursor is None
+    assert client.list_cursors == [None, "invoice-page-2"]
 
 
 def test_qt_detail_uses_form_groups_and_nested_inline_collection() -> None:
@@ -178,9 +170,9 @@ def test_qt_detail_uses_form_groups_and_nested_inline_collection() -> None:
         _session(model),
         page_size=2,
     )
-    controller.refresh()
+    controller.fetch_batch()
 
-    detail = controller.load_detail(0)
+    detail = controller.load_detail(1)
 
     assert detail.identity == 1
     assert detail.title == "Invoices — INV-2026-001"
@@ -247,7 +239,7 @@ def test_qt_browse_rejects_an_inaccessible_or_invalid_configuration() -> None:
 
     with pytest.raises(
         ValueError,
-        match="Qt browse page size must be between 1 and 500",
+        match="Qt browse batch size must be between 1 and 500",
     ):
         QtBrowseController(model, client, session, page_size=0)
 
@@ -261,14 +253,13 @@ def test_qt_detail_requires_get_capability() -> None:
         operations=("list",),
     )
     controller = QtBrowseController(model, client, session, page_size=2)
-    controller.refresh()
 
     assert controller.detail_available is False
     with pytest.raises(
         ValueError,
         match="sales.Invoice does not define an accessible form view",
     ):
-        controller.load_detail(0)
+        controller.load_detail(1)
 
 
 def _session(

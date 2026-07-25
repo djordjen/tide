@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 import re
+from threading import Lock
 from typing import Any, Literal, Mapping, Protocol
 
 from tide.api.contracts import TideSessionInfo
@@ -43,13 +44,11 @@ class QtBrowseColumn:
 
 
 @dataclass(frozen=True, slots=True)
-class QtBrowsePage:
+class QtBrowseBatch:
     columns: tuple[QtBrowseColumn, ...]
     rows: tuple[tuple[str, ...], ...]
     identities: tuple[Any, ...]
-    page_number: int
-    previous_available: bool
-    next_available: bool
+    next_cursor: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,9 +106,9 @@ class QtBrowseController:
         configured_page_size = int(
             self.view.data.get("settings", {}).get("page_size", 25)
         )
-        self.page_size = configured_page_size if page_size is None else page_size
-        if self.page_size < 1 or self.page_size > 500:
-            raise ValueError("Qt browse page size must be between 1 and 500")
+        self.batch_size = configured_page_size if page_size is None else page_size
+        if self.batch_size < 1 or self.batch_size > 500:
+            raise ValueError("Qt browse batch size must be between 1 and 500")
         self.columns = tuple(
             QtBrowseColumn(
                 field.name,
@@ -118,11 +117,8 @@ class QtBrowseController:
             )
             for field in (self.entity.field(name) for name in self.field_names)
         )
-        self._page_cursors: list[str | None] = [None]
-        self._page_index = 0
-        self._current: QtBrowsePage | None = None
-        self._next_cursor: str | None = None
         self._reference_cache: dict[tuple[str, Any], str] = {}
+        self._reference_cache_lock = Lock()
 
     @property
     def title(self) -> str:
@@ -137,68 +133,18 @@ class QtBrowseController:
     def detail_available(self) -> bool:
         return self.detail_view is not None
 
-    def refresh(self) -> QtBrowsePage:
-        self._reference_cache.clear()
-        return self._load(self._page_cursors[self._page_index], self._page_index)
+    def reset_browse(self) -> None:
+        """Discard browse-only display caches before a fresh server query."""
 
-    def next_page(self) -> QtBrowsePage:
-        if self._current is None:
-            return self.refresh()
-        if self._next_cursor is None:
-            return self._current
-        target_index = self._page_index + 1
-        target_cursor = self._next_cursor
-        page = self._load(target_cursor, target_index, update_state=False)
-        self._page_cursors = self._page_cursors[:target_index]
-        self._page_cursors.append(target_cursor)
-        self._page_index = target_index
-        self._current = page
-        return page
+        with self._reference_cache_lock:
+            self._reference_cache.clear()
 
-    def previous_page(self) -> QtBrowsePage:
-        if self._current is None:
-            return self.refresh()
-        if self._page_index == 0:
-            return self._current
-        target_index = self._page_index - 1
-        page = self._load(
-            self._page_cursors[target_index],
-            target_index,
-            update_state=False,
-        )
-        self._page_index = target_index
-        self._current = page
-        return page
+    def fetch_batch(self, cursor: str | None = None) -> QtBrowseBatch:
+        """Fetch and format one opaque server-owned continuation batch."""
 
-    def load_detail(self, row_index: int) -> QtDetailRecord:
-        if self.detail_view is None:
-            raise ValueError(
-                f"{self.entity.name} does not define an accessible form view"
-            )
-        current = self._current or self.refresh()
-        if row_index < 0 or row_index >= len(current.identities):
-            raise ValueError("Qt detail row is not available on the current page")
-        identity = current.identities[row_index]
-        if identity is None or identity is PROTECTED:
-            raise ValueError("Qt detail record identity is unavailable")
-        values = self.client.get_record(self.entity.name, identity).values
-        display = _display_record(self.entity, values)
-        return QtDetailRecord(
-            identity=identity,
-            title=f"{self.entity.label} — {display}",
-            sections=self._detail_sections(values),
-        )
-
-    def _load(
-        self,
-        cursor: str | None,
-        page_index: int,
-        *,
-        update_state: bool = True,
-    ) -> QtBrowsePage:
         remote = self.client.list_records(
             self.entity.name,
-            limit=self.page_size,
+            limit=self.batch_size,
             cursor=cursor,
         )
         rows = tuple(
@@ -208,22 +154,30 @@ class QtBrowseController:
             )
             for record in remote.records
         )
-        page = QtBrowsePage(
+        return QtBrowseBatch(
             columns=self.columns,
             rows=rows,
             identities=tuple(
                 record.get(_primary_key_name(self.entity))
                 for record in remote.records
             ),
-            page_number=page_index + 1,
-            previous_available=page_index > 0,
-            next_available=remote.next_cursor is not None,
+            next_cursor=remote.next_cursor,
         )
-        self._next_cursor = remote.next_cursor
-        if update_state:
-            self._page_index = page_index
-            self._current = page
-        return page
+
+    def load_detail(self, identity: Any) -> QtDetailRecord:
+        if self.detail_view is None:
+            raise ValueError(
+                f"{self.entity.name} does not define an accessible form view"
+            )
+        if identity is None or identity is PROTECTED:
+            raise ValueError("Qt detail record identity is unavailable")
+        values = self.client.get_record(self.entity.name, identity).values
+        display = _display_record(self.entity, values)
+        return QtDetailRecord(
+            identity=identity,
+            title=f"{self.entity.label} — {display}",
+            sections=self._detail_sections(values),
+        )
 
     def _detail_sections(
         self,
@@ -354,15 +308,17 @@ class QtBrowseController:
 
     def _reference_display(self, entity_name: str, identity: Any) -> str:
         key = entity_name, identity
-        if key in self._reference_cache:
-            return self._reference_cache[key]
+        with self._reference_cache_lock:
+            cached = self._reference_cache.get(key, _CACHE_MISS)
+        if cached is not _CACHE_MISS:
+            return cached
         try:
             record = self.client.get_record(entity_name, identity).values
             result = _display_record(self.model.entity(entity_name), record)
         except TideRuntimeError:
             result = "Protected"
-        self._reference_cache[key] = result
-        return result
+        with self._reference_cache_lock:
+            return self._reference_cache.setdefault(key, result)
 
 
 def _select_browse_view(
@@ -417,6 +373,7 @@ class _EmptyCapabilities:
 
 
 _EMPTY_CAPABILITIES = _EmptyCapabilities()
+_CACHE_MISS = object()
 
 
 def _browse_columns(

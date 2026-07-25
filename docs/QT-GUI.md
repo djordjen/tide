@@ -1,11 +1,12 @@
 # Qt GUI Prototype
 
-Status: **initial read-only vertical slice**.
+Status: **read-only vertical slice with incremental server-mode browsing**.
 
 TIDE now includes a small PySide6 desktop adapter that proves the normalized
 application model and secured remote-client boundary can drive a native GUI.
-It supports browsing and read-only record detail; editing, actions, lookup
-selection, reports, and desktop sign-in remain later work.
+It supports an incrementally loaded browse list and read-only record detail;
+editing, actions, lookup selection, reports, and desktop sign-in remain later
+work.
 
 ## Security and architecture
 
@@ -14,7 +15,7 @@ TIDE server, and validates the returned session/application contract. It does
 not receive a database URL or import a SQL Server driver:
 
 ```text
-PySide6 widgets
+PySide6 QTableView + incremental TIDE table model
       |
 QtBrowseController
       |
@@ -44,7 +45,9 @@ start.bat gui
 Paste the token into the hidden prompt. `uv` installs the optional GUI packages
 when needed and opens the default `sales.Invoice.browse` view. The desktop
 process uses `http://127.0.0.1:8000`; plain HTTP is allowed only for loopback
-development.
+development. The first batch uses the view's configured size (25 records in the
+Invoicing presentation defaults). Scroll to the end of the loaded records and
+the next secured cursor batch is fetched in the background and appended.
 
 Select an Invoice and press **View**, double-click it, or press **Enter**. The
 detail window follows the compiled `sales.Invoice.edit` structure but remains
@@ -58,11 +61,13 @@ The equivalent explicit setup is:
 uv sync --extra api --extra gui
 $env:TIDE_API_TOKEN = "paste-the-development-token"
 uv run --extra gui tide gui applications/invoicing `
-  --api-url http://127.0.0.1:8000 --page-size 5
+  --api-url http://127.0.0.1:8000
 ```
 
 Use `--view catalog.Product.browse` to open another accessible browse, or
-`--help` to see the complete launcher contract.
+`--page-size 50` to override the incremental fetch batch size. This controls
+network batching rather than visible page navigation. Use `--help` to see the
+complete launcher contract.
 
 ## What this slice demonstrates
 
@@ -70,10 +75,13 @@ Use `--view catalog.Product.browse` to open another accessible browse, or
   right-aligned numeric values can drive Qt widgets;
 - reference identities are resolved through secured API reads and cached only
   for the current client session;
-- opaque server cursors support Previous/Next paging;
+- a `QTableView`/`QAbstractTableModel` boundary accumulates opaque server cursor
+  batches as the user scrolls, without Previous/Next page navigation;
+- blocking HTTP batches run on a dedicated Qt worker pool, keep the interface
+  responsive, reject repeated cursors, and surface a refreshable loading error;
 - browse columns start at practical content-based widths and every divider is
   draggable; double-click a divider to auto-fit it, and manual widths survive
-  paging and refreshes for the lifetime of the window;
+  incremental loading and refreshes for the lifetime of the window;
 - selected records open through their real primary-key identity into compiled
   form groups and inline collection columns, with no client-side database path;
 - inaccessible views fail closed instead of falling back to local data;
@@ -83,7 +91,10 @@ Use `--view catalog.Product.browse` to open another accessible browse, or
 ## Deliberately deferred
 
 - create/edit forms, lookup selection, domain actions, and reports;
-- background request scheduling and cancellation for larger remote workloads;
+- server-side browse sorting, search/filter controls, and stale-request
+  cancellation when those query inputs change;
+- persisted personal column order/width preferences and privileged publishing
+  of validated application defaults;
 - OIDC desktop login, access-token refresh, and secure token storage;
 - native application packaging, signing, and installers;
 - a stable renderer-comparison contract across Textual, Qt, and web.

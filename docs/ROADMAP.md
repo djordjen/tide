@@ -168,8 +168,8 @@ an invoice entirely by keyboard or mouse.
   local HTML/PDF export; **implemented**
 - first read-only PySide6 browse and compiled record-detail dialog over the
   typed remote client/session contract, with no local database dependency;
-  **implemented as an intentionally small GUI prototype; editing/actions
-  remain later work**
+  **implemented with a model-backed incremental list, background opaque-cursor
+  fetching, and seamless scroll loading; editing/actions remain later work**
 - runtime MCP schema/record/audit resources, structured query tools, CRUD
   mutations, and opt-in domain actions; **implemented with authenticated
   stateless Streamable HTTP, explicit metadata exposure, RFC 9728 metadata,
