@@ -47,6 +47,12 @@ lookup:
   close_after_selection: true
 ```
 
+For browse views, `page_size` is the bounded server fetch batch, not a
+requirement to expose page-navigation controls. Textual and Qt fill the visible
+list, retain already loaded rows, and request the next opaque cursor batch near
+the scroll boundary. Sorting, filtering, searching, switching views, or
+refreshing starts a new secured cursor sequence.
+
 Textual consumes the resolved browse action list rather than inventing a
 separate toolbar contract. `delete` is shown only when it is present in that
 list and the current principal has the entity's explicit delete permission.

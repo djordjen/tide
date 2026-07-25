@@ -26,12 +26,12 @@ if /I "%~1"=="help" goto help
 if not "%~1"=="" goto unknown
 
 :start
-uv run --extra tui --extra sqlserver tide run applications/invoicing --database-env --role sales_clerk --page-size 5
+uv run --extra tui --extra sqlserver tide run applications/invoicing --database-env --role sales_clerk
 goto finish
 
 :initialize
 echo Initializing the managed TIDE database and starting the application...
-uv run --extra tui --extra sqlserver tide run applications/invoicing --database-env --create-schema --role sales_clerk --page-size 5
+uv run --extra tui --extra sqlserver tide run applications/invoicing --database-env --create-schema --role sales_clerk
 goto finish
 
 :check
@@ -45,17 +45,17 @@ uv run --extra sqlserver tide db diff applications/invoicing --database-env
 goto finish
 
 :demo
-uv run --extra tui tide run applications/invoicing --demo --page-size 5
+uv run --extra tui tide run applications/invoicing --demo
 goto finish
 
 :auditor
 echo Starting the read-only auditor workspace against SQL Server...
-uv run --extra tui --extra sqlserver tide run applications/invoicing --database-env --role auditor --page-size 5
+uv run --extra tui --extra sqlserver tide run applications/invoicing --database-env --role auditor
 goto finish
 
 :auditor_demo
 echo Starting the read-only auditor workspace with isolated demo data...
-uv run --extra tui tide run applications/invoicing --demo --role auditor --page-size 5
+uv run --extra tui tide run applications/invoicing --demo --role auditor
 goto finish
 
 :studio
@@ -103,7 +103,7 @@ goto finish
 :remote
 call :read_api_token
 if errorlevel 1 goto finish
-uv run --extra tui --extra client tide run applications/invoicing --api-url http://127.0.0.1:8000 --page-size 5
+uv run --extra tui --extra client tide run applications/invoicing --api-url http://127.0.0.1:8000
 goto finish
 
 :gui

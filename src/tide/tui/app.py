@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 import re
+from threading import Lock
 from typing import Any, Mapping
 
-from textual import events
+from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
+from textual.message import Message
 from textual.widgets import Button, DataTable, Footer, Header, Input, Select, Static
 
 from tide.compiler.normalized import (
@@ -36,6 +39,27 @@ from tide.tui.audit import AuditHistoryScreen
 from tide.tui.confirm import DeleteConfirmationScreen
 from tide.tui.form import ReopenRecordEdit, RecordEditScreen, select_form_view
 from tide.tui.report import ReportPreviewScreen
+
+
+_CACHE_MISS = object()
+
+
+class BrowseDataTable(DataTable[Any]):
+    """Data table that announces when scrolling approaches loaded content."""
+
+    class NearEnd(Message):
+        def __init__(self, table: BrowseDataTable) -> None:
+            super().__init__()
+            self.table = table
+
+        @property
+        def control(self) -> BrowseDataTable:
+            return self.table
+
+    def watch_scroll_y(self, old_value: float, new_value: float) -> None:
+        super().watch_scroll_y(old_value, new_value)
+        if self.is_mounted and self.max_scroll_y - new_value <= 2:
+            self.post_message(self.NearEnd(self))
 
 
 class TideApp(App[None]):
@@ -144,8 +168,6 @@ class TideApp(App[None]):
         Binding("c", "create_record", "Create"),
         Binding("e", "edit_record", "Edit"),
         Binding("delete", "delete_record", "Delete"),
-        Binding("p", "previous_page", "Previous"),
-        Binding("n", "next_page", "Next"),
         Binding("r", "reload", "Refresh"),
         Binding("v", "preview_report", "Preview"),
         Binding("s", "summary_report", "Summary"),
@@ -204,20 +226,19 @@ class TideApp(App[None]):
         self.source_label = source_label
         self.title = model.name
         self.sub_title = self.entity.label
-        self._page_cursors: list[str | None] = [None]
-        self._page_index = 0
         self._next_cursor: str | None = None
         self._current_records: tuple[dict[str, Any], ...] = ()
         self._reference_cache: dict[tuple[str, Any], str] = {}
+        self._reference_cache_lock = Lock()
+        self._query_generation = 0
+        self._query_started = False
+        self._query_loading = False
+        self._query_error: str | None = None
         self._search_text = ""
         self._filter_name: str | None = None
         self._sort_field: str | None = None
         self._sort_descending = False
         self._syncing_query_controls = False
-
-    @property
-    def page_number(self) -> int:
-        return self._page_index + 1
 
     @property
     def current_records(self) -> tuple[dict[str, Any], ...]:
@@ -291,11 +312,9 @@ class TideApp(App[None]):
             history_button = Button("History", id="audit-history", disabled=True)
             history_button.display = self._audit_allowed
             yield history_button
-            yield Button("Previous", id="previous-page", disabled=True)
-            yield Button("Next", id="next-page", disabled=True, variant="primary")
             yield Button("Refresh", id="refresh-page")
             yield Button("Quit", id="quit-app")
-        yield DataTable(id="records")
+        yield BrowseDataTable(id="records")
         yield Static("Loading…", id="browse-status")
         yield Footer()
 
@@ -308,20 +327,17 @@ class TideApp(App[None]):
             self.view.data.get("settings", {}).get("zebra_stripes", True)
         )
         table.focus()
-        self._load_page()
+        self._restart_query()
 
     def on_resize(self, event: events.Resize) -> None:
         self._sync_terminal_layout(event.size.width)
+        self.call_after_refresh(self._prefetch_if_near_end)
 
     def _sync_terminal_layout(self, width: int) -> None:
         self.screen.set_class(width < 100, "compact-terminal")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "previous-page":
-            self.action_previous_page()
-        elif event.button.id == "next-page":
-            self.action_next_page()
-        elif event.button.id == "refresh-page":
+        if event.button.id == "refresh-page":
             self.action_reload()
         elif event.button.id == "edit-record":
             self.action_edit_record()
@@ -384,6 +400,23 @@ class TideApp(App[None]):
         if record is None:
             return
         self.open_record(record[_primary_key(self.entity)])
+
+    def on_data_table_row_highlighted(
+        self,
+        event: DataTable.RowHighlighted,
+    ) -> None:
+        if event.data_table.id != "records":
+            return
+        if event.cursor_row >= len(self._current_records) - 3:
+            self._request_next_batch()
+
+    def on_browse_data_table_near_end(
+        self,
+        event: BrowseDataTable.NearEnd,
+    ) -> None:
+        if event.control.id == "records":
+            event.stop()
+            self._request_next_batch()
 
     def action_edit_record(self) -> None:
         table = self.query_one("#records", DataTable)
@@ -559,20 +592,6 @@ class TideApp(App[None]):
         if result:
             self.action_reload()
 
-    def action_previous_page(self) -> None:
-        if self._page_index == 0:
-            return
-        self._page_index -= 1
-        self._load_page()
-
-    def action_next_page(self) -> None:
-        if self._next_cursor is None:
-            return
-        self._page_cursors = self._page_cursors[: self._page_index + 1]
-        self._page_cursors.append(self._next_cursor)
-        self._page_index += 1
-        self._load_page()
-
     def action_reload(self) -> None:
         self._restart_query()
 
@@ -603,10 +622,17 @@ class TideApp(App[None]):
         self._restart_query()
 
     def _restart_query(self) -> None:
-        self._page_cursors = [None]
-        self._page_index = 0
-        self._reference_cache.clear()
-        self._load_page()
+        self._query_generation += 1
+        self._next_cursor = None
+        self._current_records = ()
+        with self._reference_cache_lock:
+            self._reference_cache.clear()
+        self._query_started = False
+        self._query_loading = False
+        self._query_error = None
+        self.query_one("#records", DataTable).clear()
+        self._update_record_controls()
+        self._request_next_batch()
 
     def _configure_browse_view(self, view: ResolvedView) -> None:
         self.view = view
@@ -654,7 +680,7 @@ class TideApp(App[None]):
             else configured_page_size
         )
         if self.page_size < 1 or self.page_size > 500:
-            raise ValueError("TUI page size must be between 1 and 500")
+            raise ValueError("TUI browse batch size must be between 1 and 500")
 
     def _activate_browse_view(self, view_name: str | None) -> None:
         view = next(
@@ -666,11 +692,6 @@ class TideApp(App[None]):
             return
         self._configure_browse_view(view)
         self.sub_title = self.entity.label
-        self._page_cursors = [None]
-        self._page_index = 0
-        self._next_cursor = None
-        self._current_records = ()
-        self._reference_cache.clear()
         self._search_text = ""
         self._filter_name = None
         self._sort_field = None
@@ -722,7 +743,7 @@ class TideApp(App[None]):
         finally:
             self._syncing_query_controls = False
         self._update_sort_controls()
-        self._load_page()
+        self._restart_query()
 
     def _add_table_columns(self, table: DataTable[Any]) -> None:
         for field_name in self.columns:
@@ -742,82 +763,169 @@ class TideApp(App[None]):
     def _context_text(self, roles: str) -> str:
         return f"{self.view.name}  ·  {self.context.principal.identifier}  ·  {roles}"
 
-    def _load_page(self) -> None:
-        table = self.query_one("#records", DataTable)
-        status = self.query_one("#browse-status", Static)
+    def _request_next_batch(self) -> None:
+        if (
+            self._query_loading
+            or self._query_error is not None
+            or (self._query_started and self._next_cursor is None)
+        ):
+            return
+        generation = self._query_generation
+        cursor = self._next_cursor
+        query = QuerySpec(
+            filters=self._query_filters(),
+            sort=(
+                (
+                    SortField(
+                        self._sort_field,
+                        descending=self._sort_descending,
+                    ),
+                )
+                if self._sort_field is not None
+                else ()
+            ),
+            limit=self.page_size,
+            cursor=cursor,
+        )
+        self._query_loading = True
+        self._update_browse_status()
+        self._load_batch(
+            generation,
+            cursor,
+            self.entity,
+            self.columns,
+            query,
+        )
+
+    @work(
+        group="browse-query",
+        exclusive=True,
+        exit_on_error=False,
+    )
+    async def _load_batch(
+        self,
+        generation: int,
+        cursor: str | None,
+        entity: NormalizedEntity,
+        columns: tuple[str, ...],
+        query: QuerySpec,
+    ) -> None:
         try:
-            page = self.records.query_page(
-                self.entity.name,
-                QuerySpec(
-                    filters=self._query_filters(),
-                    sort=(
-                        (
-                            SortField(
-                                self._sort_field,
-                                descending=self._sort_descending,
-                            ),
-                        )
-                        if self._sort_field is not None
-                        else ()
-                    ),
-                    limit=self.page_size,
-                    cursor=self._page_cursors[self._page_index],
+            page, rendered_rows = await asyncio.to_thread(
+                self._query_and_format_batch,
+                entity,
+                columns,
+                query,
+            )
+        except Exception as error:
+            if generation == self._query_generation:
+                self._apply_load_error(error)
+            return
+        if generation != self._query_generation:
+            return
+        if page.next_cursor is not None and page.next_cursor == cursor:
+            self._apply_load_error(
+                ValueError("server repeated the current continuation cursor")
+            )
+            return
+        if not page.records and page.next_cursor is not None:
+            self._apply_load_error(
+                ValueError("server returned an empty continuation batch")
+            )
+            return
+        try:
+            table = self.query_one("#records", DataTable)
+            for row_key, cells in rendered_rows:
+                table.add_row(*cells, key=row_key)
+        except Exception as error:
+            self._apply_load_error(error)
+            return
+        self._current_records += page.records
+        self._query_started = True
+        self._next_cursor = page.next_cursor
+        self._query_loading = False
+        self._query_error = None
+        self._update_record_controls()
+        self._update_browse_status()
+        table.refresh(layout=True)
+        self.call_after_refresh(self._prefetch_if_near_end)
+
+    def _query_and_format_batch(
+        self,
+        entity: NormalizedEntity,
+        columns: tuple[str, ...],
+        query: QuerySpec,
+    ) -> tuple[Any, tuple[tuple[str, tuple[Any, ...]], ...]]:
+        page = self.records.query_page(
+            entity.name,
+            query,
+            self.context,
+        )
+        primary_key = _primary_key(entity)
+        rendered_rows = tuple(
+            (
+                str(record[primary_key]),
+                tuple(
+                    table_cell(
+                        entity.field(field_name),
+                        self._format_value(entity.field(field_name), record),
+                    )
+                    for field_name in columns
                 ),
-                self.context,
             )
-            self._current_records = page.records
-            self._next_cursor = page.next_cursor
-            table.clear()
-            primary_key = _primary_key(self.entity)
-            for record in page.records:
-                table.add_row(
-                    *(
-                        table_cell(
-                            self.entity.field(field_name),
-                            self._format_value(
-                                self.entity.field(field_name), record
-                            ),
-                        )
-                        for field_name in self.columns
-                    ),
-                    key=str(record[primary_key]),
-                )
-            count = len(page.records)
-            noun = "record" if count == 1 else "records"
-            status.update(
-                f"Page {self.page_number}  ·  {count} {noun}  ·  "
-                f"{self.source_label}{self._query_summary()}  ·  "
-                "C create  E edit  V preview  P/N page  R refresh"
-                + (
-                    "  S summary"
-                    if self._active_report("summary") is not None
-                    else ""
-                )
-                + ("  Del delete" if self._delete_allowed else "")
-                + ("  H history" if self._audit_allowed else "")
+            for record in page.records
+        )
+        return page, rendered_rows
+
+    def _apply_load_error(self, error: Exception) -> None:
+        self._query_loading = False
+        self._query_error = str(error)
+        self._update_record_controls()
+        self._update_browse_status()
+
+    def _update_record_controls(self) -> None:
+        has_records = bool(self._current_records)
+        self.query_one("#edit-record", Button).disabled = not (
+            has_records and self._edit_allowed
+        )
+        self.query_one("#delete-record", Button).disabled = not (
+            has_records and self._delete_allowed
+        )
+        self.query_one("#audit-history", Button).disabled = not (
+            has_records and self._audit_allowed
+        )
+        self._update_report_control(has_records)
+
+    def _update_browse_status(self) -> None:
+        count = len(self._current_records)
+        noun = "record" if count == 1 else "records"
+        if self._query_loading:
+            state = "Loading more records…" if count else "Loading records…"
+        elif self._query_error is not None:
+            state = f"Loading failed: {self._query_error}  ·  R reload"
+        elif self._next_cursor is not None:
+            state = "Scroll for more"
+        else:
+            state = "All available records loaded"
+        self.query_one("#browse-status", Static).update(
+            f"{count} {noun} loaded  ·  {state}  ·  "
+            f"{self.source_label}{self._query_summary()}  ·  "
+            "C create  E edit  V preview  R refresh"
+            + (
+                "  S summary"
+                if self._active_report("summary") is not None
+                else ""
             )
-            self._update_navigation()
-            self.query_one("#edit-record", Button).disabled = not (
-                page.records and self._edit_allowed
-            )
-            self.query_one("#delete-record", Button).disabled = not (
-                page.records and self._delete_allowed
-            )
-            self.query_one("#audit-history", Button).disabled = not (
-                page.records and self._audit_allowed
-            )
-            self._update_report_control(bool(page.records))
-            table.refresh(layout=True)
-        except (TideRuntimeError, ValueError) as error:
-            self._current_records = ()
-            self._next_cursor = None
-            table.clear()
-            status.update(f"Unable to load {self.entity.label}: {error}")
-            self._update_navigation(force_disabled=True)
-            self.query_one("#edit-record", Button).disabled = True
-            self.query_one("#delete-record", Button).disabled = True
-            self.query_one("#audit-history", Button).disabled = True
-            self._update_report_control(False)
+            + ("  Del delete" if self._delete_allowed else "")
+            + ("  H history" if self._audit_allowed else "")
+        )
+
+    def _prefetch_if_near_end(self) -> None:
+        if not self.is_mounted:
+            return
+        table = self.query_one("#records", DataTable)
+        if table.max_scroll_y - table.scroll_y <= 2:
+            self._request_next_batch()
 
     def _active_report(self, kind: str) -> str | None:
         return next(
@@ -930,15 +1038,17 @@ class TideApp(App[None]):
 
     def _reference_display(self, target_entity: str, identity: Any) -> str:
         cache_key = target_entity, identity
-        if cache_key in self._reference_cache:
-            return self._reference_cache[cache_key]
+        with self._reference_cache_lock:
+            cached = self._reference_cache.get(cache_key, _CACHE_MISS)
+        if cached is not _CACHE_MISS:
+            return cached
         try:
             related = self.records.get(target_entity, identity, self.context)
             result = _display_record(self.model.entity(target_entity), related)
         except TideRuntimeError:
             result = "Protected"
-        self._reference_cache[cache_key] = result
-        return result
+        with self._reference_cache_lock:
+            return self._reference_cache.setdefault(cache_key, result)
 
     def _record_for_row_key(self, key: str) -> dict[str, Any] | None:
         primary_key = _primary_key(self.entity)
@@ -958,15 +1068,6 @@ class TideApp(App[None]):
         if table.cursor_row >= len(self._current_records):
             return None
         return self._current_records[table.cursor_row]
-
-    def _update_navigation(self, *, force_disabled: bool = False) -> None:
-        self.query_one("#previous-page", Button).disabled = (
-            force_disabled or self._page_index == 0
-        )
-        self.query_one("#next-page", Button).disabled = (
-            force_disabled or self._next_cursor is None
-        )
-
 
 def _select_browse_view(
     model: ApplicationModel,

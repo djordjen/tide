@@ -177,7 +177,11 @@ def _create_parser() -> argparse.ArgumentParser:
         help="principal role; repeat for multiple roles (demo default: most capable role)",
     )
     run.add_argument("--principal", default="local:user", help="principal identifier")
-    run.add_argument("--page-size", type=int, help="override the view page size")
+    run.add_argument(
+        "--page-size",
+        type=int,
+        help="override the incremental browse fetch batch size",
+    )
     run.add_argument(
         "--api-base-path",
         default=DEFAULT_BASE_PATH,

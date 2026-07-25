@@ -401,11 +401,11 @@ running and execute:
 ```
 
 Paste the same token when prompted. The remote TUI receives no SQL Server URL
-or database driver access: browse, search, sorting, paging, lookups,
-create/update, nested invoice lines, and posting go through FastAPI and the
-server-side services. Invoice and posted-sales summary data is likewise
-authorized and formatted on the server; Preview/Summary and local CSV/HTML/PDF
-export work through the transported renderer-neutral document.
+or database driver access: browse, search, sorting, seamless incremental
+scrolling, lookups, create/update, nested invoice lines, and posting go through
+FastAPI and the server-side services. Invoice and posted-sales summary data is
+likewise authorized and formatted on the server; Preview/Summary and local
+CSV/HTML/PDF export work through the transported renderer-neutral document.
 
 The `api` and `api-demo` shortcuts deliberately use development identity and
 are restricted to the local computer. Do not change their binding to a network

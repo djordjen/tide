@@ -58,11 +58,13 @@ On Windows, launch the isolated demo with:
 The equivalent cross-platform command is:
 
 ```bash
-uv run --extra tui tide run applications/invoicing --demo --page-size 5
+uv run --extra tui tide run applications/invoicing --demo
 ```
 
 The `--demo` switch loads application-owned sample records into memory. Closing
-the process discards every change.
+the process discards every change. The browse initially fills the terminal
+viewport and automatically appends another secured cursor batch when scrolling
+near the end; **Previous** and **Next** are not required.
 
 For a screenshot-led tour that connects each screen to its application-owned
 metadata, follow the [Invoicing Application Walkthrough](INVOICING-WALKTHROUGH.md).

@@ -35,7 +35,7 @@ Validate it from the repository root:
 ```bash
 uv run tide model validate applications/invoicing
 uv run tide model explain sales.Invoice.status --project applications/invoicing
-uv run tide run applications/invoicing --demo --page-size 3
+uv run tide run applications/invoicing --demo
 uv run tide serve applications/invoicing --demo
 ```
 
@@ -67,13 +67,16 @@ configured SQL Server database; successful mutations then persist normally.
 
 With that server still running, `start.bat remote` prompts for the printed token
 and opens the same Textual workflow as an HTTP client. It supports browse,
-search, filters, sorting, paging, lookups, nested create/edit, and posting while
-receiving no database URL. Invoice report documents are built and authorized
-on the server, then previewed and exported to CSV/HTML/PDF by the remote TUI.
+search, filters, sorting, seamless cursor-backed scrolling, lookups, nested
+create/edit, and posting while receiving no database URL. Invoice report
+documents are built and authorized on the server, then previewed and exported
+to CSV/HTML/PDF by the remote TUI.
 
 The `--demo` flag explicitly executes this application's `demo_data.py` and
-loads an in-memory repository; it never changes a database. Omit `--page-size`
-to use the browse metadata default of 25. Select a row with Enter or the mouse,
+loads an in-memory repository; it never changes a database. Browse lists use the
+metadata default batch size of 25, fill the viewport, and append another secured
+cursor batch near the end. `--page-size` overrides that transport batch size; it
+does not restore page-navigation buttons. Select a row with Enter or the mouse,
 or use **New**. Forms support invoice headers and line items; Ctrl+S saves,
 Ctrl+P posts an eligible draft, Ctrl+N adds a line, and Escape cancels.
 New invoices default to today's date. Date entry accepts `DD.MM.YYYY`,

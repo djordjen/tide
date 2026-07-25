@@ -20,7 +20,7 @@ From the repository root on Windows:
 The equivalent cross-platform command is:
 
 ```bash
-uv run --extra tui tide run applications/invoicing --demo --page-size 5
+uv run --extra tui tide run applications/invoicing --demo
 ```
 
 The default demo principal receives the most capable application role. Use the
@@ -37,7 +37,8 @@ The Invoice browser demonstrates shared query behavior:
 - named **Draft invoices** and **High-value invoices** filters;
 - declared sorting and eligible sortable columns;
 - right-aligned numeric totals;
-- paging, refresh, clear, edit, report preview, and role-dependent history.
+- seamless cursor-backed scrolling, refresh, clear, edit, report preview, and
+  role-dependent history.
 
 The behavior comes from several application documents rather than TUI code:
 

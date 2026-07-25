@@ -90,7 +90,7 @@ uv run --extra mcp tide mcp dev applications/invoicing
 uv run tide app preview plan.json --workspace .
 uv run tide app apply plan.json --workspace .
 uv run --extra studio tide studio applications/invoicing
-uv run tide run applications/invoicing --demo --page-size 3
+uv run tide run applications/invoicing --demo
 uv run tide serve applications/invoicing --demo
 uv run --extra mcp tide serve applications/invoicing --demo --mcp
 uv run --extra client tide api check-server applications/invoicing
@@ -342,8 +342,9 @@ runtime restarts and processes while storing only hashes of bearer tokens. An
 adapter-independent, read-only OpenAPI 3.1 preview now generates typed
 Pydantic record/page schemas and explicitly exposed list/get contracts. The
 first metadata-driven Textual invoicing workflow is runnable with
-application-owned demo data, secured reference display, opaque paging,
-create/edit forms, master-detail line editing, validation and concurrency
+application-owned demo data, secured reference display, seamless incremental
+cursor loading, create/edit forms, master-detail line editing, validation and
+concurrency
 feedback, audited posting, invoice-number incremental search, named filters,
 sortable stored scalar columns, and permission-gated action/record history
 through keyboard or mouse controls. Secured
