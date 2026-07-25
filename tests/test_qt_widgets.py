@@ -15,6 +15,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication, QHeaderView, QTableView
 
 from tide import compile_project
@@ -109,29 +110,22 @@ class _WidgetClient:
         )
 
 
-def test_qt_widget_adapter_incrementally_loads_the_server_list() -> None:
+def test_qt_widget_adapter_incrementally_loads_the_server_list(
+    tmp_path: Path,
+) -> None:
     gui_thread = threading.get_ident()
     application = QApplication.instance() or QApplication([])
     model = compile_project(INVOICING)
-    session = TideSessionInfo(
-        application=model.name,
-        application_version=model.version,
-        schema_version=model.schema_version,
-        authentication="development",
-        principal="qt:tester",
-        roles=("sales_clerk",),
-        entities={
-            name: TideEntityCapabilities(
-                operations=("list", "get"),
-                readable_fields=tuple(entity.fields),
-            )
-            for name, entity in model.entities.items()
-        },
-    )
+    session = _session(model)
     client = _WidgetClient()
     controller = QtBrowseController(model, client, session, page_size=5)
+    layout_settings = _layout_settings(tmp_path / "browse-layout.ini")
 
-    window = TideQtWindow(controller, source_label="off-screen test")
+    window = TideQtWindow(
+        controller,
+        source_label="off-screen test",
+        layout_settings=layout_settings,
+    )
     window.show()
     _wait_until(application, lambda: window.table_model.rowCount() >= 1)
     window.table.scrollToBottom()
@@ -156,6 +150,7 @@ def test_qt_widget_adapter_incrementally_loads_the_server_list() -> None:
     assert "All available records loaded" in window.status.text()
     header = window.table.horizontalHeader()
     assert header.stretchLastSection() is False
+    assert header.sectionsMovable() is True
     assert all(
         header.sectionResizeMode(index) == QHeaderView.ResizeMode.Interactive
         for index in range(window.table_model.columnCount())
@@ -251,6 +246,115 @@ def test_qt_widget_adapter_incrementally_loads_the_server_list() -> None:
 
     window.close()
     assert window.table_model.wait_for_done(1000)
+
+
+def test_qt_column_layout_is_personal_and_resettable(tmp_path: Path) -> None:
+    application = QApplication.instance() or QApplication([])
+    model = compile_project(INVOICING)
+    session = _session(model)
+    settings_path = tmp_path / "personal-layout.ini"
+    settings = _layout_settings(settings_path)
+    first = TideQtWindow(
+        QtBrowseController(
+            model,
+            _WidgetClient(),
+            session,
+            page_size=5,
+        ),
+        source_label="layout test",
+        layout_settings=settings,
+    )
+    first.show()
+    _wait_until(application, lambda: first.table_model.rowCount() >= 1)
+
+    first_header = first.table.horizontalHeader()
+    first_header.moveSection(first_header.visualIndex(4), 0)
+    first.table.setColumnWidth(0, 231)
+    application.processEvents()
+    first.close()
+    assert first.table_model.wait_for_done(1000)
+
+    other_principal = TideQtWindow(
+        QtBrowseController(
+            model,
+            _WidgetClient(),
+            _session(model, principal="qt:other"),
+            page_size=5,
+        ),
+        source_label="layout test",
+        layout_settings=_layout_settings(settings_path),
+    )
+    other_principal.show()
+    _wait_until(
+        application,
+        lambda: other_principal.table_model.rowCount() >= 1,
+    )
+    assert other_principal.table.horizontalHeader().logicalIndex(0) == 0
+    other_principal.close()
+    assert other_principal.table_model.wait_for_done(1000)
+
+    restored_settings = _layout_settings(settings_path)
+    second = TideQtWindow(
+        QtBrowseController(
+            model,
+            _WidgetClient(),
+            session,
+            page_size=5,
+        ),
+        source_label="layout test",
+        layout_settings=restored_settings,
+    )
+    second.show()
+    _wait_until(application, lambda: second.table_model.rowCount() >= 1)
+
+    second_header = second.table.horizontalHeader()
+    assert second_header.logicalIndex(0) == 4
+    assert second.table.columnWidth(0) == 231
+
+    second.table.setColumnWidth(4, 900)
+    second.best_fit.click()
+    application.processEvents()
+    assert 72 <= second.table.columnWidth(4) <= 360
+    assert restored_settings.contains(second._column_layout_key)
+
+    second.reset_layout.click()
+    application.processEvents()
+    assert tuple(
+        second_header.logicalIndex(visual_index)
+        for visual_index in range(second_header.count())
+    ) == (0, 1, 2, 3, 4)
+    assert not restored_settings.contains(second._column_layout_key)
+
+    second.close()
+    assert second.table_model.wait_for_done(1000)
+
+
+def _session(
+    model: Any,
+    *,
+    principal: str = "qt:tester",
+) -> TideSessionInfo:
+    return TideSessionInfo(
+        application=model.name,
+        application_version=model.version,
+        schema_version=model.schema_version,
+        authentication="development",
+        principal=principal,
+        roles=("sales_clerk",),
+        entities={
+            name: TideEntityCapabilities(
+                operations=("list", "get"),
+                readable_fields=tuple(entity.fields),
+            )
+            for name, entity in model.entities.items()
+        },
+    )
+
+
+def _layout_settings(path: Path) -> QSettings:
+    settings = QSettings(str(path), QSettings.Format.IniFormat)
+    settings.setFallbacksEnabled(False)
+    return settings
 
 
 def _wait_until(

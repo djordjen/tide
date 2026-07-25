@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
+from urllib.parse import quote
 
 from PySide6.QtCore import (
     QAbstractTableModel,
     QModelIndex,
     QObject,
     QRunnable,
+    QSettings,
     QSignalBlocker,
     QThreadPool,
     QTimer,
@@ -16,7 +19,7 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
-from PySide6.QtGui import QShowEvent
+from PySide6.QtGui import QCloseEvent, QShowEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -397,10 +400,18 @@ class TideQtWindow(QMainWindow):
         controller: QtBrowseController,
         *,
         source_label: str,
+        layout_settings: QSettings | None = None,
     ) -> None:
         super().__init__()
         self.controller = controller
         self.source_label = source_label
+        self._layout_settings = (
+            layout_settings
+            if layout_settings is not None
+            else QSettings("TIDE Framework", "TIDE Qt")
+        )
+        self._column_layout_key = _column_layout_key(controller)
+        self._restoring_column_layout = False
         self._column_widths_initialized = False
         self._detail_dialogs: set[TideQtDetailDialog] = set()
         self.setWindowTitle(f"{controller.model.name} — {controller.title}")
@@ -454,16 +465,27 @@ class TideQtWindow(QMainWindow):
         _configure_interactive_header(self.table)
         header = self.table.horizontalHeader()
         header.setSectionsClickable(True)
+        header.setSectionsMovable(True)
         header.setSortIndicatorShown(False)
         layout.addWidget(self.table, 1)
 
         actions = QHBoxLayout()
         self.status = QLabel()
         self.view = QPushButton("View")
+        self.best_fit = QPushButton("Best Fit")
+        self.best_fit.setObjectName("best-fit-columns")
+        self.best_fit.setToolTip("Best fit all columns to their current contents")
+        self.reset_layout = QPushButton("Reset Layout")
+        self.reset_layout.setObjectName("reset-column-layout")
+        self.reset_layout.setToolTip(
+            "Restore metadata column order and default fitted widths"
+        )
         self.refresh = QPushButton("Refresh")
         close = QPushButton("Close")
         actions.addWidget(self.status, 1)
         actions.addWidget(self.view)
+        actions.addWidget(self.best_fit)
+        actions.addWidget(self.reset_layout)
         actions.addWidget(self.refresh)
         actions.addWidget(close)
         layout.addLayout(actions)
@@ -474,11 +496,19 @@ class TideQtWindow(QMainWindow):
         self._search_timer.setSingleShot(True)
         self._search_timer.setInterval(300)
         self._search_timer.timeout.connect(self._apply_query_controls)
+        self._layout_save_timer = QTimer(self)
+        self._layout_save_timer.setSingleShot(True)
+        self._layout_save_timer.setInterval(250)
+        self._layout_save_timer.timeout.connect(self._save_column_layout)
         self.search.textChanged.connect(self._queue_search)
         self.named_filter.currentIndexChanged.connect(self._apply_query_controls)
         self.clear_query.clicked.connect(self._clear_query)
         header.sectionClicked.connect(self._sort_by_section)
+        header.sectionMoved.connect(self._queue_column_layout_save)
+        header.sectionResized.connect(self._queue_column_layout_save)
         self.view.clicked.connect(self._open_selected_detail)
+        self.best_fit.clicked.connect(self._best_fit_all_columns)
+        self.reset_layout.clicked.connect(self._reset_column_layout)
         self.table.selectionModel().selectionChanged.connect(
             self._update_detail_action
         )
@@ -490,6 +520,7 @@ class TideQtWindow(QMainWindow):
             self._prefetch_if_near_end
         )
         close.clicked.connect(self.close)
+        self._column_widths_initialized = self._restore_column_layout()
         self._update_detail_action()
         self.table_model.reload()
 
@@ -498,12 +529,130 @@ class TideQtWindow(QMainWindow):
         if not self._column_widths_initialized:
             self._initialize_column_widths()
 
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self._layout_save_timer.isActive():
+            self._layout_save_timer.stop()
+            self._save_column_layout()
+        self._layout_settings.sync()
+        super().closeEvent(event)
+
     def _initialize_column_widths(self) -> None:
         """Fit once, then leave every section under direct user control."""
 
         if self.table_model.rowCount() == 0:
             return
-        _fit_interactive_columns(self.table, self.controller.columns)
+        self._restoring_column_layout = True
+        try:
+            _fit_interactive_columns(self.table, self.controller.columns)
+        finally:
+            self._restoring_column_layout = False
+        self._column_widths_initialized = True
+
+    def _restore_column_layout(self) -> bool:
+        raw = self._layout_settings.value(self._column_layout_key)
+        if not isinstance(raw, str) or len(raw) > 65_536:
+            return False
+        try:
+            payload = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return False
+        if not isinstance(payload, dict) or payload.get("version") != 1:
+            return False
+
+        current_names = tuple(column.name for column in self.controller.columns)
+        configured_order = payload.get("order")
+        configured_widths = payload.get("widths")
+        if not isinstance(configured_order, list) or not isinstance(
+            configured_widths,
+            dict,
+        ):
+            return False
+        has_known_order = any(
+            isinstance(name, str) and name in current_names
+            for name in configured_order
+        )
+        known_order = _known_column_order(configured_order, current_names)
+        widths = _known_column_widths(configured_widths, current_names)
+        if not has_known_order and not widths:
+            return False
+
+        self._restoring_column_layout = True
+        try:
+            _apply_column_order(
+                self.table.horizontalHeader(),
+                known_order,
+                current_names,
+            )
+            minimum = self.table.horizontalHeader().minimumSectionSize()
+            for logical_index, field_name in enumerate(current_names):
+                width = widths.get(field_name)
+                if width is not None:
+                    self.table.setColumnWidth(
+                        logical_index,
+                        min(max(width, minimum), 2_000),
+                    )
+        finally:
+            self._restoring_column_layout = False
+        return True
+
+    def _queue_column_layout_save(self, *_args: Any) -> None:
+        if not self._restoring_column_layout:
+            self._layout_save_timer.start()
+
+    def _save_column_layout(self) -> None:
+        if self._restoring_column_layout:
+            return
+        header = self.table.horizontalHeader()
+        column_names = tuple(column.name for column in self.controller.columns)
+        order = tuple(
+            column_names[header.logicalIndex(visual_index)]
+            for visual_index in range(header.count())
+        )
+        widths = {
+            name: self.table.columnWidth(logical_index)
+            for logical_index, name in enumerate(column_names)
+        }
+        self._layout_settings.setValue(
+            self._column_layout_key,
+            json.dumps(
+                {
+                    "version": 1,
+                    "order": order,
+                    "widths": widths,
+                },
+                separators=(",", ":"),
+                sort_keys=True,
+            ),
+        )
+        self._layout_settings.sync()
+
+    def _best_fit_all_columns(self) -> None:
+        self._layout_save_timer.stop()
+        self._restoring_column_layout = True
+        try:
+            _fit_content_columns(self.table)
+        finally:
+            self._restoring_column_layout = False
+        self._column_widths_initialized = True
+        self._save_column_layout()
+
+    def _reset_column_layout(self) -> None:
+        self._layout_save_timer.stop()
+        self._restoring_column_layout = True
+        try:
+            column_names = tuple(
+                column.name for column in self.controller.columns
+            )
+            _apply_column_order(
+                self.table.horizontalHeader(),
+                column_names,
+                column_names,
+            )
+            _fit_interactive_columns(self.table, self.controller.columns)
+            self._layout_settings.remove(self._column_layout_key)
+            self._layout_settings.sync()
+        finally:
+            self._restoring_column_layout = False
         self._column_widths_initialized = True
 
     def _update_detail_action(self, *_args: Any) -> None:
@@ -681,11 +830,8 @@ def _fit_interactive_columns(
     table: QTableView | QTableWidget,
     columns: tuple[QtBrowseColumn, ...],
 ) -> None:
-    table.resizeColumnsToContents()
+    _fit_content_columns(table)
     column_count = _table_column_count(table)
-    for index in range(column_count):
-        fitted = table.columnWidth(index)
-        table.setColumnWidth(index, min(max(fitted, 72), 360))
 
     left_aligned = tuple(
         index for index, column in enumerate(columns) if column.alignment == "left"
@@ -703,6 +849,59 @@ def _fit_interactive_columns(
     )
 
 
+def _fit_content_columns(table: QTableView | QTableWidget) -> None:
+    table.resizeColumnsToContents()
+    for index in range(_table_column_count(table)):
+        fitted = table.columnWidth(index)
+        table.setColumnWidth(index, min(max(fitted, 72), 360))
+
+
 def _table_column_count(table: QTableView | QTableWidget) -> int:
     model = table.model()
     return 0 if model is None else model.columnCount()
+
+
+def _column_layout_key(controller: QtBrowseController) -> str:
+    parts = (
+        controller.model.name,
+        controller.view.name,
+        controller.session.principal,
+    )
+    encoded = "/".join(quote(part, safe="") for part in parts)
+    return f"browse-column-layouts/{encoded}"
+
+
+def _known_column_order(
+    configured: list[Any],
+    current: tuple[str, ...],
+) -> tuple[str, ...]:
+    known: list[str] = []
+    for name in configured:
+        if isinstance(name, str) and name in current and name not in known:
+            known.append(name)
+    known.extend(name for name in current if name not in known)
+    return tuple(known)
+
+
+def _known_column_widths(
+    configured: dict[Any, Any],
+    current: tuple[str, ...],
+) -> dict[str, int]:
+    return {
+        name: value
+        for name, value in configured.items()
+        if name in current and isinstance(value, int) and not isinstance(value, bool)
+    }
+
+
+def _apply_column_order(
+    header: QHeaderView,
+    desired: tuple[str, ...],
+    current: tuple[str, ...],
+) -> None:
+    logical_by_name = {name: index for index, name in enumerate(current)}
+    for target_visual, field_name in enumerate(desired):
+        logical_index = logical_by_name[field_name]
+        current_visual = header.visualIndex(logical_index)
+        if current_visual != target_visual:
+            header.moveSection(current_visual, target_visual)

@@ -53,6 +53,20 @@ list, retain already loaded rows, and request the next opaque cursor batch near
 the scroll boundary. Sorting, filtering, searching, switching views, or
 refreshing starts a new secured cursor sequence.
 
+The compiled browse column order remains the portable default shared by every
+renderer. The Qt client may layer a local personal order and widths over that
+default, keyed by application, view, and authenticated principal. Dragging a
+heading or resizing a divider updates only Qt's local settings; it never edits
+YAML, changes another user's layout, or alters the TUI/Web default. Stored
+layouts use stable field names, so known columns survive metadata additions or
+removals and new columns fall back into metadata order. **Best Fit** sizes all
+columns from currently loaded contents. **Reset Layout** removes the personal
+override and restores metadata order plus default fitted widths.
+
+Publishing a changed shared default is a distinct privileged designer action.
+It must use the compiler-validated Designer service and approved YAML save
+boundary rather than promoting a personal GUI setting implicitly.
+
 Textual consumes the resolved browse action list rather than inventing a
 separate toolbar contract. `delete` is shown only when it is present in that
 list and the current principal has the entity's explicit delete permission.

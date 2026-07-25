@@ -424,7 +424,11 @@ needed. Use **View**, double-click, or **Enter** to inspect the selected Invoice
 and its lines. Search by Invoice number, select a metadata-defined named filter,
 or click a sortable column heading to order the complete server result; click
 the same heading again to reverse the order. **Clear** restores the default
-query. Scroll to the end to load and append another secured batch in the
+query. Drag headings or dividers to personalize column order and widths;
+**Best Fit** resizes all columns to current contents, and **Reset Layout**
+returns to the application metadata defaults. Personal column settings are
+local to this application, view, and authenticated principal and never change
+the YAML. Scroll to the end to load and append another secured batch in the
 background. The GUI has no SQL Server URL or driver; it uses the same
 authenticated API client as remote Textual mode. See
 [Qt GUI Prototype](QT-GUI.md) for the current scope and explicit CLI form.

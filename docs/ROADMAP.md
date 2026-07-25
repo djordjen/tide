@@ -139,6 +139,9 @@ application-owned Faker profile and the real secured services.
   release certification remain;
 - server-side sorting, seamless incremental cursor loading, search, and named
   filters; **implemented for Textual and Qt browse**
+- movable Qt columns, best-fit/reset controls, and per-principal local
+  width/order persistence; **implemented**; privileged designer publishing of
+  shared metadata defaults remains deferred
 - basic secured printable invoice with TUI preview, HTML, and PDF;
   **implemented**
 - opt-in REST list/get/create/update/delete and domain-action routes plus OpenAPI;

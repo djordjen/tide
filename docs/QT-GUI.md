@@ -56,6 +56,13 @@ ascending; click the same heading again for descending order. **Clear** restores
 the default query. These operations reset the cursor sequence rather than
 sorting or filtering only the rows already loaded.
 
+Drag a column heading to personalize its order, or drag a divider to change its
+width. **Best Fit** recalculates all widths from the currently loaded rows;
+**Reset Layout** restores the compiled metadata order and default fitted
+widths. Qt stores the personal layout locally under the application, view, and
+authenticated principal. It contains field names, order, and widths only and
+does not modify YAML, access the database, or affect other users and renderers.
+
 Select an Invoice and press **View**, double-click it, or press **Enter**. The
 detail window follows the compiled `sales.Invoice.edit` structure but remains
 read-only: it shows the Invoice, Totals, and Posting groups plus the nested
@@ -92,9 +99,9 @@ complete launcher contract.
 - blocking HTTP batches run on a dedicated Qt worker pool, keep the interface
   responsive, suppress stale query generations, reject repeated cursors, and
   surface a refreshable loading error;
-- browse columns start at practical content-based widths and every divider is
-  draggable; double-click a divider to auto-fit it, and manual widths survive
-  incremental loading and refreshes for the lifetime of the window;
+- browse columns start at practical content-based widths; headings are movable,
+  dividers are draggable, **Best Fit** sizes all columns to loaded contents, and
+  stable field-name layouts survive refreshes and later GUI sessions;
 - selected records open through their real primary-key identity into compiled
   form groups and inline collection columns, with no client-side database path;
 - inaccessible views fail closed instead of falling back to local data;
@@ -104,8 +111,7 @@ complete launcher contract.
 ## Deliberately deferred
 
 - create/edit forms, lookup selection, domain actions, and reports;
-- persisted personal column order/width preferences and privileged publishing
-  of validated application defaults;
+- privileged designer publishing of validated application layout defaults;
 - OIDC desktop login, access-token refresh, and secure token storage;
 - native application packaging, signing, and installers;
 - a stable renderer-comparison contract across Textual, Qt, and web.
