@@ -239,6 +239,13 @@ ETag and an idempotency key. The dialog closes and the refreshed browse row
 shows Posted. If posting fails after the draft save, the saved form reopens
 with the server message so it can be corrected safely.
 
+Select an Invoice and choose **Preview** to build its authorized report through
+FastAPI. Qt shows the returned renderer-neutral document with native widgets;
+**Export CSV**, **Export HTML**, and **Export PDF** write to
+`output\reports` without giving the GUI a database connection. Roles without
+the report capability do not see the button. The Windows GUI shortcut includes
+the optional report dependency so PDF export works in this walkthrough.
+
 The first editable Qt slice covers the flat Product and Customer forms:
 
 ```powershell

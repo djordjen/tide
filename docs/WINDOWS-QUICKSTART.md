@@ -419,9 +419,10 @@ and use another terminal:
 ```
 
 Paste the printed API token into the hidden prompt. This starts a Qt Invoice
-workspace and installs the optional `gui` dependencies through `uv` when
-needed. Use **View**, double-click, or **Enter** to inspect the selected Invoice
-and its lines. Use **Edit** for supported Invoice header fields. Search by
+workspace and installs the optional `gui` and `report` dependencies through
+`uv` when needed. Use **View**, double-click, or **Enter** to inspect the
+selected Invoice and its lines. Use **Edit** for supported Invoice header
+fields. Search by
 Invoice number, select a metadata-defined named filter, or click a sortable
 column heading to order the complete server result; click
 the same heading again to reverse the order. **Clear** restores the default
@@ -463,6 +464,13 @@ correction; an empty or already-posted Invoice keeps Post disabled.
 For a read/post-only `invoice_poster` identity, the list uses **Open** instead
 of Edit and shows a read-only form with Save hidden and Post available.
 
+Select an Invoice and choose **Preview** to request the authorized
+`sales.invoice` document from FastAPI. Qt renders the returned record facts,
+line table, and totals as native widgets. Its **Export CSV**, **Export HTML**,
+and **Export PDF** buttons write to `output\reports` on a background worker.
+The shortcut installs both the `gui` and `report` extras; a role without report
+permission does not see Preview.
+
 To test metadata-driven Qt creation and editing for flat master data, keep the
 same API server running and open either:
 
@@ -475,8 +483,8 @@ Use **New**, or select a row and use **Edit**. The Product form demonstrates
 the `0.00` Decimal mask and the Customer/Product code fields demonstrate regex
 masks; both forms follow the YAML row layout and writable capabilities. Tab or
 Enter traverses the left field column before the right. Saving runs through
-FastAPI in the background and refreshes the secured list. Qt reports remain a
-later tranche.
+FastAPI in the background and refreshes the secured list. Qt summary-report
+parameters remain a later tranche.
 
 For a reviewed network test, first install the production identity adapter:
 

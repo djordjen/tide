@@ -30,7 +30,7 @@ def test_windows_shortcut_requests_mode_dependencies() -> None:
         "--role auditor --port 8000" in script
     )
     assert (
-        "uv run --extra gui tide gui applications/invoicing "
+        "uv run --extra gui --extra report tide gui applications/invoicing "
         "--api-url http://127.0.0.1:8000" in script
     )
     assert "--view catalog.product.browse" in script

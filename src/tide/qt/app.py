@@ -6,6 +6,7 @@ from copy import deepcopy
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 import json
+from pathlib import Path
 import re
 from typing import Any, Callable, Mapping
 from urllib.parse import quote
@@ -60,6 +61,12 @@ from PySide6.QtWidgets import (
 
 from tide.api.contracts import TideSessionInfo
 from tide.compiler.normalized import ApplicationModel
+from tide.reporting import (
+    ReportDocument,
+    write_csv,
+    write_html,
+    write_pdf,
+)
 from tide.runtime import TideRuntimeError
 from tide.security import PROTECTED
 from tide.sessions import ConflictDisposition, ConflictValueChoice
@@ -1598,6 +1605,209 @@ class TideQtDetailDialog(QDialog):
         return group
 
 
+class TideQtReportDialog(QDialog):
+    """Native preview and local export surface for a secured report document."""
+
+    def __init__(
+        self,
+        document: ReportDocument,
+        output_directory: str | Path,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.document = document
+        self.output_directory = Path(output_directory)
+        self._workers: set[_CallWorker] = set()
+        self._thread_pool = QThreadPool(self)
+        self._thread_pool.setMaxThreadCount(1)
+        self._exporting = False
+        self.setWindowTitle(f"{document.application} — {document.title}")
+        self.resize(980, 720)
+
+        layout = QVBoxLayout(self)
+        heading = QLabel(document.title)
+        heading.setObjectName("report-title")
+        heading.setStyleSheet("font-size: 22px; font-weight: 600;")
+        layout.addWidget(heading)
+
+        context = QLabel(
+            f"{document.application}  ·  {document.report}  ·  "
+            f"{document.suggested_filename}"
+        )
+        context.setStyleSheet("color: palette(mid);")
+        layout.addWidget(context)
+        for text in document.header_text:
+            header = QLabel(text)
+            header.setWordWrap(True)
+            layout.addWidget(header)
+
+        if document.record_values:
+            facts = QGroupBox("Record")
+            facts_grid = QGridLayout(facts)
+            for index, value in enumerate(document.record_values):
+                row = index // 2
+                offset = (index % 2) * 2
+                label = QLabel(value.label)
+                label.setStyleSheet("color: palette(mid);")
+                editor = QLineEdit(value.text)
+                editor.setObjectName(f"report-value-{index}")
+                editor.setReadOnly(True)
+                editor.setAlignment(_qt_alignment(value.alignment))
+                facts_grid.addWidget(label, row, offset)
+                facts_grid.addWidget(editor, row, offset + 1)
+            facts_grid.setColumnStretch(1, 1)
+            facts_grid.setColumnStretch(3, 1)
+            layout.addWidget(facts)
+
+        self.detail = QTableWidget(
+            len(document.detail.rows),
+            len(document.detail.columns),
+        )
+        self.detail.setObjectName("report-detail")
+        self.detail.setHorizontalHeaderLabels(
+            [column.label for column in document.detail.columns]
+        )
+        self.detail.setAlternatingRowColors(True)
+        self.detail.setSelectionMode(
+            QAbstractItemView.SelectionMode.NoSelection
+        )
+        self.detail.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.detail.verticalHeader().setVisible(False)
+        _configure_interactive_header(self.detail)
+        for row_index, row in enumerate(document.detail.rows):
+            for column_index, cell in enumerate(row):
+                item = QTableWidgetItem(cell.text)
+                item.setTextAlignment(_qt_alignment(cell.alignment))
+                self.detail.setItem(row_index, column_index, item)
+        layout.addWidget(self.detail, 1)
+
+        if document.footer_values:
+            totals = QGroupBox("Totals")
+            totals_grid = QGridLayout(totals)
+            for row, value in enumerate(document.footer_values):
+                label = QLabel(value.label)
+                label.setStyleSheet("font-weight: 600;")
+                result = QLineEdit(value.text)
+                result.setObjectName(f"report-footer-{row}")
+                result.setReadOnly(True)
+                result.setAlignment(_qt_alignment(value.alignment))
+                totals_grid.addWidget(label, row, 0)
+                totals_grid.addWidget(result, row, 1)
+            totals_grid.setColumnStretch(0, 1)
+            totals_grid.setColumnStretch(1, 1)
+            layout.addWidget(totals)
+
+        self.message = QLabel(
+            f"Exports will be written to {self.output_directory}"
+        )
+        self.message.setObjectName("report-export-status")
+        self.message.setWordWrap(True)
+        self.message.setStyleSheet("color: palette(mid);")
+        layout.addWidget(self.message)
+
+        actions = QHBoxLayout()
+        actions.addStretch(1)
+        self.export_csv = QPushButton("Export CSV")
+        self.export_csv.setObjectName("report-export-csv")
+        self.export_html = QPushButton("Export HTML")
+        self.export_html.setObjectName("report-export-html")
+        self.export_pdf = QPushButton("Export PDF")
+        self.export_pdf.setObjectName("report-export-pdf")
+        self.close_button = QPushButton("Close")
+        self.close_button.setObjectName("report-close")
+        actions.addWidget(self.export_csv)
+        actions.addWidget(self.export_html)
+        actions.addWidget(self.export_pdf)
+        actions.addWidget(self.close_button)
+        layout.addLayout(actions)
+
+        self.export_csv.clicked.connect(
+            lambda: self._start_export("CSV", write_csv, ".csv")
+        )
+        self.export_html.clicked.connect(
+            lambda: self._start_export("HTML", write_html, ".html")
+        )
+        self.export_pdf.clicked.connect(
+            lambda: self._start_export("PDF", write_pdf, ".pdf")
+        )
+        self.close_button.clicked.connect(self.reject)
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        _fit_interactive_columns(
+            self.detail,
+            tuple(
+                QtBrowseColumn(
+                    column.name,
+                    column.label,
+                    column.alignment,
+                )
+                for column in self.document.detail.columns
+            ),
+        )
+
+    def wait_for_done(self, milliseconds: int = -1) -> bool:
+        """Wait for any active local report export."""
+
+        return self._thread_pool.waitForDone(milliseconds)
+
+    def _start_export(
+        self,
+        label: str,
+        writer: Callable[[ReportDocument, Path], Path],
+        suffix: str,
+    ) -> None:
+        if self._exporting:
+            return
+        path = self.output_directory / (
+            f"{self.document.suggested_filename}{suffix}"
+        )
+        self._set_exporting(True, f"Exporting {label}…")
+        worker = _CallWorker(lambda: writer(self.document, path))
+        self._workers.add(worker)
+        worker.signals.completed.connect(
+            lambda result, current, name=label: self._export_completed(
+                name,
+                result,
+                current,
+            )
+        )
+        worker.signals.failed.connect(
+            lambda error, current, name=label: self._export_failed(
+                name,
+                error,
+                current,
+            )
+        )
+        self._thread_pool.start(worker)
+
+    def _export_completed(
+        self,
+        label: str,
+        path: Path,
+        worker: _CallWorker,
+    ) -> None:
+        self._workers.discard(worker)
+        self._set_exporting(False, f"{label} exported to {path}")
+
+    def _export_failed(
+        self,
+        label: str,
+        error: Exception,
+        worker: _CallWorker,
+    ) -> None:
+        self._workers.discard(worker)
+        self._set_exporting(False, f"{label} export failed: {error}")
+
+    def _set_exporting(self, exporting: bool, message: str) -> None:
+        self._exporting = exporting
+        self.export_csv.setEnabled(not exporting)
+        self.export_html.setEnabled(not exporting)
+        self.export_pdf.setEnabled(not exporting)
+        self.close_button.setEnabled(not exporting)
+        self.message.setText(message)
+
+
 class _BatchSignals(QObject):
     completed = Signal(int, object, object, object)
     failed = Signal(int, object, object, object)
@@ -1845,6 +2055,7 @@ class TideQtWindow(QMainWindow):
         *,
         source_label: str,
         layout_settings: QSettings | None = None,
+        report_output_directory: str | Path | None = None,
     ) -> None:
         super().__init__()
         self.controller = controller
@@ -1859,10 +2070,15 @@ class TideQtWindow(QMainWindow):
         self._column_widths_initialized = False
         self._detail_dialogs: set[TideQtDetailDialog] = set()
         self._edit_dialogs: set[TideQtEditDialog] = set()
+        self._report_dialogs: set[TideQtReportDialog] = set()
         self._operation_workers: set[_CallWorker] = set()
         self._operation_pool = QThreadPool(self)
         self._operation_pool.setMaxThreadCount(1)
         self._form_loading = False
+        self._report_loading = False
+        self.report_output_directory = Path(
+            report_output_directory or Path.cwd() / "output" / "reports"
+        )
         self._notice: str | None = None
         self.setWindowTitle(f"{controller.model.name} — {controller.title}")
         self.resize(1100, 650)
@@ -1928,6 +2144,9 @@ class TideQtWindow(QMainWindow):
         if not controller.update_available and controller.form_action_available:
             self.edit.setText("Open")
         self.view = QPushButton("View")
+        self.preview = QPushButton("Preview")
+        self.preview.setObjectName("preview-report")
+        self.preview.setVisible(controller.record_report_available)
         self.best_fit = QPushButton("Best Fit")
         self.best_fit.setObjectName("best-fit-columns")
         self.best_fit.setToolTip("Best fit all columns to their current contents")
@@ -1942,6 +2161,7 @@ class TideQtWindow(QMainWindow):
         actions.addWidget(self.new)
         actions.addWidget(self.edit)
         actions.addWidget(self.view)
+        actions.addWidget(self.preview)
         actions.addWidget(self.best_fit)
         actions.addWidget(self.reset_layout)
         actions.addWidget(self.refresh)
@@ -1967,6 +2187,7 @@ class TideQtWindow(QMainWindow):
         self.new.clicked.connect(self._open_new_form)
         self.edit.clicked.connect(self._open_selected_form)
         self.view.clicked.connect(self._open_selected_detail)
+        self.preview.clicked.connect(self._open_selected_report)
         self.best_fit.clicked.connect(self._best_fit_all_columns)
         self.reset_layout.clicked.connect(self._reset_column_layout)
         self.table.selectionModel().selectionChanged.connect(
@@ -2005,7 +2226,11 @@ class TideQtWindow(QMainWindow):
             dialog.wait_for_done(milliseconds)
             for dialog in tuple(self._edit_dialogs)
         )
-        return browse_done and operations_done and edits_done
+        reports_done = all(
+            dialog.wait_for_done(milliseconds)
+            for dialog in tuple(self._report_dialogs)
+        )
+        return browse_done and operations_done and edits_done and reports_done
 
     def _initialize_column_widths(self) -> None:
         """Fit once, then leave every section under direct user control."""
@@ -2128,8 +2353,9 @@ class TideQtWindow(QMainWindow):
 
     def _update_detail_action(self, *_args: Any) -> None:
         selected = self.table.currentIndex().isValid()
+        busy = self._form_loading or self._report_loading
         self.new.setEnabled(
-            self.controller.create_available and not self._form_loading
+            self.controller.create_available and not busy
         )
         self.edit.setEnabled(
             (
@@ -2137,12 +2363,17 @@ class TideQtWindow(QMainWindow):
                 or self.controller.form_action_available
             )
             and selected
-            and not self._form_loading
+            and not busy
         )
         self.view.setEnabled(
             self.controller.detail_available
             and selected
-            and not self._form_loading
+            and not busy
+        )
+        self.preview.setEnabled(
+            self.controller.record_report_available
+            and selected
+            and not busy
         )
 
     def _open_new_form(self) -> None:
@@ -2276,6 +2507,69 @@ class TideQtWindow(QMainWindow):
         )
         dialog.show()
 
+    def _open_selected_report(self) -> None:
+        index = self.table.currentIndex()
+        if (
+            not index.isValid()
+            or not self.controller.record_report_available
+            or self._form_loading
+            or self._report_loading
+        ):
+            return
+        try:
+            identity = self.table_model.identity_at(index.row())
+        except ValueError as error:
+            QMessageBox.critical(self, "TIDE Qt", str(error))
+            return
+        self._report_loading = True
+        self._notice = None
+        self._update_detail_action()
+        self._update_status()
+        worker = _CallWorker(
+            lambda: self.controller.load_record_report(identity)
+        )
+        self._operation_workers.add(worker)
+        worker.signals.completed.connect(self._report_ready)
+        worker.signals.failed.connect(self._report_failed)
+        self._operation_pool.start(worker)
+
+    @Slot(object, object)
+    def _report_ready(
+        self,
+        document: ReportDocument,
+        worker: _CallWorker,
+    ) -> None:
+        self._operation_workers.discard(worker)
+        self._report_loading = False
+        self._update_detail_action()
+        self._update_status()
+        dialog = TideQtReportDialog(
+            document,
+            self.report_output_directory,
+            parent=self,
+        )
+        self._report_dialogs.add(dialog)
+        dialog.finished.connect(
+            lambda _result, current=dialog: self._report_dialogs.discard(current)
+        )
+        dialog.show()
+
+    @Slot(object, object)
+    def _report_failed(
+        self,
+        error: Exception,
+        worker: _CallWorker,
+    ) -> None:
+        self._operation_workers.discard(worker)
+        self._report_loading = False
+        self._update_detail_action()
+        self._update_status()
+        QMessageBox.critical(
+            self,
+            "TIDE Qt",
+            f"Report preview failed: {error}",
+        )
+
     def _loading_changed(self, loading: bool) -> None:
         self.refresh.setEnabled(not loading)
         self._update_status()
@@ -2360,6 +2654,8 @@ class TideQtWindow(QMainWindow):
         query_text = f"  ·  {summary}" if summary else ""
         if self._form_loading:
             state = "Loading record form…"
+        elif self._report_loading:
+            state = "Building secured report…"
         notice = f"{self._notice}  ·  " if self._notice else ""
         self.status.setText(
             f"{notice}{count} {noun} loaded  ·  {state}  ·  "
@@ -2383,6 +2679,7 @@ def run_qt_application(
     view_name: str | None = None,
     page_size: int | None = None,
     source_label: str = "remote API",
+    report_output_directory: str | Path | None = None,
 ) -> int:
     """Run the first remote Qt renderer and return Qt's process result."""
 
@@ -2395,7 +2692,11 @@ def run_qt_application(
         view_name=view_name,
         page_size=page_size,
     )
-    window = TideQtWindow(controller, source_label=source_label)
+    window = TideQtWindow(
+        controller,
+        source_label=source_label,
+        report_output_directory=report_output_directory,
+    )
     window.show()
     result = int(application.exec())
     window.wait_for_done()

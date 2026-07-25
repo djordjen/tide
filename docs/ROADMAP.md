@@ -156,8 +156,11 @@ application-owned Faker profile and the real secured services.
   workflow-lock reevaluation; **implemented**
 - Qt metadata/capability-driven Post Invoice action with draft-aware
   `enabled_when`, save-before-action ETag chaining, idempotency, recovery after
-  a saved-draft action failure, and secured refresh; **implemented**; Qt
-  reports remain deferred
+  a saved-draft action failure, and secured refresh; **implemented**
+- Qt metadata/capability-gated Invoice report preview over the server-built
+  `ReportDocument`, with native widgets and background local CSV/HTML/PDF
+  export through the shared safe writers; **implemented**; Qt summary-report
+  parameters remain deferred
 - basic secured printable invoice with TUI preview, HTML, and PDF;
   **implemented**
 - opt-in REST list/get/create/update/delete and domain-action routes plus OpenAPI;
@@ -185,7 +188,8 @@ an invoice entirely by keyboard or mouse.
   facades for browse, lookups, drafts, nested commits, concurrency, and
   actions; **implemented**
 - secured renderer-neutral remote report transport with Textual preview and
-  local HTML/PDF export; **implemented**
+  local CSV/HTML/PDF export, plus native Qt record-report preview/export;
+  **implemented**
 - first read-only PySide6 browse and compiled record-detail dialog over the
   typed remote client/session contract, with no local database dependency;
   **implemented with a model-backed incremental list, background opaque-cursor

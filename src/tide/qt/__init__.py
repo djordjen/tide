@@ -14,6 +14,7 @@ from .presenter import (
     QtBrowseColumn,
     QtBrowseController,
     QtBrowseQuery,
+    QtRecordReport,
     QtDetailCollection,
     QtDetailField,
     QtDetailGroup,
@@ -36,6 +37,7 @@ __all__ = [
     "QtBrowseColumn",
     "QtBrowseController",
     "QtBrowseQuery",
+    "QtRecordReport",
     "QtDetailCollection",
     "QtDetailField",
     "QtDetailGroup",
@@ -57,6 +59,7 @@ __all__ = [
     "TideQtDetailDialog",
     "TideQtLookupDialog",
     "TideQtReferenceEditor",
+    "TideQtReportDialog",
     "TideQtWindow",
     "run_qt_application",
 ]
@@ -70,6 +73,7 @@ def __getattr__(name: str) -> Any:
         "TideQtEditDialog",
         "TideQtLookupDialog",
         "TideQtReferenceEditor",
+        "TideQtReportDialog",
         "TideQtWindow",
         "run_qt_application",
     }:
@@ -80,6 +84,7 @@ def __getattr__(name: str) -> Any:
             TideQtEditDialog,
             TideQtLookupDialog,
             TideQtReferenceEditor,
+            TideQtReportDialog,
             TideQtWindow,
             run_qt_application,
         )
@@ -91,6 +96,7 @@ def __getattr__(name: str) -> Any:
             "TideQtEditDialog": TideQtEditDialog,
             "TideQtLookupDialog": TideQtLookupDialog,
             "TideQtReferenceEditor": TideQtReferenceEditor,
+            "TideQtReportDialog": TideQtReportDialog,
             "TideQtWindow": TideQtWindow,
             "run_qt_application": run_qt_application,
         }[name]

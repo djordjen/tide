@@ -1,6 +1,7 @@
 # Qt GUI Prototype
 
-Status: **interactive server-mode browse and master-detail editing**.
+Status: **interactive server-mode browse, master-detail editing, actions, and
+record-report preview/export**.
 
 TIDE now includes a small PySide6 desktop adapter that proves the normalized
 application model and secured remote-client boundary can drive a native GUI.
@@ -8,7 +9,9 @@ It supports an incrementally loaded browse list, metadata-defined search and
 named filters, global header sorting, read-only record detail, Customer/Product
 create and update, and complete Invoice draft editing with Customer/Product
 lookups plus authorized nested creation, three-way stale-edit review, and the
-Post Invoice domain action. Reports and desktop sign-in remain later work.
+Post Invoice domain action. An authorized Invoice can also be previewed as a
+native Qt report and exported locally to CSV, HTML, or PDF. Desktop sign-in
+remains later work.
 
 ## Security and architecture
 
@@ -29,6 +32,11 @@ FastAPI -> TIDE services -> repository / SQL Server
 The bearer token grants only the server-assigned principal and roles. The GUI
 selects an accessible compiled browse view from the session capabilities, but
 the server still reauthorizes every record request.
+
+Report generation follows the same boundary. FastAPI authorizes the report,
+loads and formats its data, and returns an immutable renderer-neutral
+`ReportDocument`. Qt receives no raw reporting query or database credential; it
+only previews that document and passes it to the shared controlled exporters.
 
 ## Try it on Windows
 
@@ -138,6 +146,15 @@ row refreshes to Posted. If the draft save succeeds but posting fails, Qt
 reopens that saved ETag-backed form with the failure message so the user can
 correct it and try again.
 
+Select an Invoice and choose **Preview**. The button exists only when the
+authenticated session advertises the REST-exposed `sales.invoice` report. The
+server builds the secured document in the background, then Qt displays its
+record facts, right-aligned line values, and totals as native widgets.
+**Export CSV**, **Export HTML**, and **Export PDF** write the same authorized
+document to `output/reports` below the directory from which TIDE was started.
+Exports also run off the GUI thread. CSV formula-looking cells are neutralized,
+HTML text is escaped, and PDF uses the existing optional ReportLab renderer.
+
 To exercise the editable flat-form slice, open either workspace instead:
 
 ```bat
@@ -157,9 +174,9 @@ row policies, uniqueness, normalization, and validation remain authoritative.
 The equivalent explicit setup is:
 
 ```powershell
-uv sync --extra api --extra gui
+uv sync --extra api --extra gui --extra report
 $env:TIDE_API_TOKEN = "paste-the-development-token"
-uv run --extra gui tide gui applications/invoicing `
+uv run --extra gui --extra report tide gui applications/invoicing `
   --api-url http://127.0.0.1:8000
 ```
 
@@ -204,13 +221,17 @@ complete launcher contract.
 - form-domain actions use metadata order, authenticated capabilities,
   draft-aware enablement, save-before-action ETag chaining, and per-attempt
   idempotency keys through the existing action endpoint;
+- record-report controls are the intersection of report metadata, REST
+  exposure, active entity, and authenticated session capabilities; authorized
+  documents are built by FastAPI, previewed with native Qt widgets, and
+  exported locally through the shared CSV/HTML/PDF writers;
 - inaccessible views fail closed instead of falling back to local data;
 - the presentation/controller contract is testable without installing Qt in
   ordinary CI.
 
 ## Deliberately deferred
 
-- Qt reports;
+- summary-report parameters and preview;
 - privileged designer publishing of validated application layout defaults;
 - OIDC desktop login, access-token refresh, and secure token storage;
 - native application packaging, signing, and installers;

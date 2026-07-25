@@ -159,6 +159,13 @@ key. If the save succeeds but the action fails, the saved form is reopened with
 its current ETag and the failure message. A stale failure enters the same
 three-way review contract rather than introducing last-write-wins behavior.
 
+Qt record reports follow the same renderer-neutral boundary as Textual. The
+active entity's record report is visible only when it is REST-exposed and
+present in the authenticated session capabilities. FastAPI builds and
+authorizes the `ReportDocument`; Qt lays out native fact, detail, and total
+widgets, while the shared CSV/HTML/PDF writers perform local export on a worker
+thread. Report metadata and permissions remain authoritative across renderers.
+
 Named presets capture recurring patterns such as `standard_browse`,
 `standard_form`, and `master_detail`.
 

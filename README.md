@@ -368,9 +368,11 @@ cursor loading, create/edit forms, master-detail line editing, validation and
 concurrency
 feedback, audited posting, invoice-number incremental search, named filters,
 sortable stored scalar columns, and permission-gated action/record history
-through keyboard or mouse controls. Secured
-invoice and posted-sales summary reporting now provides terminal preview plus
-CSV, HTML, and PDF export. A loopback-only FastAPI server hosts secured
+through keyboard or mouse controls. Secured invoice and posted-sales summary
+reporting now provides terminal preview plus CSV, HTML, and PDF export. The
+native Qt Invoice workspace also previews the server-built report document and
+exports it through those same controlled writers. A loopback-only FastAPI
+server hosts secured
 list/get/create/update and Invoice Post routes with typed input, ETag
 concurrency, idempotency, and
 interactive OpenAPI documentation. An authenticated session-capability contract

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 import os
 from pathlib import Path
@@ -30,6 +30,13 @@ from tide.api import TideApiClientError
 from tide.api.contracts import TideEntityCapabilities, TideSessionInfo
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.qt import QtBrowseController, TideQtReferenceEditor, TideQtWindow
+from tide.reporting import (
+    ReportCell,
+    ReportColumn,
+    ReportDocument,
+    ReportTable,
+    ReportValue,
+)
 from tide.sessions import ConflictValueChoice
 
 
@@ -37,10 +44,41 @@ ROOT = Path(__file__).parents[1]
 INVOICING = ROOT / "applications" / "invoicing"
 
 
+def _invoice_report_document(number: str = "INV-QT-001") -> ReportDocument:
+    return ReportDocument(
+        report="sales.invoice",
+        title="Invoice",
+        application="TIDE Invoicing",
+        generated_at=datetime(2026, 7, 25, 10, 0, tzinfo=UTC),
+        header_text=("Invoice",),
+        record_values=(
+            ReportValue("Invoice number", number),
+            ReportValue("Status", "Draft"),
+        ),
+        detail=ReportTable(
+            columns=(
+                ReportColumn("description", "Description"),
+                ReportColumn("total", "Total", "right"),
+            ),
+            rows=(
+                (
+                    ReportCell("Consulting day"),
+                    ReportCell("1,250.00", "right"),
+                ),
+            ),
+        ),
+        footer_values=(ReportValue("Total", "1,250.00", "right"),),
+        page_footer_template="Page {page_number}",
+        suggested_filename=f"invoice-{number}",
+    )
+
+
 class _WidgetClient:
     def __init__(self) -> None:
         self.queries: list[QuerySpec] = []
         self.query_threads: list[int] = []
+        self.report_calls: list[tuple[str, Any]] = []
+        self.report_threads: list[int] = []
 
     def query_records(
         self,
@@ -117,6 +155,15 @@ class _WidgetClient:
         return SimpleNamespace(
             values={"id": 1, "code": "ADRIA", "name": "Adria Consulting"}
         )
+
+    def build_report_for_record(
+        self,
+        report_name: str,
+        identity: Any,
+    ) -> ReportDocument:
+        self.report_threads.append(threading.get_ident())
+        self.report_calls.append((report_name, identity))
+        return _invoice_report_document()
 
 
 class _ProductWidgetClient:
@@ -537,6 +584,73 @@ def test_qt_widget_adapter_incrementally_loads_the_server_list(
 
     window.close()
     assert window.table_model.wait_for_done(1000)
+
+
+def test_qt_record_report_previews_and_exports_remote_document(
+    tmp_path: Path,
+) -> None:
+    gui_thread = threading.get_ident()
+    application = QApplication.instance() or QApplication([])
+    model = compile_project(INVOICING)
+    session = _session(model).model_copy(
+        update={"reports": ("sales.invoice",)}
+    )
+    client = _WidgetClient()
+    window = TideQtWindow(
+        QtBrowseController(model, client, session, page_size=5),
+        source_label="report test",
+        layout_settings=_layout_settings(tmp_path / "report-layout.ini"),
+        report_output_directory=tmp_path,
+    )
+    window.show()
+    _wait_until(
+        application,
+        lambda: window.table_model.rowCount() >= 1
+        and not window.table_model.loading,
+    )
+
+    assert window.preview.isVisible() is True
+    assert window.preview.isEnabled() is False
+    window.table.selectRow(0)
+    application.processEvents()
+    assert window.preview.isEnabled() is True
+    window.preview.click()
+    _wait_until(application, lambda: len(window._report_dialogs) == 1)
+    dialog = next(iter(window._report_dialogs))
+
+    assert client.report_calls == [("sales.invoice", 1)]
+    assert all(thread != gui_thread for thread in client.report_threads)
+    assert dialog.windowTitle() == "TIDE Invoicing — Invoice"
+    assert dialog.detail.horizontalHeaderItem(0).text() == "Description"
+    assert dialog.detail.item(0, 0).text() == "Consulting day"
+    assert dialog.detail.item(0, 1).text() == "1,250.00"
+
+    dialog.export_csv.click()
+    _wait_until(
+        application,
+        lambda: (tmp_path / "invoice-INV-QT-001.csv").is_file()
+        and not dialog._exporting,
+    )
+    dialog.export_html.click()
+    _wait_until(
+        application,
+        lambda: (tmp_path / "invoice-INV-QT-001.html").is_file()
+        and not dialog._exporting,
+    )
+    dialog.export_pdf.click()
+    _wait_until(
+        application,
+        lambda: (tmp_path / "invoice-INV-QT-001.pdf").is_file()
+        and not dialog._exporting,
+    )
+
+    assert (tmp_path / "invoice-INV-QT-001.pdf").read_bytes().startswith(
+        b"%PDF-"
+    )
+    assert "PDF exported to" in dialog.message.text()
+    dialog.close()
+    window.close()
+    assert window.wait_for_done(1000)
 
 
 def test_qt_column_layout_is_personal_and_resettable(tmp_path: Path) -> None:

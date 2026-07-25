@@ -25,6 +25,7 @@ from tide.presentation import (
     browse_search_field,
     browse_sortable_fields,
 )
+from tide.reporting import ReportDocument
 from tide.runtime import TideRuntimeError
 from tide.security import PROTECTED
 from tide.sessions import (
@@ -82,6 +83,12 @@ class BrowseApiClient(Protocol):
         idempotency_key: str | None = None,
     ) -> Any: ...
 
+    def build_report_for_record(
+        self,
+        report_name: str,
+        identity: Any,
+    ) -> ReportDocument: ...
+
 
 @dataclass(frozen=True, slots=True)
 class QtBrowseColumn:
@@ -106,6 +113,14 @@ class QtBrowseQuery:
     filter_name: str | None = None
     sort_field: str | None = None
     sort_descending: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class QtRecordReport:
+    """One REST-exposed record report authorized for the current session."""
+
+    name: str
+    title: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -355,6 +370,7 @@ class QtBrowseController:
         )
         self._reference_cache: dict[tuple[str, Any], str] = {}
         self._reference_cache_lock = Lock()
+        self.record_report = self._select_record_report()
 
     @property
     def title(self) -> str:
@@ -398,6 +414,12 @@ class QtBrowseController:
             and "get" in self._entity_capabilities.operations
             and self._configured_form_action_names
         )
+
+    @property
+    def record_report_available(self) -> bool:
+        """Return whether the active entity has an authorized record report."""
+
+        return self.record_report is not None
 
     @property
     def search_label(self) -> str | None:
@@ -566,6 +588,35 @@ class QtBrowseController:
             title=f"{self.entity.label} — {display}",
             sections=self._detail_sections(values),
         )
+
+    def load_record_report(self, identity: Any) -> ReportDocument:
+        """Build one authorized server-owned report document for Qt."""
+
+        if self.record_report is None:
+            raise ValueError(
+                f"{self.entity.name} does not define an accessible record report"
+            )
+        if identity is None or identity is PROTECTED:
+            raise ValueError("Qt report record identity is unavailable")
+        return self.client.build_report_for_record(
+            self.record_report.name,
+            identity,
+        )
+
+    def _select_record_report(self) -> QtRecordReport | None:
+        authorized = frozenset(self.session.reports)
+        for name, report in self.model.reports.items():
+            if (
+                name in authorized
+                and report["entity"] == self.entity.name
+                and report.get("kind", "record") == "record"
+                and report.get("expose", {}).get("rest") is True
+            ):
+                return QtRecordReport(
+                    name=name,
+                    title=str(report.get("title", name)),
+                )
+        return None
 
     def new_form(self) -> QtEditForm:
         """Open a metadata-defaulted create form without touching storage."""

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,6 +20,13 @@ from tide.qt import (
     QtDetailGroup,
     QtEditActionError,
 )
+from tide.reporting import (
+    ReportCell,
+    ReportColumn,
+    ReportDocument,
+    ReportTable,
+    ReportValue,
+)
 from tide.sessions import ConflictDisposition, ConflictValueChoice
 
 
@@ -27,11 +34,41 @@ ROOT = Path(__file__).parents[1]
 INVOICING = ROOT / "applications" / "invoicing"
 
 
+def _invoice_report_document(number: str = "INV-2026-001") -> ReportDocument:
+    return ReportDocument(
+        report="sales.invoice",
+        title="Invoice",
+        application="TIDE Invoicing",
+        generated_at=datetime(2026, 7, 25, 10, 0, tzinfo=UTC),
+        header_text=("Invoice",),
+        record_values=(
+            ReportValue("Invoice number", number),
+            ReportValue("Status", "Draft"),
+        ),
+        detail=ReportTable(
+            columns=(
+                ReportColumn("description", "Description"),
+                ReportColumn("total", "Total", "right"),
+            ),
+            rows=(
+                (
+                    ReportCell("Consulting day"),
+                    ReportCell("1,000.00", "right"),
+                ),
+            ),
+        ),
+        footer_values=(ReportValue("Total", "1,000.00", "right"),),
+        page_footer_template="Page {page_number}",
+        suggested_filename=f"invoice-{number}",
+    )
+
+
 class _BrowseClient:
     def __init__(self) -> None:
         self.queries: list[QuerySpec] = []
         self.reference_reads = 0
         self.invoice_reads = 0
+        self.report_calls: list[tuple[str, Any]] = []
 
     def query_records(
         self,
@@ -119,6 +156,14 @@ class _BrowseClient:
             2: {"id": 2, "code": "NORTH", "name": "Northwind"},
         }
         return SimpleNamespace(values=values[identity])
+
+    def build_report_for_record(
+        self,
+        report_name: str,
+        identity: Any,
+    ) -> ReportDocument:
+        self.report_calls.append((report_name, identity))
+        return _invoice_report_document()
 
 
 class _ProductClient:
@@ -512,6 +557,41 @@ def test_qt_detail_uses_form_groups_and_nested_inline_collection() -> None:
     )
     assert client.invoice_reads == 1
     assert client.reference_reads == 2
+
+
+def test_qt_record_report_requires_session_capability_and_uses_remote_document(
+) -> None:
+    model = compile_project(INVOICING)
+    client = _BrowseClient()
+    denied = QtBrowseController(
+        model,
+        client,
+        _session(model),
+        page_size=2,
+    )
+    assert denied.record_report_available is False
+    with pytest.raises(ValueError, match="accessible record report"):
+        denied.load_record_report(1)
+
+    allowed_session = _session(model).model_copy(
+        update={"reports": ("sales.invoice",)}
+    )
+    allowed = QtBrowseController(
+        model,
+        client,
+        allowed_session,
+        page_size=2,
+    )
+    assert allowed.record_report_available is True
+    assert allowed.record_report is not None
+    assert allowed.record_report.name == "sales.invoice"
+    assert allowed.record_report.title == "Invoice"
+
+    document = allowed.load_record_report(1)
+
+    assert document.report == "sales.invoice"
+    assert "INV-2026-001" in document.plain_text()
+    assert client.report_calls == [("sales.invoice", 1)]
 
 
 def test_qt_browse_rejects_an_inaccessible_or_invalid_configuration() -> None:

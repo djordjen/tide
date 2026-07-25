@@ -111,19 +111,19 @@ goto finish
 :gui
 call :read_api_token
 if errorlevel 1 goto finish
-uv run --extra gui tide gui applications/invoicing --api-url http://127.0.0.1:8000
+uv run --extra gui --extra report tide gui applications/invoicing --api-url http://127.0.0.1:8000
 goto finish
 
 :gui_products
 call :read_api_token
 if errorlevel 1 goto finish
-uv run --extra gui tide gui applications/invoicing --api-url http://127.0.0.1:8000 --view catalog.Product.browse
+uv run --extra gui --extra report tide gui applications/invoicing --api-url http://127.0.0.1:8000 --view catalog.Product.browse
 goto finish
 
 :gui_customers
 call :read_api_token
 if errorlevel 1 goto finish
-uv run --extra gui tide gui applications/invoicing --api-url http://127.0.0.1:8000 --view crm.Customer.browse
+uv run --extra gui --extra report tide gui applications/invoicing --api-url http://127.0.0.1:8000 --view crm.Customer.browse
 goto finish
 
 :read_api_token
