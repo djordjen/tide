@@ -208,6 +208,14 @@ and use **View**, double-click, or press **Enter** to inspect its compiled form
 groups and line items. Reaching the bottom automatically appends the next
 secured server batch; there are no page-navigation buttons.
 
+Select a draft Invoice and use **Edit** to change its supported header fields.
+The Customer editor opens the compiled `crm.Customer.lookup` as a searchable
+multi-column dialog. Search matches code, name, or email through FastAPI; select
+a result, or use **New** / Ctrl+N when authorized. The nested Customer form ends
+with **Save & Select**, returning the new identity to the preserved Invoice
+draft. Line items are clearly reported as unchanged and remain available
+through **View** until Qt master-detail editing is added.
+
 The first editable Qt slice covers the flat Product and Customer forms:
 
 ```powershell
@@ -215,11 +223,11 @@ The first editable Qt slice covers the flat Product and Customer forms:
 .\start.bat gui-customers
 ```
 
-Use **New** or select a row and use **Edit**. The dialog follows compiled form
+Use **New** or select a row and use **Edit**. These dialogs follow compiled form
 rows, writable-field capabilities, required fields, Boolean controls, regex
 masks, and exact Decimal input. Save calls FastAPI in the background and
-refreshes the secured list; the GUI never receives a database URL. Invoice
-master-detail editing remains deliberately separate. See the
+refreshes the secured list; the GUI never receives a database URL. Invoice line
+editing remains deliberately separate. See the
 [Qt GUI prototype](QT-GUI.md) for the exact current scope.
 
 To inspect the generated OpenAPI document without starting a server:

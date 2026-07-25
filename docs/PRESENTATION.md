@@ -79,6 +79,24 @@ observed strong ETag when the entity defines one. Transactional collections,
 references/lookups, conflict review, and domain actions remain outside this
 flat-form tranche.
 
+The next Qt tranche extends that form contract to compiler-approved reference
+lookups. A reference must opt into `editor: lookup` and resolve a lookup view
+whose target is list-accessible to the authenticated principal. Qt renders its
+readable columns, debounces search across the declared search fields, and
+performs each typed query outside the GUI thread. Choosing a row does not
+assign it locally: Qt calls the shared reference-selection endpoint so
+`on_select` defaults, field-write authorization, and protected source values
+remain server-owned.
+
+When the reference configuration declares `allow_create: true`, resolves a
+target form, and the session advertises target create access, **New** opens that
+same metadata-driven Qt form. **Save & Select** commits the referenced record
+independently and then applies its identity to the still-unsaved parent draft.
+Invoice header editing uses this contract for Customer today. Collection
+sections are omitted with an explicit unchanged-or-empty notice, so InvoiceLine
+editing cannot be mistaken for an implemented transactional master-detail
+workflow.
+
 Textual consumes the resolved browse action list rather than inventing a
 separate toolbar contract. `delete` is shown only when it is present in that
 list and the current principal has the entity's explicit delete permission.

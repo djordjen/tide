@@ -143,9 +143,11 @@ application-owned Faker profile and the real secured services.
   width/order persistence; **implemented**; privileged designer publishing of
   shared metadata defaults remains deferred
 - metadata-driven flat Product/Customer create and update forms through the
-  authenticated Qt API client; **implemented**; Invoice master-detail,
-  lookup/create-and-select, conflict review, actions, and reports remain
-  deferred
+  authenticated Qt API client; **implemented**
+- Qt Invoice-header create/update with a compiled, searchable multi-column
+  Customer lookup and authorized nested **Save & Select** creation;
+  **implemented**; InvoiceLine master-detail, conflict review, actions, and
+  reports remain deferred
 - basic secured printable invoice with TUI preview, HTML, and PDF;
   **implemented**
 - opt-in REST list/get/create/update/delete and domain-action routes plus OpenAPI;

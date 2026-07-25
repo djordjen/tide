@@ -418,11 +418,12 @@ and use another terminal:
 .\start.bat gui
 ```
 
-Paste the printed API token into the hidden prompt. This starts a read-only Qt
-Invoice browse and installs the optional `gui` dependencies through `uv` when
+Paste the printed API token into the hidden prompt. This starts a Qt Invoice
+workspace and installs the optional `gui` dependencies through `uv` when
 needed. Use **View**, double-click, or **Enter** to inspect the selected Invoice
-and its lines. Search by Invoice number, select a metadata-defined named filter,
-or click a sortable column heading to order the complete server result; click
+and its lines. Use **Edit** for supported Invoice header fields. Search by
+Invoice number, select a metadata-defined named filter, or click a sortable
+column heading to order the complete server result; click
 the same heading again to reverse the order. **Clear** restores the default
 query. Drag headings or dividers to personalize column order and widths;
 **Best Fit** resizes all columns to current contents, and **Reset Layout**
@@ -432,6 +433,14 @@ the YAML. Scroll to the end to load and append another secured batch in the
 background. The GUI has no SQL Server URL or driver; it uses the same
 authenticated API client as remote Textual mode. See
 [Qt GUI Prototype](QT-GUI.md) for the current scope and explicit CLI form.
+
+In **Edit Invoice**, use **Select…** beside Customer or press F4. The
+multi-column lookup searches code, name, and email through FastAPI. Selecting a
+row applies the reference through the shared server draft operation. When your
+role can create Customers, **New** or Ctrl+N opens the Customer form;
+**Save & Select** returns to the still-unsaved Invoice. The line-items
+collection is preserved and explicitly marked unchanged in this header-only
+editing tranche.
 
 To test metadata-driven Qt creation and editing for flat master data, keep the
 same API server running and open either:
@@ -445,9 +454,8 @@ Use **New**, or select a row and use **Edit**. The Product form demonstrates
 the `0.00` Decimal mask and the Customer/Product code fields demonstrate regex
 masks; both forms follow the YAML row layout and writable capabilities. Tab or
 Enter traverses the left field column before the right. Saving runs through
-FastAPI in the background and refreshes the secured list. Invoice editing is
-still read-only because transactional lines, lookups, actions, and conflict
-review belong to the later master-detail tranche.
+FastAPI in the background and refreshes the secured list. InvoiceLine editing,
+actions, and conflict review belong to the later master-detail tranche.
 
 For a reviewed network test, first install the production identity adapter:
 

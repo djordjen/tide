@@ -57,6 +57,14 @@ class BrowseApiClient(Protocol):
         if_match: str | int | None = None,
     ) -> Any: ...
 
+    def apply_reference_selection(
+        self,
+        entity_name: str,
+        field_name: str,
+        values: Mapping[str, Any],
+        identity: Any,
+    ) -> dict[str, Any]: ...
+
 
 @dataclass(frozen=True, slots=True)
 class QtBrowseColumn:
@@ -85,7 +93,7 @@ class QtBrowseQuery:
 
 @dataclass(frozen=True, slots=True)
 class QtEditField:
-    """One flat-form field and the metadata needed by a Qt editor."""
+    """One form field and the metadata needed by a Qt editor."""
 
     name: str
     label: str
@@ -101,6 +109,9 @@ class QtEditField:
     scale: int | None = None
     minimum: int | Decimal | None = None
     maximum: int | Decimal | None = None
+    target_entity: str | None = None
+    reference_display: str = ""
+    lookup_view: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,6 +131,7 @@ class QtEditForm:
     etag: str | None
     original: Mapping[str, Any]
     groups: tuple[QtEditGroup, ...]
+    omitted_collections: tuple[str, ...] = ()
 
     @property
     def fields(self) -> tuple[QtEditField, ...]:
@@ -129,6 +141,42 @@ class QtEditForm:
             for row in group.rows
             for field in row
         )
+
+
+@dataclass(frozen=True, slots=True)
+class QtLookupSpec:
+    """Resolved secured lookup metadata for one reference editor."""
+
+    owner_entity: str
+    field_name: str
+    title: str
+    target_entity: str
+    columns: tuple[QtBrowseColumn, ...]
+    search_fields: tuple[str, ...]
+    limit: int
+    create_view: str | None = None
+
+    @property
+    def create_available(self) -> bool:
+        return self.create_view is not None
+
+
+@dataclass(frozen=True, slots=True)
+class QtLookupRecord:
+    identity: Any
+    display: str
+    cells: tuple[str, ...]
+    values: Mapping[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class QtLookupSelection:
+    """Server-applied reference choice and any declarative draft assignments."""
+
+    field_name: str
+    identity: Any
+    display: str
+    values: Mapping[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,7 +213,7 @@ class QtDetailRecord:
 
 
 class QtBrowseController:
-    """Build metadata-driven read-only browse/detail without importing PySide6."""
+    """Build metadata-driven Qt contracts without importing PySide6."""
 
     def __init__(
         self,
@@ -174,6 +222,7 @@ class QtBrowseController:
         session: TideSessionInfo,
         *,
         view_name: str | None = None,
+        form_view_name: str | None = None,
         page_size: int | None = None,
     ) -> None:
         self.model = model
@@ -181,7 +230,12 @@ class QtBrowseController:
         self.session = session
         self.view = _select_browse_view(model, session, view_name)
         self.entity = model.entity(self.view.entity)
-        self.detail_view = _select_form_view(model, session, self.entity.name)
+        self.detail_view = _select_form_view(
+            model,
+            session,
+            self.entity.name,
+            form_view_name,
+        )
         self.field_names = _browse_columns(self.view, self.entity)
         self.search_field = browse_search_field(self.view, self.entity)
         self.named_filters: dict[str, BrowseNamedFilter] = browse_named_filters(
@@ -227,16 +281,18 @@ class QtBrowseController:
     @property
     def create_available(self) -> bool:
         return bool(
-            self._flat_form_available
+            self._supported_form_available
             and "create" in self._entity_capabilities.operations
+            and self._has_writable_form_field
         )
 
     @property
     def update_available(self) -> bool:
         return bool(
-            self._flat_form_available
+            self._supported_form_available
             and "get" in self._entity_capabilities.operations
             and "update" in self._entity_capabilities.operations
+            and self._has_writable_form_field
         )
 
     @property
@@ -250,29 +306,40 @@ class QtBrowseController:
         return self.session.entities.get(self.entity.name, _EMPTY_CAPABILITIES)
 
     @property
-    def _flat_form_available(self) -> bool:
+    def _supported_form_available(self) -> bool:
         if self.detail_view is None:
             return False
-        field_names = _flat_form_field_names(self.detail_view, self.entity)
-        return bool(
-            field_names
-            and not any(
-                section.get("collection")
-                for section in self.detail_view.data.get("layout", ())
-            )
-            and all(
-                self.entity.field(name).metadata["type"]
-                in {
-                    "boolean",
-                    "choice",
-                    "date",
-                    "datetime",
-                    "decimal",
-                    "integer",
-                    "string",
-                }
-                for name in field_names
-            )
+        field_names = _form_field_names(self.detail_view, self.entity)
+        if not field_names:
+            return False
+        scalar_types = {
+            "boolean",
+            "choice",
+            "date",
+            "datetime",
+            "decimal",
+            "integer",
+            "string",
+        }
+        for name in field_names:
+            field_type = self.entity.field(name).metadata["type"]
+            if field_type in scalar_types:
+                continue
+            if field_type != "reference":
+                return False
+            try:
+                self.lookup_spec(name)
+            except ValueError:
+                return False
+        return True
+
+    @property
+    def _has_writable_form_field(self) -> bool:
+        if self.detail_view is None:
+            return False
+        return any(
+            name in self._entity_capabilities.writable_fields
+            for name in _form_field_names(self.detail_view, self.entity)
         )
 
     def reset_browse(self) -> None:
@@ -388,11 +455,11 @@ class QtBrowseController:
         )
 
     def new_form(self) -> QtEditForm:
-        """Open a metadata-defaulted flat create form without touching storage."""
+        """Open a metadata-defaulted create form without touching storage."""
 
         if not self.create_available:
             raise ValueError(
-                f"{self.entity.name} does not define an accessible flat create form"
+                f"{self.entity.name} does not define an accessible create form"
             )
         defaults: dict[str, Any] = {}
         for field_name, field in self.entity.fields.items():
@@ -409,11 +476,11 @@ class QtBrowseController:
         )
 
     def edit_form(self, identity: Any) -> QtEditForm:
-        """Load one editable flat record through the authenticated API."""
+        """Load one editable record through the authenticated API."""
 
         if not self.update_available:
             raise ValueError(
-                f"{self.entity.name} does not define an accessible flat update form"
+                f"{self.entity.name} does not define an accessible update form"
             )
         if identity is None or identity is PROTECTED:
             raise ValueError("Qt edit record identity is unavailable")
@@ -430,7 +497,7 @@ class QtBrowseController:
         form: QtEditForm,
         values: Mapping[str, Any],
     ) -> dict[str, Any]:
-        """Commit one flat draft through typed create/update API methods."""
+        """Commit one supported draft through typed create/update API methods."""
 
         if form.entity != self.entity.name:
             raise ValueError("Qt edit form belongs to a different entity")
@@ -471,6 +538,220 @@ class QtBrowseController:
             if_match=form.etag,
         ).values
 
+    def lookup_spec(self, field_name: str) -> QtLookupSpec:
+        """Resolve one reference lookup without granting any server access."""
+
+        if self.detail_view is None or field_name not in self.entity.fields:
+            raise ValueError(f"Qt lookup field {field_name!r} is not available")
+        field = self.entity.field(field_name)
+        if field.metadata["type"] != "reference" or not field.target_entity:
+            raise ValueError(f"field {field_name!r} is not a reference")
+        configuration = _view_field_configuration(self.detail_view, field_name)
+        if configuration.get("editor") != "lookup":
+            raise ValueError(f"field {field_name!r} does not use a lookup editor")
+        lookup_name = configuration.get(
+            "lookup_view",
+            field.metadata.get("lookup_view"),
+        )
+        lookup = self.model.views.get(str(lookup_name)) if lookup_name else None
+        if (
+            lookup is None
+            or lookup.kind != "lookup"
+            or lookup.entity != field.target_entity
+        ):
+            raise ValueError(f"field {field_name!r} has no valid lookup view")
+        target = self.model.entity(field.target_entity)
+        capabilities = self.session.entities.get(
+            target.name,
+            _EMPTY_CAPABILITIES,
+        )
+        if "list" not in capabilities.operations:
+            raise ValueError(
+                f"{target.name} lookup is not accessible to this principal"
+            )
+        readable = set(capabilities.readable_fields)
+        field_names = tuple(
+            name
+            for name in _lookup_columns(lookup, target)
+            if name in readable
+        )
+        if not field_names:
+            raise ValueError(f"lookup view {lookup.name!r} has no readable columns")
+        search_fields = tuple(
+            name
+            for name in _lookup_search_fields(lookup, target)
+            if name in readable
+        )
+        if not search_fields:
+            raise ValueError(
+                f"lookup view {lookup.name!r} has no readable search fields"
+            )
+        create_name = configuration.get("create_view")
+        create_view = (
+            self.model.views.get(str(create_name)) if create_name else None
+        )
+        create_available = bool(
+            configuration.get("allow_create") is True
+            and create_view is not None
+            and create_view.kind == "form"
+            and create_view.entity == target.name
+            and "create" in capabilities.operations
+            and capabilities.writable_fields
+        )
+        return QtLookupSpec(
+            owner_entity=self.entity.name,
+            field_name=field_name,
+            title=f"Select {target.label.removesuffix('s') or target.label}",
+            target_entity=target.name,
+            columns=tuple(
+                QtBrowseColumn(
+                    name,
+                    _field_label(target.field(name)),
+                    _field_alignment(target.field(name), self.model.formats),
+                )
+                for name in field_names
+            ),
+            search_fields=search_fields,
+            limit=max(
+                1,
+                min(
+                    500,
+                    int(lookup.data.get("settings", {}).get("page_size", 20)),
+                ),
+            ),
+            create_view=create_view.name if create_available else None,
+        )
+
+    def search_lookup(
+        self,
+        spec: QtLookupSpec,
+        search_text: str,
+    ) -> tuple[QtLookupRecord, ...]:
+        """Return bounded secured matches using the ordinary query API."""
+
+        if spec.owner_entity != self.entity.name:
+            raise ValueError("Qt lookup belongs to a different entity")
+        target = self.model.entity(spec.target_entity)
+        key_name = _primary_key_name(target)
+        candidate = search_text.strip()
+        sort = (SortField(spec.search_fields[0]),)
+        records: dict[Any, Mapping[str, Any]] = {}
+        queries = (
+            (
+                QuerySpec(sort=sort, limit=spec.limit),
+            )
+            if not candidate
+            else tuple(
+                QuerySpec(
+                    filters=(
+                        FilterCondition(field_name, "icontains", candidate),
+                    ),
+                    sort=sort,
+                    limit=spec.limit,
+                )
+                for field_name in spec.search_fields
+            )
+        )
+        for query in queries:
+            page = self.client.query_records(target.name, query)
+            for record in page.records:
+                identity = record.get(key_name)
+                if identity is None or identity is PROTECTED:
+                    continue
+                records.setdefault(identity, record)
+                if len(records) >= spec.limit:
+                    break
+            if len(records) >= spec.limit:
+                break
+        return tuple(
+            self.lookup_record(spec, record)
+            for record in records.values()
+        )
+
+    def lookup_record(
+        self,
+        spec: QtLookupSpec,
+        values: Mapping[str, Any],
+    ) -> QtLookupRecord:
+        """Format one selected or newly created target record consistently."""
+
+        if spec.owner_entity != self.entity.name:
+            raise ValueError("Qt lookup belongs to a different entity")
+        target = self.model.entity(spec.target_entity)
+        identity = values.get(_primary_key_name(target))
+        if identity is None or identity is PROTECTED:
+            raise ValueError("Qt lookup record identity is unavailable")
+        return QtLookupRecord(
+            identity=identity,
+            display=_display_record(target, values),
+            cells=tuple(
+                self._format_value(target.field(column.name), values.get(column.name))
+                for column in spec.columns
+            ),
+            values=deepcopy(dict(values)),
+        )
+
+    def apply_lookup_selection(
+        self,
+        form: QtEditForm,
+        field_name: str,
+        values: Mapping[str, Any],
+        record: QtLookupRecord,
+    ) -> QtLookupSelection:
+        """Apply a selected identity through the server-owned draft operation."""
+
+        if form.entity != self.entity.name:
+            raise ValueError("Qt edit form belongs to a different entity")
+        spec = self.lookup_spec(field_name)
+        if spec.target_entity != self.entity.field(field_name).target_entity:
+            raise ValueError("Qt lookup target does not match the reference")
+        updated = self.client.apply_reference_selection(
+            self.entity.name,
+            field_name,
+            values,
+            record.identity,
+        )
+        return QtLookupSelection(
+            field_name=field_name,
+            identity=record.identity,
+            display=record.display,
+            values=deepcopy(dict(updated)),
+        )
+
+    def related_create_controller(
+        self,
+        spec: QtLookupSpec,
+    ) -> QtBrowseController:
+        """Create a target controller pinned to the compiler-approved create form."""
+
+        if not spec.create_available:
+            raise ValueError("Qt lookup does not permit related record creation")
+        browse = next(
+            (
+                view
+                for view in self.model.views.values()
+                if view.kind == "browse"
+                and view.entity == spec.target_entity
+                and "list"
+                in self.session.entities.get(
+                    view.entity,
+                    _EMPTY_CAPABILITIES,
+                ).operations
+            ),
+            None,
+        )
+        if browse is None:
+            raise ValueError(
+                f"{spec.target_entity} has no accessible browse view"
+            )
+        return QtBrowseController(
+            self.model,
+            self.client,
+            self.session,
+            view_name=browse.name,
+            form_view_name=spec.create_view,
+        )
+
     def _edit_form(
         self,
         *,
@@ -481,13 +762,25 @@ class QtBrowseController:
     ) -> QtEditForm:
         assert self.detail_view is not None
         groups: list[QtEditGroup] = []
+        omitted_collections: list[str] = []
         for configuration in self.detail_view.data.get("layout", ()):
+            collection_name = configuration.get("collection")
+            if collection_name:
+                omitted_collections.append(str(collection_name))
+                continue
             label = configuration.get("group")
             if not label:
                 continue
             rows = tuple(
                 tuple(
-                    self._edit_field(self.entity.field(str(name)), values)
+                    self._edit_field(
+                        self.entity.field(str(name)),
+                        values,
+                        _view_field_configuration(
+                            self.detail_view,
+                            str(name),
+                        ),
+                    )
                     for name in row
                     if str(name) in self.entity.fields
                     and self.entity.field(str(name)).metadata["type"]
@@ -502,7 +795,7 @@ class QtBrowseController:
         if not groups:
             rows = tuple(
                 (self._edit_field(self.entity.field(name), values),)
-                for name in _flat_form_field_names(self.detail_view, self.entity)
+                for name in _form_field_names(self.detail_view, self.entity)
             )
             groups.append(QtEditGroup(self.entity.label, rows))
         singular = self.entity.label.removesuffix("s") or self.entity.label
@@ -518,14 +811,17 @@ class QtBrowseController:
             etag=etag,
             original=deepcopy(dict(values)),
             groups=tuple(groups),
+            omitted_collections=tuple(omitted_collections),
         )
 
     def _edit_field(
         self,
         field: NormalizedField,
         values: Mapping[str, Any],
+        configuration: Mapping[str, Any] | None = None,
     ) -> QtEditField:
         metadata = field.metadata
+        configuration = configuration or {}
         edit_mask = metadata.get("edit_mask")
         value = values.get(field.name)
         immutable_when = metadata.get("immutable_when")
@@ -571,6 +867,30 @@ class QtBrowseController:
             ),
             minimum=metadata.get("minimum"),
             maximum=metadata.get("maximum"),
+            target_entity=field.target_entity,
+            reference_display=(
+                self._reference_display(field.target_entity, value)
+                if metadata["type"] == "reference"
+                and field.target_entity
+                and value is not None
+                and value is not PROTECTED
+                else ""
+            ),
+            lookup_view=(
+                str(
+                    configuration.get(
+                        "lookup_view",
+                        metadata.get("lookup_view"),
+                    )
+                )
+                if metadata["type"] == "reference"
+                and configuration.get("editor") == "lookup"
+                and configuration.get(
+                    "lookup_view",
+                    metadata.get("lookup_view"),
+                )
+                else None
+            ),
         )
 
     def _detail_sections(
@@ -748,6 +1068,7 @@ def _select_form_view(
     model: ApplicationModel,
     session: TideSessionInfo,
     entity_name: str,
+    view_name: str | None = None,
 ) -> ResolvedView | None:
     capabilities = session.entities.get(entity_name, _EMPTY_CAPABILITIES)
     if not (
@@ -755,14 +1076,21 @@ def _select_form_view(
         or capabilities.draft_operations
     ):
         return None
-    return next(
+    selected = next(
         (
             view
             for view in model.views.values()
-            if view.kind == "form" and view.entity == entity_name
+            if view.kind == "form"
+            and view.entity == entity_name
+            and (view_name is None or view.name == view_name)
         ),
         None,
     )
+    if view_name is not None and selected is None:
+        raise ValueError(
+            f"Qt form view {view_name!r} is not accessible for {entity_name}"
+        )
+    return selected
 
 
 class _EmptyCapabilities:
@@ -806,7 +1134,7 @@ def _field_is_hidden(view: ResolvedView, field_name: str) -> bool:
     )
 
 
-def _flat_form_field_names(
+def _form_field_names(
     view: ResolvedView,
     entity: NormalizedEntity,
 ) -> tuple[str, ...]:
@@ -829,6 +1157,44 @@ def _flat_form_field_names(
         for name, field in entity.fields.items()
         if field.metadata["type"] != "collection"
         and not _field_is_hidden(view, name)
+    )
+
+
+def _view_field_configuration(
+    view: ResolvedView,
+    field_name: str,
+) -> Mapping[str, Any]:
+    fields = view.data.get("fields", {})
+    if not isinstance(fields, Mapping):
+        return {}
+    configuration = fields.get(field_name, {})
+    return configuration if isinstance(configuration, Mapping) else {}
+
+
+def _lookup_columns(
+    view: ResolvedView,
+    entity: NormalizedEntity,
+) -> tuple[str, ...]:
+    configured = tuple(str(name) for name in view.data.get("columns", ()))
+    return configured or tuple(
+        name
+        for name, field in entity.fields.items()
+        if field.metadata["type"] != "collection"
+    )
+
+
+def _lookup_search_fields(
+    view: ResolvedView,
+    entity: NormalizedEntity,
+) -> tuple[str, ...]:
+    configured = tuple(str(name) for name in view.data.get("search", ()))
+    candidates = configured or tuple(entity.metadata.get("search_fields", ()))
+    return tuple(
+        name
+        for name in candidates
+        if name in entity.fields
+        and entity.field(name).metadata["type"] in {"string", "choice"}
+        and not entity.field(name).metadata.get("computed")
     )
 
 

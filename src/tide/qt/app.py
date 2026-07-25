@@ -72,6 +72,9 @@ from .presenter import (
     QtDetailRecord,
     QtEditField,
     QtEditForm,
+    QtLookupRecord,
+    QtLookupSelection,
+    QtLookupSpec,
 )
 
 
@@ -98,8 +101,253 @@ class _CallWorker(QRunnable):
         self.signals.completed.emit(result, self)
 
 
+class TideQtReferenceEditor(QWidget):
+    """Compact reference editor that opens a secured multi-column lookup."""
+
+    lookupRequested = Signal()
+
+    def __init__(self, field: QtEditField, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.field = field
+        self._identity = field.value
+        self.setObjectName(f"edit-field-{field.name}")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        self.display = QLineEdit(field.reference_display)
+        self.display.setObjectName(f"reference-display-{field.name}")
+        self.display.setReadOnly(True)
+        self.select_button = QPushButton("Select…")
+        self.select_button.setObjectName(f"lookup-{field.name}")
+        self.select_button.clicked.connect(self.lookupRequested)
+        self.clear_button = QPushButton("Clear")
+        self.clear_button.setObjectName(f"clear-reference-{field.name}")
+        self.clear_button.setVisible(not field.required)
+        self.clear_button.clicked.connect(self.clear)
+        layout.addWidget(self.display, 1)
+        layout.addWidget(self.select_button)
+        layout.addWidget(self.clear_button)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setFocusProxy(self.select_button)
+        self._lookup_shortcut = QShortcut(QKeySequence("F4"), self)
+        self._lookup_shortcut.activated.connect(self.lookupRequested)
+
+    @property
+    def identity(self) -> Any:
+        return self._identity
+
+    def set_selection(self, identity: Any, display: str) -> None:
+        self._identity = identity
+        self.display.setText(display)
+
+    def clear(self) -> None:
+        self.set_selection(None, "")
+
+
+class TideQtLookupDialog(QDialog):
+    """Search and select a secured reference record through compiled metadata."""
+
+    def __init__(
+        self,
+        controller: QtBrowseController,
+        spec: QtLookupSpec,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.controller = controller
+        self.spec = spec
+        self.selected_record: QtLookupRecord | None = None
+        self._records: tuple[QtLookupRecord, ...] = ()
+        self._workers: set[_CallWorker] = set()
+        self._create_dialogs: set[TideQtEditDialog] = set()
+        self._thread_pool = QThreadPool(self)
+        self._thread_pool.setMaxThreadCount(1)
+        self._generation = 0
+        self.setWindowTitle(f"{controller.model.name} — {spec.title}")
+        self.resize(760, 480)
+
+        layout = QVBoxLayout(self)
+        heading = QLabel(spec.title)
+        heading.setStyleSheet("font-size: 20px; font-weight: 600;")
+        layout.addWidget(heading)
+        self.search = QLineEdit()
+        self.search.setObjectName("lookup-search")
+        self.search.setClearButtonEnabled(True)
+        self.search.setPlaceholderText(
+            "Search "
+            + ", ".join(
+                controller.model.entity(spec.target_entity)
+                .field(name)
+                .metadata.get("label", name.replace("_", " ").title())
+                for name in spec.search_fields
+            )
+            + "…"
+        )
+        layout.addWidget(self.search)
+        self.table = QTableWidget(0, len(spec.columns))
+        self.table.setObjectName("lookup-results")
+        self.table.setHorizontalHeaderLabels(
+            [column.label for column in spec.columns]
+        )
+        self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.verticalHeader().setVisible(False)
+        _configure_interactive_header(self.table)
+        layout.addWidget(self.table, 1)
+        self.status = QLabel()
+        layout.addWidget(self.status)
+        actions = QHBoxLayout()
+        self.new_button = QPushButton("New")
+        self.new_button.setObjectName("create-lookup-record")
+        self.new_button.setEnabled(spec.create_available)
+        self.cancel_button = QPushButton("Cancel")
+        self.select_button = QPushButton("Select")
+        self.select_button.setObjectName("select-lookup")
+        self.select_button.setEnabled(False)
+        actions.addWidget(self.new_button)
+        actions.addStretch(1)
+        actions.addWidget(self.cancel_button)
+        actions.addWidget(self.select_button)
+        layout.addLayout(actions)
+
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(250)
+        self._search_timer.timeout.connect(self._reload)
+        self.search.textChanged.connect(lambda _text: self._search_timer.start())
+        self.search.returnPressed.connect(self._select_current)
+        self.table.itemSelectionChanged.connect(self._selection_changed)
+        self.table.cellDoubleClicked.connect(
+            lambda _row, _column: self._select_current()
+        )
+        self.new_button.clicked.connect(self._create_record)
+        self.cancel_button.clicked.connect(self.reject)
+        self.select_button.clicked.connect(self._select_current)
+        self._create_shortcut = QShortcut(QKeySequence("Ctrl+N"), self)
+        self._create_shortcut.activated.connect(
+            self._create_record
+        )
+        self._reload()
+        self.search.setFocus()
+
+    def wait_for_done(self, milliseconds: int = -1) -> bool:
+        searches_done = self._thread_pool.waitForDone(milliseconds)
+        creates_done = all(
+            dialog.wait_for_done(milliseconds)
+            for dialog in tuple(self._create_dialogs)
+        )
+        return searches_done and creates_done
+
+    def _reload(self) -> None:
+        self._search_timer.stop()
+        self._generation += 1
+        generation = self._generation
+        search_text = self.search.text()
+        self.status.setText("Searching through the TIDE API…")
+        self.select_button.setEnabled(False)
+        worker = _CallWorker(
+            lambda: (
+                generation,
+                self.controller.search_lookup(self.spec, search_text),
+                search_text,
+            )
+        )
+        self._workers.add(worker)
+        worker.signals.completed.connect(self._search_completed)
+        worker.signals.failed.connect(self._search_failed)
+        self._thread_pool.start(worker)
+
+    @Slot(object, object)
+    def _search_completed(
+        self,
+        payload: tuple[int, tuple[QtLookupRecord, ...], str],
+        worker: _CallWorker,
+    ) -> None:
+        self._workers.discard(worker)
+        generation, records, search_text = payload
+        if generation != self._generation:
+            return
+        self._records = records
+        self.table.setRowCount(len(records))
+        for row_index, record in enumerate(records):
+            for column_index, text in enumerate(record.cells):
+                item = QTableWidgetItem(text)
+                item.setTextAlignment(
+                    _qt_alignment(self.spec.columns[column_index].alignment)
+                )
+                self.table.setItem(row_index, column_index, item)
+        if records:
+            self.table.selectRow(0)
+            _fit_interactive_columns(self.table, self.spec.columns)
+        noun = "match" if len(records) == 1 else "matches"
+        suffix = f" for {search_text!r}" if search_text else ""
+        create_hint = "  ·  Ctrl+N creates" if self.spec.create_available else ""
+        self.status.setText(
+            f"{len(records)} {noun}{suffix}  ·  Enter selects{create_hint}"
+        )
+        self._selection_changed()
+
+    @Slot(object, object)
+    def _search_failed(self, error: Exception, worker: _CallWorker) -> None:
+        self._workers.discard(worker)
+        self._records = ()
+        self.table.setRowCount(0)
+        self.select_button.setEnabled(False)
+        self.status.setText(f"Lookup failed: {error}")
+
+    def _selection_changed(self) -> None:
+        row = self.table.currentRow()
+        self.select_button.setEnabled(0 <= row < len(self._records))
+
+    def _select_current(self) -> None:
+        row = self.table.currentRow()
+        if 0 <= row < len(self._records):
+            self.selected_record = self._records[row]
+            self.accept()
+
+    def _create_record(self) -> None:
+        if not self.spec.create_available:
+            return
+        try:
+            target = self.controller.related_create_controller(self.spec)
+            form = target.new_form()
+        except ValueError as error:
+            QMessageBox.critical(self, "TIDE Qt", str(error))
+            return
+        dialog = TideQtEditDialog(
+            target,
+            form,
+            parent=self,
+            save_label="Save & Select",
+        )
+        self._create_dialogs.add(dialog)
+        dialog.recordSaved.connect(self._record_created)
+        dialog.finished.connect(
+            lambda _result, current=dialog: self._create_dialogs.discard(current)
+        )
+        dialog.show()
+
+    @Slot(object)
+    def _record_created(self, stored: Mapping[str, Any]) -> None:
+        try:
+            self.selected_record = self.controller.lookup_record(
+                self.spec,
+                stored,
+            )
+        except ValueError as error:
+            QMessageBox.critical(self, "TIDE Qt", str(error))
+            return
+        self.accept()
+
+
 class TideQtEditDialog(QDialog):
-    """Metadata-driven create/update dialog for one flat entity."""
+    """Metadata-driven create/update dialog for supported form fields."""
 
     recordSaved = Signal(object)
 
@@ -108,6 +356,8 @@ class TideQtEditDialog(QDialog):
         controller: QtBrowseController,
         form: QtEditForm,
         parent: QWidget | None = None,
+        *,
+        save_label: str = "Save",
     ) -> None:
         super().__init__(parent)
         self.controller = controller
@@ -115,9 +365,11 @@ class TideQtEditDialog(QDialog):
         self.editors: dict[str, QWidget] = {}
         self._fields = {field.name: field for field in form.fields}
         self._workers: set[_CallWorker] = set()
+        self._lookup_dialogs: set[TideQtLookupDialog] = set()
         self._thread_pool = QThreadPool(self)
         self._thread_pool.setMaxThreadCount(1)
         self._saving = False
+        self._save_label = save_label
         self.setWindowTitle(f"{controller.model.name} — {form.title}")
         self.resize(760, 360)
 
@@ -125,6 +377,31 @@ class TideQtEditDialog(QDialog):
         heading = QLabel(form.title)
         heading.setStyleSheet("font-size: 20px; font-weight: 600;")
         layout.addWidget(heading)
+        if form.omitted_collections:
+            collection_labels = ", ".join(
+                controller.entity.field(name).metadata.get(
+                    "label",
+                    name.replace("_", " ").title(),
+                )
+                for name in form.omitted_collections
+                if name in controller.entity.fields
+            )
+            note = QLabel(
+                (
+                    f"{collection_labels} are not editable in this Qt header "
+                    "form and will start empty."
+                    if form.operation == "create"
+                    else (
+                        f"{collection_labels} remain unchanged in this Qt "
+                        "header form; use View to inspect them."
+                    )
+                )
+            )
+            note.setWordWrap(True)
+            note.setStyleSheet(
+                "background: palette(alternate-base); padding: 6px;"
+            )
+            layout.addWidget(note)
         focus_order: list[QWidget] = []
         for group in form.groups:
             container = QGroupBox(group.label)
@@ -176,6 +453,7 @@ class TideQtEditDialog(QDialog):
             QDialogButtonBox.StandardButton.Cancel
         )
         self.save_button.clicked.connect(self._save)
+        self.save_button.setText(save_label)
         self.cancel_button.clicked.connect(self.reject)
         layout.addWidget(self.buttons)
         QShortcut(QKeySequence.StandardKey.Save, self).activated.connect(self._save)
@@ -206,9 +484,24 @@ class TideQtEditDialog(QDialog):
         super().closeEvent(event)
 
     def wait_for_done(self, milliseconds: int = -1) -> bool:
-        return self._thread_pool.waitForDone(milliseconds)
+        work_done = self._thread_pool.waitForDone(milliseconds)
+        lookups_done = all(
+            dialog.wait_for_done(milliseconds)
+            for dialog in tuple(self._lookup_dialogs)
+        )
+        return work_done and lookups_done
 
     def _field_editor(self, field: QtEditField) -> QWidget:
+        if (
+            field.field_type == "reference"
+            and field.lookup_view is not None
+            and field.editable
+        ):
+            editor = TideQtReferenceEditor(field)
+            editor.lookupRequested.connect(
+                lambda item=field: self._open_lookup(item)
+            )
+            return editor
         if field.field_type == "boolean" and field.editable:
             editor = QCheckBox()
             editor.setChecked(bool(field.value))
@@ -273,14 +566,103 @@ class TideQtEditDialog(QDialog):
         worker.signals.failed.connect(self._save_failed)
         self._thread_pool.start(worker)
 
-    def _editor_values(self) -> dict[str, Any]:
+    def _editor_values(
+        self,
+        *,
+        enforce_required: bool = True,
+    ) -> dict[str, Any]:
         values: dict[str, Any] = {}
         for field_name, editor in self.editors.items():
             field = self._fields[field_name]
             if not field.editable:
                 continue
-            values[field_name] = _editor_value(field, editor)
+            values[field_name] = _editor_value(
+                field,
+                editor,
+                enforce_required=enforce_required,
+            )
         return values
+
+    def _open_lookup(self, field: QtEditField) -> None:
+        if self._saving:
+            return
+        try:
+            spec = self.controller.lookup_spec(field.name)
+        except ValueError as error:
+            self.message.setText(f"Lookup unavailable: {error}")
+            return
+        dialog = TideQtLookupDialog(self.controller, spec, parent=self)
+        self._lookup_dialogs.add(dialog)
+        dialog.finished.connect(
+            lambda result, current=dialog, item=field: self._lookup_finished(
+                current,
+                item,
+                result,
+            )
+        )
+        dialog.show()
+
+    def _lookup_finished(
+        self,
+        dialog: TideQtLookupDialog,
+        field: QtEditField,
+        result: int,
+    ) -> None:
+        if result != QDialog.DialogCode.Accepted or dialog.selected_record is None:
+            return
+        try:
+            values = self._editor_values(enforce_required=False)
+        except ValueError as error:
+            self.message.setText(str(error))
+            return
+        self._set_saving(
+            True,
+            label="Applying…",
+            message="Applying the secured lookup selection…",
+        )
+        worker = _CallWorker(
+            lambda: self.controller.apply_lookup_selection(
+                self.form,
+                field.name,
+                values,
+                dialog.selected_record,
+            )
+        )
+        self._workers.add(worker)
+        worker.signals.completed.connect(self._lookup_applied)
+        worker.signals.failed.connect(self._lookup_failed)
+        self._thread_pool.start(worker)
+
+    @Slot(object, object)
+    def _lookup_applied(
+        self,
+        selection: QtLookupSelection,
+        worker: _CallWorker,
+    ) -> None:
+        self._workers.discard(worker)
+        for name, value in selection.values.items():
+            editor = self.editors.get(name)
+            field = self._fields.get(name)
+            if editor is None or field is None or not field.editable:
+                continue
+            _set_editor_value(
+                field,
+                editor,
+                value,
+                reference_display=(
+                    selection.display if name == selection.field_name else None
+                ),
+            )
+        self._set_saving(False)
+        self.message.setText(
+            f"{selection.display} selected; initial values applied."
+        )
+
+    @Slot(object, object)
+    def _lookup_failed(self, error: Exception, worker: _CallWorker) -> None:
+        self._workers.discard(worker)
+        self._set_saving(False)
+        self.message.setText(f"Lookup selection failed: {error}")
 
     @Slot(object, object)
     def _save_completed(
@@ -299,16 +681,22 @@ class TideQtEditDialog(QDialog):
         self._set_saving(False)
         self.message.setText(f"Save failed: {error}")
 
-    def _set_saving(self, saving: bool) -> None:
+    def _set_saving(
+        self,
+        saving: bool,
+        *,
+        label: str = "Saving…",
+        message: str = "Saving through the TIDE API…",
+    ) -> None:
         self._saving = saving
         for field_name, editor in self.editors.items():
             if self._fields[field_name].editable:
                 editor.setEnabled(not saving)
         self.save_button.setEnabled(not saving)
         self.cancel_button.setEnabled(not saving)
-        self.save_button.setText("Saving…" if saving else "Save")
+        self.save_button.setText(label if saving else self._save_label)
         if saving:
-            self.message.setText("Saving through the TIDE API…")
+            self.message.setText(message)
 
 
 class TideQtDetailDialog(QDialog):
@@ -645,7 +1033,7 @@ class TideQtTableModel(QAbstractTableModel):
 
 
 class TideQtWindow(QMainWindow):
-    """Read-only Qt browse that delegates all data access to TideApiClient."""
+    """Remote Qt workspace that delegates all data access to TideApiClient."""
 
     def __init__(
         self,
@@ -1266,7 +1654,12 @@ def _apply_column_order(
 
 
 def _edit_text(field: QtEditField) -> str:
-    value = field.value
+    if field.field_type == "reference":
+        return field.reference_display
+    return _value_text(field, field.value)
+
+
+def _value_text(field: QtEditField, value: Any) -> str:
     if value is PROTECTED:
         return "Protected"
     if value is None:
@@ -1338,19 +1731,29 @@ def _normalize_numeric_editor(
     editor.setText(formatted)
 
 
-def _editor_value(field: QtEditField, editor: QWidget) -> Any:
+def _editor_value(
+    field: QtEditField,
+    editor: QWidget,
+    *,
+    enforce_required: bool = True,
+) -> Any:
+    if isinstance(editor, TideQtReferenceEditor):
+        value = editor.identity
+        if value is None and field.required and enforce_required:
+            raise ValueError(f"{field.label} is required")
+        return value
     if isinstance(editor, QCheckBox):
         return editor.isChecked()
     if isinstance(editor, QComboBox):
         value = editor.currentData()
-        if value is None and field.required:
+        if value is None and field.required and enforce_required:
             raise ValueError(f"{field.label} is required")
         return value
     if not isinstance(editor, QLineEdit):
         raise ValueError(f"{field.label} uses an unsupported editor")
     raw = editor.text().strip()
     if not raw:
-        if field.required:
+        if field.required and enforce_required:
             raise ValueError(f"{field.label} is required")
         return None
     if not editor.hasAcceptableInput():
@@ -1373,6 +1776,27 @@ def _editor_value(field: QtEditField, editor: QWidget) -> Any:
     if field.maximum is not None and value > field.maximum:
         raise ValueError(f"{field.label} must be at most {field.maximum}")
     return value
+
+
+def _set_editor_value(
+    field: QtEditField,
+    editor: QWidget,
+    value: Any,
+    *,
+    reference_display: str | None = None,
+) -> None:
+    if isinstance(editor, TideQtReferenceEditor):
+        editor.set_selection(value, reference_display or "")
+        return
+    if isinstance(editor, QCheckBox):
+        editor.setChecked(bool(value))
+        return
+    if isinstance(editor, QComboBox):
+        index = editor.findData(value)
+        editor.setCurrentIndex(max(index, 0))
+        return
+    if isinstance(editor, QLineEdit):
+        editor.setText(_value_text(field, value))
 
 
 def _parse_edit_date(value: str) -> date:

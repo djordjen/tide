@@ -30,8 +30,9 @@ business behavior remains ordinary Python.
 New here? Follow [Getting Started](docs/GETTING-STARTED.md) to run the demo TUI,
 open Studio, inspect REST/OpenAPI and MCP, and optionally connect SQL Server.
 The native [Qt GUI prototype](docs/QT-GUI.md) can browse and inspect records,
-and now create/edit flat Customer and Product forms through the same secured
-remote application without database credentials.
+create/edit Customer and Product forms, and edit Invoice headers with a secured
+multi-column Customer lookup and nested **Save & Select** creation—all without
+database credentials.
 
 ## TUI preview
 
@@ -225,11 +226,13 @@ can now select an explicitly configured SQLAlchemy deployment repository;
 managed deployments use durable cursor, idempotency, action-audit, and
 record-audit stores.
 The optional Qt client now provides cursor-backed browse/search/sort,
-per-principal column layouts, read-only Invoice detail, and metadata-driven
-flat Customer/Product create and update forms over the typed FastAPI client.
-Qt mutation controls follow session capabilities, preserve Decimal values and
-ETag preconditions, and run network work outside the GUI thread; Invoice
-master-detail editing remains a later tranche.
+per-principal column layouts, Invoice detail, metadata-driven Customer/Product
+forms, and Invoice-header create/update over the typed FastAPI client. Reference
+metadata drives a debounced multi-column Customer lookup; authorized users may
+open the compiled Customer form and return through **Save & Select** without
+losing the Invoice draft. Qt mutation controls follow session capabilities,
+preserve Decimal values and ETag preconditions, and run network work outside
+the GUI thread; Invoice line editing remains a later tranche.
 Stale TUI edits now open a three-way Original/Current/Your draft review. Users
 may reload, continue inspecting their draft, or explicitly choose Current/Mine
 for every overlapping field before rebasing. Non-conflicting draft fields are

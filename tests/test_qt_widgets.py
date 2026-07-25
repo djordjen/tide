@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 from tide import compile_project
 from tide.api.contracts import TideEntityCapabilities, TideSessionInfo
 from tide.data import FilterCondition, QuerySpec, SortField
-from tide.qt import QtBrowseController, TideQtWindow
+from tide.qt import QtBrowseController, TideQtReferenceEditor, TideQtWindow
 
 
 ROOT = Path(__file__).parents[1]
@@ -166,6 +166,111 @@ class _ProductWidgetClient:
         record = next(item for item in self.records if item["id"] == identity)
         record.update(values)
         return SimpleNamespace(values=dict(record), etag='"4"')
+
+
+class _InvoiceLookupWidgetClient:
+    def __init__(self) -> None:
+        self.invoice = {
+            "id": 1,
+            "number": "INV-QT-LOOKUP",
+            "invoice_date": date(2026, 7, 25),
+            "currency": "EUR",
+            "status": "draft",
+            "posted_at": None,
+            "posted_by": None,
+            "version": 1,
+            "customer": 1,
+            "lines": [],
+            "total": Decimal("0.00"),
+        }
+        self.customers = [
+            {
+                "id": 1,
+                "code": "ADRIA",
+                "name": "Adria Consulting",
+                "email": "office@adria.test",
+                "active": True,
+            },
+            {
+                "id": 2,
+                "code": "NORTH",
+                "name": "Northwind",
+                "email": "office@north.test",
+                "active": True,
+            },
+        ]
+        self.queries: list[tuple[str, QuerySpec]] = []
+        self.updated: list[tuple[Any, dict[str, Any], Any]] = []
+        self.created_customers: list[dict[str, Any]] = []
+        self.reference_selections: list[Any] = []
+        self.network_threads: list[int] = []
+
+    def query_records(self, entity_name: str, query: QuerySpec) -> Any:
+        self.network_threads.append(threading.get_ident())
+        self.queries.append((entity_name, query))
+        if entity_name == "sales.Invoice":
+            return SimpleNamespace(records=(dict(self.invoice),), next_cursor=None)
+        assert entity_name == "crm.Customer"
+        records = self.customers
+        if query.filters:
+            condition = query.filters[0]
+            candidate = str(condition.value).casefold()
+            records = [
+                record
+                for record in records
+                if candidate in str(record.get(condition.field, "")).casefold()
+            ]
+        return SimpleNamespace(
+            records=tuple(dict(record) for record in records),
+            next_cursor=None,
+        )
+
+    def get_record(self, entity_name: str, identity: Any) -> Any:
+        self.network_threads.append(threading.get_ident())
+        if entity_name == "sales.Invoice":
+            return SimpleNamespace(values=dict(self.invoice), etag='"9"')
+        assert entity_name == "crm.Customer"
+        record = next(item for item in self.customers if item["id"] == identity)
+        return SimpleNamespace(values=dict(record), etag=None)
+
+    def create_record(
+        self,
+        entity_name: str,
+        values: dict[str, Any],
+    ) -> Any:
+        self.network_threads.append(threading.get_ident())
+        assert entity_name == "crm.Customer"
+        self.created_customers.append(dict(values))
+        stored = {"id": 3, **values}
+        self.customers.append(stored)
+        return SimpleNamespace(values=dict(stored), etag=None)
+
+    def update_record(
+        self,
+        entity_name: str,
+        identity: Any,
+        values: dict[str, Any],
+        *,
+        if_match: str | int | None = None,
+    ) -> Any:
+        self.network_threads.append(threading.get_ident())
+        assert entity_name == "sales.Invoice"
+        self.updated.append((identity, dict(values), if_match))
+        self.invoice.update(values)
+        return SimpleNamespace(values=dict(self.invoice), etag='"10"')
+
+    def apply_reference_selection(
+        self,
+        entity_name: str,
+        field_name: str,
+        values: dict[str, Any],
+        identity: Any,
+    ) -> dict[str, Any]:
+        self.network_threads.append(threading.get_ident())
+        self.reference_selections.append(
+            (entity_name, field_name, dict(values), identity)
+        )
+        return {**values, field_name: identity}
 
 
 def test_qt_widget_adapter_incrementally_loads_the_server_list(
@@ -475,6 +580,139 @@ def test_qt_flat_product_form_creates_and_updates_through_api(
     assert window.wait_for_done(1000)
 
 
+def test_qt_invoice_customer_lookup_search_create_and_select(
+    tmp_path: Path,
+) -> None:
+    gui_thread = threading.get_ident()
+    application = QApplication.instance() or QApplication([])
+    model = compile_project(INVOICING)
+    client = _InvoiceLookupWidgetClient()
+    window = TideQtWindow(
+        QtBrowseController(
+            model,
+            client,
+            _invoice_edit_session(model),
+            page_size=5,
+        ),
+        source_label="lookup edit test",
+        layout_settings=_layout_settings(tmp_path / "invoice-lookup.ini"),
+    )
+    window.show()
+    _wait_until(
+        application,
+        lambda: window.table_model.rowCount() == 1
+        and not window.table_model.loading,
+    )
+
+    window.table.selectRow(0)
+    application.processEvents()
+    assert window.edit.isEnabled() is True
+    window.edit.click()
+    _wait_until(application, lambda: len(window._edit_dialogs) == 1)
+    edit_dialog = next(iter(window._edit_dialogs))
+    assert edit_dialog.form.omitted_collections == ("lines",)
+    customer = edit_dialog.editors["customer"]
+    assert isinstance(customer, TideQtReferenceEditor)
+    assert customer.identity == 1
+    assert customer.display.text() == "ADRIA - Adria Consulting"
+
+    customer.select_button.click()
+    _wait_until(
+        application,
+        lambda: any(
+            dialog.isVisible()
+            and dialog.table.rowCount() == 2
+            and "matches" in dialog.status.text()
+            for dialog in edit_dialog._lookup_dialogs
+        ),
+    )
+    lookup = next(
+        dialog for dialog in edit_dialog._lookup_dialogs if dialog.isVisible()
+    )
+    lookup.search.setText("north")
+    _wait_until(
+        application,
+        lambda: lookup.table.rowCount() == 1
+        and lookup.table.item(0, 0).text() == "NORTH"
+        and "for 'north'" in lookup.status.text(),
+    )
+    lookup.select_button.click()
+    _wait_until(
+        application,
+        lambda: customer.identity == 2
+        and not edit_dialog._saving
+        and "selected" in edit_dialog.message.text(),
+    )
+    assert customer.display.text() == "NORTH - Northwind"
+
+    edit_dialog.save_button.click()
+    _wait_until(
+        application,
+        lambda: client.updated
+        and not window._edit_dialogs
+        and not window.table_model.loading,
+    )
+    assert client.updated == [(1, {"customer": 2}, '"9"')]
+
+    window.table.selectRow(0)
+    application.processEvents()
+    window.edit.click()
+    _wait_until(application, lambda: len(window._edit_dialogs) == 1)
+    second_edit = next(iter(window._edit_dialogs))
+    second_customer = second_edit.editors["customer"]
+    assert isinstance(second_customer, TideQtReferenceEditor)
+    assert second_customer.identity == 2
+    second_customer.select_button.click()
+    _wait_until(
+        application,
+        lambda: any(
+            dialog.isVisible()
+            and "matches" in dialog.status.text()
+            for dialog in second_edit._lookup_dialogs
+        ),
+    )
+    second_lookup = next(
+        dialog for dialog in second_edit._lookup_dialogs if dialog.isVisible()
+    )
+    assert second_lookup.new_button.isEnabled() is True
+    second_lookup.new_button.click()
+    _wait_until(
+        application,
+        lambda: any(
+            dialog.isVisible() for dialog in second_lookup._create_dialogs
+        ),
+    )
+    create_customer = next(
+        dialog
+        for dialog in second_lookup._create_dialogs
+        if dialog.isVisible()
+    )
+    assert create_customer.save_button.text() == "Save & Select"
+    code = create_customer.editors["code"]
+    name = create_customer.editors["name"]
+    email = create_customer.editors["email"]
+    assert isinstance(code, QLineEdit)
+    assert isinstance(name, QLineEdit)
+    assert isinstance(email, QLineEdit)
+    code.setText("NEWCO")
+    name.setText("New Company")
+    email.setText("office@newco.test")
+    create_customer.save_button.click()
+    _wait_until(
+        application,
+        lambda: len(client.created_customers) == 1
+        and second_customer.identity == 3
+        and not second_edit._saving,
+    )
+    assert second_customer.display.text() == "NEWCO - New Company"
+    assert [item[3] for item in client.reference_selections] == [2, 3]
+    assert all(thread != gui_thread for thread in client.network_threads)
+
+    second_edit.cancel_button.click()
+    window.close()
+    assert window.wait_for_done(1000)
+
+
 def _session(
     model: Any,
     *,
@@ -512,6 +750,31 @@ def _product_session(model: Any) -> TideSessionInfo:
                 readable_fields=tuple(product.fields),
                 writable_fields=("code", "name", "unit_price", "active"),
             )
+        },
+    )
+
+
+def _invoice_edit_session(model: Any) -> TideSessionInfo:
+    invoice = model.entity("sales.Invoice")
+    customer = model.entity("crm.Customer")
+    return TideSessionInfo(
+        application=model.name,
+        application_version=model.version,
+        schema_version=model.schema_version,
+        authentication="development",
+        principal="qt:editor",
+        roles=("sales_clerk",),
+        entities={
+            "sales.Invoice": TideEntityCapabilities(
+                operations=("list", "get", "create", "update"),
+                readable_fields=tuple(invoice.fields),
+                writable_fields=("invoice_date", "currency", "customer"),
+            ),
+            "crm.Customer": TideEntityCapabilities(
+                operations=("list", "get", "create", "update"),
+                readable_fields=tuple(customer.fields),
+                writable_fields=("code", "name", "email", "active"),
+            ),
         },
     )
 

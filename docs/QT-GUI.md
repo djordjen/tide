@@ -1,13 +1,14 @@
 # Qt GUI Prototype
 
-Status: **interactive server-mode browse plus flat master-data editing**.
+Status: **interactive server-mode browse, forms, and reference lookup**.
 
 TIDE now includes a small PySide6 desktop adapter that proves the normalized
 application model and secured remote-client boundary can drive a native GUI.
 It supports an incrementally loaded browse list, metadata-defined search and
-named filters, global header sorting, read-only record detail, and flat
-Customer/Product create and update forms. Invoice editing, domain actions,
-lookup selection, reports, and desktop sign-in remain later work.
+named filters, global header sorting, read-only record detail, Customer/Product
+create and update, and Invoice-header editing with a Customer lookup plus
+authorized nested creation. InvoiceLine editing, domain actions, reports, and
+desktop sign-in remain later work.
 
 ## Security and architecture
 
@@ -70,6 +71,21 @@ read-only: it shows the Invoice, Totals, and Posting groups plus the nested
 line-item table. Customer and Product labels are resolved through secured API
 reads rather than direct database access.
 
+Select a draft Invoice and press **Edit** to open its supported header fields.
+The Customer reference is not a raw identifier: **Select…** or F4 opens the
+compiled `crm.Customer.lookup` with Code, Name, and Email columns. Typing
+debounces bounded API searches across all three declared fields. Double-click a
+row or use **Select** to ask the server to apply that identity to the Invoice
+draft. The collection section is explicitly marked unchanged and is never
+silently discarded.
+
+When the authenticated session permits Customer creation, **New** or Ctrl+N
+opens `crm.Customer.edit`. Its button reads **Save & Select**: Customer creation
+commits independently through FastAPI, then the resulting identity is applied
+through the same secured reference-selection operation to the preserved,
+still-unsaved Invoice. Server authorization and validation remain authoritative
+at both boundaries.
+
 To exercise the editable flat-form slice, open either workspace instead:
 
 ```bat
@@ -124,13 +140,16 @@ complete launcher contract.
 - flat Product and Customer forms use compiled group/row order, typed metadata
   controls, capability-gated New/Edit actions, background API mutations, and
   refresh through the same cursor-backed list;
+- Invoice header forms preserve omitted collections, render compiler-approved
+  references as multi-column lookups, apply selections through the server-owned
+  draft operation, and support authorized nested **Save & Select** creation;
 - inaccessible views fail closed instead of falling back to local data;
 - the presentation/controller contract is testable without installing Qt in
   ordinary CI.
 
 ## Deliberately deferred
 
-- transactional Invoice/InvoiceLine editing, lookup selection, conflict
+- transactional InvoiceLine editing, lookup-driven Product defaults, conflict
   review, domain actions, and reports;
 - privileged designer publishing of validated application layout defaults;
 - OIDC desktop login, access-token refresh, and secure token storage;

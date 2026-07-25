@@ -162,6 +162,57 @@ class _ProductClient:
         return SimpleNamespace(values=dict(self.product), etag='"5"')
 
 
+class _InvoiceLookupClient(_BrowseClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.lookup_queries: list[QuerySpec] = []
+        self.reference_selections: list[tuple[str, str, dict[str, Any], Any]] = []
+        self.created_customers: list[dict[str, Any]] = []
+
+    def query_records(self, entity_name: str, query: QuerySpec) -> Any:
+        if entity_name == "sales.Invoice":
+            return super().query_records(entity_name, query)
+        assert entity_name == "crm.Customer"
+        self.lookup_queries.append(query)
+        return SimpleNamespace(
+            records=(
+                {
+                    "id": 1,
+                    "code": "ADRIA",
+                    "name": "Adria Consulting",
+                    "email": "office@adria.test",
+                    "active": True,
+                },
+            ),
+            next_cursor=None,
+        )
+
+    def get_record(self, entity_name: str, identity: Any) -> Any:
+        record = super().get_record(entity_name, identity)
+        return SimpleNamespace(values=record.values, etag='"7"')
+
+    def apply_reference_selection(
+        self,
+        entity_name: str,
+        field_name: str,
+        values: dict[str, Any],
+        identity: Any,
+    ) -> dict[str, Any]:
+        self.reference_selections.append(
+            (entity_name, field_name, dict(values), identity)
+        )
+        return {**values, field_name: identity}
+
+    def create_record(
+        self,
+        entity_name: str,
+        values: dict[str, Any],
+    ) -> Any:
+        assert entity_name == "crm.Customer"
+        self.created_customers.append(dict(values))
+        return SimpleNamespace(values={"id": 3, **values}, etag=None)
+
+
 def test_qt_browse_formats_incremental_cursor_batches() -> None:
     model = compile_project(INVOICING)
     client = _BrowseClient()
@@ -439,6 +490,83 @@ def test_qt_flat_product_form_uses_defaults_writable_fields_and_etag() -> None:
         controller.save_form(edited, {"id": 20})
 
 
+def test_qt_invoice_header_resolves_lookup_and_nested_create_contract() -> None:
+    model = compile_project(INVOICING)
+    client = _InvoiceLookupClient()
+    controller = QtBrowseController(
+        model,
+        client,
+        _invoice_edit_session(model),
+        page_size=2,
+    )
+
+    assert controller.create_available is True
+    assert controller.update_available is True
+    form = controller.edit_form(1)
+    assert form.omitted_collections == ("lines",)
+    customer = next(field for field in form.fields if field.name == "customer")
+    assert customer.field_type == "reference"
+    assert customer.lookup_view == "crm.Customer.lookup"
+    assert customer.reference_display == "ADRIA - Adria Consulting"
+
+    spec = controller.lookup_spec("customer")
+    assert spec.target_entity == "crm.Customer"
+    assert tuple(column.name for column in spec.columns) == (
+        "code",
+        "name",
+        "email",
+    )
+    assert spec.search_fields == ("code", "name", "email")
+    assert spec.limit == 20
+    assert spec.create_view == "crm.Customer.edit"
+
+    records = controller.search_lookup(spec, "adria")
+    assert len(records) == 1
+    assert records[0].display == "ADRIA - Adria Consulting"
+    assert len(client.lookup_queries) == 3
+    assert tuple(
+        query.filters[0].field for query in client.lookup_queries
+    ) == ("code", "name", "email")
+    assert all(
+        query.filters[0].operator == "icontains"
+        for query in client.lookup_queries
+    )
+
+    draft = {
+        "invoice_date": date(2026, 7, 1),
+        "currency": "EUR",
+        "customer": 1,
+    }
+    selected = controller.apply_lookup_selection(
+        form,
+        "customer",
+        draft,
+        records[0],
+    )
+    assert selected.identity == 1
+    assert selected.values["customer"] == 1
+    assert client.reference_selections == [
+        ("sales.Invoice", "customer", draft, 1)
+    ]
+
+    related = controller.related_create_controller(spec)
+    assert related.entity.name == "crm.Customer"
+    nested = related.new_form()
+    assert nested.title == "New Customer"
+    stored = related.save_form(
+        nested,
+        {
+            "code": "NORTH",
+            "email": "office@north.test",
+            "name": "Northwind",
+            "active": True,
+        },
+    )
+    created = controller.lookup_record(spec, stored)
+    assert created.identity == 3
+    assert created.display == "NORTH - Northwind"
+
+
 def _session(
     model: Any,
     *,
@@ -478,5 +606,30 @@ def _product_session(model: Any) -> TideSessionInfo:
                 readable_fields=tuple(product.fields),
                 writable_fields=("code", "name", "unit_price", "active"),
             )
+        },
+    )
+
+
+def _invoice_edit_session(model: Any) -> TideSessionInfo:
+    invoice = model.entity("sales.Invoice")
+    customer = model.entity("crm.Customer")
+    return TideSessionInfo(
+        application=model.name,
+        application_version=model.version,
+        schema_version=model.schema_version,
+        authentication="development",
+        principal="qt:editor",
+        roles=("sales_clerk",),
+        entities={
+            "sales.Invoice": TideEntityCapabilities(
+                operations=("list", "get", "create", "update"),
+                readable_fields=tuple(invoice.fields),
+                writable_fields=("invoice_date", "currency", "customer"),
+            ),
+            "crm.Customer": TideEntityCapabilities(
+                operations=("list", "get", "create", "update"),
+                readable_fields=tuple(customer.fields),
+                writable_fields=("code", "name", "email", "active"),
+            ),
         },
     )
