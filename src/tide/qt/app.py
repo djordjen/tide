@@ -9,6 +9,7 @@ import json
 import re
 from typing import Any, Callable, Mapping
 from urllib.parse import quote
+from uuid import uuid4
 
 from PySide6.QtCore import (
     QAbstractTableModel,
@@ -73,6 +74,7 @@ from .presenter import (
     QtDetailGroup,
     QtDetailRecord,
     QtEditCollection,
+    QtEditActionError,
     QtEditConflict,
     QtEditField,
     QtEditForm,
@@ -109,6 +111,7 @@ class TideQtReferenceEditor(QWidget):
     """Compact reference editor that opens a secured multi-column lookup."""
 
     lookupRequested = Signal()
+    selectionChanged = Signal()
 
     def __init__(self, field: QtEditField, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -143,6 +146,7 @@ class TideQtReferenceEditor(QWidget):
     def set_selection(self, identity: Any, display: str) -> None:
         self._identity = identity
         self.display.setText(display)
+        self.selectionChanged.emit()
 
     def clear(self) -> None:
         self.set_selection(None, "")
@@ -493,6 +497,7 @@ class TideQtCollectionEditor(QGroupBox):
         self.dialog.message.setText(
             "Line added locally; Apply updates its preview and Save commits it."
         )
+        self.dialog.refresh_action_state()
 
     def apply_line(self) -> None:
         if not self.collection.editable or self._selected_row is None:
@@ -505,6 +510,7 @@ class TideQtCollectionEditor(QGroupBox):
         selected = self._selected_row
         self._refresh(select=selected)
         self.dialog.refresh_computed_preview()
+        self.dialog.refresh_action_state()
         self.dialog.message.setText(
             "Line applied locally; Save commits the invoice."
         )
@@ -518,6 +524,7 @@ class TideQtCollectionEditor(QGroupBox):
         select = min(removed, len(self.rows) - 1)
         self._refresh(select=select if select >= 0 else None)
         self.dialog.refresh_computed_preview()
+        self.dialog.refresh_action_state()
         self.dialog.message.setText(
             "Line removed locally; Save commits the invoice."
         )
@@ -778,6 +785,7 @@ class TideQtEditDialog(QDialog):
     """Metadata-driven create/update dialog for supported form fields."""
 
     recordSaved = Signal(object)
+    recordActionCompleted = Signal(str, object)
     reopenRequested = Signal(object, str)
 
     def __init__(
@@ -804,6 +812,10 @@ class TideQtEditDialog(QDialog):
         self._save_attempts: dict[
             _CallWorker,
             tuple[QtEditForm, dict[str, Any]],
+        ] = {}
+        self._action_attempts: dict[
+            _CallWorker,
+            tuple[QtEditForm, dict[str, Any], str],
         ] = {}
         self._thread_pool = QThreadPool(self)
         self._thread_pool.setMaxThreadCount(1)
@@ -898,10 +910,35 @@ class TideQtEditDialog(QDialog):
         )
         self.save_button.clicked.connect(self._save)
         self.save_button.setText(save_label)
+        self._save_available = any(field.editable for field in form.fields) or any(
+            collection.editable for collection in form.collections
+        )
+        self.save_button.setVisible(self._save_available)
         self.cancel_button.clicked.connect(self.reject)
+        self.action_buttons: dict[str, QPushButton] = {}
+        for action in form.actions:
+            button = QPushButton(action.label)
+            button.setObjectName(f"record-action-{action.name}")
+            if action.name == "post":
+                button.setStyleSheet(
+                    "font-weight: 600; color: palette(highlighted-text); "
+                    "background: palette(highlight); padding: 5px 12px;"
+                )
+            self.buttons.addButton(
+                button,
+                QDialogButtonBox.ButtonRole.ActionRole,
+            )
+            button.clicked.connect(
+                lambda _checked=False, name=action.name: self._execute_action(
+                    name
+                )
+            )
+            self.action_buttons[action.name] = button
         layout.addWidget(self.buttons)
         QShortcut(QKeySequence.StandardKey.Save, self).activated.connect(self._save)
 
+        self._connect_action_state_editors()
+        self.refresh_action_state()
         if focus_order:
             focus_order[0].setFocus()
 
@@ -1001,23 +1038,74 @@ class TideQtEditDialog(QDialog):
         return editor
 
     def _save(self) -> None:
-        if self._saving:
+        if self._saving or not self._save_available:
             return
         try:
-            for collection in self.collection_editors.values():
-                collection.prepare_save()
-            values = self._editor_values()
-            values.update(
-                {
-                    name: collection.values()
-                    for name, collection in self.collection_editors.items()
-                    if collection.collection.editable
-                }
-            )
+            values = self._collect_values(enforce_required=True)
         except ValueError as error:
             self.message.setText(str(error))
             return
         self._start_save(self.form, values)
+
+    def _execute_action(self, action_name: str) -> None:
+        if self._saving:
+            return
+        try:
+            values = self._collect_values(enforce_required=True)
+            actions = {
+                action.name: action
+                for action in self.controller.form_actions(self.form, values)
+            }
+            action = actions.get(action_name)
+            if action is None or not action.visible or not action.enabled:
+                raise ValueError(
+                    f"{action_name.replace('_', ' ').title()} is unavailable"
+                )
+        except ValueError as error:
+            self.message.setText(str(error))
+            self.refresh_action_state()
+            return
+        self._set_saving(
+            True,
+            label=self._save_label,
+            message=f"Saving the draft and running {action.label} through TIDE…",
+        )
+        draft = deepcopy(values)
+        worker = _CallWorker(
+            lambda: self.controller.execute_form_action(
+                self.form,
+                action_name,
+                draft,
+                idempotency_key=f"qt:{uuid4()}",
+            )
+        )
+        self._workers.add(worker)
+        self._action_attempts[worker] = (
+            self.form,
+            draft,
+            action_name,
+        )
+        worker.signals.completed.connect(self._action_completed)
+        worker.signals.failed.connect(self._action_failed)
+        self._thread_pool.start(worker)
+
+    def _collect_values(
+        self,
+        *,
+        enforce_required: bool,
+    ) -> dict[str, Any]:
+        if enforce_required:
+            for collection in self.collection_editors.values():
+                collection.prepare_save()
+        values = self._editor_values(enforce_required=enforce_required)
+        values.update(
+            {
+                name: collection.values()
+                for name, collection in self.collection_editors.items()
+                if collection.collection.editable
+            }
+        )
+        return values
 
     def _start_save(
         self,
@@ -1072,6 +1160,35 @@ class TideQtEditDialog(QDialog):
             editor.setText(
                 self.controller.format_form_value(name, preview.get(name))
             )
+
+    def refresh_action_state(self) -> None:
+        if not self.action_buttons:
+            return
+        try:
+            values = self._collect_values(enforce_required=False)
+            states = {
+                action.name: action
+                for action in self.controller.form_actions(self.form, values)
+            }
+        except ValueError:
+            states = {}
+        for name, button in self.action_buttons.items():
+            state = states.get(name)
+            button.setVisible(bool(state and state.visible))
+            button.setEnabled(
+                bool(state and state.visible and state.enabled and not self._saving)
+            )
+
+    def _connect_action_state_editors(self) -> None:
+        for editor in self.editors.values():
+            if isinstance(editor, QLineEdit):
+                editor.textChanged.connect(self.refresh_action_state)
+            elif isinstance(editor, QCheckBox):
+                editor.toggled.connect(self.refresh_action_state)
+            elif isinstance(editor, QComboBox):
+                editor.currentIndexChanged.connect(self.refresh_action_state)
+            elif isinstance(editor, TideQtReferenceEditor):
+                editor.selectionChanged.connect(self.refresh_action_state)
 
     def _open_lookup(
         self,
@@ -1174,6 +1291,7 @@ class TideQtEditDialog(QDialog):
                     ),
                 )
         self._set_saving(False)
+        self.refresh_action_state()
         self.message.setText(
             f"{selection.display} selected; initial values applied."
         )
@@ -1184,6 +1302,60 @@ class TideQtEditDialog(QDialog):
         self._lookup_targets.pop(worker, None)
         self._set_saving(False)
         self.message.setText(f"Lookup selection failed: {error}")
+
+    @Slot(object, object)
+    def _action_completed(
+        self,
+        stored: Mapping[str, Any],
+        worker: _CallWorker,
+    ) -> None:
+        attempt = self._action_attempts.pop(worker, None)
+        self._workers.discard(worker)
+        self._set_saving(False)
+        action_name = attempt[2] if attempt is not None else "action"
+        action = self.controller.entity.actions.get(action_name, {})
+        label = str(
+            action.get("label")
+            or action_name.replace("_", " ").title()
+        )
+        self.recordActionCompleted.emit(label, dict(stored))
+        super().accept()
+
+    @Slot(object, object)
+    def _action_failed(
+        self,
+        error: Exception,
+        worker: _CallWorker,
+    ) -> None:
+        attempt = self._action_attempts.pop(worker, None)
+        self._workers.discard(worker)
+        if isinstance(error, QtEditActionError):
+            form = error.form
+            draft = dict(error.draft)
+            action_name = error.action.name
+        elif attempt is not None:
+            form, draft, action_name = attempt
+        else:
+            self._set_saving(False)
+            self.message.setText(f"Action failed: {error}")
+            return
+        if getattr(error, "code", None) == "stale_version":
+            self._start_conflict_review(form, draft)
+            return
+        self._set_saving(False)
+        label = str(
+            self.controller.entity.actions.get(action_name, {}).get("label")
+            or action_name.replace("_", " ").title()
+        )
+        if isinstance(error, QtEditActionError) and error.saved_before_action:
+            self.reopenRequested.emit(
+                error.form,
+                f"Draft saved, but {label} failed: {error}. "
+                "Correct the record and run the action again.",
+            )
+            super().reject()
+            return
+        self.message.setText(f"{label} failed: {error}")
 
     @Slot(object, object)
     def _save_completed(
@@ -1207,24 +1379,31 @@ class TideQtEditDialog(QDialog):
             and attempt[0].operation == "update"
         ):
             form, draft = attempt
-            self._set_saving(
-                True,
-                label="Reviewing…",
-                message=(
-                    "The record changed elsewhere. Loading the current "
-                    "version for a three-way review…"
-                ),
-            )
-            review_worker = _CallWorker(
-                lambda: self.controller.review_edit_conflict(form, draft)
-            )
-            self._workers.add(review_worker)
-            review_worker.signals.completed.connect(self._conflict_ready)
-            review_worker.signals.failed.connect(self._conflict_failed)
-            self._thread_pool.start(review_worker)
+            self._start_conflict_review(form, draft)
             return
         self._set_saving(False)
         self.message.setText(f"Save failed: {error}")
+
+    def _start_conflict_review(
+        self,
+        form: QtEditForm,
+        draft: Mapping[str, Any],
+    ) -> None:
+        self._set_saving(
+            True,
+            label="Reviewing…",
+            message=(
+                "The record changed elsewhere. Loading the current "
+                "version for a three-way review…"
+            ),
+        )
+        review_worker = _CallWorker(
+            lambda: self.controller.review_edit_conflict(form, draft)
+        )
+        self._workers.add(review_worker)
+        review_worker.signals.completed.connect(self._conflict_ready)
+        review_worker.signals.failed.connect(self._conflict_failed)
+        self._thread_pool.start(review_worker)
 
     @Slot(object, object)
     def _conflict_ready(
@@ -1284,7 +1463,7 @@ class TideQtEditDialog(QDialog):
             if rebase.retained_fields:
                 message = (
                     "Current data reloaded; resolved draft fields were "
-                    "retained. Review and save again."
+                    "retained. Review, then save or run the action again."
                 )
             else:
                 message = "Current data reloaded; no draft fields were retained."
@@ -1313,11 +1492,15 @@ class TideQtEditDialog(QDialog):
                 editor.setEnabled(not saving)
         for collection in self.collection_editors.values():
             collection.set_working(saving)
-        self.save_button.setEnabled(not saving)
+        self.save_button.setEnabled(not saving and self._save_available)
         self.cancel_button.setEnabled(not saving)
+        for button in self.action_buttons.values():
+            button.setEnabled(not saving)
         self.save_button.setText(label if saving else self._save_label)
         if saving:
             self.message.setText(message)
+        else:
+            self.refresh_action_state()
 
 
 class TideQtDetailDialog(QDialog):
@@ -1742,6 +1925,8 @@ class TideQtWindow(QMainWindow):
         self.new.setObjectName("new-record")
         self.edit = QPushButton("Edit")
         self.edit.setObjectName("edit-record")
+        if not controller.update_available and controller.form_action_available:
+            self.edit.setText("Open")
         self.view = QPushButton("View")
         self.best_fit = QPushButton("Best Fit")
         self.best_fit.setObjectName("best-fit-columns")
@@ -1947,7 +2132,10 @@ class TideQtWindow(QMainWindow):
             self.controller.create_available and not self._form_loading
         )
         self.edit.setEnabled(
-            self.controller.update_available
+            (
+                self.controller.update_available
+                or self.controller.form_action_available
+            )
             and selected
             and not self._form_loading
         )
@@ -1963,7 +2151,10 @@ class TideQtWindow(QMainWindow):
 
     def _open_selected_form(self) -> None:
         index = self.table.currentIndex()
-        if not index.isValid() or not self.controller.update_available:
+        if not index.isValid() or not (
+            self.controller.update_available
+            or self.controller.form_action_available
+        ):
             return
         try:
             identity = self.table_model.identity_at(index.row())
@@ -2007,6 +2198,7 @@ class TideQtWindow(QMainWindow):
         if message:
             dialog.message.setText(message)
         dialog.recordSaved.connect(self._record_saved)
+        dialog.recordActionCompleted.connect(self._record_action_completed)
         dialog.reopenRequested.connect(self._reopen_edit_form)
         dialog.finished.connect(
             lambda _result, current=dialog: self._edit_dialogs.discard(current)
@@ -2046,6 +2238,15 @@ class TideQtWindow(QMainWindow):
     @Slot(object)
     def _record_saved(self, _stored: Mapping[str, Any]) -> None:
         self._notice = "Record saved"
+        self.table_model.reload()
+
+    @Slot(str, object)
+    def _record_action_completed(
+        self,
+        label: str,
+        _stored: Mapping[str, Any],
+    ) -> None:
+        self._notice = f"{label} completed"
         self.table_model.reload()
 
     def _open_selected_detail(self) -> None:

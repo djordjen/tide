@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from tide import compile_project
+from tide.api import TideApiClientError
 from tide.api.contracts import TideEntityCapabilities, TideSessionInfo
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.qt import (
@@ -17,6 +18,7 @@ from tide.qt import (
     QtBrowseQuery,
     QtDetailCollection,
     QtDetailGroup,
+    QtEditActionError,
 )
 from tide.sessions import ConflictDisposition, ConflictValueChoice
 
@@ -220,6 +222,10 @@ class _InvoiceLinesClient(_InvoiceLookupClient):
         super().__init__()
         self.updated_invoices: list[tuple[Any, dict[str, Any], Any]] = []
         self.created_products: list[dict[str, Any]] = []
+        self.action_calls: list[
+            tuple[str, Any, dict[str, Any], Any, str | None]
+        ] = []
+        self.action_error: Exception | None = None
 
     def query_records(self, entity_name: str, query: QuerySpec) -> Any:
         if entity_name != "catalog.Product":
@@ -280,6 +286,39 @@ class _InvoiceLinesClient(_InvoiceLookupClient):
             return super().create_record(entity_name, values)
         self.created_products.append(dict(values))
         return SimpleNamespace(values={"id": 11, **values}, etag=None)
+
+    def execute_action(
+        self,
+        entity_name: str,
+        action_name: str,
+        identity: Any,
+        payload: dict[str, Any] | None = None,
+        *,
+        if_match: str | int | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        assert entity_name == "sales.Invoice"
+        assert action_name == "post"
+        self.action_calls.append(
+            (
+                action_name,
+                identity,
+                dict(payload or {}),
+                if_match,
+                idempotency_key,
+            )
+        )
+        if self.action_error is not None:
+            raise self.action_error
+        stored = deepcopy(super().get_record(entity_name, identity).values)
+        stored.update(
+            {
+                "status": "posted",
+                "version": 2,
+                "posted_by": "qt:editor",
+            }
+        )
+        return SimpleNamespace(values=stored, etag='"9"')
 
 
 class _ConflictingInvoiceLinesClient(_InvoiceLinesClient):
@@ -867,6 +906,141 @@ def test_qt_invoice_inline_lines_apply_product_defaults_and_nested_payload() -> 
     assert "total" not in changes["lines"][-1]
 
 
+def test_qt_invoice_post_saves_the_draft_then_executes_with_new_etag() -> None:
+    model = compile_project(INVOICING)
+    client = _InvoiceLinesClient()
+    controller = QtBrowseController(
+        model,
+        client,
+        _invoice_lines_session(model),
+        page_size=2,
+    )
+    form = controller.edit_form(1)
+
+    assert tuple(
+        (action.name, action.label, action.enabled)
+        for action in form.actions
+    ) == (("post", "Post invoice", True),)
+    stored = controller.execute_form_action(
+        form,
+        "post",
+        {
+            "invoice_date": date(2026, 7, 1),
+            "currency": "USD",
+            "customer": 1,
+            "lines": list(form.collections[0].records),
+        },
+        idempotency_key="qt:post-test",
+    )
+
+    assert client.updated_invoices == [
+        (1, {"currency": "USD"}, '"7"')
+    ]
+    assert client.action_calls == [
+        ("post", 1, {}, '"8"', "qt:post-test")
+    ]
+    assert stored["status"] == "posted"
+    assert stored["version"] == 2
+
+    denied_session = _invoice_lines_session(model)
+    denied_session = denied_session.model_copy(
+        update={
+            "entities": {
+                **denied_session.entities,
+                "sales.Invoice": denied_session.entities[
+                    "sales.Invoice"
+                ].model_copy(update={"actions": ()}),
+            }
+        }
+    )
+    denied = QtBrowseController(
+        model,
+        _InvoiceLinesClient(),
+        denied_session,
+        page_size=2,
+    )
+    assert denied.edit_form(1).actions == ()
+
+    poster_session = _invoice_lines_session(model)
+    poster_session = poster_session.model_copy(
+        update={
+            "principal": "qt:poster",
+            "roles": ("invoice_poster",),
+            "entities": {
+                **poster_session.entities,
+                "sales.Invoice": poster_session.entities[
+                    "sales.Invoice"
+                ].model_copy(
+                    update={
+                        "operations": ("list", "get"),
+                        "writable_fields": (),
+                    }
+                ),
+            },
+        }
+    )
+    poster_client = _InvoiceLinesClient()
+    poster = QtBrowseController(
+        model,
+        poster_client,
+        poster_session,
+        page_size=2,
+    )
+    assert poster.update_available is False
+    assert poster.form_action_available is True
+    poster_form = poster.edit_form(1)
+    assert all(not field.editable for field in poster_form.fields)
+    assert all(
+        not collection.editable for collection in poster_form.collections
+    )
+    poster.execute_form_action(
+        poster_form,
+        "post",
+        {},
+        idempotency_key="qt:poster-role-test",
+    )
+    assert poster_client.updated_invoices == []
+    assert poster_client.action_calls == [
+        ("post", 1, {}, '"7"', "qt:poster-role-test")
+    ]
+
+
+def test_qt_action_failure_preserves_the_already_saved_draft_form() -> None:
+    model = compile_project(INVOICING)
+    client = _InvoiceLinesClient()
+    client.action_error = TideApiClientError(
+        422,
+        "validation_failed",
+        "invoice cannot be posted",
+    )
+    controller = QtBrowseController(
+        model,
+        client,
+        _invoice_lines_session(model),
+        page_size=2,
+    )
+    form = controller.edit_form(1)
+
+    with pytest.raises(QtEditActionError) as failed:
+        controller.execute_form_action(
+            form,
+            "post",
+            {
+                "invoice_date": date(2026, 7, 1),
+                "currency": "USD",
+                "customer": 1,
+                "lines": list(form.collections[0].records),
+            },
+            idempotency_key="qt:failed-post-test",
+        )
+
+    assert failed.value.code == "validation_failed"
+    assert failed.value.saved_before_action is True
+    assert failed.value.form.etag == '"8"'
+    assert failed.value.form.original["currency"] == "USD"
+    assert failed.value.draft["currency"] == "USD"
+
+
 def test_qt_invoice_conflict_treats_lines_as_one_unit_and_honors_new_locks() -> None:
     model = compile_project(INVOICING)
     client = _ConflictingInvoiceLinesClient()
@@ -905,6 +1079,7 @@ def test_qt_invoice_conflict_treats_lines_as_one_unit_and_honors_new_locks() -> 
         "customer",
         "lines",
     )
+    assert conflict.current_form.actions[0].enabled is False
     rebased = controller.rebase_edit_conflict(
         conflict,
         {"lines": ConflictValueChoice.DRAFT},
@@ -980,6 +1155,7 @@ def _invoice_edit_session(model: Any) -> TideSessionInfo:
                 operations=("list", "get", "create", "update"),
                 readable_fields=tuple(invoice.fields),
                 writable_fields=("invoice_date", "currency", "customer"),
+                actions=("post",),
             ),
             "crm.Customer": TideEntityCapabilities(
                 operations=("list", "get", "create", "update"),

@@ -7,8 +7,8 @@ application model and secured remote-client boundary can drive a native GUI.
 It supports an incrementally loaded browse list, metadata-defined search and
 named filters, global header sorting, read-only record detail, Customer/Product
 create and update, and complete Invoice draft editing with Customer/Product
-lookups plus authorized nested creation and three-way stale-edit review.
-Domain actions, reports, and desktop sign-in remain later work.
+lookups plus authorized nested creation, three-way stale-edit review, and the
+Post Invoice domain action. Reports and desktop sign-in remain later work.
 
 ## Security and architecture
 
@@ -119,6 +119,25 @@ dialog names it and does not carry that draft value forward. For this first
 safe master-detail contract, the line collection is compared and resolved as
 one field rather than attempting an ambiguous row-level merge.
 
+The form action bar also follows `actions: [cancel, save, post]` from
+`sales.Invoice.edit`. Qt creates **Post invoice** only when the authenticated
+session advertises that action. Its enabled state reevaluates the compiled
+`enabled_when` expression against the current local line draft, so an empty or
+already-posted Invoice cannot invoke it from the GUI.
+An `invoice_poster` principal, which has read/post but no update permission,
+opens the same record through an **Open** button: fields and lines stay
+read-only, Save is hidden, and only the authorized action is interactive.
+
+Clicking **Post invoice** applies the selected line, validates the local editor
+values, and saves any draft changes first. The action then uses the saved
+record's returned ETag—not the stale form ETag—and a new `qt:` idempotency key
+through the ordinary FastAPI action route. Both calls run on the form worker,
+and the server rechecks permission, action conditions, expected version,
+validation, and transaction rules. On success the form closes and the browse
+row refreshes to Posted. If the draft save succeeds but posting fails, Qt
+reopens that saved ETag-backed form with the failure message so the user can
+correct it and try again.
+
 To exercise the editable flat-form slice, open either workspace instead:
 
 ```bat
@@ -182,13 +201,16 @@ complete launcher contract.
 - stale edits use the renderer-neutral three-way conflict comparer, explicit
   per-overlap choices, current workflow locks, and a fresh review-before-save
   form instead of client-side last-write-wins;
+- form-domain actions use metadata order, authenticated capabilities,
+  draft-aware enablement, save-before-action ETag chaining, and per-attempt
+  idempotency keys through the existing action endpoint;
 - inaccessible views fail closed instead of falling back to local data;
 - the presentation/controller contract is testable without installing Qt in
   ordinary CI.
 
 ## Deliberately deferred
 
-- Qt domain actions and reports;
+- Qt reports;
 - privileged designer publishing of validated application layout defaults;
 - OIDC desktop login, access-token refresh, and secure token storage;
 - native application packaging, signing, and installers;

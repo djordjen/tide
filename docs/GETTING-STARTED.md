@@ -231,6 +231,14 @@ each genuine overlap, or reload the server version. **Apply Resolution** opens
 a fresh form on the latest ETag so you can inspect the result before pressing
 Save; the review dialog never writes or silently overwrites the other edit.
 
+For the action path, edit a draft Invoice that has at least one valid line.
+**Post invoice** is disabled while the line collection is empty and after the
+Invoice is posted. With a valid draft, click it instead of Save. Qt first saves
+any changed header/lines, then calls the secured Post action with the returned
+ETag and an idempotency key. The dialog closes and the refreshed browse row
+shows Posted. If posting fails after the draft save, the saved form reopens
+with the server message so it can be corrected safely.
+
 The first editable Qt slice covers the flat Product and Customer forms:
 
 ```powershell

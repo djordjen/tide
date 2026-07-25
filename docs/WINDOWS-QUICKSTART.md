@@ -454,6 +454,15 @@ each overlapping field, then **Apply Resolution** to reopen the result against
 the latest ETag. **Reload Current** discards the stale draft, while **Continue
 Editing** leaves it open and unsaved. The conflict dialog itself never writes.
 
+For a draft with at least one valid line, **Post invoice** is enabled from the
+compiled action metadata and authenticated session capability. It applies the
+selected line, saves changed header/lines, and then posts using the newly
+returned ETag plus a unique idempotency key. The refreshed row shows Posted.
+An action failure after a successful draft save reopens that saved version for
+correction; an empty or already-posted Invoice keeps Post disabled.
+For a read/post-only `invoice_poster` identity, the list uses **Open** instead
+of Edit and shows a read-only form with Save hidden and Post available.
+
 To test metadata-driven Qt creation and editing for flat master data, keep the
 same API server running and open either:
 
@@ -466,8 +475,8 @@ Use **New**, or select a row and use **Edit**. The Product form demonstrates
 the `0.00` Decimal mask and the Customer/Product code fields demonstrate regex
 masks; both forms follow the YAML row layout and writable capabilities. Tab or
 Enter traverses the left field column before the right. Saving runs through
-FastAPI in the background and refreshes the secured list. Qt domain actions and
-reports remain later tranches.
+FastAPI in the background and refreshes the secured list. Qt reports remain a
+later tranche.
 
 For a reviewed network test, first install the production identity adapter:
 

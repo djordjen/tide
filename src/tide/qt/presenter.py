@@ -71,6 +71,17 @@ class BrowseApiClient(Protocol):
         identity: Any,
     ) -> dict[str, Any]: ...
 
+    def execute_action(
+        self,
+        entity_name: str,
+        action_name: str,
+        identity: Any,
+        payload: Mapping[str, Any] | None = None,
+        *,
+        if_match: str | int | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any: ...
+
 
 @dataclass(frozen=True, slots=True)
 class QtBrowseColumn:
@@ -151,6 +162,16 @@ class QtEditCollection:
 
 
 @dataclass(frozen=True, slots=True)
+class QtEditAction:
+    """One metadata-ordered, capability-gated form action."""
+
+    name: str
+    label: str
+    enabled: bool
+    visible: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class QtEditForm:
     """One create/update draft opened through an authenticated API capability."""
 
@@ -162,6 +183,7 @@ class QtEditForm:
     original: Mapping[str, Any]
     groups: tuple[QtEditGroup, ...]
     collections: tuple[QtEditCollection, ...] = ()
+    actions: tuple[QtEditAction, ...] = ()
     omitted_collections: tuple[str, ...] = ()
 
     @property
@@ -191,6 +213,27 @@ class QtEditRebase:
     form: QtEditForm
     retained_fields: tuple[str, ...]
     dropped_fields: tuple[str, ...]
+
+
+class QtEditActionError(TideRuntimeError):
+    """An action failed after Qt may already have saved its draft."""
+
+    def __init__(
+        self,
+        action: QtEditAction,
+        cause: Exception,
+        *,
+        form: QtEditForm,
+        draft: Mapping[str, Any],
+        saved_before_action: bool,
+    ) -> None:
+        self.action = action
+        self.cause = cause
+        self.form = form
+        self.draft = deepcopy(dict(draft))
+        self.saved_before_action = saved_before_action
+        self.code = str(getattr(cause, "code", "runtime_error"))
+        super().__init__(str(cause))
 
 
 @dataclass(frozen=True, slots=True)
@@ -347,6 +390,16 @@ class QtBrowseController:
         )
 
     @property
+    def form_action_available(self) -> bool:
+        """Return whether a read-only form can host an authorized action."""
+
+        return bool(
+            self._supported_form_available
+            and "get" in self._entity_capabilities.operations
+            and self._configured_form_action_names
+        )
+
+    @property
     def search_label(self) -> str | None:
         if self.search_field is None:
             return None
@@ -378,6 +431,8 @@ class QtBrowseController:
                 continue
             if field_type != "reference":
                 return False
+            if name not in self._entity_capabilities.writable_fields:
+                continue
             try:
                 self.lookup_spec(name)
             except ValueError:
@@ -538,9 +593,9 @@ class QtBrowseController:
     def edit_form(self, identity: Any) -> QtEditForm:
         """Load one editable record through the authenticated API."""
 
-        if not self.update_available:
+        if not (self.update_available or self.form_action_available):
             raise ValueError(
-                f"{self.entity.name} does not define an accessible update form"
+                f"{self.entity.name} does not define an accessible action/edit form"
             )
         if identity is None or identity is PROTECTED:
             raise ValueError("Qt edit record identity is unavailable")
@@ -587,6 +642,97 @@ class QtBrowseController:
             changes,
             if_match=form.etag,
         ).values
+
+    def form_actions(
+        self,
+        form: QtEditForm,
+        values: Mapping[str, Any],
+    ) -> tuple[QtEditAction, ...]:
+        """Reevaluate visible/enabled action state against the current draft."""
+
+        if form.entity != self.entity.name:
+            raise ValueError("Qt edit form belongs to a different entity")
+        draft = self._form_draft(form, values)
+        state = deepcopy(dict(form.original))
+        state.update(deepcopy(draft))
+        _preview_computed_fields(self.entity, state)
+        return self._record_actions(state)
+
+    def execute_form_action(
+        self,
+        form: QtEditForm,
+        action_name: str,
+        values: Mapping[str, Any],
+        *,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Save a draft when needed, then execute one secured domain action."""
+
+        actions = {
+            action.name: action
+            for action in self.form_actions(form, values)
+            if action.visible
+        }
+        action = actions.get(action_name)
+        if action is None:
+            raise ValueError(
+                f"Qt form action {self.entity.name}.{action_name} is unavailable"
+            )
+        if not action.enabled:
+            raise ValueError(f"{action.label} is disabled for the current draft")
+
+        draft = self._form_draft(form, values)
+        current_form = form
+        saved_before_action = False
+        if form.operation == "create":
+            saved = self.client.create_record(self.entity.name, draft)
+            saved_before_action = True
+            current_form = self._edit_form(
+                operation="update",
+                identity=saved.values.get(_primary_key_name(self.entity)),
+                etag=saved.etag,
+                values=saved.values,
+            )
+        else:
+            original = self._comparable_form_values(form, form.original)
+            changes = {
+                name: value
+                for name, value in draft.items()
+                if original.get(name) != value
+            }
+            if changes:
+                saved = self.client.update_record(
+                    self.entity.name,
+                    form.identity,
+                    changes,
+                    if_match=form.etag,
+                )
+                saved_before_action = True
+                current_form = self._edit_form(
+                    operation="update",
+                    identity=form.identity,
+                    etag=saved.etag,
+                    values=saved.values,
+                )
+        current_values = self._form_input_values(current_form)
+        try:
+            result = self.client.execute_action(
+                self.entity.name,
+                action.name,
+                current_form.identity,
+                {},
+                if_match=current_form.etag,
+                idempotency_key=idempotency_key,
+            )
+        except Exception as error:
+            raise QtEditActionError(
+                action,
+                error,
+                form=current_form,
+                draft=current_values,
+                saved_before_action=saved_before_action,
+            ) from error
+        return deepcopy(dict(result.values))
 
     def review_edit_conflict(
         self,
@@ -726,6 +872,21 @@ class QtBrowseController:
                 raw_records,
             )
         return draft
+
+    def _form_input_values(self, form: QtEditForm) -> dict[str, Any]:
+        values = {
+            field.name: deepcopy(field.value)
+            for field in form.fields
+            if field.editable and field.value is not PROTECTED
+        }
+        values.update(
+            {
+                collection.name: deepcopy(list(collection.records))
+                for collection in form.collections
+                if collection.editable
+            }
+        )
+        return values
 
     def _comparable_form_values(
         self,
@@ -1138,7 +1299,58 @@ class QtBrowseController:
             original=deepcopy(dict(values)),
             groups=tuple(groups),
             collections=tuple(collections),
+            actions=self._record_actions(values),
             omitted_collections=tuple(omitted_collections),
+        )
+
+    def _record_actions(
+        self,
+        values: Mapping[str, Any],
+    ) -> tuple[QtEditAction, ...]:
+        assert self.detail_view is not None
+        result: list[QtEditAction] = []
+        for name in self._configured_form_action_names:
+            metadata = self.entity.actions[name]
+            visible_when = metadata.get("visible_when")
+            visible = not visible_when or bool(
+                evaluate_expression(str(visible_when), values)
+            )
+            enabled_when = metadata.get("enabled_when")
+            enabled = visible and (
+                not enabled_when
+                or bool(evaluate_expression(str(enabled_when), values))
+            )
+            result.append(
+                QtEditAction(
+                    name=name,
+                    label=str(
+                        metadata.get("label")
+                        or name.replace("_", " ").title()
+                    ),
+                    enabled=enabled,
+                    visible=visible,
+                )
+            )
+        return tuple(result)
+
+    @property
+    def _configured_form_action_names(self) -> tuple[str, ...]:
+        if self.detail_view is None:
+            return ()
+        allowed = set(self._entity_capabilities.actions)
+        configured = tuple(
+            str(name)
+            for name in self.detail_view.data.get(
+                "actions",
+                ("cancel", "save", *self.entity.actions),
+            )
+        )
+        return tuple(
+            name
+            for name in configured
+            if name not in {"cancel", "save"}
+            and name in self.entity.actions
+            and name in allowed
         )
 
     def _edit_collection(
@@ -1769,6 +1981,7 @@ class _EmptyCapabilities:
     operations: tuple[str, ...] = ()
     draft_operations: tuple[str, ...] = ()
     writable_fields: tuple[str, ...] = ()
+    actions: tuple[str, ...] = ()
 
 
 _EMPTY_CAPABILITIES = _EmptyCapabilities()

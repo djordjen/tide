@@ -115,6 +115,11 @@ three-way Original/Current/Your draft review. Genuine overlaps require an
 explicit Current/Mine decision; applying the plan reopens a current ETag-backed
 form for review and normal validation. Invoice lines are treated as one
 collection conflict unit in this first safe implementation.
+The compiled `actions: [cancel, save, post]` order adds **Post invoice** only
+for an authenticated capability. Its enabled state follows the local
+`enabled_when` expression. Invoking it saves changed lines first, then sends the
+new ETag and a per-attempt idempotency key to the shared FastAPI action route;
+a failure after saving reopens the saved draft for correction.
 The browse search applies incrementally to invoice numbers. The filter selector
 exposes **Draft invoices** and **High-value invoices** from view metadata, and
 the sort selector or eligible column headers toggle secured ascending and

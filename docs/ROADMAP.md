@@ -153,8 +153,11 @@ application-owned Faker profile and the real secured services.
   ETag-protected nested Invoice save; **implemented**
 - Qt three-way stale-edit review with Original/Current/Draft values, explicit
   Current/Mine overlap choices, safe rebase into a fresh ETag-backed form, and
-  workflow-lock reevaluation; **implemented**; domain actions and reports remain
-  deferred
+  workflow-lock reevaluation; **implemented**
+- Qt metadata/capability-driven Post Invoice action with draft-aware
+  `enabled_when`, save-before-action ETag chaining, idempotency, recovery after
+  a saved-draft action failure, and secured refresh; **implemented**; Qt
+  reports remain deferred
 - basic secured printable invoice with TUI preview, HTML, and PDF;
   **implemented**
 - opt-in REST list/get/create/update/delete and domain-action routes plus OpenAPI;

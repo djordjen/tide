@@ -33,7 +33,8 @@ The native [Qt GUI prototype](docs/QT-GUI.md) can browse and inspect records,
 create/edit Customer and Product forms, and edit complete Invoice drafts with
 Customer/Product lookups, nested **Save & Select**, and line totals—all without
 database credentials. Stale GUI edits open an explicit three-way conflict
-review rather than failing with a generic message or silently overwriting data.
+review rather than failing with a generic message or silently overwriting data,
+and the metadata-defined **Post invoice** action runs through FastAPI.
 
 ## TUI preview
 
@@ -239,6 +240,10 @@ use the same compiled inline metadata and FastAPI boundary. Stale Qt edits now
 reuse the shared three-way comparison: the dialog shows Original, Current, and
 Your draft, requires Current/Mine choices for genuine overlaps, and reopens a
 fresh ETag-backed form for review before the next save.
+Qt now also renders the compiled, capability-gated Post action. Its
+`enabled_when` state follows the current line draft; invoking it first saves any
+changes, then posts with the returned ETag and a unique idempotency key. A
+post failure after that save reopens the saved version for correction.
 Stale TUI edits likewise open a three-way Original/Current/Your draft review. Users
 may reload, continue inspecting their draft, or explicitly choose Current/Mine
 for every overlapping field before rebasing. Non-conflicting draft fields are

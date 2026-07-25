@@ -278,6 +278,12 @@ renderer-only mutation route is introduced. A `stale_version` response causes
 Qt to issue an ordinary authorized `get`, compare Original/Current/Draft through
 the shared conflict contract, and reopen a resolved form with the new ETag.
 The review dialog does not receive a bypass route and does not write data.
+Qt form actions call the existing REST action route as well. If a local draft
+changed, Qt first performs the ordinary create/update request and uses its
+returned ETag as the action `If-Match`; each invocation receives a new `qt:`
+idempotency key. Session capabilities control presentation only—the server
+still enforces action exposure, permission, conditions, version, idempotency,
+validation, audit, and transaction behavior.
 Authorized record reports are
 built through
 `ReportService` at `GET /api/v1/_tide/reports/{report}/records/{identity}` and

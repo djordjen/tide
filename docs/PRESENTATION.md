@@ -76,8 +76,8 @@ and update requests still go through FastAPI, where permissions, row rules,
 normalization, uniqueness, validation, and concurrency remain authoritative.
 Blocking form loads and saves run outside the GUI thread, and updates send the
 observed strong ETag when the entity defines one. The later contracts below add
-references, transactional collections, and conflict review while domain
-actions remain deferred.
+references, transactional collections, conflict review, and form-domain
+actions.
 
 The next Qt tranche extends that form contract to compiler-approved reference
 lookups. A reference must opt into `editor: lookup` and resolve a lookup view
@@ -145,6 +145,19 @@ values are carried when still writable, and every overlap requires an explicit
 Current/Mine choice. Nested lines are intentionally one collection conflict
 unit until TIDE defines stable row identity and ordering semantics for a safe
 child-level merge.
+
+Qt form-domain actions are the intersection of the compiled form action order,
+entity action definitions, and the authenticated session capability list.
+`visible_when` and `enabled_when` are reevaluated against the current local
+draft for responsive controls, but remain advisory: FastAPI authorizes and
+validates execution again. The first rendered action is Invoice **Post**.
+
+When an action is invoked, Qt applies the selected collection row and validates
+the draft. A changed create/update draft is committed first; the action request
+then carries the ETag returned by that commit and a unique `qt:` idempotency
+key. If the save succeeds but the action fails, the saved form is reopened with
+its current ETag and the failure message. A stale failure enters the same
+three-way review contract rather than introducing last-write-wins behavior.
 
 Named presets capture recurring patterns such as `standard_browse`,
 `standard_form`, and `master_detail`.

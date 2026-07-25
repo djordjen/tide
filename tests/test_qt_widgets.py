@@ -317,6 +317,10 @@ class _InvoiceLookupWidgetClient:
 class _InvoiceLinesWidgetClient(_InvoiceLookupWidgetClient):
     def __init__(self) -> None:
         super().__init__()
+        self.action_calls: list[
+            tuple[str, Any, dict[str, Any], Any, str | None]
+        ] = []
+        self.action_threads: list[int] = []
         self.product = {
             "id": 10,
             "code": "CONSULT",
@@ -363,6 +367,38 @@ class _InvoiceLinesWidgetClient(_InvoiceLookupWidgetClient):
             "description": self.product["name"],
             "unit_price": self.product["unit_price"],
         }
+
+    def execute_action(
+        self,
+        entity_name: str,
+        action_name: str,
+        identity: Any,
+        payload: dict[str, Any] | None = None,
+        *,
+        if_match: str | int | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        self.network_threads.append(threading.get_ident())
+        self.action_threads.append(threading.get_ident())
+        assert entity_name == "sales.Invoice"
+        assert action_name == "post"
+        self.action_calls.append(
+            (
+                action_name,
+                identity,
+                dict(payload or {}),
+                if_match,
+                idempotency_key,
+            )
+        )
+        self.invoice.update(
+            {
+                "status": "posted",
+                "version": 2,
+                "posted_by": "qt:editor",
+            }
+        )
+        return SimpleNamespace(values=dict(self.invoice), etag='"11"')
 
 
 def test_qt_widget_adapter_incrementally_loads_the_server_list(
@@ -739,7 +775,9 @@ def test_qt_stale_product_edit_opens_three_way_review_and_rebase(
     assert rebased_form.form.etag == '"4"'
     assert rebased_name.text() == "My consulting"
     assert rebased_price.text() == "525.00"
-    assert "Review and save again" in rebased_form.message.text()
+    assert "Review, then save or run the action again" in (
+        rebased_form.message.text()
+    )
     assert client.stale_attempts == [
         (
             10,
@@ -1035,6 +1073,144 @@ def test_qt_invoice_line_editor_applies_product_defaults_and_total(
     assert window.wait_for_done(1000)
 
 
+def test_qt_invoice_post_saves_lines_then_runs_the_secured_action(
+    tmp_path: Path,
+) -> None:
+    gui_thread = threading.get_ident()
+    application = QApplication.instance() or QApplication([])
+    model = compile_project(INVOICING)
+    client = _InvoiceLinesWidgetClient()
+    window = TideQtWindow(
+        QtBrowseController(
+            model,
+            client,
+            _invoice_lines_session(model),
+            page_size=5,
+        ),
+        source_label="invoice action test",
+        layout_settings=_layout_settings(tmp_path / "invoice-action.ini"),
+    )
+    window.show()
+    _wait_until(
+        application,
+        lambda: window.table_model.rowCount() == 1
+        and not window.table_model.loading,
+    )
+    window.table.selectRow(0)
+    application.processEvents()
+    window.edit.click()
+    _wait_until(application, lambda: len(window._edit_dialogs) == 1)
+    dialog = next(iter(window._edit_dialogs))
+    post = dialog.action_buttons["post"]
+    assert post.text() == "Post invoice"
+    assert post.isEnabled() is False
+
+    lines = dialog.collection_editors["lines"]
+    lines.action_buttons["add"].click()
+    product = lines.editors["product"]
+    description = lines.editors["description"]
+    quantity = lines.editors["quantity"]
+    unit_price = lines.editors["unit_price"]
+    assert isinstance(product, TideQtReferenceEditor)
+    assert isinstance(description, QLineEdit)
+    assert isinstance(quantity, QLineEdit)
+    assert isinstance(unit_price, QLineEdit)
+    product.set_selection(10, "CONSULT - Consulting")
+    description.setText("Consulting")
+    quantity.setText("2.000")
+    unit_price.setText("500.00")
+    lines.action_buttons["apply"].click()
+    application.processEvents()
+    assert post.isEnabled() is True
+
+    post.click()
+    _wait_until(
+        application,
+        lambda: len(client.action_calls) == 1
+        and not window._edit_dialogs
+        and not window.table_model.loading,
+    )
+    assert client.updated[0][0] == 1
+    assert client.updated[0][2] == '"9"'
+    assert client.updated[0][1]["lines"][0] == {
+        "line_number": 1,
+        "product": 10,
+        "description": "Consulting",
+        "quantity": Decimal("2.000"),
+        "unit_price": Decimal("500.00"),
+    }
+    action_name, identity, payload, etag, idempotency_key = (
+        client.action_calls[0]
+    )
+    assert (action_name, identity, payload, etag) == (
+        "post",
+        1,
+        {},
+        '"10"',
+    )
+    assert idempotency_key is not None
+    assert idempotency_key.startswith("qt:")
+    assert window.table_model.data(
+        window.table_model.index(0, 3),
+    ) == "Posted"
+    assert "Post invoice completed" in window.status.text()
+    assert all(thread != gui_thread for thread in client.action_threads)
+
+    window.close()
+    assert window.wait_for_done(1000)
+
+
+def test_qt_invoice_poster_gets_a_read_only_action_form(
+    tmp_path: Path,
+) -> None:
+    application = QApplication.instance() or QApplication([])
+    model = compile_project(INVOICING)
+    client = _InvoiceLinesWidgetClient()
+    client.invoice["lines"] = [
+        {
+            "line_number": 1,
+            "product": 10,
+            "description": "Consulting",
+            "quantity": Decimal("1.000"),
+            "unit_price": Decimal("500.00"),
+            "total": Decimal("500.00"),
+        }
+    ]
+    client.invoice["total"] = Decimal("500.00")
+    window = TideQtWindow(
+        QtBrowseController(
+            model,
+            client,
+            _invoice_poster_session(model),
+            page_size=5,
+        ),
+        source_label="invoice poster test",
+        layout_settings=_layout_settings(tmp_path / "invoice-poster.ini"),
+    )
+    window.show()
+    _wait_until(
+        application,
+        lambda: window.table_model.rowCount() == 1
+        and not window.table_model.loading,
+    )
+    assert window.edit.text() == "Open"
+    window.table.selectRow(0)
+    application.processEvents()
+    assert window.edit.isEnabled() is True
+    window.edit.click()
+    _wait_until(application, lambda: len(window._edit_dialogs) == 1)
+    dialog = next(iter(window._edit_dialogs))
+
+    assert dialog.save_button.isVisible() is False
+    assert dialog.action_buttons["post"].isEnabled() is True
+    assert all(not field.editable for field in dialog.form.fields)
+    assert dialog.form.collections[0].editable is False
+
+    dialog.cancel_button.click()
+    window.close()
+    assert window.wait_for_done(1000)
+
+
 def _session(
     model: Any,
     *,
@@ -1091,6 +1267,7 @@ def _invoice_edit_session(model: Any) -> TideSessionInfo:
                 operations=("list", "get", "create", "update"),
                 readable_fields=tuple(invoice.fields),
                 writable_fields=("invoice_date", "currency", "customer"),
+                actions=("post",),
             ),
             "crm.Customer": TideEntityCapabilities(
                 operations=("list", "get", "create", "update"),
@@ -1136,6 +1313,33 @@ def _invoice_lines_session(model: Any) -> TideSessionInfo:
                     writable_fields=("code", "name", "unit_price", "active"),
                 ),
             }
+        }
+    )
+
+
+def _invoice_poster_session(model: Any) -> TideSessionInfo:
+    base = _invoice_lines_session(model)
+    return base.model_copy(
+        update={
+            "principal": "qt:poster",
+            "roles": ("invoice_poster",),
+            "entities": {
+                **base.entities,
+                "sales.Invoice": base.entities["sales.Invoice"].model_copy(
+                    update={
+                        "operations": ("list", "get"),
+                        "writable_fields": (),
+                    }
+                ),
+                "sales.InvoiceLine": base.entities[
+                    "sales.InvoiceLine"
+                ].model_copy(
+                    update={
+                        "draft_operations": (),
+                        "writable_fields": (),
+                    }
+                ),
+            },
         }
     )
 
