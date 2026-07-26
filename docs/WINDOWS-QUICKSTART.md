@@ -423,7 +423,10 @@ workspace and installs the optional `gui` and `report` dependencies through
 `uv` when needed. Use **Open**, double-click, or **Enter** to open the selected
 Invoice and its lines. The same compact two-column form is used for viewing and
 editing; status, metadata, and permissions determine which fields and actions
-are enabled. Search by
+are enabled. **Previous** and **Next** at the form's bottom left open adjacent
+records in the current searched/filtered/sorted list and transparently fetch
+another cursor batch when necessary. They do not discard unsaved changes:
+save or cancel the draft first. Search by
 Invoice number, select a metadata-defined named filter, or click a sortable
 column heading to order the complete server result; click
 the same heading again to reverse the order. **Clear** restores the default

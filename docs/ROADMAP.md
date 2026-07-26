@@ -161,6 +161,9 @@ application-owned Faker profile and the real secured services.
   `ReportDocument`, with background PDF rendering to a GUI-session temporary
   directory and system-viewer launch; **implemented**; Qt summary-report
   parameters remain deferred
+- Qt detail-form Previous/Next navigation in current secured browse order,
+  including background cursor-boundary fetch, list selection synchronization,
+  first/last state, and unsaved-draft protection; **implemented**
 - renderer-neutral form-layout resolution for ordered YAML rows, groups,
   collections, tabs, actions, and field visibility, consumed by Textual and
   Qt; plus one Qt **Open** path whose form controls follow capability and

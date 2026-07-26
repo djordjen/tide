@@ -81,6 +81,15 @@ controls disabled or hidden. The Invoice YAML explicitly defines one compact
 two-column header through `settings.compact_groups`, shared with Textual and
 followed by the Lines section.
 
+**Previous** and **Next** appear at the bottom left of an existing-record form.
+They follow the current browse query and its complete server-side
+search/filter/sort order, select the adjacent row in the list, and open it in
+the same form layout. At the last loaded row, **Next** transparently requests
+the next opaque cursor batch before opening its first record. The current form
+stays open if that request fails. Navigation is disabled at the first/last
+record, is not shown for a New form, and refuses to discard a changed draft:
+save or cancel local edits before moving to another record.
+
 For an editable draft Invoice, the Customer reference is not a raw identifier:
 **Select…** or F4 opens the
 compiled `crm.Customer.lookup` with Code, Name, and Email columns. Typing
@@ -194,7 +203,7 @@ complete launcher contract.
 - reference identities are resolved through secured API reads and cached only
   for the current client session;
 - a `QTableView`/`QAbstractTableModel` boundary accumulates opaque server cursor
-  batches as the user scrolls, without Previous/Next page navigation;
+  batches as the user scrolls, without Previous/Next *page* navigation;
 - search, named filters, and sortable fields are interpreted from the same
   compiled browse metadata helper used by Textual, then sent through the typed
   FastAPI query endpoint;
@@ -208,6 +217,9 @@ complete launcher contract.
   stable field-name layouts survive refreshes and later GUI sessions;
 - selected records open through their real primary-key identity into compiled
   form rows and inline collection columns, with no client-side database path;
+- opened existing-record forms navigate Previous/Next in the active secured
+  list order, cross cursor boundaries in the background, and protect unsaved
+  drafts from silent replacement;
 - one renderer-neutral layout helper resolves YAML group rows, collection
   placement, tabs, and field visibility for Textual and Qt; Web can consume the
   same semantic contract later;

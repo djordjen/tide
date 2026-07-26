@@ -208,6 +208,9 @@ and use **Open**, double-click, or press **Enter**. The same YAML-defined
 two-column form opens for editable and read-only records; field, Save, and Post
 states follow permissions and Invoice status. Reaching the bottom automatically
 appends the next secured server batch; there are no page-navigation buttons.
+Inside an existing-record form, **Previous** and **Next** at bottom left move
+through that current searched/filtered/sorted list. Next also crosses a cursor
+batch boundary automatically; save or cancel a changed draft before navigating.
 
 For an editable draft Invoice, the Customer editor opens the compiled
 `crm.Customer.lookup` as a searchable

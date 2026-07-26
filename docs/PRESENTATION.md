@@ -53,6 +53,14 @@ list, retain already loaded rows, and request the next opaque cursor batch near
 the scroll boundary. Sorting, filtering, searching, switching views, or
 refreshing starts a new secured cursor sequence.
 
+Qt existing-record forms may expose **Previous** and **Next** without
+reintroducing page navigation. Adjacency is resolved from the current browse
+query's loaded identities; moving forward from its last loaded row requests the
+next opaque cursor batch and then opens the adjacent identity through the
+authenticated record API. The renderer keeps the source form open on failure
+and rejects navigation while its supported draft differs from the original.
+These controls are navigation affordances, not authorization or storage paths.
+
 The compiled browse column order remains the portable default shared by every
 renderer. The Qt client may layer a local personal order and widths over that
 default, keyed by application, view, and authenticated principal. Dragging a

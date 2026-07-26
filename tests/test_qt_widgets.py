@@ -15,7 +15,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QPoint, QSettings
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -120,6 +120,23 @@ class _WidgetClient:
 
     def get_record(self, entity_name: str, identity: Any) -> Any:
         if entity_name == "sales.Invoice":
+            if identity == 2:
+                return SimpleNamespace(
+                    values={
+                        "id": 2,
+                        "number": "INV-QT-002",
+                        "invoice_date": date(2026, 7, 22),
+                        "currency": "EUR",
+                        "status": "posted",
+                        "posted_at": datetime(2026, 7, 22, 12, 0),
+                        "posted_by": "qt:auditor",
+                        "version": 2,
+                        "customer": 1,
+                        "lines": [],
+                        "total": Decimal("25.00"),
+                    },
+                    etag='"2"',
+                )
             assert identity == 1
             return SimpleNamespace(
                 values={
@@ -217,6 +234,60 @@ class _ProductWidgetClient:
         record = next(item for item in self.records if item["id"] == identity)
         record.update(values)
         return SimpleNamespace(values=dict(record), etag='"4"')
+
+
+class _CursorProductWidgetClient(_ProductWidgetClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.records = [
+            {
+                "id": identity,
+                "code": f"P{identity:04d}",
+                "name": f"Product {identity}",
+                "unit_price": Decimal(f"{identity}.00"),
+                "active": True,
+            }
+            for identity in range(1, 52)
+        ]
+        self.queries: list[QuerySpec] = []
+
+    def query_records(self, entity_name: str, query: QuerySpec) -> Any:
+        assert entity_name == "catalog.Product"
+        self.queries.append(query)
+        if query.cursor is None:
+            return SimpleNamespace(
+                records=tuple(self.records[:50]),
+                next_cursor="products-batch-2",
+            )
+        assert query.cursor == "products-batch-2"
+        return SimpleNamespace(
+            records=tuple(self.records[50:]),
+            next_cursor=None,
+        )
+
+
+class _FailingNavigationProductWidgetClient(_ProductWidgetClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.records.append(
+            {
+                "id": 11,
+                "code": "SUPPORT",
+                "name": "Support",
+                "unit_price": Decimal("12.50"),
+                "active": True,
+            }
+        )
+
+    def get_record(self, entity_name: str, identity: Any) -> Any:
+        if identity == 11:
+            raise RuntimeError("adjacent record is temporarily unavailable")
+        return super().get_record(entity_name, identity)
+
+
+class _NoAutomaticPrefetchWindow(TideQtWindow):
+    def _prefetch_if_near_end(self, *_args: Any) -> None:
+        pass
 
 
 class _ConflictingProductWidgetClient(_ProductWidgetClient):
@@ -515,11 +586,39 @@ def test_qt_widget_adapter_incrementally_loads_the_server_list(
     assert detail.editors["number"].text() == "INV-QT-001"
     assert detail.editors["customer"].text() == "ADRIA - Adria Consulting"
     assert detail.save_button.isVisible() is False
+    assert detail.previous_button.isEnabled() is False
+    assert detail.next_button.isEnabled() is True
+    assert detail.previous_button.mapTo(detail, QPoint()).x() < (
+        detail.cancel_button.mapTo(detail, QPoint()).x()
+    )
     lines = detail.collection_editors["lines"].table
     assert lines.rowCount() == 1
     assert lines.item(0, 1).text() == "CONSULT - Consulting"
     assert lines.item(0, 5).text() == "1,250.00"
-    detail.close()
+    detail.next_button.click()
+    _wait_until(
+        application,
+        lambda: len(window._edit_dialogs) == 1
+        and next(iter(window._edit_dialogs)).form.identity == 2,
+    )
+    next_detail = next(iter(window._edit_dialogs))
+    assert next_detail.editors["number"].text() == "INV-QT-002"
+    assert next_detail.previous_button.isEnabled() is True
+    assert next_detail.next_button.isEnabled() is False
+    assert window.table.currentIndex().row() == 1
+
+    next_detail.previous_button.click()
+    _wait_until(
+        application,
+        lambda: len(window._edit_dialogs) == 1
+        and next(iter(window._edit_dialogs)).form.identity == 1,
+    )
+    previous_detail = next(iter(window._edit_dialogs))
+    assert previous_detail.editors["number"].text() == "INV-QT-001"
+    assert previous_detail.previous_button.isEnabled() is False
+    assert previous_detail.next_button.isEnabled() is True
+    assert window.table.currentIndex().row() == 0
+    previous_detail.close()
 
     window.search.setText("QT-002")
     _wait_until(
@@ -758,6 +857,8 @@ def test_qt_flat_product_form_creates_and_updates_through_api(
     assert isinstance(unit_price, QLineEdit)
     assert isinstance(active, QCheckBox)
     assert active.isChecked() is True
+    assert create_dialog.previous_button.isVisible() is False
+    assert create_dialog.next_button.isVisible() is False
 
     code.setText("lowercase")
     name.setText("Support")
@@ -793,6 +894,15 @@ def test_qt_flat_product_form_creates_and_updates_through_api(
     assert isinstance(edit_name, QLineEdit)
     assert edit_name.text() == "Consulting"
     edit_name.setText("Consulting day")
+    assert edit_dialog.next_button.isEnabled() is True
+    edit_dialog.next_button.click()
+    application.processEvents()
+    assert edit_dialog in window._edit_dialogs
+    assert edit_dialog.form.identity == 10
+    assert (
+        edit_dialog.message.text()
+        == "Save or cancel your changes before navigating to another record."
+    )
     edit_dialog.save_button.click()
     _wait_until(
         application,
@@ -802,6 +912,104 @@ def test_qt_flat_product_form_creates_and_updates_through_api(
         (10, {"name": "Consulting day"}, '"3"')
     ]
     assert all(thread != gui_thread for thread in client.mutation_threads)
+
+    window.close()
+    assert window.wait_for_done(1000)
+
+
+def test_qt_detail_next_fetches_the_adjacent_cursor_batch(
+    tmp_path: Path,
+) -> None:
+    application = QApplication.instance() or QApplication([])
+    model = compile_project(INVOICING)
+    client = _CursorProductWidgetClient()
+    window = _NoAutomaticPrefetchWindow(
+        QtBrowseController(
+            model,
+            client,
+            _product_session(model),
+            view_name="catalog.Product.browse",
+            page_size=50,
+        ),
+        source_label="cursor navigation test",
+        layout_settings=_layout_settings(tmp_path / "cursor-navigation.ini"),
+    )
+    window.show()
+    _wait_until(
+        application,
+        lambda: window.table_model.rowCount() == 50
+        and not window.table_model.loading,
+    )
+    assert len(client.queries) == 1
+    assert window.table_model.has_more is True
+
+    window.table.selectRow(49)
+    application.processEvents()
+    window.open.click()
+    _wait_until(application, lambda: len(window._edit_dialogs) == 1)
+    last_loaded = next(iter(window._edit_dialogs))
+    assert last_loaded.form.identity == 50
+    assert last_loaded.next_button.isEnabled() is True
+
+    last_loaded.next_button.click()
+    _wait_until(
+        application,
+        lambda: window.table_model.rowCount() == 51
+        and len(window._edit_dialogs) == 1
+        and next(iter(window._edit_dialogs)).form.identity == 51,
+    )
+    adjacent = next(iter(window._edit_dialogs))
+    assert [query.cursor for query in client.queries] == [
+        None,
+        "products-batch-2",
+    ]
+    assert adjacent.previous_button.isEnabled() is True
+    assert adjacent.next_button.isEnabled() is False
+    adjacent.close()
+
+    window.close()
+    assert window.wait_for_done(1000)
+
+
+def test_qt_detail_navigation_failure_keeps_the_current_form(
+    tmp_path: Path,
+) -> None:
+    application = QApplication.instance() or QApplication([])
+    model = compile_project(INVOICING)
+    client = _FailingNavigationProductWidgetClient()
+    window = TideQtWindow(
+        QtBrowseController(
+            model,
+            client,
+            _product_session(model),
+            view_name="catalog.Product.browse",
+            page_size=5,
+        ),
+        source_label="failed navigation test",
+        layout_settings=_layout_settings(tmp_path / "failed-navigation.ini"),
+    )
+    window.show()
+    _wait_until(
+        application,
+        lambda: window.table_model.rowCount() == 2
+        and not window.table_model.loading,
+    )
+
+    window.table.selectRow(0)
+    application.processEvents()
+    window.open.click()
+    _wait_until(application, lambda: len(window._edit_dialogs) == 1)
+    current = next(iter(window._edit_dialogs))
+    current.next_button.click()
+    _wait_until(
+        application,
+        lambda: not current._saving
+        and "temporarily unavailable" in current.message.text(),
+    )
+    assert window._edit_dialogs == {current}
+    assert current.form.identity == 10
+    assert current.next_button.isEnabled() is True
+    current.close()
 
     window.close()
     assert window.wait_for_done(1000)

@@ -123,6 +123,9 @@ a failure after saving reopens the saved draft for correction.
 The Qt list exposes one **Open** action rather than separate View/Edit/Preview
 modes. The opened form uses the same YAML-defined two-column header as Textual;
 status and capabilities determine whether fields, Save, and Post are enabled.
+Its bottom-left **Previous** and **Next** controls follow the active secured
+browse order, load another opaque cursor batch when needed, and require a
+changed draft to be saved or cancelled before navigation.
 For a report-authorized role, **Preview PDF** builds `sales.invoice`, writes a
 unique GUI-session file under the operating system temporary directory, and
 opens the system viewer. The GUI never receives a report query or database

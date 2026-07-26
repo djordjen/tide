@@ -797,6 +797,7 @@ class TideQtEditDialog(QDialog):
     recordSaved = Signal(object)
     recordActionCompleted = Signal(str, object)
     reopenRequested = Signal(object, str)
+    navigationRequested = Signal(int)
 
     def __init__(
         self,
@@ -807,6 +808,7 @@ class TideQtEditDialog(QDialog):
         save_label: str = "Save",
         report_directory: Path | None = None,
         report_opener: Callable[[Path], bool] | None = None,
+        navigation_enabled: bool = False,
     ) -> None:
         super().__init__(parent)
         self.controller = controller
@@ -833,6 +835,9 @@ class TideQtEditDialog(QDialog):
         self._thread_pool.setMaxThreadCount(1)
         self._saving = False
         self._save_label = save_label
+        self._navigation_enabled = navigation_enabled
+        self._can_previous = False
+        self._can_next = False
         self.report_directory = report_directory
         self.report_opener = report_opener or _open_local_report
         self.setWindowTitle(f"{controller.model.name} — {form.title}")
@@ -969,13 +974,70 @@ class TideQtEditDialog(QDialog):
                 )
             )
             self.action_buttons[action.name] = button
-        layout.addWidget(self.buttons)
+        footer = QHBoxLayout()
+        self.previous_button = QPushButton("Previous")
+        self.previous_button.setObjectName("previous-record")
+        self.next_button = QPushButton("Next")
+        self.next_button.setObjectName("next-record")
+        self.previous_button.setVisible(navigation_enabled)
+        self.next_button.setVisible(navigation_enabled)
+        self.previous_button.clicked.connect(
+            lambda: self._request_navigation(-1)
+        )
+        self.next_button.clicked.connect(lambda: self._request_navigation(1))
+        footer.addWidget(self.previous_button)
+        footer.addWidget(self.next_button)
+        footer.addStretch(1)
+        footer.addWidget(self.buttons)
+        layout.addLayout(footer)
         QShortcut(QKeySequence.StandardKey.Save, self).activated.connect(self._save)
 
         self._connect_action_state_editors()
         self.refresh_action_state()
         if focus_order:
             focus_order[0].setFocus()
+
+    def set_navigation_state(
+        self,
+        *,
+        can_previous: bool,
+        can_next: bool,
+    ) -> None:
+        """Update adjacent-record availability without changing form data."""
+
+        self._can_previous = can_previous
+        self._can_next = can_next
+        self._apply_navigation_state()
+
+    def set_navigation_loading(self, loading: bool) -> None:
+        """Temporarily lock the form while an adjacent record is loaded."""
+
+        self._set_saving(
+            loading,
+            label=self._save_label,
+            message="Loading the adjacent record through the TIDE API…",
+        )
+
+    def _apply_navigation_state(self) -> None:
+        available = self._navigation_enabled and not self._saving
+        self.previous_button.setEnabled(available and self._can_previous)
+        self.next_button.setEnabled(available and self._can_next)
+
+    def _request_navigation(self, direction: int) -> None:
+        if self._saving or direction not in {-1, 1}:
+            return
+        try:
+            values = self._collect_values(enforce_required=True)
+        except ValueError as error:
+            self.message.setText(str(error))
+            return
+        if self.controller.form_has_changes(self.form, values):
+            self.message.setText(
+                "Save or cancel your changes before navigating to another "
+                "record."
+            )
+            return
+        self.navigationRequested.emit(direction)
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if (
@@ -1591,6 +1653,7 @@ class TideQtEditDialog(QDialog):
             button.setEnabled(not saving)
         if self.preview_button is not None:
             self.preview_button.setEnabled(not saving)
+        self._apply_navigation_state()
         self.save_button.setText(label if saving else self._save_label)
         if saving:
             self.message.setText(message)
@@ -2018,6 +2081,14 @@ class TideQtTableModel(QAbstractTableModel):
             raise ValueError("Qt detail row is not available in the loaded records")
         return self._identities[row]
 
+    def row_for_identity(self, identity: Any) -> int | None:
+        """Return an identity's position in the currently loaded query rows."""
+
+        try:
+            return self._identities.index(identity)
+        except ValueError:
+            return None
+
     def canFetchMore(self, parent: QModelIndex = QModelIndex()) -> bool:
         return (
             not parent.isValid()
@@ -2160,6 +2231,11 @@ class TideQtWindow(QMainWindow):
         self._detail_dialogs: set[TideQtDetailDialog] = set()
         self._edit_dialogs: set[TideQtEditDialog] = set()
         self._operation_workers: set[_CallWorker] = set()
+        self._navigation_workers: dict[
+            _CallWorker,
+            tuple[TideQtEditDialog, Any],
+        ] = {}
+        self._pending_navigation: dict[TideQtEditDialog, int] = {}
         self._operation_pool = QThreadPool(self)
         self._operation_pool.setMaxThreadCount(1)
         self._form_loading = False
@@ -2502,23 +2578,165 @@ class TideQtWindow(QMainWindow):
         form: QtEditForm,
         message: str | None = None,
     ) -> None:
+        navigation_enabled = (
+            form.operation == "update"
+            and self.table_model.row_for_identity(form.identity) is not None
+        )
         dialog = TideQtEditDialog(
             self.controller,
             form,
             parent=self,
             report_directory=self.report_output_directory,
             report_opener=self.report_opener,
+            navigation_enabled=navigation_enabled,
         )
         self._edit_dialogs.add(dialog)
+        self._refresh_dialog_navigation(dialog)
         if message:
             dialog.message.setText(message)
         dialog.recordSaved.connect(self._record_saved)
         dialog.recordActionCompleted.connect(self._record_action_completed)
         dialog.reopenRequested.connect(self._reopen_edit_form)
+        dialog.navigationRequested.connect(
+            lambda direction, current=dialog: self._navigate_dialog(
+                current,
+                direction,
+            )
+        )
         dialog.finished.connect(
-            lambda _result, current=dialog: self._edit_dialogs.discard(current)
+            lambda _result, current=dialog: self._edit_dialog_closed(current)
         )
         dialog.show()
+
+    def _edit_dialog_closed(self, dialog: TideQtEditDialog) -> None:
+        self._edit_dialogs.discard(dialog)
+        self._pending_navigation.pop(dialog, None)
+
+    def _refresh_dialog_navigation(
+        self,
+        dialog: TideQtEditDialog,
+    ) -> None:
+        row = self.table_model.row_for_identity(dialog.form.identity)
+        dialog.set_navigation_state(
+            can_previous=row is not None and row > 0,
+            can_next=(
+                row is not None
+                and (
+                    row + 1 < self.table_model.rowCount()
+                    or self.table_model.has_more
+                )
+            ),
+        )
+
+    def _refresh_open_dialog_navigation(self) -> None:
+        for dialog in tuple(self._edit_dialogs):
+            self._refresh_dialog_navigation(dialog)
+
+    def _navigate_dialog(
+        self,
+        dialog: TideQtEditDialog,
+        direction: int,
+    ) -> None:
+        if dialog not in self._edit_dialogs or direction not in {-1, 1}:
+            return
+        row = self.table_model.row_for_identity(dialog.form.identity)
+        if row is None:
+            self._refresh_dialog_navigation(dialog)
+            dialog.message.setText(
+                "This record is no longer part of the current list query."
+            )
+            return
+        target_row = row + direction
+        if 0 <= target_row < self.table_model.rowCount():
+            self._start_navigation_load(
+                dialog,
+                self.table_model.identity_at(target_row),
+            )
+            return
+        if direction > 0 and self.table_model.has_more:
+            self._pending_navigation[dialog] = direction
+            dialog.set_navigation_loading(True)
+            if self.table_model.canFetchMore():
+                self.table_model.fetchMore()
+            return
+        self._refresh_dialog_navigation(dialog)
+
+    def _continue_pending_navigation(self) -> None:
+        for dialog, direction in tuple(self._pending_navigation.items()):
+            if dialog not in self._edit_dialogs:
+                self._pending_navigation.pop(dialog, None)
+                continue
+            row = self.table_model.row_for_identity(dialog.form.identity)
+            if row is None:
+                self._pending_navigation.pop(dialog, None)
+                dialog.set_navigation_loading(False)
+                self._refresh_dialog_navigation(dialog)
+                dialog.message.setText(
+                    "This record is no longer part of the current list query."
+                )
+                continue
+            target_row = row + direction
+            if 0 <= target_row < self.table_model.rowCount():
+                self._pending_navigation.pop(dialog, None)
+                self._start_navigation_load(
+                    dialog,
+                    self.table_model.identity_at(target_row),
+                )
+                continue
+            if direction > 0 and self.table_model.has_more:
+                if self.table_model.canFetchMore():
+                    self.table_model.fetchMore()
+                continue
+            self._pending_navigation.pop(dialog, None)
+            dialog.set_navigation_loading(False)
+            self._refresh_dialog_navigation(dialog)
+            dialog.message.setText(
+                "There is no next record in the current list."
+            )
+
+    def _start_navigation_load(
+        self,
+        dialog: TideQtEditDialog,
+        identity: Any,
+    ) -> None:
+        dialog.set_navigation_loading(True)
+        worker = _CallWorker(lambda: self.controller.edit_form(identity))
+        self._operation_workers.add(worker)
+        self._navigation_workers[worker] = (dialog, identity)
+        worker.signals.completed.connect(self._navigation_form_ready)
+        worker.signals.failed.connect(self._navigation_form_failed)
+        self._operation_pool.start(worker)
+
+    @Slot(object, object)
+    def _navigation_form_ready(
+        self,
+        form: QtEditForm,
+        worker: _CallWorker,
+    ) -> None:
+        source, target_identity = self._navigation_workers.pop(worker)
+        self._operation_workers.discard(worker)
+        if source not in self._edit_dialogs:
+            return
+        source.set_navigation_loading(False)
+        source.reject()
+        target_row = self.table_model.row_for_identity(target_identity)
+        if target_row is not None:
+            self.table.selectRow(target_row)
+        self._show_edit_form(form)
+
+    @Slot(object, object)
+    def _navigation_form_failed(
+        self,
+        error: Exception,
+        worker: _CallWorker,
+    ) -> None:
+        source, _target_identity = self._navigation_workers.pop(worker)
+        self._operation_workers.discard(worker)
+        if source not in self._edit_dialogs:
+            return
+        source.set_navigation_loading(False)
+        self._refresh_dialog_navigation(source)
+        source.message.setText(f"Unable to open adjacent record: {error}")
 
     @Slot(object, str)
     def _reopen_edit_form(
@@ -2599,10 +2817,24 @@ class TideQtWindow(QMainWindow):
         if not self._column_widths_initialized and self.isVisible():
             self._initialize_column_widths()
         self._update_status()
+        self._refresh_open_dialog_navigation()
+        self._continue_pending_navigation()
         self._prefetch_if_near_end()
 
     def _load_failed(self, message: str) -> None:
         self._update_status()
+        if self._pending_navigation:
+            pending = tuple(self._pending_navigation)
+            self._pending_navigation.clear()
+            for dialog in pending:
+                if dialog not in self._edit_dialogs:
+                    continue
+                dialog.set_navigation_loading(False)
+                self._refresh_dialog_navigation(dialog)
+                dialog.message.setText(
+                    f"Unable to load the next list records: {message}"
+                )
+            return
         QMessageBox.critical(self, "TIDE Qt", f"Unable to load records: {message}")
 
     def _queue_search(self, _text: str) -> None:
