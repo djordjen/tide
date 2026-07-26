@@ -769,13 +769,25 @@ def _decode_record(
     metadata = raw.get("_tide")
     protected: set[str] = set()
     if metadata is not None:
-        if not isinstance(metadata, Mapping) or not isinstance(
-            metadata.get("protected_fields"), list
+        if not isinstance(metadata, Mapping) or set(metadata) - {
+            "protected_fields",
+            "writable_fields",
+        }:
+            raise TideApiContractError(f"{entity.name} protection metadata is invalid")
+        raw_protected = metadata.get("protected_fields") or []
+        raw_writable = metadata.get("writable_fields") or []
+        if not isinstance(raw_protected, list) or not isinstance(
+            raw_writable,
+            list,
         ):
             raise TideApiContractError(f"{entity.name} protection metadata is invalid")
-        protected = {str(name) for name in metadata["protected_fields"]}
+        protected = {str(name) for name in raw_protected}
         if not protected <= set(entity.fields):
             raise TideApiContractError(f"{entity.name} protects an unknown field")
+        if not {str(name) for name in raw_writable} <= set(entity.fields):
+            raise TideApiContractError(
+                f"{entity.name} writable metadata contains an unknown field"
+            )
     result: dict[str, Any] = {}
     for field_name, field in entity.fields.items():
         if field_name not in raw:

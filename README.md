@@ -394,6 +394,9 @@ generated REST paths. The first generic React Web shell now consumes that
 contract to render responsive capability-filtered navigation and virtualized
 server-mode browse grids with search, named filters, sorting, opaque-cursor
 loading, reference display, exact formatting, and personal column layouts.
+Its one Open path now renders the shared form rows and inline collections,
+distinguishes server-evaluated workflow locks, and navigates Previous/Next
+within the current secured browse order without replacing the detail shell.
 The typed HTTP client preserves exact field types,
 protected values, cursors, ETags, and stable errors while rejecting mismatched
 applications, principals, and unsafe unencrypted non-loopback URLs. Neither

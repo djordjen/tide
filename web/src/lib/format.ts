@@ -54,6 +54,23 @@ export function formatReferenceDisplay(
   )
 }
 
+export function formatRecordDisplay(
+  template: string | null,
+  record: TideRecord,
+  identityField: string,
+): string {
+  if (!template) {
+    return safeDisplayValue(record[identityField])
+  }
+  if (!template.includes("{")) {
+    return safeDisplayValue(record[template])
+  }
+  return template.replace(
+    /\{([A-Za-z_][A-Za-z0-9_]*)\}/g,
+    (_, field: string) => safeDisplayValue(record[field]),
+  )
+}
+
 export function humanize(value: string): string {
   return value
     .replace(/[_-]+/g, " ")

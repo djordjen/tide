@@ -170,12 +170,13 @@ application-owned Faker profile and the real secured services.
 - compiler-validated shared application navigation in presentation YAML,
   capability filtering, Textual selector ordering, and a grouped Qt shell with
   lazily retained per-view workspace state and `--view` deep links;
-  **implemented**, including the authenticated Web presentation projection;
-  the browser shell remains the next slice
+  **implemented**, including the authenticated Web presentation projection
+  and browser shell
 - renderer-neutral form-layout resolution for ordered YAML rows, groups,
   collections, tabs, actions, and field visibility, consumed by Textual and
-  Qt; plus one Qt **Open** path whose form controls follow capability and
-  workflow state; **implemented**; Web consumption remains later work
+  Qt; plus one Qt/Web **Open** path whose form controls follow capability and
+  workflow state; **implemented**, including Web detail collections and
+  current-query Previous/Next navigation
 - basic secured printable invoice with TUI preview, HTML, and PDF;
   **implemented**
 - opt-in REST list/get/create/update/delete and domain-action routes plus OpenAPI;
@@ -230,11 +231,12 @@ an invoice entirely by keyboard or mouse.
   incremental fetch, safe reference display, exact formatting, personal
   column order/widths, Best Fit/Fill/Reset, and same-origin static hosting**
 - Web detail view using the shared form layout, read-only states, collections,
-  and current-query Previous/Next navigation; **next**
+  and current-query Previous/Next navigation; **implemented**
 - Web editing parity in reviewed slices: CRUD, lookups and **Save & Select**,
-  collection drafts, actions, conflicts, and reports; **planned**
+  collection drafts, actions, conflicts, and reports; **planned**, beginning
+  with flat scalar Customer/Product editing
 - executable renderer acceptance matrix for shared TUI/Qt/Web semantics;
-  **planned after the first Web detail slice**
+  **planned after the first Web editing slice**
 
 Exit condition: TUI, REST, and MCP produce equivalent secured outcomes through
 the same services.

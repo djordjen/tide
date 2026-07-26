@@ -120,6 +120,11 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
             "crm.Customer.browse",
             "catalog.Product.browse",
         }
+        assert set(manifest["forms"]) == {
+            "sales.Invoice.edit",
+            "crm.Customer.edit",
+            "catalog.Product.edit",
+        }
         invoice_view = manifest["views"]["sales.Invoice.browse"]
         assert invoice_view["resource_path"] == "/api/v1/invoices"
         assert invoice_view["query_path"] == "/api/v1/invoices/_query"
@@ -133,6 +138,7 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
             "create",
             "update",
         ]
+        assert invoice_view["detail_view"] == "sales.Invoice.edit"
         assert [column["name"] for column in invoice_view["columns"]] == [
             "number",
             "invoice_date",
@@ -189,6 +195,45 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
                     }
                 ],
             },
+        ]
+        invoice_form = manifest["forms"]["sales.Invoice.edit"]
+        assert invoice_form["entity"] == "sales.Invoice"
+        assert invoice_form["label"] == "Invoice"
+        assert invoice_form["display_template"] == "number"
+        assert list(invoice_form["fields"]) == [
+            "number",
+            "invoice_date",
+            "status",
+            "currency",
+            "customer",
+            "total",
+            "posted_at",
+            "version",
+        ]
+        assert invoice_form["sections"][0] == {
+            "kind": "group",
+            "label": "Invoice",
+            "rows": [
+                ["number", "invoice_date"],
+                ["status", "currency"],
+                ["customer", "total"],
+                ["posted_at"],
+                ["version"],
+            ],
+            "tab": None,
+        }
+        line_section = invoice_form["sections"][1]
+        assert line_section["kind"] == "collection"
+        assert line_section["name"] == "lines"
+        assert line_section["label"] == "Lines"
+        assert line_section["entity"] == "sales.InvoiceLine"
+        assert [column["name"] for column in line_section["columns"]] == [
+            "line_number",
+            "product",
+            "description",
+            "quantity",
+            "unit_price",
+            "total",
         ]
         assert presentation.headers["cache-control"] == "no-store"
         assert anonymous_presentation.status_code == 401
@@ -295,6 +340,39 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
         "If-Match",
         "Idempotency-Key",
     }
+
+
+def test_record_get_projects_server_evaluated_workflow_field_state() -> None:
+    app = _app("sales_clerk")
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            posted = await client.get(
+                "/api/v1/invoices/1",
+                headers=_authorization(),
+            )
+            draft = await client.get(
+                "/api/v1/invoices/2",
+                headers=_authorization(),
+            )
+
+        assert posted.status_code == 200
+        assert (
+            (posted.json().get("_tide") or {}).get("writable_fields")
+            is None
+        )
+        assert draft.status_code == 200
+        assert draft.json()["_tide"] == {
+            "protected_fields": ["posted_by"],
+            "writable_fields": [
+                "currency",
+                "customer",
+                "invoice_date",
+                "lines",
+            ]
+        }
+
+    asyncio.run(exercise())
 
 
 def test_server_can_host_a_built_web_renderer_without_shadowing_api(
@@ -423,6 +501,15 @@ def test_presentation_manifest_filters_field_protected_controls() -> None:
             named_filter["name"]
             for named_filter in invoice_view["named_filters"]
         ] == ["drafts"]
+        invoice_form = response.json()["forms"]["sales.Invoice.edit"]
+        assert "total" not in invoice_form["fields"]
+        assert "total" not in {
+            field_name
+            for section in invoice_form["sections"]
+            if section["kind"] == "group"
+            for row in section["rows"]
+            for field_name in row
+        }
 
     asyncio.run(exercise())
 

@@ -27,11 +27,20 @@ REST_OPERATIONS = frozenset({"list", "get", "create", "update", "delete"})
 
 
 class TideProtectionMetadata(BaseModel):
-    """Wire metadata distinguishing protected values from genuine nulls."""
+    """Safe per-record wire metadata for protected and writable fields."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    protected_fields: list[str] = Field(min_length=1)
+    protected_fields: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        exclude_if=lambda value: value is None,
+    )
+    writable_fields: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        exclude_if=lambda value: value is None,
+    )
 
 
 class TideApiError(BaseModel):
@@ -169,8 +178,8 @@ def _build_record_models(
                 alias="_tide",
                 title="TIDE metadata",
                 description=(
-                    "Present when one or more fields are null because their values are "
-                    "protected for the current principal."
+                    "Safe per-record protected-field and workflow-aware "
+                    "writable-field hints. Mutation routes reauthorize every request."
                 ),
             ),
         )

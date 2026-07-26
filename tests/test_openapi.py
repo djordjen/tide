@@ -61,6 +61,11 @@ def test_preview_generates_typed_pydantic_record_and_page_models() -> None:
     assert invoice["properties"]["_tide"]["anyOf"][0] == {
         "$ref": "#/components/schemas/TideProtectionMetadata"
     }
+    record_metadata = schemas["TideProtectionMetadata"]
+    assert set(record_metadata["properties"]) == {
+        "protected_fields",
+        "writable_fields",
+    }
     assert "_tide" not in invoice["required"]
 
     page = schemas["SalesInvoicePage"]

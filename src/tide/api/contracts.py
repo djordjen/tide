@@ -277,6 +277,70 @@ class TidePresentationColumn(BaseModel):
     reference: TidePresentationReference | None = None
 
 
+class TidePresentationFormGroup(BaseModel):
+    """One ordered renderer-neutral scalar-field section."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["group"] = "group"
+    label: str = Field(min_length=1)
+    rows: tuple[tuple[str, ...], ...] = Field(min_length=1)
+    tab: str | None = None
+
+
+class TidePresentationFormCollection(BaseModel):
+    """One readable inline collection in an authenticated detail form."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["collection"] = "collection"
+    name: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    entity: str = Field(min_length=1)
+    columns: tuple[TidePresentationColumn, ...] = Field(min_length=1)
+    tab: str | None = None
+
+
+TidePresentationFormSection = (
+    TidePresentationFormGroup | TidePresentationFormCollection
+)
+
+
+class TideFormPresentation(BaseModel):
+    """One capability-filtered semantic detail-form contract."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    view: str = Field(min_length=1)
+    entity: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    display_template: str | None = None
+    fields: dict[str, TidePresentationColumn]
+    sections: tuple[TidePresentationFormSection, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def sections_reference_declared_fields(self) -> TideFormPresentation:
+        scalar_names = {
+            field_name
+            for section in self.sections
+            if isinstance(section, TidePresentationFormGroup)
+            for row in section.rows
+            for field_name in row
+        }
+        if scalar_names != set(self.fields):
+            raise ValueError(
+                "form sections and declared scalar fields must match"
+            )
+        collection_names = [
+            section.name
+            for section in self.sections
+            if isinstance(section, TidePresentationFormCollection)
+        ]
+        if len(collection_names) != len(set(collection_names)):
+            raise ValueError("form repeats an inline collection")
+        return self
+
+
 class TidePresentationNamedFilter(BaseModel):
     """One named browse filter translated to structured query conditions."""
 
@@ -305,6 +369,7 @@ class TideBrowsePresentation(BaseModel):
     sortable_fields: tuple[str, ...] = ()
     page_size: int = Field(ge=1, le=500)
     operations: tuple[TideOperation, ...] = ()
+    detail_view: str | None = None
 
 
 class TidePresentationNavigationItem(BaseModel):
@@ -338,6 +403,7 @@ class TidePresentationManifest(BaseModel):
     principal: str
     navigation: tuple[TidePresentationNavigationGroup, ...] = ()
     views: dict[str, TideBrowsePresentation]
+    forms: dict[str, TideFormPresentation] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def navigation_matches_views(self) -> TidePresentationManifest:
@@ -359,5 +425,22 @@ class TidePresentationManifest(BaseModel):
         ):
             raise ValueError(
                 "presentation navigation entity does not match its browse view"
+            )
+        referenced_forms = {
+            view.detail_view
+            for view in self.views.values()
+            if view.detail_view is not None
+        }
+        if referenced_forms != set(self.forms):
+            raise ValueError(
+                "presentation browse detail views and forms must match"
+            )
+        if any(
+            self.forms[view.detail_view].entity != view.entity
+            for view in self.views.values()
+            if view.detail_view is not None
+        ):
+            raise ValueError(
+                "presentation form entity does not match its browse view"
             )
         return self

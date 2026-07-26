@@ -41,6 +41,10 @@ export function AppShell({
     document.documentElement.classList.contains("dark") ? "dark" : "light",
   )
   const view = connection.presentation.views[selectedView]
+  const form =
+    view?.detail_view !== null && view?.detail_view !== undefined
+      ? (connection.presentation.forms[view.detail_view] ?? null)
+      : null
   const allItems = useMemo(
     () =>
       connection.presentation.navigation.flatMap((group) => group.items),
@@ -224,6 +228,7 @@ export function AppShell({
           application={connection.presentation.application}
           principal={connection.session.principal}
           view={view}
+          form={form}
         />
       </section>
     </div>

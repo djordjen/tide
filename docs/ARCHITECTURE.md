@@ -50,7 +50,10 @@ React/TypeScript Web shell consumes that projection and the ordinary generated
 REST routes rather than interpreting application sources in the browser. It
 uses Vite, Tailwind CSS, code-owned shadcn/ui controls, and TanStack
 Query/Table/Virtual; a production build can be hosted after the FastAPI routes
-at the same origin.
+at the same origin. The projection now includes readable semantic form
+sections and collections; record reads add server-evaluated workflow field
+state so Web can render a stable detail view without receiving authorization
+expressions.
 
 ```text
 applications/<name>/ (YAML + Python handlers + overlays)

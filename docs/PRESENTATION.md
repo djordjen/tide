@@ -210,13 +210,20 @@ three-way review contract rather than introducing last-write-wins behavior.
 
 Form `layout` is a shared semantic contract, not a renderer hint. One
 renderer-neutral resolver produces ordered group rows, collections, tabs,
-actions, and hidden-field decisions for Textual and Qt; the Web detail renderer
-must consume the same result. A row such as `[number, invoice_date]`
+actions, and hidden-field decisions for Textual, Qt, and Web. A row such as
+`[number, invoice_date]`
 therefore means the same visual pairing everywhere. Surface-specific metadata
 may control measurements, but it may not independently regroup fields.
 `settings.compact_groups: true` is also portable: Studio retains the authored
 groups, while renderers resolve their scalar fields in order into one
 two-column header before collection sections.
+
+Remote Web clients receive a capability-filtered form projection rather than
+raw layout YAML. It includes only readable scalar fields and authorized inline
+collection columns. The record resource may add a safe, server-evaluated list
+of fields currently writable for presentation; an absent or empty list renders
+the form read-only. This state is advisory and never replaces mutation-time
+service authorization.
 
 Qt record reports follow the same renderer-neutral boundary as Textual. The
 active entity's record report is visible only when it is REST-exposed and

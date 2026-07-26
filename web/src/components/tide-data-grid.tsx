@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
 } from "react"
-import { useQuery } from "@tanstack/react-query"
 import {
   type ColumnDef,
   type ColumnOrderState,
@@ -28,7 +27,7 @@ import {
   Rows3,
 } from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
+import { TideDisplayValue } from "@/components/tide-display-value"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -43,14 +42,10 @@ import type { TideApi } from "@/lib/api"
 import type {
   TideBrowsePresentation,
   TidePresentationColumn,
-  TidePresentationReference,
   TideRecord,
   TideSortInput,
 } from "@/lib/contracts"
-import {
-  formatCellValue,
-  formatReferenceDisplay,
-} from "@/lib/format"
+import { formatCellValue } from "@/lib/format"
 import {
   clampColumnWidth,
   clearColumnLayout,
@@ -74,6 +69,9 @@ interface TideDataGridProps {
   fetchMore: () => void
   sort: TideSortInput[]
   onSort: (sort: TideSortInput[]) => void
+  selectedIdentity: unknown | null
+  onSelect: (record: TideRecord) => void
+  onOpen: (record: TideRecord) => void
   registerScrollReset: (reset: () => void) => void
 }
 
@@ -89,6 +87,9 @@ export function TideDataGrid({
   fetchMore,
   sort,
   onSort,
+  selectedIdentity,
+  onSelect,
+  onOpen,
   registerScrollReset,
 }: TideDataGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -483,6 +484,8 @@ export function TideDataGrid({
 
       <div
         ref={scrollRef}
+        role="grid"
+        aria-label={`${view.label} records`}
         className="min-h-0 flex-1 overflow-auto bg-background"
         onScroll={(event) => {
           if (headerRef.current) {
@@ -517,17 +520,34 @@ export function TideDataGrid({
           >
             {virtualRows.map((virtualRow) => {
               const row = table.getRowModel().rows[virtualRow.index]
+              const identity = row.original[view.identity_field]
+              const selected =
+                selectedIdentity !== null &&
+                String(identity) === String(selectedIdentity)
               return (
                 <div
                   key={row.id}
                   role="row"
+                  tabIndex={0}
+                  aria-selected={selected}
                   aria-rowindex={virtualRow.index + 1}
-                  className="absolute top-0 left-0 grid border-b border-border/55 text-sm hover:bg-accent/28"
+                  className={cn(
+                    "absolute top-0 left-0 grid cursor-default border-b border-border/55 text-sm outline-none hover:bg-accent/35 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/45",
+                    selected && "bg-accent/70 hover:bg-accent/75",
+                  )}
                   style={{
                     gridTemplateColumns: gridTemplate,
                     height: ROW_HEIGHT,
                     transform: `translateY(${virtualRow.start}px)`,
                     width: contentWidth,
+                  }}
+                  onClick={() => onSelect(row.original)}
+                  onDoubleClick={() => onOpen(row.original)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault()
+                      onOpen(row.original)
+                    }
                   }}
                 >
                   {row.getVisibleCells().map((cell) => {
@@ -547,7 +567,7 @@ export function TideDataGrid({
                               : "justify-start text-left",
                         )}
                       >
-                        <GridCell
+                        <TideDisplayValue
                           api={api}
                           column={column}
                           record={row.original}
@@ -562,71 +582,6 @@ export function TideDataGrid({
         )}
       </div>
     </section>
-  )
-}
-
-function GridCell({
-  api,
-  column,
-  record,
-}: {
-  api: TideApi
-  column: TidePresentationColumn
-  record: TideRecord
-}) {
-  const value = record[column.name]
-  const protectedFields = record._tide?.protected_fields ?? []
-  const reference = column.reference
-  const referenceQuery = useQuery({
-    queryKey: [
-      "reference-display",
-      reference?.entity,
-      value,
-    ],
-    enabled:
-      reference !== null &&
-      reference !== undefined &&
-      value !== null &&
-      value !== undefined &&
-      !protectedFields.includes(column.name),
-    queryFn: ({ signal }) => {
-      if (!reference) {
-        throw new Error("reference contract missing")
-      }
-      return api.getReference(reference, value, signal)
-    },
-    staleTime: 300_000,
-    retry: false,
-  })
-
-  let text = formatCellValue(column, value, protectedFields)
-  if (reference && referenceQuery.data) {
-    text = formatReferenceDisplay(reference, referenceQuery.data)
-  }
-
-  if (column.field_type === "choice" && text) {
-    return (
-      <Badge
-        className="max-w-full truncate"
-        variant="secondary"
-        title={text}
-      >
-        {text}
-      </Badge>
-    )
-  }
-  return (
-    <span
-      className={cn(
-        "block min-w-0 truncate",
-        protectedFields.includes(column.name) &&
-          "italic text-muted-foreground",
-        referenceQuery.isPending && "text-muted-foreground",
-      )}
-      title={text}
-    >
-      {text || "—"}
-    </span>
   )
 }
 

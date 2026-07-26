@@ -1,13 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { useInfiniteQuery } from "@tanstack/react-query"
 import {
   Filter,
+  FolderOpen,
   RefreshCw,
   Search,
   ShieldCheck,
   X,
 } from "lucide-react"
 
+import { RecordDetail } from "@/components/record-detail"
 import { TideDataGrid } from "@/components/tide-data-grid"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -26,14 +34,18 @@ import { TideApiError, type TideApi } from "@/lib/api"
 import type {
   TideBrowsePresentation,
   TideFilterInput,
+  TideFormPresentation,
+  TideRecord,
   TideSortInput,
 } from "@/lib/contracts"
+import { cn } from "@/lib/utils"
 
 interface BrowseWorkspaceProps {
   api: TideApi
   application: string
   principal: string
   view: TideBrowsePresentation
+  form: TideFormPresentation | null
 }
 
 export function BrowseWorkspace({
@@ -41,11 +53,17 @@ export function BrowseWorkspace({
   application,
   principal,
   view,
+  form,
 }: BrowseWorkspaceProps) {
   const [search, setSearch] = useState("")
   const debouncedSearch = useDebouncedValue(search.trim(), 300)
   const [filterName, setFilterName] = useState("all")
   const [sort, setSort] = useState<TideSortInput[]>([])
+  const [selectedIdentity, setSelectedIdentity] = useState<unknown | null>(
+    null,
+  )
+  const [activeIdentity, setActiveIdentity] = useState<unknown | null>(null)
+  const [navigationPending, setNavigationPending] = useState(false)
   const scrollReset = useRef<(() => void) | null>(null)
 
   const selectedFilter = view.named_filters.find(
@@ -94,7 +112,91 @@ export function BrowseWorkspace({
 
   useEffect(() => {
     scrollReset.current?.()
+    setSelectedIdentity(null)
   }, [debouncedSearch, filterName, sort])
+
+  const identityOf = useCallback(
+    (record: TideRecord) => record[view.identity_field],
+    [view.identity_field],
+  )
+  const activeIndex = records.findIndex(
+    (record) =>
+      activeIdentity !== null &&
+      String(identityOf(record)) === String(activeIdentity),
+  )
+  const openRecord = useCallback(
+    (record: TideRecord) => {
+      const identity = identityOf(record)
+      if (
+        form &&
+        identity !== null &&
+        identity !== undefined &&
+        view.operations.includes("get")
+      ) {
+        setSelectedIdentity(identity)
+        setActiveIdentity(identity)
+      }
+    },
+    [form, identityOf, view.operations],
+  )
+  const navigate = useCallback(
+    async (offset: -1 | 1) => {
+      if (activeIdentity === null || navigationPending) {
+        return
+      }
+      const currentIndex = records.findIndex(
+        (record) =>
+          String(identityOf(record)) === String(activeIdentity),
+      )
+      if (currentIndex < 0) {
+        return
+      }
+      if (offset === -1) {
+        const previous = records[currentIndex - 1]
+        if (previous) {
+          const identity = identityOf(previous)
+          setSelectedIdentity(identity)
+          setActiveIdentity(identity)
+        }
+        return
+      }
+      const loadedNext = records[currentIndex + 1]
+      if (loadedNext) {
+        const identity = identityOf(loadedNext)
+        setSelectedIdentity(identity)
+        setActiveIdentity(identity)
+        return
+      }
+      if (!query.hasNextPage) {
+        return
+      }
+      setNavigationPending(true)
+      try {
+        const result = await query.fetchNextPage()
+        const expanded =
+          result.data?.pages.flatMap((page) => page.records) ?? records
+        const refreshedIndex = expanded.findIndex(
+          (record) =>
+            String(identityOf(record)) === String(activeIdentity),
+        )
+        const next = expanded[refreshedIndex + 1]
+        if (next) {
+          const identity = identityOf(next)
+          setSelectedIdentity(identity)
+          setActiveIdentity(identity)
+        }
+      } finally {
+        setNavigationPending(false)
+      }
+    },
+    [
+      activeIdentity,
+      identityOf,
+      navigationPending,
+      query,
+      records,
+    ],
+  )
 
   const error =
     query.error instanceof TideApiError
@@ -104,7 +206,13 @@ export function BrowseWorkspace({
         : null
 
   return (
-    <main className="flex min-h-0 flex-1 flex-col p-4 md:p-6">
+    <>
+    <main
+      className={cn(
+        "min-h-0 flex-1 flex-col p-4 md:p-6",
+        activeIdentity === null ? "flex" : "hidden",
+      )}
+    >
       <div className="mb-5 flex shrink-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <div className="flex items-center gap-3">
@@ -177,6 +285,26 @@ export function BrowseWorkspace({
             </DropdownMenu>
           ) : null}
 
+          {form ? (
+            <Button
+              variant="outline"
+              disabled={selectedIdentity === null}
+              onClick={() => {
+                const record = records.find(
+                  (candidate) =>
+                    String(identityOf(candidate)) ===
+                    String(selectedIdentity),
+                )
+                if (record) {
+                  openRecord(record)
+                }
+              }}
+            >
+              <FolderOpen />
+              Open
+            </Button>
+          ) : null}
+
           <Button
             aria-label="Refresh records"
             size="icon"
@@ -221,10 +349,33 @@ export function BrowseWorkspace({
         }}
         sort={sort}
         onSort={setSort}
+        selectedIdentity={selectedIdentity}
+        onSelect={(record) => setSelectedIdentity(identityOf(record))}
+        onOpen={openRecord}
         registerScrollReset={(reset) => {
           scrollReset.current = reset
         }}
       />
     </main>
+    {activeIdentity !== null && form ? (
+      <RecordDetail
+        api={api}
+        view={view}
+        form={form}
+        identity={activeIdentity}
+        position={Math.max(activeIndex, 0)}
+        loadedCount={records.length}
+        canPrevious={activeIndex > 0}
+        canNext={
+          activeIndex >= 0 &&
+          (activeIndex < records.length - 1 || Boolean(query.hasNextPage))
+        }
+        navigationPending={navigationPending}
+        onPrevious={() => void navigate(-1)}
+        onNext={() => void navigate(1)}
+        onClose={() => setActiveIdentity(null)}
+      />
+    ) : null}
+    </>
   )
 }

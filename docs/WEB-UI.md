@@ -1,6 +1,7 @@
 # Web UI
 
-**Status: the first generic, metadata-driven browse slice is implemented.**
+**Status: generic metadata-driven browse and secured detail slices are
+implemented.**
 
 TIDE Web is a reusable React renderer for compiled TIDE applications. The
 checked-in Invoicing application is the golden example, but the browser code
@@ -49,6 +50,14 @@ database.
 - **Best Fit all**, per-column Best Fit, **Fill available**, and
   **Reset app layout**;
 - personal column order and widths scoped by application, principal, and view.
+- row selection plus one **Open** path through button, double-click, or Enter;
+- stable in-place record detail without closing or repositioning the shell;
+- renderer-neutral form rows, groups, tabs, and inline collections projected
+  from the same compiled YAML layout used by Textual and Qt;
+- clearly distinguished workflow-locked and writable fields, based on safe
+  per-record state evaluated by the server;
+- Previous/Next navigation in the current secured browse order, including
+  cursor-boundary loading and Page Up/Page Down shortcuts.
 
 The YAML column order remains the shared application default. Ordinary browser
 reordering and resizing are personal preferences and never edit application
@@ -69,6 +78,13 @@ Portable metadata contains semantic presentation intent, not Tailwind class
 names or shadcn component names. A renderer maps shared field types, formats,
 alignment, and future conditional-style tokens to its own controls. This keeps
 the same YAML meaningful to Textual, Qt, Web, and later renderers.
+
+The detail manifest is also a safe projection. It contains field display
+metadata and resolved semantic layout, but no YAML expressions, permissions,
+handlers, or database configuration. `GET` record responses may include
+server-evaluated `writable_fields` hints so the browser can distinguish locked
+fields. These hints are advisory: every later mutation is authorized and
+validated again by FastAPI and the shared services.
 
 The current development connection screen accepts a bearer token manually.
 Provider-specific interactive browser sign-in, token refresh, and logout are a
@@ -119,8 +135,8 @@ against one supported Node version alongside the Python 3.11 framework suite.
 
 ## Next slice
 
-The next Web milestone is a shared-metadata detail view: one Open action,
-renderer-neutral two-column form placement, workflow-aware read-only state,
-collections, and Previous/Next navigation in the current secured browse order.
-Editing, lookups and **Save & Select**, conflicts, domain actions, and report
-preview will then follow as reviewed vertical slices.
+The next Web milestone is carefully bounded editing for flat scalar
+Customer/Product forms: typed controls, masks, defaults, validation, create and
+ETag-protected update. Lookup selection and **Save & Select**, Invoice
+master-detail drafts, conflict review, domain actions, and report preview will
+then follow as separate reviewed vertical slices.

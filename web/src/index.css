@@ -130,6 +130,19 @@ select {
   font: inherit;
 }
 
+.tide-form-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 768px) {
+  .tide-form-row {
+    grid-template-columns: repeat(
+      var(--tide-form-columns, 1),
+      minmax(0, 1fr)
+    );
+  }
+}
+
 ::selection {
   background: color-mix(in oklab, var(--primary) 22%, transparent);
 }

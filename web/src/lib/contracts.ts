@@ -86,6 +86,36 @@ export interface TideBrowsePresentation {
   sortable_fields: string[]
   page_size: number
   operations: TideOperation[]
+  detail_view: string | null
+}
+
+export interface TidePresentationFormGroup {
+  kind: "group"
+  label: string
+  rows: string[][]
+  tab: string | null
+}
+
+export interface TidePresentationFormCollection {
+  kind: "collection"
+  name: string
+  label: string
+  entity: string
+  columns: TidePresentationColumn[]
+  tab: string | null
+}
+
+export type TidePresentationFormSection =
+  | TidePresentationFormGroup
+  | TidePresentationFormCollection
+
+export interface TideFormPresentation {
+  view: string
+  entity: string
+  label: string
+  display_template: string | null
+  fields: Record<string, TidePresentationColumn>
+  sections: TidePresentationFormSection[]
 }
 
 export interface TidePresentationNavigationItem {
@@ -107,10 +137,12 @@ export interface TidePresentationManifest {
   principal: string
   navigation: TidePresentationNavigationGroup[]
   views: Record<string, TideBrowsePresentation>
+  forms: Record<string, TideFormPresentation>
 }
 
 export interface TideProtectionMetadata {
   protected_fields?: string[]
+  writable_fields?: string[]
 }
 
 export type TideRecord = Record<string, unknown> & {

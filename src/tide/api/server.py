@@ -63,6 +63,7 @@ from tide.api.wire import (
     wire_record as _wire_record,
 )
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
+from tide.compiler.expressions import evaluate_expression
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.observability import (
     CORRELATION_HEADER,
@@ -1203,9 +1204,18 @@ def _get_endpoint(
         except (TypeError, ValueError, InvalidOperation) as error:
             raise _bad_request("record identity has an invalid type") from error
         _set_etag(response, entity, record)
-        return record_model.model_validate(
-            _wire_record(records.model, entity, record)
+        projected = _wire_record(records.model, entity, record)
+        writable_fields = _record_writable_fields(
+            records,
+            entity,
+            record,
+            context,
         )
+        if writable_fields:
+            projected.setdefault("_tide", {})["writable_fields"] = list(
+                writable_fields
+            )
+        return record_model.model_validate(projected)
 
     get_record.__name__ = f"get_{entity.name.replace('.', '_')}"
     get_record.__annotations__["identity"] = _identity_annotation(
@@ -1213,6 +1223,42 @@ def _get_endpoint(
         primary_key,
     )
     return get_record
+
+
+def _record_writable_fields(
+    records: RecordsService,
+    entity: NormalizedEntity,
+    values: Mapping[str, Any],
+    context: RequestContext,
+) -> tuple[str, ...]:
+    """Return advisory field state after server-side workflow evaluation."""
+
+    if not _operation_allowed(records, entity, "update", context):
+        return ()
+    if not records.security.row_allowed(
+        entity.name,
+        "update",
+        values,
+        context,
+    ):
+        return ()
+    result: list[str] = []
+    for name, field in entity.fields.items():
+        if (
+            not field_is_writable(field, "update")
+            or not records.security.can_read_field(entity.name, name, context)
+            or not records.security.can_write_field(entity.name, name, context)
+        ):
+            continue
+        immutable_when = field.metadata.get("immutable_when")
+        if immutable_when:
+            try:
+                if bool(evaluate_expression(str(immutable_when), values)):
+                    continue
+            except (AttributeError, KeyError, TypeError, ValueError):
+                continue
+        result.append(name)
+    return tuple(result)
 
 
 def _decode_draft(

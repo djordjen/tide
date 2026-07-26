@@ -117,6 +117,19 @@ export class TideApi {
     )
   }
 
+  getRecord(
+    view: TideBrowsePresentation,
+    identity: unknown,
+    signal?: AbortSignal,
+  ): Promise<TideRecord> {
+    const segment = encodeURIComponent(String(identity))
+    return this.request<TideRecord>(
+      `${view.resource_path}/${segment}`,
+      { method: "GET" },
+      signal,
+    )
+  }
+
   getReference(
     reference: TidePresentationReference,
     identity: unknown,

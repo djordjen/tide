@@ -534,12 +534,21 @@ rather than protocol output.
 ## Web UI
 
 The dedicated Web UI is a presentation adapter over the same normalized model
-and service boundary as Textual and Qt. Its first slice now builds responsive
+and service boundary as Textual and Qt. It now builds responsive
 grouped navigation and virtualized server-mode browse workspaces from the safe
 presentation manifest and existing structured REST queries. Search, named
 filters, sorting, opaque-cursor loading, exact formatting, authorized reference
 display, and personal column layouts do not require raw YAML in the browser.
-The next slice is the shared-metadata detail view.
+The manifest also projects safe renderer-neutral form groups, rows, tabs, and
+inline collection columns. A selected record loads through the authenticated
+generated `GET` route into a stable detail shell with workflow-aware locked
+fields and current-query Previous/Next navigation.
+
+Record responses can include server-evaluated `writable_fields` presentation
+hints. They contain no permission or workflow expression and are not an
+authorization grant: mutation routes continue to reauthorize row and field
+access, normalize values, enforce validation and workflow rules, and apply
+optimistic concurrency.
 
 This contract does not make the browser an authorization authority. The Web
 client may use capabilities to avoid offering unavailable controls, but actual

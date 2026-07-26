@@ -179,7 +179,10 @@ Paste the printed development token into the connection screen opened by the
 browser. Use `start.bat web` for the configured local SQL Server instead. The
 generic Web shell provides capability-filtered navigation, server-mode browse,
 search, filters, sorting, seamless cursor loading, and personal column
-layouts. See [Web UI](WEB-UI.md) for its architecture, security boundary,
+layouts. Select a row and choose **Open**, press Enter, or double-click it to
+load the shared-YAML detail layout and inline collections. Previous/Next and
+Page Up/Page Down move through the current secured list without replacing the
+form. See [Web UI](WEB-UI.md) for its architecture, security boundary,
 production build, tests, and current limitations.
 
 The unauthenticated `GET /health/live` endpoint is process-only. The

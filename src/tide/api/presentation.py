@@ -8,7 +8,10 @@ from typing import Mapping
 from tide.api.contracts import (
     TideBrowsePresentation,
     TideFilterInput,
+    TideFormPresentation,
     TidePresentationColumn,
+    TidePresentationFormCollection,
+    TidePresentationFormGroup,
     TidePresentationFormat,
     TidePresentationManifest,
     TidePresentationNamedFilter,
@@ -31,6 +34,7 @@ from tide.presentation import (
     browse_sortable_fields,
     field_alignment,
     field_label,
+    form_layout_sections,
 )
 
 
@@ -72,6 +76,7 @@ def build_presentation_manifest(
         tuple(accessible_columns),
     )
     views: dict[str, TideBrowsePresentation] = {}
+    forms: dict[str, TideFormPresentation] = {}
     navigation: list[TidePresentationNavigationGroup] = []
     for group in resolved_navigation:
         items: list[TidePresentationNavigationItem] = []
@@ -83,6 +88,15 @@ def build_presentation_manifest(
             capabilities = session.entities[entity.name]
             field_names = accessible_columns[view.name]
             readable = frozenset(capabilities.readable_fields)
+            form = _form_contract(
+                model,
+                entity,
+                session,
+                exposures,
+                base_path=base_path,
+            )
+            if form is not None:
+                forms[form.view] = form
             configured_search = browse_search_field(view, entity)
             search_field = (
                 configured_search
@@ -144,6 +158,7 @@ def build_presentation_manifest(
                     view.data.get("settings", {}).get("page_size", 50)
                 ),
                 operations=capabilities.operations,
+                detail_view=form.view if form is not None else None,
             )
             items.append(
                 TidePresentationNavigationItem(
@@ -165,6 +180,132 @@ def build_presentation_manifest(
         principal=session.principal,
         navigation=tuple(navigation),
         views=views,
+        forms=forms,
+    )
+
+
+def _form_contract(
+    model: ApplicationModel,
+    entity: NormalizedEntity,
+    session: TideSessionInfo,
+    exposures: Mapping[str, RestExposure],
+    *,
+    base_path: str,
+) -> TideFormPresentation | None:
+    capabilities = session.entities.get(entity.name)
+    exposure = exposures.get(entity.name)
+    if (
+        capabilities is None
+        or exposure is None
+        or "get" not in capabilities.operations
+        or "get" not in exposure.operations
+    ):
+        return None
+    view = next(
+        (
+            candidate
+            for candidate in model.views.values()
+            if candidate.kind == "form" and candidate.entity == entity.name
+        ),
+        None,
+    )
+    if view is None:
+        return None
+
+    readable = frozenset(capabilities.readable_fields)
+    fields: dict[str, TidePresentationColumn] = {}
+    sections: list[
+        TidePresentationFormGroup | TidePresentationFormCollection
+    ] = []
+    for section in form_layout_sections(view, entity):
+        if section.kind == "group":
+            rows = tuple(
+                tuple(
+                    name
+                    for name in row
+                    if name in readable
+                    and entity.field(name).metadata["type"] != "collection"
+                )
+                for row in section.rows
+            )
+            rows = tuple(row for row in rows if row)
+            if not rows:
+                continue
+            for name in (name for row in rows for name in row):
+                fields[name] = _column_contract(
+                    entity,
+                    name,
+                    model,
+                    session,
+                    exposures,
+                    base_path=base_path,
+                )
+            sections.append(
+                TidePresentationFormGroup(
+                    label=section.label,
+                    rows=rows,
+                    tab=section.tab,
+                )
+            )
+            continue
+
+        collection_name = section.collection
+        if collection_name is None or collection_name not in readable:
+            continue
+        field = entity.field(collection_name)
+        inline = (
+            model.views.get(section.inline_view)
+            if section.inline_view is not None
+            else None
+        )
+        if (
+            field.target_entity is None
+            or inline is None
+            or inline.kind != "inline_edit"
+            or inline.entity != field.target_entity
+        ):
+            continue
+        target = model.entity(field.target_entity)
+        target_capabilities = session.entities.get(target.name)
+        if target_capabilities is None:
+            continue
+        target_readable = frozenset(target_capabilities.readable_fields)
+        column_names = tuple(
+            name
+            for name in browse_columns(inline, target)
+            if name in target_readable
+        )
+        if not column_names:
+            continue
+        sections.append(
+            TidePresentationFormCollection(
+                name=collection_name,
+                label=field_label(field),
+                entity=target.name,
+                columns=tuple(
+                    _column_contract(
+                        target,
+                        name,
+                        model,
+                        session,
+                        exposures,
+                        base_path=base_path,
+                    )
+                    for name in column_names
+                ),
+                tab=section.tab,
+            )
+        )
+
+    if not sections or not fields:
+        return None
+    return TideFormPresentation(
+        view=view.name,
+        entity=entity.name,
+        label=entity.label.removesuffix("s") or entity.label,
+        display_template=_safe_display_template(entity, readable),
+        fields=fields,
+        sections=tuple(sections),
     )
 
 

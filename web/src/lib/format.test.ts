@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import type { TidePresentationColumn } from "@/lib/contracts"
 import {
   formatCellValue,
+  formatRecordDisplay,
   formatReferenceDisplay,
 } from "@/lib/format"
 
@@ -56,6 +57,15 @@ it("renders only fields named by the authorized reference template", () => {
       { id: 7, code: "MORA", name: "Mora Trade" },
     ),
   ).toBe("MORA - Mora Trade")
+})
+
+it("renders field-name and template record displays safely", () => {
+  const record = { id: 7, number: "INV-0007", code: "MORA", name: "Mora" }
+  expect(formatRecordDisplay("number", record, "id")).toBe("INV-0007")
+  expect(formatRecordDisplay("{code} - {name}", record, "id")).toBe(
+    "MORA - Mora",
+  )
+  expect(formatRecordDisplay(null, record, "id")).toBe("7")
 })
 
 describe("protected fields", () => {

@@ -138,6 +138,7 @@ const invoiceView = {
   sortable_fields: ["number"],
   page_size: 25,
   operations: ["list", "get"],
+  detail_view: null,
 }
 
 const presentation = {
@@ -179,4 +180,5 @@ const presentation = {
       query_path: "/api/v1/customers/_query",
     },
   },
+  forms: {},
 }
