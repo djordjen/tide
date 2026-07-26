@@ -15,7 +15,8 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QPoint, QSettings
+from PySide6.QtCore import QPoint, QSettings, Qt
+from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -596,6 +597,14 @@ def test_qt_widget_adapter_incrementally_loads_the_server_list(
     assert detail.save_button.isVisible() is True
     assert detail.previous_button.isEnabled() is False
     assert detail.next_button.isEnabled() is True
+    assert detail.previous_shortcut.key() == QKeySequence(
+        Qt.Key.Key_PageUp
+    )
+    assert detail.previous_shortcut.isEnabled() is False
+    assert detail.next_shortcut.key() == QKeySequence(
+        Qt.Key.Key_PageDown
+    )
+    assert detail.next_shortcut.isEnabled() is True
     assert detail.previous_button.mapTo(detail, QPoint()).x() < (
         detail.cancel_button.mapTo(detail, QPoint()).x()
     )
@@ -603,7 +612,7 @@ def test_qt_widget_adapter_incrementally_loads_the_server_list(
     assert lines.rowCount() == 1
     assert lines.item(0, 1).text() == "CONSULT - Consulting"
     assert lines.item(0, 5).text() == "1,250.00"
-    detail.next_button.click()
+    detail.next_shortcut.activated.emit()
     _wait_until(
         application,
         lambda: len(window._edit_dialogs) == 1
@@ -619,10 +628,12 @@ def test_qt_widget_adapter_incrementally_loads_the_server_list(
     assert next_detail.save_button.isVisible() is False
     assert next_detail.collection_editors["lines"].table.rowCount() == 0
     assert next_detail.previous_button.isEnabled() is True
+    assert next_detail.previous_shortcut.isEnabled() is True
     assert next_detail.next_button.isEnabled() is False
+    assert next_detail.next_shortcut.isEnabled() is False
     assert window.table.currentIndex().row() == 1
 
-    next_detail.previous_button.click()
+    next_detail.previous_shortcut.activated.emit()
     _wait_until(
         application,
         lambda: len(window._edit_dialogs) == 1

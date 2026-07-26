@@ -82,6 +82,8 @@ two-column header through `settings.compact_groups`, shared with Textual and
 followed by the Lines section.
 
 **Previous** and **Next** appear at the bottom left of an existing-record form.
+Press **Page Up** for Previous or **Page Down** for Next from anywhere in that
+form.
 They follow the current browse query and its complete server-side
 search/filter/sort order and select the adjacent row in the list. The existing
 dialog stays open at the same position and size while its title, values,

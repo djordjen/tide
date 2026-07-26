@@ -163,8 +163,8 @@ application-owned Faker profile and the real secured services.
   parameters remain deferred
 - Qt detail-form Previous/Next navigation in current secured browse order,
   including background cursor-boundary fetch, list selection synchronization,
-  in-place dialog refresh, first/last state, and unsaved-draft protection;
-  **implemented**
+  in-place dialog refresh, Page Up/Page Down shortcuts, first/last state, and
+  unsaved-draft protection; **implemented**
 - renderer-neutral form-layout resolution for ordered YAML rows, groups,
   collections, tabs, actions, and field visibility, consumed by Textual and
   Qt; plus one Qt **Open** path whose form controls follow capability and

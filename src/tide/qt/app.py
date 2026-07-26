@@ -1005,8 +1005,10 @@ class TideQtEditDialog(QDialog):
         footer = QHBoxLayout()
         self.previous_button = QPushButton("Previous")
         self.previous_button.setObjectName("previous-record")
+        self.previous_button.setToolTip("Previous record (Page Up)")
         self.next_button = QPushButton("Next")
         self.next_button.setObjectName("next-record")
+        self.next_button.setToolTip("Next record (Page Down)")
         self.previous_button.setVisible(navigation_enabled)
         self.next_button.setVisible(navigation_enabled)
         self.previous_button.clicked.connect(
@@ -1018,6 +1020,24 @@ class TideQtEditDialog(QDialog):
         footer.addStretch(1)
         footer.addWidget(self.buttons)
         layout.addLayout(footer)
+        self.previous_shortcut = QShortcut(
+            QKeySequence(Qt.Key.Key_PageUp),
+            self,
+        )
+        self.previous_shortcut.setAutoRepeat(False)
+        self.previous_shortcut.setEnabled(False)
+        self.previous_shortcut.activated.connect(
+            lambda: self._request_navigation(-1)
+        )
+        self.next_shortcut = QShortcut(
+            QKeySequence(Qt.Key.Key_PageDown),
+            self,
+        )
+        self.next_shortcut.setAutoRepeat(False)
+        self.next_shortcut.setEnabled(False)
+        self.next_shortcut.activated.connect(
+            lambda: self._request_navigation(1)
+        )
         QShortcut(QKeySequence.StandardKey.Save, self).activated.connect(self._save)
 
         self._connect_action_state_editors()
@@ -1093,11 +1113,20 @@ class TideQtEditDialog(QDialog):
 
     def _apply_navigation_state(self) -> None:
         available = self._navigation_enabled and not self._saving
-        self.previous_button.setEnabled(available and self._can_previous)
-        self.next_button.setEnabled(available and self._can_next)
+        previous_available = available and self._can_previous
+        next_available = available and self._can_next
+        self.previous_button.setEnabled(previous_available)
+        self.previous_shortcut.setEnabled(previous_available)
+        self.next_button.setEnabled(next_available)
+        self.next_shortcut.setEnabled(next_available)
 
     def _request_navigation(self, direction: int) -> None:
         if self._saving or direction not in {-1, 1}:
+            return
+        if (
+            (direction < 0 and not self._can_previous)
+            or (direction > 0 and not self._can_next)
+        ):
             return
         try:
             values = self._collect_values(enforce_required=True)

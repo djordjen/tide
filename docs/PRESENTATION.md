@@ -54,10 +54,11 @@ the scroll boundary. Sorting, filtering, searching, switching views, or
 refreshing starts a new secured cursor sequence.
 
 Qt existing-record forms may expose **Previous** and **Next** without
-reintroducing page navigation. Adjacency is resolved from the current browse
-query's loaded identities; moving forward from its last loaded row requests the
-next opaque cursor batch and then opens the adjacent identity through the
-authenticated record API. The renderer replaces values, editability, actions,
+reintroducing page navigation. Qt maps Page Up and Page Down to those actions
+at dialog scope. Adjacency is resolved from the current browse query's loaded
+identities; moving forward from its last loaded row requests the next opaque
+cursor batch and then opens the adjacent identity through the authenticated
+record API. The renderer replaces values, editability, actions,
 collections, ETag, title, and navigation state within the same dialog so its
 position and size stay stable. It keeps the source form intact on failure and
 rejects navigation while its supported draft differs from the original. These
