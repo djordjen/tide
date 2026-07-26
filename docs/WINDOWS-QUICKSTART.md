@@ -420,9 +420,10 @@ and use another terminal:
 
 Paste the printed API token into the hidden prompt. This starts a Qt Invoice
 workspace and installs the optional `gui` and `report` dependencies through
-`uv` when needed. Use **View**, double-click, or **Enter** to inspect the
-selected Invoice and its lines. Use **Edit** for supported Invoice header
-fields. Search by
+`uv` when needed. Use **Open**, double-click, or **Enter** to open the selected
+Invoice and its lines. The same compact two-column form is used for viewing and
+editing; status, metadata, and permissions determine which fields and actions
+are enabled. Search by
 Invoice number, select a metadata-defined named filter, or click a sortable
 column heading to order the complete server result; click
 the same heading again to reverse the order. **Clear** restores the default
@@ -435,7 +436,7 @@ background. The GUI has no SQL Server URL or driver; it uses the same
 authenticated API client as remote Textual mode. See
 [Qt GUI Prototype](QT-GUI.md) for the current scope and explicit CLI form.
 
-In **Edit Invoice**, use **Select…** beside Customer or press F4. The
+In an editable Invoice, use **Select…** beside Customer or press F4. The
 multi-column lookup searches code, name, and email through FastAPI. Selecting a
 row applies the reference through the shared server draft operation. When your
 role can create Customers, **New** or Ctrl+N opens the Customer form;
@@ -461,15 +462,16 @@ selected line, saves changed header/lines, and then posts using the newly
 returned ETag plus a unique idempotency key. The refreshed row shows Posted.
 An action failure after a successful draft save reopens that saved version for
 correction; an empty or already-posted Invoice keeps Post disabled.
-For a read/post-only `invoice_poster` identity, the list uses **Open** instead
-of Edit and shows a read-only form with Save hidden and Post available.
+For a read/post-only `invoice_poster` identity, Open shows the same form with
+fields and lines read-only, Save hidden, and Post available.
 
-Select an Invoice and choose **Preview** to request the authorized
-`sales.invoice` document from FastAPI. Qt renders the returned record facts,
-line table, and totals as native widgets. Its **Export CSV**, **Export HTML**,
-and **Export PDF** buttons write to `output\reports` on a background worker.
-The shortcut installs both the `gui` and `report` extras; a role without report
-permission does not see Preview.
+Inside an opened Invoice, choose **Preview PDF** to request the authorized
+`sales.invoice` document from FastAPI. Qt renders it to a uniquely named PDF in
+the operating system's temporary directory on a background worker, then opens
+the configured system viewer. The temporary GUI-session directory is cleaned
+up later rather than filling `output\reports`. The shortcut installs both the
+`gui` and `report` extras; a role without report permission does not see the
+button.
 
 To test metadata-driven Qt creation and editing for flat master data, keep the
 same API server running and open either:
@@ -479,7 +481,7 @@ same API server running and open either:
 .\start.bat gui-customers
 ```
 
-Use **New**, or select a row and use **Edit**. The Product form demonstrates
+Use **New**, or select a row and use **Open**. The Product form demonstrates
 the `0.00` Decimal mask and the Customer/Product code fields demonstrate regex
 masks; both forms follow the YAML row layout and writable capabilities. Tab or
 Enter traverses the left field column before the right. Saving runs through

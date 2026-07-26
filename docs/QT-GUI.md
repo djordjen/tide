@@ -9,9 +9,9 @@ It supports an incrementally loaded browse list, metadata-defined search and
 named filters, global header sorting, read-only record detail, Customer/Product
 create and update, and complete Invoice draft editing with Customer/Product
 lookups plus authorized nested creation, three-way stale-edit review, and the
-Post Invoice domain action. An authorized Invoice can also be previewed as a
-native Qt report and exported locally to CSV, HTML, or PDF. Desktop sign-in
-remains later work.
+Post Invoice domain action. An authorized opened Invoice can also generate a
+temporary PDF and open it in the system viewer. Desktop sign-in remains later
+work.
 
 ## Security and architecture
 
@@ -36,7 +36,7 @@ the server still reauthorizes every record request.
 Report generation follows the same boundary. FastAPI authorizes the report,
 loads and formats its data, and returns an immutable renderer-neutral
 `ReportDocument`. Qt receives no raw reporting query or database credential; it
-only previews that document and passes it to the shared controlled exporters.
+passes that document to the shared controlled PDF renderer in a worker.
 
 ## Try it on Windows
 
@@ -73,14 +73,16 @@ widths. Qt stores the personal layout locally under the application, view, and
 authenticated principal. It contains field names, order, and widths only and
 does not modify YAML, access the database, or affect other users and renderers.
 
-Select an Invoice and press **View**, double-click it, or press **Enter**. The
-detail window follows the compiled `sales.Invoice.edit` structure but remains
-read-only: it shows the Invoice, Totals, and Posting groups plus the nested
-line-item table. Customer and Product labels are resolved through secured API
-reads rather than direct database access.
+Select an Invoice and press **Open**, double-click it, or press **Enter**. One
+compiled form is used for viewing and editing. Writable controls, Save, and
+Post are enabled only when metadata, workflow state, and session capabilities
+permit them; a posted/read-only Invoice opens the same layout with those
+controls disabled or hidden. The Invoice YAML explicitly defines one compact
+two-column header through `settings.compact_groups`, shared with Textual and
+followed by the Lines section.
 
-Select a draft Invoice and press **Edit** to open its header and line items.
-The Customer reference is not a raw identifier: **Select…** or F4 opens the
+For an editable draft Invoice, the Customer reference is not a raw identifier:
+**Select…** or F4 opens the
 compiled `crm.Customer.lookup` with Code, Name, and Email columns. Typing
 debounces bounded API searches across all three declared fields. Double-click a
 row or use **Select** to ask the server to apply that identity to the Invoice
@@ -146,14 +148,14 @@ row refreshes to Posted. If the draft save succeeds but posting fails, Qt
 reopens that saved ETag-backed form with the failure message so the user can
 correct it and try again.
 
-Select an Invoice and choose **Preview**. The button exists only when the
-authenticated session advertises the REST-exposed `sales.invoice` report. The
-server builds the secured document in the background, then Qt displays its
-record facts, right-aligned line values, and totals as native widgets.
-**Export CSV**, **Export HTML**, and **Export PDF** write the same authorized
-document to `output/reports` below the directory from which TIDE was started.
-Exports also run off the GUI thread. CSV formula-looking cells are neutralized,
-HTML text is escaped, and PDF uses the existing optional ReportLab renderer.
+Inside an opened Invoice, choose **Preview PDF**. The button exists only when
+the authenticated session advertises the REST-exposed `sales.invoice` report.
+The server builds the secured `ReportDocument` in the background, the shared
+ReportLab renderer writes a uniquely named PDF under the operating system's
+temporary directory, and Qt asks the configured system PDF viewer to open it.
+Temporary previews are scoped to the GUI session instead of accumulating in
+`output/reports`. Save local changes before previewing so the PDF cannot
+silently represent an older stored version.
 
 To exercise the editable flat-form slice, open either workspace instead:
 
@@ -162,7 +164,7 @@ start.bat gui-products
 start.bat gui-customers
 ```
 
-Use **New**, or select a row and use **Edit**. Product and Customer form groups
+Use **New**, or select a row and use **Open**. Product and Customer form groups
 and row placement come from their compiled `*.edit` views. Tab and Enter move
 through the left field column before the right. Required fields, code regex
 masks, Product's `0.00` Decimal mask, Boolean defaults, writable capabilities,
@@ -205,7 +207,10 @@ complete launcher contract.
   dividers are draggable, **Best Fit** sizes all columns to loaded contents, and
   stable field-name layouts survive refreshes and later GUI sessions;
 - selected records open through their real primary-key identity into compiled
-  form groups and inline collection columns, with no client-side database path;
+  form rows and inline collection columns, with no client-side database path;
+- one renderer-neutral layout helper resolves YAML group rows, collection
+  placement, tabs, and field visibility for Textual and Qt; Web can consume the
+  same semantic contract later;
 - flat Product and Customer forms use compiled group/row order, typed metadata
   controls, capability-gated New/Edit actions, background API mutations, and
   refresh through the same cursor-backed list;
@@ -223,8 +228,7 @@ complete launcher contract.
   idempotency keys through the existing action endpoint;
 - record-report controls are the intersection of report metadata, REST
   exposure, active entity, and authenticated session capabilities; authorized
-  documents are built by FastAPI, previewed with native Qt widgets, and
-  exported locally through the shared CSV/HTML/PDF writers;
+  documents become temporary PDFs opened by the system viewer;
 - inaccessible views fail closed instead of falling back to local data;
 - the presentation/controller contract is testable without installing Qt in
   ordinary CI.

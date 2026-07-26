@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
+from typing import Any, Literal, Mapping
 
 from tide.compiler.normalized import NormalizedEntity, ResolvedView
 from tide.data import FilterCondition
@@ -16,6 +17,117 @@ class BrowseNamedFilter:
     name: str
     label: str
     conditions: tuple[FilterCondition, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class FormLayoutSection:
+    """One portable form section resolved for every presentation adapter."""
+
+    index: int
+    kind: Literal["group", "collection"]
+    label: str
+    rows: tuple[tuple[str, ...], ...] = ()
+    collection: str | None = None
+    inline_view: str | None = None
+    actions: tuple[str, ...] = ()
+    tab: str | None = None
+    align: str | None = None
+    configuration: Mapping[str, Any] | None = None
+
+    @property
+    def fields(self) -> tuple[str, ...]:
+        return tuple(name for row in self.rows for name in row)
+
+
+def form_layout_sections(
+    view: ResolvedView,
+    entity: NormalizedEntity,
+) -> tuple[FormLayoutSection, ...]:
+    """Resolve the semantic form layout shared by TUI, Qt, and future Web UI."""
+
+    sections: list[FormLayoutSection] = []
+    for index, raw in enumerate(view.data.get("layout", ())):
+        if not isinstance(raw, Mapping):
+            continue
+        tab = str(raw["tab"]) if raw.get("tab") else None
+        collection = raw.get("collection")
+        if collection:
+            name = str(collection)
+            if (
+                name in entity.fields
+                and entity.field(name).metadata["type"] == "collection"
+                and not view_field_hidden(view, name)
+            ):
+                sections.append(
+                    FormLayoutSection(
+                        index=index,
+                        kind="collection",
+                        label=_field_label(entity.field(name)),
+                        collection=name,
+                        inline_view=(
+                            str(raw["view"]) if raw.get("view") else None
+                        ),
+                        actions=tuple(str(item) for item in raw.get("actions", ())),
+                        tab=tab,
+                        configuration=raw,
+                    )
+                )
+            continue
+
+        rows = tuple(
+            tuple(
+                name
+                for item in row
+                if (name := str(item)) in entity.fields
+                and entity.field(name).metadata["type"] != "collection"
+                and not view_field_hidden(view, name)
+            )
+            for row in raw.get("rows", ())
+        )
+        visible_rows = tuple(row for row in rows if row)
+        if visible_rows:
+            sections.append(
+                FormLayoutSection(
+                    index=index,
+                    kind="group",
+                    label=str(raw.get("group") or entity.label),
+                    rows=visible_rows,
+                    tab=tab,
+                    align=str(raw["align"]) if raw.get("align") else None,
+                    configuration=raw,
+                )
+            )
+    settings = view.data.get("settings", {})
+    if (
+        isinstance(settings, Mapping)
+        and settings.get("compact_groups") is True
+    ):
+        return _compact_form_groups(tuple(sections))
+    return tuple(sections)
+
+
+def form_layout_tabs(
+    sections: tuple[FormLayoutSection, ...],
+) -> tuple[tuple[str, tuple[FormLayoutSection, ...]], ...]:
+    """Group portable sections into ordered tabs when any tab is declared."""
+
+    if not any(section.tab for section in sections):
+        return ()
+    grouped: dict[str, list[FormLayoutSection]] = {}
+    for section in sections:
+        grouped.setdefault(section.tab or "General", []).append(section)
+    return tuple((label, tuple(items)) for label, items in grouped.items())
+
+
+def view_field_hidden(view: ResolvedView, name: str) -> bool:
+    """Return the shared compiled visibility flag for one view field."""
+
+    fields = view.data.get("fields", {})
+    configuration = fields.get(name) if isinstance(fields, Mapping) else None
+    return bool(
+        isinstance(configuration, Mapping)
+        and configuration.get("hidden", False)
+    )
 
 
 def browse_search_field(
@@ -119,3 +231,43 @@ def _comparison_condition(expression: ast.expr) -> FilterCondition:
 
 def _humanize(value: str) -> str:
     return value.replace("_", " ").replace("-", " ").title()
+
+
+def _field_label(field: Any) -> str:
+    return str(
+        field.metadata.get("label")
+        or field.name.replace("_", " ").title()
+    )
+
+
+def _compact_form_groups(
+    sections: tuple[FormLayoutSection, ...],
+) -> tuple[FormLayoutSection, ...]:
+    """Merge all scalar groups into one portable two-column header."""
+
+    groups = tuple(section for section in sections if section.kind == "group")
+    if not groups:
+        return sections
+    first = groups[0]
+    fields = tuple(name for group in groups for name in group.fields)
+    compact = FormLayoutSection(
+        index=first.index,
+        kind="group",
+        label=first.label,
+        rows=tuple(
+            tuple(fields[index : index + 2])
+            for index in range(0, len(fields), 2)
+        ),
+        tab=first.tab,
+        configuration=first.configuration,
+    )
+    result: list[FormLayoutSection] = []
+    emitted = False
+    for section in sections:
+        if section.kind == "collection":
+            result.append(section)
+            continue
+        if not emitted:
+            result.append(compact)
+            emitted = True
+    return tuple(result)

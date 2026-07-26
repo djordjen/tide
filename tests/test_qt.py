@@ -517,7 +517,7 @@ def test_qt_detail_uses_form_groups_and_nested_inline_collection() -> None:
     assert tuple(
         section.label
         for section in detail.sections
-    ) == ("Invoice", "Lines", "Totals", "Posting")
+    ) == ("Invoice", "Lines")
     invoice = detail.sections[0]
     assert isinstance(invoice, QtDetailGroup)
     invoice_fields = tuple(field for row in invoice.rows for field in row)
@@ -527,6 +527,10 @@ def test_qt_detail_uses_form_groups_and_nested_inline_collection() -> None:
         "status",
         "currency",
         "customer",
+        "total",
+        "posted_at",
+        "posted_by",
+        "version",
     )
     assert tuple(field.value for field in invoice_fields) == (
         "INV-2026-001",
@@ -534,6 +538,10 @@ def test_qt_detail_uses_form_groups_and_nested_inline_collection() -> None:
         "Draft",
         "EUR",
         "ADRIA - Adria Consulting",
+        "1,000.00",
+        "",
+        "",
+        "1",
     )
     lines = detail.sections[1]
     assert isinstance(lines, QtDetailCollection)
@@ -649,6 +657,7 @@ def test_qt_flat_product_form_uses_defaults_writable_fields_and_etag() -> None:
     )
     assert invoice.create_available is False
     assert invoice.update_available is False
+    assert invoice.open_available is True
 
     client = _ProductClient()
     controller = QtBrowseController(
@@ -696,7 +705,7 @@ def test_qt_flat_product_form_uses_defaults_writable_fields_and_etag() -> None:
     ]
 
     edited = controller.edit_form(10)
-    assert edited.title == "Edit Product — CONSULT - Consulting"
+    assert edited.title == "Product — CONSULT - Consulting"
     assert edited.etag == '"4"'
     controller.save_form(
         edited,
@@ -805,6 +814,17 @@ def test_qt_invoice_header_resolves_lookup_and_nested_create_contract() -> None:
     assert controller.create_available is True
     assert controller.update_available is True
     form = controller.edit_form(1)
+    assert tuple(group.label for group in form.groups) == ("Invoice",)
+    assert tuple(
+        tuple(field.name for field in row)
+        for row in form.groups[0].rows
+    ) == (
+        ("number", "invoice_date"),
+        ("status", "currency"),
+        ("customer", "total"),
+        ("posted_at", "posted_by"),
+        ("version",),
+    )
     assert form.omitted_collections == ()
     assert len(form.collections) == 1
     assert form.collections[0].name == "lines"
@@ -904,15 +924,21 @@ def test_qt_invoice_inline_lines_apply_product_defaults_and_nested_payload() -> 
         ("product", "quantity"),
         ("description",),
     )
+    unchanged_values = {
+        "invoice_date": date(2026, 7, 1),
+        "currency": "EUR",
+        "customer": 1,
+        "lines": list(lines.records),
+    }
+    assert controller.form_has_changes(form, unchanged_values) is False
+    assert controller.form_has_changes(
+        form,
+        {**unchanged_values, "currency": "USD"},
+    ) is True
 
     unchanged = controller.save_form(
         form,
-        {
-            "invoice_date": date(2026, 7, 1),
-            "currency": "EUR",
-            "customer": 1,
-            "lines": list(lines.records),
-        },
+        unchanged_values,
     )
     assert unchanged["number"] == "INV-2026-001"
     assert client.updated_invoices == []

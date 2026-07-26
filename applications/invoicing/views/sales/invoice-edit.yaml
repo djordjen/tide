@@ -4,6 +4,9 @@ base: generated.edit
 mode: overlay
 extends: standard_form
 
+settings:
+  compact_groups: true
+
 layout:
   - group: Invoice
     rows:

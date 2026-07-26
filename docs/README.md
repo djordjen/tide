@@ -21,8 +21,8 @@ decision log rather than being silently assumed in implementation code.
 6. [Qt GUI prototype](QT-GUI.md) runs the native browser, full Invoice draft
    editing with Customer/Product lookups and **Save & Select**, and
    Customer/Product workspaces with three-way stale-edit review and secured
-   Invoice posting plus native Invoice report preview/export over FastAPI
-   without database credentials.
+   Invoice posting plus temporary system-PDF preview over FastAPI without
+   database credentials.
 7. [Documentation plan](DOCUMENTATION-PLAN.md) records the small, testable
    tutorial tranches planned next.
 8. [Vision](VISION.md) explains the product and its boundaries.

@@ -37,6 +37,12 @@ from tide.compiler.normalized import (
     ResolvedView,
 )
 from tide.data import QuerySpec
+from tide.presentation import (
+    FormLayoutSection,
+    form_layout_sections,
+    form_layout_tabs,
+    view_field_hidden,
+)
 from tide.runtime import RequestContext, TideRuntimeError, ValidationFailed
 from tide.security import PROTECTED
 from tide.tui.table import table_cell, table_label
@@ -196,7 +202,7 @@ class RecordEditScreen(Screen[Any]):
         content-align: left middle;
     }
 
-    #record-fields, #line-fields {
+    .record-fields, #line-fields {
         height: auto;
     }
 
@@ -349,9 +355,18 @@ class RecordEditScreen(Screen[Any]):
         self.session = session
         self.select_after_save = select_after_save
         self.entity = model.entity(session.entity)
-        self.scalar_fields = _form_fields(view, self.entity)
-        self.collection_name, self.inline_view = _collection_view(model, view)
-        self.layout_tabs = _layout_tabs(view, self.entity)
+        self.layout_sections = form_layout_sections(view, self.entity)
+        self.scalar_fields = tuple(
+            name
+            for section in self.layout_sections
+            if section.kind == "group"
+            for name in section.fields
+        )
+        self.collection_name, self.inline_view = _collection_view(
+            model,
+            self.layout_sections,
+        )
+        self.layout_tabs = form_layout_tabs(self.layout_sections)
         self.record_action_order = _record_action_order(view, self.entity)
         self.collection_action_order = _collection_action_order(
             view, self.collection_name
@@ -441,31 +456,28 @@ class RecordEditScreen(Screen[Any]):
                 with TabbedContent(id="form-tabs"):
                     for tab_index, (label, sections) in enumerate(self.layout_tabs):
                         with TabPane(label, id=f"form-tab-{tab_index}"):
-                            for section_index, section in sections:
-                                if "collection" in section:
+                            for section in sections:
+                                if section.kind == "collection":
                                     yield from self._compose_collection_section()
                                 else:
-                                    fields = _section_fields(
-                                        section,
-                                        self.view,
-                                        self.entity,
-                                    )
-                                    if fields:
+                                    if section.rows:
                                         yield from self._compose_record_fields(
-                                            fields,
-                                            title=str(
-                                                section.get("group")
-                                                or self.entity.label
+                                            section.rows,
+                                            title=section.label,
+                                            widget_id=(
+                                                f"record-fields-{section.index}"
                                             ),
-                                            widget_id=f"record-fields-{section_index}",
                                         )
             else:
-                yield from self._compose_record_fields(
-                    self.scalar_fields,
-                    title=self.entity.label,
-                    widget_id="record-fields",
-                )
-                yield from self._compose_collection_section()
+                for section in self.layout_sections:
+                    if section.kind == "collection":
+                        yield from self._compose_collection_section()
+                    elif section.rows:
+                        yield from self._compose_record_fields(
+                            section.rows,
+                            title=section.label,
+                            widget_id=f"record-fields-{section.index}",
+                        )
 
         yield Static("", id="form-message")
         with Horizontal(id="form-actions"):
@@ -481,16 +493,16 @@ class RecordEditScreen(Screen[Any]):
 
     def _compose_record_fields(
         self,
-        field_names: tuple[str, ...],
+        rows: tuple[tuple[str, ...], ...],
         *,
         title: str,
         widget_id: str,
     ) -> ComposeResult:
-        if not field_names:
+        if not rows:
             return
         yield Static(title, classes="section-title")
-        with Horizontal(id=widget_id):
-            for column_fields in _field_columns(field_names):
+        with Horizontal(id=widget_id, classes="record-fields"):
+            for column_fields in _layout_columns(rows):
                 with Grid(classes="field-column"):
                     for field_name in column_fields:
                         field = self.entity.field(field_name)
@@ -1277,71 +1289,8 @@ class RecordEditScreen(Screen[Any]):
             return
 
 
-def _form_fields(view: ResolvedView, entity: NormalizedEntity) -> tuple[str, ...]:
-    result: list[str] = []
-    for section in view.data.get("layout", ()):
-        for row in section.get("rows", ()):
-            for field_name in row:
-                name = str(field_name)
-                if (
-                    name in entity.fields
-                    and not _field_is_hidden(view, name)
-                    and name not in result
-                ):
-                    result.append(name)
-    return tuple(result)
-
-
-def _section_fields(
-    section: Mapping[str, Any],
-    view: ResolvedView,
-    entity: NormalizedEntity,
-) -> tuple[str, ...]:
-    result: list[str] = []
-    for row in section.get("rows", ()):
-        for field_name in row:
-            name = str(field_name)
-            if (
-                name in entity.fields
-                and not _field_is_hidden(view, name)
-                and name not in result
-            ):
-                result.append(name)
-    return tuple(result)
-
-
 def _field_is_hidden(view: ResolvedView, name: str) -> bool:
-    fields = view.data.get("fields", {})
-    configuration = fields.get(name) if isinstance(fields, Mapping) else None
-    return bool(
-        isinstance(configuration, Mapping)
-        and configuration.get("hidden", False)
-    )
-
-
-def _layout_tabs(
-    view: ResolvedView,
-    entity: NormalizedEntity,
-) -> tuple[tuple[str, tuple[tuple[int, Mapping[str, Any]], ...]], ...]:
-    sections = tuple(
-        (index, section)
-        for index, section in enumerate(view.data.get("layout", ()))
-        if isinstance(section, Mapping)
-        and (
-            (
-                section.get("collection")
-                and not _field_is_hidden(view, str(section["collection"]))
-            )
-            or _section_fields(section, view, entity)
-        )
-    )
-    if not any(section.get("tab") for _index, section in sections):
-        return ()
-    grouped: dict[str, list[tuple[int, Mapping[str, Any]]]] = {}
-    for index, section in sections:
-        label = str(section.get("tab") or "General")
-        grouped.setdefault(label, []).append((index, section))
-    return tuple((label, tuple(items)) for label, items in grouped.items())
+    return view_field_hidden(view, name)
 
 
 def _record_action_order(
@@ -1411,9 +1360,11 @@ def _inline_editor_columns(
         and not view.data.get("fields", {}).get(name, {}).get("hidden", False)
     )
     rows: list[tuple[str, ...]] = []
-    for section in view.data.get("layout", ()):
-        for raw_row in section.get("rows", ()):
-            row = tuple(str(name) for name in raw_row if str(name) in candidates)
+    for section in form_layout_sections(view, entity):
+        if section.kind != "group":
+            continue
+        for layout_row in section.rows:
+            row = tuple(name for name in layout_row if name in candidates)
             if row:
                 rows.append(row)
     if not rows:
@@ -1432,6 +1383,18 @@ def _field_columns(
     return field_names[::2], field_names[1::2]
 
 
+def _layout_columns(
+    rows: tuple[tuple[str, ...], ...],
+) -> tuple[tuple[str, ...], ...]:
+    """Transpose semantic visual rows into column-first widget containers."""
+
+    column_count = max((len(row) for row in rows), default=0)
+    return tuple(
+        tuple(row[index] for row in rows if len(row) > index)
+        for index in range(column_count)
+    )
+
+
 def _editor_identity(widget_id: str | None) -> tuple[str, str]:
     value = widget_id or ""
     for prefix in ("field", "line"):
@@ -1443,19 +1406,18 @@ def _editor_identity(widget_id: str | None) -> tuple[str, str]:
 
 def _collection_view(
     model: ApplicationModel,
-    view: ResolvedView,
+    sections: tuple[FormLayoutSection, ...],
 ) -> tuple[str | None, ResolvedView | None]:
-    for section in view.data.get("layout", ()):
-        collection = section.get("collection")
-        inline_name = section.get("view")
+    for section in sections:
+        collection = section.collection
+        inline_name = section.inline_view
         if (
             collection
             and inline_name
-            and not _field_is_hidden(view, str(collection))
         ):
-            inline = model.views.get(str(inline_name))
+            inline = model.views.get(inline_name)
             if inline is not None and inline.kind == "inline_edit":
-                return str(collection), inline
+                return collection, inline
     return None, None
 
 

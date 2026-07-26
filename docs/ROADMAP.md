@@ -158,9 +158,13 @@ application-owned Faker profile and the real secured services.
   `enabled_when`, save-before-action ETag chaining, idempotency, recovery after
   a saved-draft action failure, and secured refresh; **implemented**
 - Qt metadata/capability-gated Invoice report preview over the server-built
-  `ReportDocument`, with native widgets and background local CSV/HTML/PDF
-  export through the shared safe writers; **implemented**; Qt summary-report
+  `ReportDocument`, with background PDF rendering to a GUI-session temporary
+  directory and system-viewer launch; **implemented**; Qt summary-report
   parameters remain deferred
+- renderer-neutral form-layout resolution for ordered YAML rows, groups,
+  collections, tabs, actions, and field visibility, consumed by Textual and
+  Qt; plus one Qt **Open** path whose form controls follow capability and
+  workflow state; **implemented**; Web consumption remains later work
 - basic secured printable invoice with TUI preview, HTML, and PDF;
   **implemented**
 - opt-in REST list/get/create/update/delete and domain-action routes plus OpenAPI;

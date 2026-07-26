@@ -120,11 +120,13 @@ for an authenticated capability. Its enabled state follows the local
 `enabled_when` expression. Invoking it saves changed lines first, then sends the
 new ETag and a per-attempt idempotency key to the shared FastAPI action route;
 a failure after saving reopens the saved draft for correction.
-For a report-authorized role, selecting an Invoice exposes Qt **Preview**. The
-server builds `sales.invoice` and returns a renderer-neutral document; Qt shows
-native record, line, and total widgets and exports the same authorized document
-to CSV, HTML, or PDF under `output/reports`. The GUI never receives a report
-query or database connection.
+The Qt list exposes one **Open** action rather than separate View/Edit/Preview
+modes. The opened form uses the same YAML-defined two-column header as Textual;
+status and capabilities determine whether fields, Save, and Post are enabled.
+For a report-authorized role, **Preview PDF** builds `sales.invoice`, writes a
+unique GUI-session file under the operating system temporary directory, and
+opens the system viewer. The GUI never receives a report query or database
+connection.
 The browse search applies incrementally to invoice numbers. The filter selector
 exposes **Draft invoices** and **High-value invoices** from view metadata, and
 the sort selector or eligible column headers toggle secured ascending and

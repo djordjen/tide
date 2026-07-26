@@ -204,12 +204,13 @@ open another terminal and run:
 ```
 
 Paste the same token to open the metadata-driven Invoice browse. Select a row
-and use **View**, double-click, or press **Enter** to inspect its compiled form
-groups and line items. Reaching the bottom automatically appends the next
-secured server batch; there are no page-navigation buttons.
+and use **Open**, double-click, or press **Enter**. The same YAML-defined
+two-column form opens for editable and read-only records; field, Save, and Post
+states follow permissions and Invoice status. Reaching the bottom automatically
+appends the next secured server batch; there are no page-navigation buttons.
 
-Select a draft Invoice and use **Edit** to change its header and line items.
-The Customer editor opens the compiled `crm.Customer.lookup` as a searchable
+For an editable draft Invoice, the Customer editor opens the compiled
+`crm.Customer.lookup` as a searchable
 multi-column dialog. Search matches code, name, or email through FastAPI; select
 a result, or use **New** / Ctrl+N when authorized. The nested Customer form ends
 with **Save & Select**, returning the new identity to the preserved Invoice
@@ -239,12 +240,11 @@ ETag and an idempotency key. The dialog closes and the refreshed browse row
 shows Posted. If posting fails after the draft save, the saved form reopens
 with the server message so it can be corrected safely.
 
-Select an Invoice and choose **Preview** to build its authorized report through
-FastAPI. Qt shows the returned renderer-neutral document with native widgets;
-**Export CSV**, **Export HTML**, and **Export PDF** write to
-`output\reports` without giving the GUI a database connection. Roles without
-the report capability do not see the button. The Windows GUI shortcut includes
-the optional report dependency so PDF export works in this walkthrough.
+Inside an opened Invoice, choose **Preview PDF** to build its authorized report
+through FastAPI. Qt writes the returned renderer-neutral document to a unique
+file in the operating system's temporary directory and opens the system PDF
+viewer. The temporary session directory is cleaned up later instead of filling
+`output\reports`. Roles without the report capability do not see the button.
 
 The first editable Qt slice covers the flat Product and Customer forms:
 
@@ -253,7 +253,7 @@ The first editable Qt slice covers the flat Product and Customer forms:
 .\start.bat gui-customers
 ```
 
-Use **New** or select a row and use **Edit**. These dialogs follow compiled form
+Use **New** or select a row and use **Open**. These dialogs follow compiled form
 rows, writable-field capabilities, required fields, Boolean controls, regex
 masks, and exact Decimal input. Save calls FastAPI in the background and
 refreshes the secured list; the GUI never receives a database URL. See the

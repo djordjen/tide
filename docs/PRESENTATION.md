@@ -159,12 +159,23 @@ key. If the save succeeds but the action fails, the saved form is reopened with
 its current ETag and the failure message. A stale failure enters the same
 three-way review contract rather than introducing last-write-wins behavior.
 
+Form `layout` is a shared semantic contract, not a renderer hint. One
+renderer-neutral resolver produces ordered group rows, collections, tabs,
+actions, and hidden-field decisions for Textual and Qt; the future Web
+renderer must consume the same result. A row such as `[number, invoice_date]`
+therefore means the same visual pairing everywhere. Surface-specific metadata
+may control measurements, but it may not independently regroup fields.
+`settings.compact_groups: true` is also portable: Studio retains the authored
+groups, while renderers resolve their scalar fields in order into one
+two-column header before collection sections.
+
 Qt record reports follow the same renderer-neutral boundary as Textual. The
 active entity's record report is visible only when it is REST-exposed and
 present in the authenticated session capabilities. FastAPI builds and
-authorizes the `ReportDocument`; Qt lays out native fact, detail, and total
-widgets, while the shared CSV/HTML/PDF writers perform local export on a worker
-thread. Report metadata and permissions remain authoritative across renderers.
+authorizes the `ReportDocument`; Qt renders it to a unique GUI-session file
+under the operating system's temporary directory on a worker thread, then asks
+the system PDF viewer to open it. Report metadata and permissions remain
+authoritative across renderers.
 
 Named presets capture recurring patterns such as `standard_browse`,
 `standard_form`, and `master_detail`.

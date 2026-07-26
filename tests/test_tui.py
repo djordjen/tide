@@ -771,13 +771,7 @@ def test_textual_form_renders_portable_tabs_and_action_bar_order(
         "  - group: Invoice\n    tab: Details\n",
     ).replace(
         "  - collection: lines\n",
-        "  - collection: lines\n    tab: Details\n",
-    ).replace(
-        "  - group: Totals\n",
-        "  - group: Totals\n    tab: Summary\n",
-    ).replace(
-        "  - group: Posting\n",
-        "  - group: Posting\n    tab: Summary\n",
+        "  - collection: lines\n    tab: Lines\n",
     ).replace(
         "    actions: [add, apply, remove]",
         "    actions: [remove, add, apply]",

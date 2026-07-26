@@ -143,7 +143,8 @@ class _WidgetClient:
                         }
                     ],
                     "total": Decimal("1250.00"),
-                }
+                },
+                etag='"1"',
             )
         if entity_name == "catalog.Product":
             assert identity == 10
@@ -507,14 +508,14 @@ def test_qt_widget_adapter_incrementally_loads_the_server_list(
 
     window.table.selectRow(0)
     application.processEvents()
-    assert window.view.isEnabled() is True
+    assert window.open.isEnabled() is True
     window.table.activated.emit(window.table_model.index(0, 0))
-    application.processEvents()
-    assert len(window._detail_dialogs) == 1
-    detail = next(iter(window._detail_dialogs))
-    assert detail.field_editors["number"].text() == "INV-QT-001"
-    assert detail.field_editors["customer"].text() == "ADRIA - Adria Consulting"
-    lines = detail.collection_tables["lines"]
+    _wait_until(application, lambda: len(window._edit_dialogs) == 1)
+    detail = next(iter(window._edit_dialogs))
+    assert detail.editors["number"].text() == "INV-QT-001"
+    assert detail.editors["customer"].text() == "ADRIA - Adria Consulting"
+    assert detail.save_button.isVisible() is False
+    lines = detail.collection_editors["lines"].table
     assert lines.rowCount() == 1
     assert lines.item(0, 1).text() == "CONSULT - Consulting"
     assert lines.item(0, 5).text() == "1,250.00"
@@ -596,11 +597,18 @@ def test_qt_record_report_previews_and_exports_remote_document(
         update={"reports": ("sales.invoice",)}
     )
     client = _WidgetClient()
+    opened: list[Path] = []
+
+    def open_report(path: Path) -> bool:
+        opened.append(path)
+        return True
+
     window = TideQtWindow(
         QtBrowseController(model, client, session, page_size=5),
         source_label="report test",
         layout_settings=_layout_settings(tmp_path / "report-layout.ini"),
         report_output_directory=tmp_path,
+        report_opener=open_report,
     )
     window.show()
     _wait_until(
@@ -609,45 +617,22 @@ def test_qt_record_report_previews_and_exports_remote_document(
         and not window.table_model.loading,
     )
 
-    assert window.preview.isVisible() is True
-    assert window.preview.isEnabled() is False
+    assert window.open.isEnabled() is False
     window.table.selectRow(0)
     application.processEvents()
-    assert window.preview.isEnabled() is True
-    window.preview.click()
-    _wait_until(application, lambda: len(window._report_dialogs) == 1)
-    dialog = next(iter(window._report_dialogs))
+    assert window.open.isEnabled() is True
+    window.open.click()
+    _wait_until(application, lambda: len(window._edit_dialogs) == 1)
+    dialog = next(iter(window._edit_dialogs))
+    assert dialog.preview_button is not None
+    dialog.preview_button.click()
+    _wait_until(application, lambda: len(opened) == 1 and not dialog._saving)
 
     assert client.report_calls == [("sales.invoice", 1)]
     assert all(thread != gui_thread for thread in client.report_threads)
-    assert dialog.windowTitle() == "TIDE Invoicing — Invoice"
-    assert dialog.detail.horizontalHeaderItem(0).text() == "Description"
-    assert dialog.detail.item(0, 0).text() == "Consulting day"
-    assert dialog.detail.item(0, 1).text() == "1,250.00"
-
-    dialog.export_csv.click()
-    _wait_until(
-        application,
-        lambda: (tmp_path / "invoice-INV-QT-001.csv").is_file()
-        and not dialog._exporting,
-    )
-    dialog.export_html.click()
-    _wait_until(
-        application,
-        lambda: (tmp_path / "invoice-INV-QT-001.html").is_file()
-        and not dialog._exporting,
-    )
-    dialog.export_pdf.click()
-    _wait_until(
-        application,
-        lambda: (tmp_path / "invoice-INV-QT-001.pdf").is_file()
-        and not dialog._exporting,
-    )
-
-    assert (tmp_path / "invoice-INV-QT-001.pdf").read_bytes().startswith(
-        b"%PDF-"
-    )
-    assert "PDF exported to" in dialog.message.text()
+    assert opened[0].parent == tmp_path
+    assert opened[0].read_bytes().startswith(b"%PDF-")
+    assert "Opened temporary PDF preview" in dialog.message.text()
     dialog.close()
     window.close()
     assert window.wait_for_done(1000)
@@ -760,7 +745,7 @@ def test_qt_flat_product_form_creates_and_updates_through_api(
     )
 
     assert window.new.isEnabled() is True
-    assert window.edit.isEnabled() is False
+    assert window.open.isEnabled() is False
     window.new.click()
     _wait_until(application, lambda: len(window._edit_dialogs) == 1)
     create_dialog = next(iter(window._edit_dialogs))
@@ -800,8 +785,8 @@ def test_qt_flat_product_form_creates_and_updates_through_api(
 
     window.table.selectRow(0)
     application.processEvents()
-    assert window.edit.isEnabled() is True
-    window.edit.click()
+    assert window.open.isEnabled() is True
+    window.open.click()
     _wait_until(application, lambda: len(window._edit_dialogs) == 1)
     edit_dialog = next(iter(window._edit_dialogs))
     edit_name = edit_dialog.editors["name"]
@@ -847,7 +832,7 @@ def test_qt_stale_product_edit_opens_three_way_review_and_rebase(
     )
     window.table.selectRow(0)
     application.processEvents()
-    window.edit.click()
+    window.open.click()
     _wait_until(application, lambda: len(window._edit_dialogs) == 1)
     stale_form = next(iter(window._edit_dialogs))
     name = stale_form.editors["name"]
@@ -951,8 +936,8 @@ def test_qt_invoice_customer_lookup_search_create_and_select(
 
     window.table.selectRow(0)
     application.processEvents()
-    assert window.edit.isEnabled() is True
-    window.edit.click()
+    assert window.open.isEnabled() is True
+    window.open.click()
     _wait_until(application, lambda: len(window._edit_dialogs) == 1)
     edit_dialog = next(iter(window._edit_dialogs))
     assert edit_dialog.form.omitted_collections == ()
@@ -1002,7 +987,7 @@ def test_qt_invoice_customer_lookup_search_create_and_select(
 
     window.table.selectRow(0)
     application.processEvents()
-    window.edit.click()
+    window.open.click()
     _wait_until(application, lambda: len(window._edit_dialogs) == 1)
     second_edit = next(iter(window._edit_dialogs))
     second_customer = second_edit.editors["customer"]
@@ -1084,7 +1069,7 @@ def test_qt_invoice_line_editor_applies_product_defaults_and_total(
     )
     window.table.selectRow(0)
     application.processEvents()
-    window.edit.click()
+    window.open.click()
     _wait_until(application, lambda: len(window._edit_dialogs) == 1)
     edit_dialog = next(iter(window._edit_dialogs))
     lines = edit_dialog.collection_editors["lines"]
@@ -1212,7 +1197,7 @@ def test_qt_invoice_post_saves_lines_then_runs_the_secured_action(
     )
     window.table.selectRow(0)
     application.processEvents()
-    window.edit.click()
+    window.open.click()
     _wait_until(application, lambda: len(window._edit_dialogs) == 1)
     dialog = next(iter(window._edit_dialogs))
     post = dialog.action_buttons["post"]
@@ -1307,11 +1292,11 @@ def test_qt_invoice_poster_gets_a_read_only_action_form(
         lambda: window.table_model.rowCount() == 1
         and not window.table_model.loading,
     )
-    assert window.edit.text() == "Open"
+    assert window.open.text() == "Open"
     window.table.selectRow(0)
     application.processEvents()
-    assert window.edit.isEnabled() is True
-    window.edit.click()
+    assert window.open.isEnabled() is True
+    window.open.click()
     _wait_until(application, lambda: len(window._edit_dialogs) == 1)
     dialog = next(iter(window._edit_dialogs))
 

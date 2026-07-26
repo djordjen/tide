@@ -24,6 +24,8 @@ from tide.presentation import (
     browse_named_filters,
     browse_search_field,
     browse_sortable_fields,
+    form_layout_sections,
+    view_field_hidden,
 )
 from tide.reporting import ReportDocument
 from tide.runtime import TideRuntimeError
@@ -389,6 +391,15 @@ class QtBrowseController:
         )
 
     @property
+    def open_available(self) -> bool:
+        """Return whether a selected record can open in the shared form."""
+
+        return bool(
+            self._supported_form_available
+            and "get" in self._entity_capabilities.operations
+        )
+
+    @property
     def create_available(self) -> bool:
         return bool(
             self._supported_form_available
@@ -642,11 +653,11 @@ class QtBrowseController:
         )
 
     def edit_form(self, identity: Any) -> QtEditForm:
-        """Load one editable record through the authenticated API."""
+        """Load one capability-shaped record form through the authenticated API."""
 
-        if not (self.update_available or self.form_action_available):
+        if not self.open_available:
             raise ValueError(
-                f"{self.entity.name} does not define an accessible action/edit form"
+                f"{self.entity.name} does not define an accessible record form"
             )
         if identity is None or identity is PROTECTED:
             raise ValueError("Qt edit record identity is unavailable")
@@ -657,6 +668,19 @@ class QtBrowseController:
             etag=remote.etag,
             values=remote.values,
         )
+
+    def form_has_changes(
+        self,
+        form: QtEditForm,
+        values: Mapping[str, Any],
+    ) -> bool:
+        """Return whether a supported local draft differs from stored values."""
+
+        if form.operation == "create":
+            return True
+        draft = self._form_draft(form, values)
+        original = self._comparable_form_values(form, form.original)
+        return any(original.get(name) != value for name, value in draft.items())
 
     def save_form(
         self,
@@ -1293,43 +1317,37 @@ class QtBrowseController:
         groups: list[QtEditGroup] = []
         collections: list[QtEditCollection] = []
         omitted_collections: list[str] = []
-        for configuration in self.detail_view.data.get("layout", ()):
-            collection_name = configuration.get("collection")
-            if collection_name:
+        for section in form_layout_sections(self.detail_view, self.entity):
+            if section.kind == "collection":
+                collection_name = section.collection
+                assert collection_name is not None
                 collection = self._edit_collection(
-                    configuration,
+                    section.configuration or {},
                     values,
                     operation=operation,
                 )
                 if collection is None:
-                    omitted_collections.append(str(collection_name))
+                    omitted_collections.append(collection_name)
                 else:
                     collections.append(collection)
-                continue
-            label = configuration.get("group")
-            if not label:
                 continue
             rows = tuple(
                 tuple(
                     self._edit_field(
-                        self.entity.field(str(name)),
+                        self.entity.field(name),
                         values,
                         _view_field_configuration(
                             self.detail_view,
-                            str(name),
+                            name,
                         ),
                     )
                     for name in row
-                    if str(name) in self.entity.fields
-                    and self.entity.field(str(name)).metadata["type"]
-                    != "collection"
-                    and not _field_is_hidden(self.detail_view, str(name))
                 )
-                for row in configuration.get("rows", ())
+                for row in section.rows
             )
             visible_rows = tuple(row for row in rows if row)
             if visible_rows:
-                groups.append(QtEditGroup(str(label), visible_rows))
+                groups.append(QtEditGroup(section.label, visible_rows))
         if not groups:
             rows = tuple(
                 (self._edit_field(self.entity.field(name), values),)
@@ -1342,7 +1360,7 @@ class QtBrowseController:
             title=(
                 f"New {singular}"
                 if operation == "create"
-                else f"Edit {singular} — {_display_record(self.entity, values)}"
+                else f"{singular} — {_display_record(self.entity, values)}"
             ),
             operation=operation,
             identity=identity,
@@ -1465,30 +1483,29 @@ class QtBrowseController:
             and not _field_is_hidden(inline, name)
         )
         groups: list[QtEditGroup] = []
-        for section in inline.data.get("layout", ()):
-            label = section.get("group")
-            if not label:
+        for section in form_layout_sections(inline, target):
+            if section.kind != "group":
                 continue
             rows = tuple(
                 tuple(
                     self._collection_edit_field(
                         target,
-                        target.field(str(raw_name)),
+                        target.field(name),
                         defaults,
                         _view_field_configuration(
                             inline,
-                            str(raw_name),
+                            name,
                         ),
                         editable=editable,
                     )
-                    for raw_name in raw_row
-                    if str(raw_name) in editor_names
+                    for name in row
+                    if name in editor_names
                 )
-                for raw_row in section.get("rows", ())
+                for row in section.rows
             )
             visible = tuple(row for row in rows if row)
             if visible:
-                groups.append(QtEditGroup(str(label), visible))
+                groups.append(QtEditGroup(section.label, visible))
         if not groups:
             groups.append(
                 QtEditGroup(
@@ -1833,35 +1850,34 @@ class QtBrowseController:
         values: Mapping[str, Any],
     ) -> tuple[QtDetailSection, ...]:
         assert self.detail_view is not None
-        sections: list[QtDetailSection] = []
-        for configuration in self.detail_view.data.get("layout", ()):
-            if configuration.get("group"):
+        result: list[QtDetailSection] = []
+        for section in form_layout_sections(self.detail_view, self.entity):
+            if section.kind == "group":
                 rows = tuple(
                     tuple(
-                        self._detail_field(self.entity.field(str(name)), values)
+                        self._detail_field(self.entity.field(name), values)
                         for name in row
-                        if str(name) in self.entity.fields
-                        and self.entity.field(str(name)).metadata["type"]
-                        != "collection"
-                        and not _field_is_hidden(self.detail_view, str(name))
                     )
-                    for row in configuration.get("rows", ())
+                    for row in section.rows
                 )
                 visible_rows = tuple(row for row in rows if row)
                 if visible_rows:
-                    sections.append(
+                    result.append(
                         QtDetailGroup(
-                            label=str(configuration["group"]),
+                            label=section.label,
                             rows=visible_rows,
                         )
                     )
                 continue
-            if configuration.get("collection"):
-                collection = self._detail_collection(configuration, values)
+            if section.kind == "collection":
+                collection = self._detail_collection(
+                    section.configuration or {},
+                    values,
+                )
                 if collection is not None:
-                    sections.append(collection)
-        if sections:
-            return tuple(sections)
+                    result.append(collection)
+        if result:
+            return tuple(result)
         rows = tuple(
             (self._detail_field(field, values),)
             for field in self.entity.fields.values()
@@ -2062,30 +2078,19 @@ def _browse_columns(
 
 
 def _field_is_hidden(view: ResolvedView, field_name: str) -> bool:
-    field_configuration = view.data.get("fields", {})
-    return bool(
-        isinstance(field_configuration, Mapping)
-        and isinstance(field_configuration.get(field_name), Mapping)
-        and field_configuration[field_name].get("hidden", False)
-    )
+    return view_field_hidden(view, field_name)
 
 
 def _form_field_names(
     view: ResolvedView,
     entity: NormalizedEntity,
 ) -> tuple[str, ...]:
-    result: list[str] = []
-    for section in view.data.get("layout", ()):
-        for row in section.get("rows", ()):
-            for raw_name in row:
-                name = str(raw_name)
-                if (
-                    name in entity.fields
-                    and entity.field(name).metadata["type"] != "collection"
-                    and not _field_is_hidden(view, name)
-                    and name not in result
-                ):
-                    result.append(name)
+    result = [
+        name
+        for section in form_layout_sections(view, entity)
+        if section.kind == "group"
+        for name in section.fields
+    ]
     if result:
         return tuple(result)
     return tuple(
