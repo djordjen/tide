@@ -170,7 +170,8 @@ application-owned Faker profile and the real secured services.
 - compiler-validated shared application navigation in presentation YAML,
   capability filtering, Textual selector ordering, and a grouped Qt shell with
   lazily retained per-view workspace state and `--view` deep links;
-  **implemented**; future Web consumption remains later work
+  **implemented**, including the authenticated Web presentation projection;
+  the browser shell remains the next slice
 - renderer-neutral form-layout resolution for ordered YAML rows, groups,
   collections, tabs, actions, and field visibility, consumed by Textual and
   Qt; plus one Qt **Open** path whose form controls follow capability and
@@ -219,6 +220,18 @@ an invoice entirely by keyboard or mouse.
 - channel-aware audit events;
 - OpenAPI and MCP schema conformance tests; **implemented for the current REST
   and secured runtime MCP read/write/action surfaces**
+- authenticated, versioned, capability-filtered presentation manifest for
+  remote renderers, containing safe application navigation and browse/query
+  metadata without YAML, permission expressions, handlers, or database
+  configuration; **implemented**
+- first dedicated Web application shell using the manifest plus existing
+  server-mode REST search/filter/sort and opaque-cursor loading; **next**
+- Web detail view using the shared form layout, read-only states, collections,
+  and current-query Previous/Next navigation; **planned after the shell**
+- Web editing parity in reviewed slices: CRUD, lookups and **Save & Select**,
+  collection drafts, actions, conflicts, and reports; **planned**
+- executable renderer acceptance matrix for shared TUI/Qt/Web semantics;
+  **planned after the first Web detail slice**
 
 Exit condition: TUI, REST, and MCP produce equivalent secured outcomes through
 the same services.
@@ -368,7 +381,6 @@ Deeper report design and developer-MCP editing remain later Milestone 7 work.
 
 ## Later possibilities
 
-- dedicated web application renderer;
 - responsive web view designer;
 - reusable application modules and plugin packaging;
 - TUI report band editor;

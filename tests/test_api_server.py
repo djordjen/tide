@@ -43,6 +43,13 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
                 "/api/v1/_tide/session",
                 headers=_authorization(),
             )
+            presentation = await client.get(
+                "/api/v1/_tide/presentation",
+                headers=_authorization(),
+            )
+            anonymous_presentation = await client.get(
+                "/api/v1/_tide/presentation",
+            )
             incorrect = await client.get(
                 "/api/v1/invoices",
                 headers={"Authorization": "Bearer incorrect-token-value"},
@@ -87,6 +94,86 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
         }
         assert invoice_capabilities["actions"] == ["post"]
         assert invoice_capabilities["audit"] is False
+        assert presentation.status_code == 200
+        manifest = presentation.json()
+        assert manifest["wire_version"] == "0.1"
+        assert manifest["application"] == "TIDE Invoicing"
+        assert manifest["application_version"] == "0.1.0"
+        assert manifest["schema_version"] == "0.1"
+        assert manifest["principal"] == "api:test"
+        assert [
+            (
+                group["label"],
+                [item["view"] for item in group["items"]],
+            )
+            for group in manifest["navigation"]
+        ] == [
+            ("Sales", ["sales.Invoice.browse"]),
+            (
+                "Master Data",
+                ["crm.Customer.browse", "catalog.Product.browse"],
+            ),
+        ]
+        assert set(manifest["views"]) == {
+            "sales.Invoice.browse",
+            "crm.Customer.browse",
+            "catalog.Product.browse",
+        }
+        invoice_view = manifest["views"]["sales.Invoice.browse"]
+        assert invoice_view["resource_path"] == "/api/v1/invoices"
+        assert invoice_view["query_path"] == "/api/v1/invoices/_query"
+        assert invoice_view["identity_field"] == "id"
+        assert invoice_view["search_field"] == "number"
+        assert invoice_view["search_label"] == "Number"
+        assert invoice_view["page_size"] == 25
+        assert invoice_view["operations"] == [
+            "list",
+            "get",
+            "create",
+            "update",
+        ]
+        assert [column["name"] for column in invoice_view["columns"]] == [
+            "number",
+            "invoice_date",
+            "customer",
+            "status",
+            "total",
+        ]
+        assert invoice_view["columns"][2]["target_entity"] == "crm.Customer"
+        assert invoice_view["columns"][4] == {
+            "name": "total",
+            "label": "Total",
+            "field_type": "decimal",
+            "alignment": "right",
+            "format": "money",
+            "target_entity": None,
+        }
+        assert invoice_view["named_filters"] == [
+            {
+                "name": "drafts",
+                "label": "Draft invoices",
+                "conditions": [
+                    {
+                        "field": "status",
+                        "operator": "eq",
+                        "value": "draft",
+                    }
+                ],
+            },
+            {
+                "name": "high_value",
+                "label": "High-value invoices",
+                "conditions": [
+                    {
+                        "field": "total",
+                        "operator": "gte",
+                        "value": 10000,
+                    }
+                ],
+            },
+        ]
+        assert presentation.headers["cache-control"] == "no-store"
+        assert anonymous_presentation.status_code == 401
         for response in (missing, incorrect):
             assert response.status_code == 401
             assert response.json() == {
@@ -151,6 +238,7 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
     assert set(schema["paths"]["/api/v1/_tide/reference-selection"]) == {
         "post"
     }
+    assert set(schema["paths"]["/api/v1/_tide/presentation"]) == {"get"}
     assert set(
         schema["paths"][
             "/api/v1/_tide/reports/{report_name}/records/{identity}"
@@ -189,6 +277,82 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
         "If-Match",
         "Idempotency-Key",
     }
+
+
+def test_presentation_manifest_filters_inaccessible_navigation_groups() -> None:
+    invoice_only_app = _app("summary_viewer")
+    denied_app = _app(None)
+
+    async def exercise() -> None:
+        async with _client(invoice_only_app) as client:
+            invoice_only = await client.get(
+                "/api/v1/_tide/presentation",
+                headers=_authorization(),
+            )
+        async with _client(denied_app) as client:
+            denied = await client.get(
+                "/api/v1/_tide/presentation",
+                headers=_authorization(),
+            )
+
+        assert invoice_only.status_code == 200
+        manifest = invoice_only.json()
+        assert [
+            group["label"] for group in manifest["navigation"]
+        ] == ["Sales"]
+        assert [
+            item["view"]
+            for item in manifest["navigation"][0]["items"]
+        ] == ["sales.Invoice.browse"]
+        assert set(manifest["views"]) == {"sales.Invoice.browse"}
+        assert manifest["views"]["sales.Invoice.browse"]["operations"] == [
+            "list",
+            "get",
+        ]
+
+        assert denied.status_code == 200
+        assert denied.json()["navigation"] == []
+        assert denied.json()["views"] == {}
+
+    asyncio.run(exercise())
+
+
+def test_presentation_manifest_filters_field_protected_controls() -> None:
+    model = compile_project(INVOICING)
+    protected_total = immutable_mapping(
+        {
+            "entity": "sales.Invoice",
+            "field": "total",
+            "read": "sales.invoice.audit",
+        }
+    )
+    app = _app(
+        "summary_viewer",
+        model=replace(
+            model,
+            field_policies=(*model.field_policies, protected_total),
+        ),
+    )
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            response = await client.get(
+                "/api/v1/_tide/presentation",
+                headers=_authorization(),
+            )
+
+        assert response.status_code == 200
+        invoice_view = response.json()["views"]["sales.Invoice.browse"]
+        assert "total" not in {
+            column["name"] for column in invoice_view["columns"]
+        }
+        assert "total" not in invoice_view["sortable_fields"]
+        assert [
+            named_filter["name"]
+            for named_filter in invoice_view["named_filters"]
+        ] == ["drafts"]
+
+    asyncio.run(exercise())
 
 
 def test_readiness_fails_closed_without_leaking_dependency_errors() -> None:

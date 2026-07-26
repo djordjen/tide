@@ -104,6 +104,18 @@ reports only whether the safe record-history route is available and does not
 disclose the permission name. It is capability information for rendering and
 early feedback, never a replacement for per-request authorization.
 
+The authenticated `GET /api/v1/_tide/presentation` resource is the first Web
+renderer foundation. It projects the compiler-normalized application
+navigation and browse metadata into a versioned, principal-bound contract:
+resource/query paths, identity fields, visible readable columns, labels, types,
+alignment and formats, reference targets, search, structured named filters,
+sortable fields, fetch size, and currently available REST operations. Whole
+views, empty navigation groups, protected fields, and controls that depend on a
+protected field are omitted. The projection never returns raw YAML, database
+configuration, permission expressions, or application Python. Its operation
+list is advisory; every list/query/get request is authorized again by the
+ordinary service route.
+
 Every completed framework HTTP response includes an effective
 `X-Correlation-ID`. A caller may
 supply a bounded log-safe identifier; missing, malformed, or oversized values
@@ -263,6 +275,9 @@ mismatches. It converts wire decimals, dates, datetimes, nested records, and
 protected-null metadata back into TIDE values; it carries opaque cursors and
 strong ETags without interpreting them. Server error envelopes become stable
 client exceptions without copying credentials into exception text.
+After `connect()`, `load_presentation()` retrieves and validates the manifest
+against that same application and principal. This lets a remote renderer build
+its safe application shell without reading the server's source tree.
 
 Plain HTTP is accepted only for `localhost`, `127.0.0.1`, and `::1`; remote
 origins require HTTPS so bearer credentials cannot be sent over an
@@ -518,11 +533,18 @@ rather than protocol output.
 
 ## Web UI
 
-A future web UI is a presentation adapter, not a consumer of TIDE's public REST
-API by necessity. It may call application services in-process on the server to
-preserve `RecordSession`, protected-value, and validation semantics. A separate
-browser client can use the generated REST API when that architecture is
-appropriate.
+The dedicated Web UI is a presentation adapter over the same normalized model
+and service boundary as Textual and Qt. Its first implemented foundation is the
+secured presentation manifest described above. The next slice will build
+grouped navigation and a server-mode browse workspace from that manifest and
+the existing structured REST queries.
+
+This contract does not make the browser an authorization authority. The Web
+client may use capabilities to avoid offering unavailable controls, but actual
+reads, edits, actions, and reports still use the generated FastAPI routes and
+their service-layer security. A future server-rendered variant may call the
+same services in-process where appropriate; neither architecture receives raw
+SQL or a database connection string.
 
 ## Useful commands
 

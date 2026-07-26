@@ -11,6 +11,7 @@ from tide.compiler.normalized import (
     NavigationGroup,
     NavigationItem,
     NormalizedEntity,
+    NormalizedField,
     ResolvedView,
 )
 from tide.data import FilterCondition
@@ -142,7 +143,7 @@ def form_layout_sections(
                     FormLayoutSection(
                         index=index,
                         kind="collection",
-                        label=_field_label(entity.field(name)),
+                        label=field_label(entity.field(name)),
                         collection=name,
                         inline_view=(
                             str(raw["view"]) if raw.get("view") else None
@@ -208,6 +209,46 @@ def view_field_hidden(view: ResolvedView, name: str) -> bool:
         isinstance(configuration, Mapping)
         and configuration.get("hidden", False)
     )
+
+
+def browse_columns(
+    view: ResolvedView,
+    entity: NormalizedEntity,
+) -> tuple[str, ...]:
+    """Return the portable visible column order for a compiled browse view."""
+
+    configured = tuple(str(name) for name in view.data.get("columns", ()))
+    columns = configured or tuple(
+        name
+        for name, field in entity.fields.items()
+        if field.metadata["type"] != "collection"
+    )
+    unknown = tuple(name for name in columns if name not in entity.fields)
+    if unknown:
+        raise ValueError(
+            "browse view contains unknown columns: " + ", ".join(unknown)
+        )
+    return tuple(
+        name for name in columns if not view_field_hidden(view, name)
+    )
+
+
+def field_label(field: NormalizedField) -> str:
+    """Return the portable field label used by presentation adapters."""
+
+    return str(field.metadata.get("label") or _humanize(field.name))
+
+
+def field_alignment(
+    field: NormalizedField,
+    formats: Mapping[str, Mapping[str, Any]],
+) -> Literal["left", "center", "right"]:
+    """Return explicit format alignment or the shared type-based default."""
+
+    configured = formats.get(str(field.metadata.get("format")), {}).get("align")
+    if configured in {"left", "center", "right"}:
+        return configured
+    return "right" if field.metadata["type"] in {"integer", "decimal"} else "left"
 
 
 def browse_search_field(
@@ -311,13 +352,6 @@ def _comparison_condition(expression: ast.expr) -> FilterCondition:
 
 def _humanize(value: str) -> str:
     return value.replace("_", " ").replace("-", " ").title()
-
-
-def _field_label(field: Any) -> str:
-    return str(
-        field.metadata.get("label")
-        or field.name.replace("_", " ").title()
-    )
 
 
 def _compact_form_groups(

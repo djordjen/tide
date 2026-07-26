@@ -32,6 +32,7 @@ from tide.api.contracts import (
     TIDE_WIRE_VERSION,
     TideAuditHistory,
     TideEntityCapabilities,
+    TidePresentationManifest,
     TideQueryInput,
     TideReferenceSelectionInput,
     TideReferenceSelectionResult,
@@ -50,6 +51,7 @@ from tide.api.openapi import (
     build_openapi_preview,
     rest_exposures,
 )
+from tide.api.presentation import build_presentation_manifest
 from tide.api.wire import (
     coerce_identity as _coerce_identity,
     decode_filter_value as _decode_filter_value,
@@ -483,6 +485,23 @@ def build_fastapi_app(
                 and report_service.can_generate(report_name, context)
             ),
             entities=capabilities,
+        )
+
+    @app.get(
+        f"{base_path.rstrip('/')}/_tide/presentation",
+        tags=["TIDE"],
+        summary="Secured application presentation manifest",
+        response_model=TidePresentationManifest,
+        responses=_documented_errors(401),
+    )
+    def presentation_manifest(
+        context: RequestContext = Depends(request_context),
+    ) -> TidePresentationManifest:
+        return build_presentation_manifest(
+            model,
+            session_info(context),
+            exposures,
+            base_path=base_path,
         )
 
     @app.post(

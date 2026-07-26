@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from tide.api.contracts import (
     TideAuditHistory,
     TideFilterInput,
+    TidePresentationManifest,
     TideQueryInput,
     TideReferenceSelectionInput,
     TideReferenceSelectionResult,
@@ -160,6 +161,44 @@ class TideApiClient:
             )
         self._session = session
         return session
+
+    def load_presentation(self) -> TidePresentationManifest:
+        """Load the secured renderer manifest bound to the connected principal."""
+
+        if self._session is None:
+            raise TideApiContractError(
+                "connect before loading the presentation manifest"
+            )
+        response = self._request(
+            "GET",
+            f"{self.base_path}/_tide/presentation",
+            expected=(200,),
+        )
+        payload = self._json_object(response)
+        try:
+            manifest = TidePresentationManifest.model_validate(payload)
+        except ValidationError as error:
+            raise TideApiContractError(
+                "server returned an invalid TIDE presentation contract"
+            ) from error
+        expected = (
+            self.model.name,
+            self.model.version,
+            self.model.schema_version,
+            self._session.principal,
+        )
+        actual = (
+            manifest.application,
+            manifest.application_version,
+            manifest.schema_version,
+            manifest.principal,
+        )
+        if actual != expected:
+            raise TideApiContractError(
+                "server presentation does not match the connected application "
+                f"and principal: expected {expected!r}, received {actual!r}"
+            )
+        return manifest
 
     def list_records(
         self,

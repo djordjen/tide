@@ -72,6 +72,16 @@ navigation is made reachable for that launch without changing YAML. Future Web
 navigation must consume this same normalized contract rather than interpreting
 the source independently.
 
+Remote renderers receive the safe browse subset at
+`GET /api/v1/_tide/presentation`. The versioned manifest contains only
+navigation items the principal can list and only columns that principal may
+read. Search, named filters, and sort choices are removed when they depend on a
+protected field. It also supplies the generated resource/query paths, identity
+field, labels, types, formats, alignment, reference targets, fetch size, and
+available operations. This is presentation discovery, not authorization:
+FastAPI rechecks every subsequent request. Raw YAML, expressions, credentials,
+and hidden or inaccessible metadata are not transferred to the renderer.
+
 For browse views, `page_size` is the bounded server fetch batch, not a
 requirement to expose page-navigation controls. Textual and Qt fill the visible
 list, retain already loaded rows, and request the next opaque cursor batch near

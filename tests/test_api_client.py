@@ -37,7 +37,13 @@ def test_client_connects_and_reports_server_authorized_capabilities() -> None:
 
     with _http_client(app) as transport:
         client = TideApiClient(model, BASE_URL, TOKEN, http_client=transport)
+        with pytest.raises(
+            TideApiContractError,
+            match="connect before loading",
+        ):
+            client.load_presentation()
         session = client.connect()
+        presentation = client.load_presentation()
 
     assert session.principal == "api:client-test"
     assert session.roles == ("sales_clerk",)
@@ -68,6 +74,20 @@ def test_client_connects_and_reports_server_authorized_capabilities() -> None:
         "create",
         "update",
     )
+    assert presentation.principal == session.principal
+    assert [
+        group.label for group in presentation.navigation
+    ] == ["Sales", "Master Data"]
+    assert tuple(presentation.views) == (
+        "sales.Invoice.browse",
+        "crm.Customer.browse",
+        "catalog.Product.browse",
+    )
+    invoice_view = presentation.views["sales.Invoice.browse"]
+    assert invoice_view.query_path == "/api/v1/invoices/_query"
+    assert invoice_view.search_field == "number"
+    assert invoice_view.columns[-1].alignment == "right"
+    assert invoice_view.named_filters[0].conditions[0].value == "draft"
 
 
 def test_client_round_trips_types_mutations_versions_and_actions() -> None:

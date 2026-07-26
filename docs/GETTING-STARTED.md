@@ -163,6 +163,13 @@ The shortcut prints a fresh development bearer token and starts a loopback-only
 FastAPI server. Open <http://127.0.0.1:8000/docs>, choose **Authorize**, and
 paste that token to exercise the generated contract.
 
+After authorization, try `GET /api/v1/_tide/presentation`. It returns the safe,
+principal-specific application navigation and browse contract intended for
+remote renderers: columns, search, named filters, sorting, server fetch size,
+and REST paths. It deliberately excludes raw YAML, permission rules, Python
+handlers, and the database connection. This is the foundation for the Web
+application shell; it is not a Web UI yet.
+
 The unauthenticated `GET /health/live` endpoint is process-only. The
 `GET /health/ready` endpoint checks runtime persistence dependencies and returns
 HTTP 503 with a safe `not_ready` body when the server should receive no traffic.

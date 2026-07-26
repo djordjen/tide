@@ -41,6 +41,13 @@ PySide6 shell renders compiler-normalized application navigation, browse
 tables, forms, lookups, inline collections, actions, conflict review, and
 report previews without database packages or credentials. Its grouped
 navigation is capability-filtered, while authorization remains on the server.
+Remote presentation adapters can retrieve the same safe browse semantics from
+the authenticated, versioned `/_tide/presentation` manifest. The server
+intersects navigation, columns, search, named filters, sorting, and operations
+with the connected principal before returning it; the manifest excludes raw
+YAML, permission rules, Python handlers, and database configuration. The
+planned Web shell consumes that projection and the ordinary generated REST
+routes rather than interpreting application sources in the browser.
 
 ```text
 applications/<name>/ (YAML + Python handlers + overlays)
@@ -60,10 +67,10 @@ applications/<name>/ (YAML + Python handlers + overlays)
           |                              |
           +--------------+---------------+
                          |
-       +---------+-------+-------+----------+
-       |         |               |          |
-       v         v               v          v
-    Textual   FastAPI REST        MCP      Reports
+       +---------+-------+-------+----------+-------+
+       |         |               |          |       |
+       v         v               v          v       v
+    Textual   FastAPI REST        MCP      Reports  Web
                          |
                          v
           Security + RecordSession/Unit of Work

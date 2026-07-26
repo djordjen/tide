@@ -386,9 +386,14 @@ secured
 list/get/create/update and Invoice Post routes with typed input, ETag
 concurrency, idempotency, and
 interactive OpenAPI documentation. An authenticated session-capability contract
-and typed HTTP client now preserve exact field types, protected values, cursors,
-ETags, and stable errors while rejecting mismatched applications and unsafe
-unencrypted non-loopback URLs. Textual can now opt into this client through
+and a secured presentation manifest now expose only the current principal's
+safe operations, navigation, browse columns, search/filter/sort controls, and
+generated REST paths. The typed HTTP client preserves exact field types,
+protected values, cursors, ETags, and stable errors while rejecting mismatched
+applications, principals, and unsafe unencrypted non-loopback URLs. This is the
+foundation for the next dedicated Web application shell without sending YAML,
+permission expressions, handlers, or database configuration to the browser.
+Textual can now opt into this client through
 `tide run --api-url`, including structured browse/search/sort, edit sessions,
 lookups, nested lines, actions, and secured report preview/export without
 database access. Provider-neutral OIDC/JWKS bearer validation and direct TLS

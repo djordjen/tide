@@ -239,3 +239,102 @@ class TideSessionInfo(BaseModel):
     roles: tuple[str, ...] = ()
     reports: tuple[str, ...] = ()
     entities: dict[str, TideEntityCapabilities]
+
+
+class TidePresentationColumn(BaseModel):
+    """One safe, renderer-neutral browse column in the remote manifest."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    field_type: str = Field(min_length=1)
+    alignment: TideAlignment = "left"
+    format: str | None = None
+    target_entity: str | None = None
+
+
+class TidePresentationNamedFilter(BaseModel):
+    """One named browse filter translated to structured query conditions."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    conditions: tuple[TideFilterInput, ...] = Field(min_length=1)
+
+
+class TideBrowsePresentation(BaseModel):
+    """One capability-filtered browse contract for remote renderers."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    view: str = Field(min_length=1)
+    entity: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    resource_path: str = Field(pattern=r"^/")
+    query_path: str = Field(pattern=r"^/")
+    identity_field: str = Field(min_length=1)
+    columns: tuple[TidePresentationColumn, ...] = Field(min_length=1)
+    search_field: str | None = None
+    search_label: str | None = None
+    named_filters: tuple[TidePresentationNamedFilter, ...] = ()
+    sortable_fields: tuple[str, ...] = ()
+    page_size: int = Field(ge=1, le=500)
+    operations: tuple[TideOperation, ...] = ()
+
+
+class TidePresentationNavigationItem(BaseModel):
+    """One browse destination in secured application navigation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    view: str = Field(min_length=1)
+    entity: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+
+
+class TidePresentationNavigationGroup(BaseModel):
+    """One non-empty capability-filtered application-navigation group."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    label: str = Field(min_length=1)
+    items: tuple[TidePresentationNavigationItem, ...] = Field(min_length=1)
+
+
+class TidePresentationManifest(BaseModel):
+    """Versioned safe presentation projection for remote UI renderers."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    wire_version: Literal["0.1"] = TIDE_WIRE_VERSION
+    application: str
+    application_version: str
+    schema_version: str
+    principal: str
+    navigation: tuple[TidePresentationNavigationGroup, ...] = ()
+    views: dict[str, TideBrowsePresentation]
+
+    @model_validator(mode="after")
+    def navigation_matches_views(self) -> TidePresentationManifest:
+        items = tuple(
+            item
+            for group in self.navigation
+            for item in group.items
+        )
+        names = tuple(item.view for item in items)
+        if len(names) != len(set(names)):
+            raise ValueError("presentation navigation repeats a view")
+        if set(names) != set(self.views):
+            raise ValueError(
+                "presentation navigation and browse views must match"
+            )
+        if any(
+            self.views[item.view].entity != item.entity
+            for item in items
+        ):
+            raise ValueError(
+                "presentation navigation entity does not match its browse view"
+            )
+        return self
