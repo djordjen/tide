@@ -567,7 +567,11 @@ class TideQtCollectionEditor(QGroupBox):
     def set_working(self, working: bool) -> None:
         self.setEnabled(not working)
         if not working:
-            self.setEnabled(True)
+            for name, editor in self.editors.items():
+                self.dialog._configure_field_editor(
+                    self._fields[name],
+                    editor,
+                )
             self._update_actions()
 
     def apply_lookup_selection(self, selection: QtLookupSelection) -> None:

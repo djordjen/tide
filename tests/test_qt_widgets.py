@@ -627,6 +627,10 @@ def test_qt_widget_adapter_incrementally_loads_the_server_list(
     assert next_detail.editors["number"].text() == "INV-QT-002"
     assert next_detail.save_button.isVisible() is False
     assert next_detail.collection_editors["lines"].table.rowCount() == 0
+    assert all(
+        not editor.isEnabled()
+        for editor in original_lines_editor.editors.values()
+    )
     assert next_detail.previous_button.isEnabled() is True
     assert next_detail.previous_shortcut.isEnabled() is True
     assert next_detail.next_button.isEnabled() is False
@@ -645,6 +649,14 @@ def test_qt_widget_adapter_incrementally_loads_the_server_list(
     assert previous_detail.editors["number"].text() == "INV-QT-001"
     assert previous_detail.save_button.isVisible() is True
     assert previous_detail.collection_editors["lines"].table.rowCount() == 1
+    assert all(
+        editor.isEnabled()
+        for editor in original_lines_editor.editors.values()
+    )
+    assert all(
+        button.isEnabled()
+        for button in original_lines_editor.action_buttons.values()
+    )
     assert previous_detail.previous_button.isEnabled() is False
     assert previous_detail.next_button.isEnabled() is True
     assert window.table.currentIndex().row() == 0
