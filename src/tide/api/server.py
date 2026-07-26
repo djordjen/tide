@@ -6,6 +6,7 @@ import asyncio
 from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
 import logging
+from pathlib import Path as FileSystemPath
 import re
 import secrets
 from time import perf_counter
@@ -27,6 +28,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict
+from starlette.staticfiles import StaticFiles
 
 from tide.api.contracts import (
     TIDE_WIRE_VERSION,
@@ -167,6 +169,7 @@ def build_fastapi_app(
     logger: logging.Logger | None = None,
     max_request_body_bytes: int = DEFAULT_MAX_REQUEST_BODY_BYTES,
     request_body_timeout_seconds: int = DEFAULT_REQUEST_BODY_TIMEOUT_SECONDS,
+    web_root: str | FileSystemPath | None = None,
 ) -> FastAPI:
     """Build an HTTP adapter over services without granting client database access."""
 
@@ -182,6 +185,17 @@ def build_fastapi_app(
         or request_body_timeout_seconds <= 0
     ):
         raise ValueError("request body timeout must be a positive integer")
+    web_directory: FileSystemPath | None = None
+    if web_root is not None:
+        web_directory = FileSystemPath(web_root).resolve()
+        if not web_directory.is_dir():
+            raise ValueError(
+                f"Web build directory does not exist: {web_directory}"
+            )
+        if not (web_directory / "index.html").is_file():
+            raise ValueError(
+                f"Web build directory has no index.html: {web_directory}"
+            )
     preview = build_openapi_preview(model, base_path=base_path)
     exposures = rest_exposures(model, allowed_operations=SERVER_OPERATIONS)
     action_service = actions or ActionService(model, records)
@@ -284,7 +298,12 @@ def build_fastapi_app(
             )
             raise
         else:
-            response.headers["Cache-Control"] = "no-store"
+            response.headers["Cache-Control"] = (
+                "public, max-age=31536000, immutable"
+                if web_directory is not None
+                and request.url.path.startswith("/assets/")
+                else "no-store"
+            )
             response.headers["X-Content-Type-Options"] = "nosniff"
             response.headers[CORRELATION_HEADER] = correlation_id
             log_runtime_event(
@@ -782,6 +801,12 @@ def build_fastapi_app(
         return schema
 
     app.openapi = tide_openapi  # type: ignore[method-assign]
+    if web_directory is not None:
+        app.mount(
+            "/",
+            StaticFiles(directory=web_directory, html=True),
+            name="tide-web",
+        )
     return app
 
 

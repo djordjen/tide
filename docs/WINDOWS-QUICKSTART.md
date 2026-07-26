@@ -411,6 +411,19 @@ The `api` and `api-demo` shortcuts deliberately use development identity and
 are restricted to the local computer. Do not change their binding to a network
 address or expose them through a firewall.
 
+To run the first browser renderer and its API together:
+
+```powershell
+.\start.bat web-demo
+```
+
+The shortcut requires Node.js 20 or later, installs the locked packages on the
+first run, prints a new development token, and opens the Web connection screen.
+Paste that token to browse the isolated sample. Use `start.bat web` for the
+configured SQL Server database. The browser receives neither the database URL
+nor application YAML; it calls the same secured FastAPI resources as Qt and
+remote Textual. See [Web UI](WEB-UI.md) for build and test commands.
+
 To test the first native desktop renderer, leave `start.bat api-demo` running
 and use another terminal:
 

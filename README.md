@@ -28,7 +28,8 @@ deep abstraction hierarchies. Application structure is declarative; complex
 business behavior remains ordinary Python.
 
 New here? Follow [Getting Started](docs/GETTING-STARTED.md) to run the demo TUI,
-open Studio, inspect REST/OpenAPI and MCP, and optionally connect SQL Server.
+open the [Web UI](docs/WEB-UI.md), use Studio, inspect REST/OpenAPI and MCP, and
+optionally connect SQL Server.
 The native [Qt GUI prototype](docs/QT-GUI.md) can browse and inspect records,
 create/edit Customer and Product forms, and edit complete Invoice drafts with
 Customer/Product lookups, nested **Save & Select**, and line totals—all without
@@ -307,6 +308,7 @@ Start with [the documentation index](docs/README.md). Important documents are:
 - [Invoicing application walkthrough](docs/INVOICING-WALKTHROUGH.md)
 - [REST API client tutorial](docs/API-CLIENT-TUTORIAL.md)
 - [AI-assisted generation tutorial](docs/AI-GENERATION-TUTORIAL.md)
+- [Web UI](docs/WEB-UI.md)
 - [Qt GUI prototype](docs/QT-GUI.md)
 - [Documentation plan](docs/DOCUMENTATION-PLAN.md)
 - [Vision](docs/VISION.md)
@@ -388,11 +390,15 @@ concurrency, idempotency, and
 interactive OpenAPI documentation. An authenticated session-capability contract
 and a secured presentation manifest now expose only the current principal's
 safe operations, navigation, browse columns, search/filter/sort controls, and
-generated REST paths. The typed HTTP client preserves exact field types,
+generated REST paths. The first generic React Web shell now consumes that
+contract to render responsive capability-filtered navigation and virtualized
+server-mode browse grids with search, named filters, sorting, opaque-cursor
+loading, reference display, exact formatting, and personal column layouts.
+The typed HTTP client preserves exact field types,
 protected values, cursors, ETags, and stable errors while rejecting mismatched
-applications, principals, and unsafe unencrypted non-loopback URLs. This is the
-foundation for the next dedicated Web application shell without sending YAML,
-permission expressions, handlers, or database configuration to the browser.
+applications, principals, and unsafe unencrypted non-loopback URLs. Neither
+remote renderer receives YAML, permission expressions, handlers, or database
+configuration.
 Textual can now opt into this client through
 `tide run --api-url`, including structured browse/search/sort, edit sessions,
 lookups, nested lines, actions, and secured report preview/export without

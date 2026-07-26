@@ -241,6 +241,27 @@ class TideSessionInfo(BaseModel):
     entities: dict[str, TideEntityCapabilities]
 
 
+class TidePresentationFormat(BaseModel):
+    """Safe display-only options resolved from one named semantic format."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    decimal_places: int | None = Field(default=None, ge=0, le=30)
+    thousands_separator: bool = False
+    display: str | None = Field(default=None, max_length=64)
+
+
+class TidePresentationReference(BaseModel):
+    """Authorized record-display contract for one browse reference column."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    entity: str = Field(min_length=1)
+    resource_path: str = Field(pattern=r"^/")
+    identity_field: str = Field(min_length=1)
+    display_template: str = Field(min_length=1, max_length=512)
+
+
 class TidePresentationColumn(BaseModel):
     """One safe, renderer-neutral browse column in the remote manifest."""
 
@@ -251,7 +272,9 @@ class TidePresentationColumn(BaseModel):
     field_type: str = Field(min_length=1)
     alignment: TideAlignment = "left"
     format: str | None = None
+    format_options: TidePresentationFormat | None = None
     target_entity: str | None = None
+    reference: TidePresentationReference | None = None
 
 
 class TidePresentationNamedFilter(BaseModel):

@@ -11,7 +11,15 @@ __pycache__/
 .pycache/
 .venv/
 .uv-cache/
+.npm-cache/
 build/
 dist/
 output/
 tmp/
+
+# Web renderer build and test artifacts
+web/node_modules/
+web/.npm-cache/
+web/dist/
+web/playwright-report/
+web/test-results/

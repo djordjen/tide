@@ -293,6 +293,14 @@ def _create_parser() -> argparse.ArgumentParser:
         help=f"REST base path (default: {DEFAULT_BASE_PATH})",
     )
     serve.add_argument(
+        "--web-root",
+        type=Path,
+        help=(
+            "serve a built TIDE Web renderer from this directory "
+            "(must contain index.html)"
+        ),
+    )
+    serve.add_argument(
         "--auth",
         choices=("development", "oidc"),
         default="development",
@@ -1188,6 +1196,7 @@ def _serve_api(arguments: argparse.Namespace) -> int:
                 request_body_timeout_seconds=(
                     limits.request_body_timeout_seconds
                 ),
+                web_root=arguments.web_root,
             )
             if arguments.mcp:
                 try:

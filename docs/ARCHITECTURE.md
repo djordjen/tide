@@ -41,13 +41,16 @@ PySide6 shell renders compiler-normalized application navigation, browse
 tables, forms, lookups, inline collections, actions, conflict review, and
 report previews without database packages or credentials. Its grouped
 navigation is capability-filtered, while authorization remains on the server.
-Remote presentation adapters can retrieve the same safe browse semantics from
+Remote presentation adapters retrieve the same safe browse semantics from
 the authenticated, versioned `/_tide/presentation` manifest. The server
 intersects navigation, columns, search, named filters, sorting, and operations
 with the connected principal before returning it; the manifest excludes raw
 YAML, permission rules, Python handlers, and database configuration. The
-planned Web shell consumes that projection and the ordinary generated REST
-routes rather than interpreting application sources in the browser.
+React/TypeScript Web shell consumes that projection and the ordinary generated
+REST routes rather than interpreting application sources in the browser. It
+uses Vite, Tailwind CSS, code-owned shadcn/ui controls, and TanStack
+Query/Table/Virtual; a production build can be hosted after the FastAPI routes
+at the same origin.
 
 ```text
 applications/<name>/ (YAML + Python handlers + overlays)

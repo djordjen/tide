@@ -100,14 +100,17 @@ rejects navigation while its supported draft differs from the original. These
 controls are navigation affordances, not authorization or storage paths.
 
 The compiled browse column order remains the portable default shared by every
-renderer. The Qt client may layer a local personal order and widths over that
+renderer. Qt and Web may layer a local personal order and widths over that
 default, keyed by application, view, and authenticated principal. Dragging a
-heading or resizing a divider updates only Qt's local settings; it never edits
-YAML, changes another user's layout, or alters the TUI/Web default. Stored
-layouts use stable field names, so known columns survive metadata additions or
-removals and new columns fall back into metadata order. **Best Fit** sizes all
-columns from currently loaded contents. **Reset Layout** removes the personal
-override and restores metadata order plus default fitted widths.
+heading or resizing a divider updates only that renderer's local settings; it
+never edits YAML, changes another user's layout, or alters the TUI/default.
+Stored layouts use stable field names, so known columns survive metadata
+additions or removals and new columns fall back into metadata order. **Best
+Fit** sizes columns from currently loaded contents only. **Reset Layout**
+removes the personal override and restores metadata order plus default fitted
+widths. A new Web layout applies Best Fit once after its first loaded batch; it
+does not continuously resize after refresh or fetch an entire remote dataset
+for measurement.
 
 Publishing a changed shared default is a distinct privileged designer action.
 It must use the compiler-validated Designer service and approved YAML save
@@ -207,8 +210,8 @@ three-way review contract rather than introducing last-write-wins behavior.
 
 Form `layout` is a shared semantic contract, not a renderer hint. One
 renderer-neutral resolver produces ordered group rows, collections, tabs,
-actions, and hidden-field decisions for Textual and Qt; the future Web
-renderer must consume the same result. A row such as `[number, invoice_date]`
+actions, and hidden-field decisions for Textual and Qt; the Web detail renderer
+must consume the same result. A row such as `[number, invoice_date]`
 therefore means the same visual pairing everywhere. Surface-specific metadata
 may control measurements, but it may not independently regroup fields.
 `settings.compact_groups: true` is also portable: Studio retains the authored

@@ -2,20 +2,27 @@
 
 from __future__ import annotations
 
+from string import Formatter
 from typing import Mapping
 
 from tide.api.contracts import (
     TideBrowsePresentation,
     TideFilterInput,
     TidePresentationColumn,
+    TidePresentationFormat,
     TidePresentationManifest,
     TidePresentationNamedFilter,
     TidePresentationNavigationGroup,
     TidePresentationNavigationItem,
+    TidePresentationReference,
     TideSessionInfo,
 )
 from tide.api.openapi import RestExposure
-from tide.compiler.normalized import ApplicationModel, NormalizedEntity
+from tide.compiler.normalized import (
+    ApplicationModel,
+    NormalizedEntity,
+    NormalizedField,
+)
 from tide.presentation import (
     application_navigation,
     browse_columns,
@@ -102,6 +109,9 @@ def build_presentation_manifest(
                         entity,
                         field_name,
                         model,
+                        session,
+                        exposures,
+                        base_path=base_path,
                     )
                     for field_name in field_names
                 ),
@@ -162,9 +172,18 @@ def _column_contract(
     entity: NormalizedEntity,
     field_name: str,
     model: ApplicationModel,
+    session: TideSessionInfo,
+    exposures: Mapping[str, RestExposure],
+    *,
+    base_path: str,
 ) -> TidePresentationColumn:
     field = entity.field(field_name)
     configured_format = field.metadata.get("format")
+    format_options = (
+        model.formats.get(str(configured_format), {})
+        if configured_format is not None
+        else {}
+    )
     return TidePresentationColumn(
         name=field.name,
         label=field_label(field),
@@ -175,8 +194,87 @@ def _column_contract(
             if configured_format is not None
             else None
         ),
+        format_options=(
+            TidePresentationFormat(
+                decimal_places=format_options.get("decimal_places"),
+                thousands_separator=bool(
+                    format_options.get("thousands_separator", False)
+                ),
+                display=(
+                    str(format_options["display"])
+                    if format_options.get("display") is not None
+                    else None
+                ),
+            )
+            if format_options
+            else None
+        ),
         target_entity=field.target_entity,
+        reference=_reference_contract(
+            field,
+            model,
+            session,
+            exposures,
+            base_path=base_path,
+        ),
     )
+
+
+def _reference_contract(
+    field: NormalizedField,
+    model: ApplicationModel,
+    session: TideSessionInfo,
+    exposures: Mapping[str, RestExposure],
+    *,
+    base_path: str,
+) -> TidePresentationReference | None:
+    if field.metadata["type"] != "reference" or field.target_entity is None:
+        return None
+    target = model.entity(field.target_entity)
+    exposure = exposures.get(target.name)
+    capabilities = session.entities.get(target.name)
+    if (
+        exposure is None
+        or capabilities is None
+        or "get" not in exposure.operations
+        or "get" not in capabilities.operations
+    ):
+        return None
+    display_template = _safe_display_template(
+        target,
+        frozenset(capabilities.readable_fields),
+    )
+    if display_template is None:
+        return None
+    return TidePresentationReference(
+        entity=target.name,
+        resource_path=f"{base_path.rstrip('/')}/{exposure.path}",
+        identity_field=_primary_key(target),
+        display_template=display_template,
+    )
+
+
+def _safe_display_template(
+    entity: NormalizedEntity,
+    readable_fields: frozenset[str],
+) -> str | None:
+    if entity.display is None:
+        return None
+    try:
+        display_fields = tuple(
+            field_name
+            for _, field_name, _, _ in Formatter().parse(entity.display)
+            if field_name
+        )
+    except ValueError:
+        return None
+    if not display_fields and "{" not in entity.display:
+        display_fields = (entity.display,)
+    if not display_fields or not all(
+        field_name in readable_fields for field_name in display_fields
+    ):
+        return None
+    return entity.display
 
 
 def _primary_key(entity: NormalizedEntity) -> str:

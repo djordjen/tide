@@ -534,10 +534,12 @@ rather than protocol output.
 ## Web UI
 
 The dedicated Web UI is a presentation adapter over the same normalized model
-and service boundary as Textual and Qt. Its first implemented foundation is the
-secured presentation manifest described above. The next slice will build
-grouped navigation and a server-mode browse workspace from that manifest and
-the existing structured REST queries.
+and service boundary as Textual and Qt. Its first slice now builds responsive
+grouped navigation and virtualized server-mode browse workspaces from the safe
+presentation manifest and existing structured REST queries. Search, named
+filters, sorting, opaque-cursor loading, exact formatting, authorized reference
+display, and personal column layouts do not require raw YAML in the browser.
+The next slice is the shared-metadata detail view.
 
 This contract does not make the browser an authorization authority. The Web
 client may use capabilities to avoid offering unavailable controls, but actual
@@ -545,6 +547,8 @@ reads, edits, actions, and reports still use the generated FastAPI routes and
 their service-layer security. A future server-rendered variant may call the
 same services in-process where appropriate; neither architecture receives raw
 SQL or a database connection string.
+
+See [Web UI](WEB-UI.md) for launch, build, hosting, and validation commands.
 
 ## Useful commands
 

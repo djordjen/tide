@@ -167,8 +167,20 @@ After authorization, try `GET /api/v1/_tide/presentation`. It returns the safe,
 principal-specific application navigation and browse contract intended for
 remote renderers: columns, search, named filters, sorting, server fetch size,
 and REST paths. It deliberately excludes raw YAML, permission rules, Python
-handlers, and the database connection. This is the foundation for the Web
-application shell; it is not a Web UI yet.
+handlers, and the database connection.
+
+To see that contract rendered as the first responsive Web application slice:
+
+```powershell
+.\start.bat web-demo
+```
+
+Paste the printed development token into the connection screen opened by the
+browser. Use `start.bat web` for the configured local SQL Server instead. The
+generic Web shell provides capability-filtered navigation, server-mode browse,
+search, filters, sorting, seamless cursor loading, and personal column
+layouts. See [Web UI](WEB-UI.md) for its architecture, security boundary,
+production build, tests, and current limitations.
 
 The unauthenticated `GET /health/live` endpoint is process-only. The
 `GET /health/ready` endpoint checks runtime persistence dependencies and returns
@@ -438,6 +450,7 @@ explicitly opt-in.
 
 - [Windows quick start](WINDOWS-QUICKSTART.md) — every `start.bat` mode and
   Windows troubleshooting.
+- [Web UI](WEB-UI.md) — run and build the generic React renderer.
 - [Architecture](ARCHITECTURE.md) — service, model, repository, and adapter
   boundaries.
 - [Security](SECURITY.md) — permissions, protected values, authentication, and

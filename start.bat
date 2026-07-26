@@ -21,6 +21,8 @@ if /I "%~1"=="mcp" goto mcp
 if /I "%~1"=="mcp-demo" goto mcp_demo
 if /I "%~1"=="api-check" goto api_check
 if /I "%~1"=="remote" goto remote
+if /I "%~1"=="web" goto web
+if /I "%~1"=="web-demo" goto web_demo
 if /I "%~1"=="gui-products" goto gui_products
 if /I "%~1"=="gui-customers" goto gui_customers
 if /I "%~1"=="gui" goto gui
@@ -108,6 +110,24 @@ if errorlevel 1 goto finish
 uv run --extra tui --extra client tide run applications/invoicing --api-url http://127.0.0.1:8000
 goto finish
 
+:web
+call :prepare_api_token
+call :prepare_web
+if errorlevel 1 goto finish
+echo Starting the TIDE Web renderer against SQL Server...
+echo Paste the token above into the connection screen opened by your browser.
+call npm --prefix web run dev:sqlserver
+goto finish
+
+:web_demo
+call :prepare_api_token
+call :prepare_web
+if errorlevel 1 goto finish
+echo Starting the TIDE Web renderer with isolated demo data...
+echo Paste the token above into the connection screen opened by your browser.
+call npm --prefix web run dev:demo
+goto finish
+
 :gui
 call :read_api_token
 if errorlevel 1 goto finish
@@ -135,12 +155,25 @@ if not defined TIDE_API_TOKEN (
 )
 exit /b 0
 
+:prepare_web
+where npm >nul 2>nul
+if errorlevel 1 (
+    echo Web startup failed: Node.js 20 or later with npm is required.
+    exit /b 1
+)
+if not exist "web\node_modules\" (
+    echo Installing the locked Web dependencies for this checkout...
+    call npm --prefix web install
+    if errorlevel 1 exit /b 1
+)
+exit /b 0
+
 :prepare_api_token
 if not defined TIDE_API_TOKEN for /f "delims=" %%I in ('powershell -NoProfile -Command "[guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')"') do set "TIDE_API_TOKEN=%%I"
 echo.
 echo Local development API token:
 echo %TIDE_API_TOKEN%
-echo Paste this token into http://127.0.0.1:8000/docs using Authorize.
+echo Paste this token into Swagger Authorize or the TIDE Web connection screen.
 echo This development token and server are restricted to this computer.
 echo.
 exit /b 0
@@ -163,6 +196,8 @@ echo   start.bat mcp    Start local API plus secured runtime MCP against SQL Ser
 echo   start.bat mcp-demo Start local API plus secured runtime MCP with demo data
 echo   start.bat api-check Verify the running API and remote client contract
 echo   start.bat remote Start the TUI as an API client with no database access
+echo   start.bat web    Start the Web renderer and API against SQL Server
+echo   start.bat web-demo Start the Web renderer with isolated demo data
 echo   start.bat gui    Start the Qt Invoice browser as an API client
 echo   start.bat gui-products Start the editable Qt Product browser
 echo   start.bat gui-customers Start the editable Qt Customer browser

@@ -39,6 +39,15 @@ token-acquisition flows, request-rate policy, database statement cancellation,
 expanded security-event logging, and production process supervision remain
 later reviewed work.
 
+A built TIDE Web renderer may be served from `tide serve --web-root DIRECTORY`.
+Startup requires an existing directory containing `index.html`; an incomplete
+build fails closed. FastAPI registers API, documentation, health, and optional
+MCP routes before the static mount. Fingerprinted `/assets/` responses use
+immutable one-year caching, while the HTML entry point and API responses remain
+uncached. Same-origin static hosting changes no authentication or service
+boundary: the browser still sends a bearer token on every protected request
+and receives no database configuration.
+
 ## HTTP resource limits
 
 `tide serve` applies the same HTTP boundary to REST and hosted runtime MCP. Its

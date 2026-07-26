@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID
 
 import httpx
+import pytest
 import uvicorn
 
 from tide import compile_project
@@ -139,14 +140,31 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
             "status",
             "total",
         ]
+        assert invoice_view["columns"][1]["format_options"] == {
+            "decimal_places": None,
+            "thousands_separator": False,
+            "display": "%d.%m.%Y",
+        }
         assert invoice_view["columns"][2]["target_entity"] == "crm.Customer"
+        assert invoice_view["columns"][2]["reference"] == {
+            "entity": "crm.Customer",
+            "resource_path": "/api/v1/customers",
+            "identity_field": "id",
+            "display_template": "{code} - {name}",
+        }
         assert invoice_view["columns"][4] == {
             "name": "total",
             "label": "Total",
             "field_type": "decimal",
             "alignment": "right",
             "format": "money",
+            "format_options": {
+                "decimal_places": 2,
+                "thousands_separator": True,
+                "display": None,
+            },
             "target_entity": None,
+            "reference": None,
         }
         assert invoice_view["named_filters"] == [
             {
@@ -277,6 +295,60 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
         "If-Match",
         "Idempotency-Key",
     }
+
+
+def test_server_can_host_a_built_web_renderer_without_shadowing_api(
+    tmp_path: Path,
+) -> None:
+    web_root = tmp_path / "web"
+    assets = web_root / "assets"
+    assets.mkdir(parents=True)
+    (web_root / "index.html").write_text(
+        "<!doctype html><title>TIDE Web</title>",
+        encoding="utf-8",
+    )
+    (assets / "app-hash.js").write_text(
+        "console.log('tide')",
+        encoding="utf-8",
+    )
+    app = _app("sales_clerk", web_root=web_root)
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            index = await client.get("/")
+            asset = await client.get("/assets/app-hash.js")
+            session = await client.get(
+                "/api/v1/_tide/session",
+                headers=_authorization(),
+            )
+
+        assert index.status_code == 200
+        assert "TIDE Web" in index.text
+        assert index.headers["cache-control"] == "no-store"
+        assert asset.status_code == 200
+        assert asset.headers["cache-control"] == (
+            "public, max-age=31536000, immutable"
+        )
+        assert session.status_code == 200
+        assert session.json()["application"] == "TIDE Invoicing"
+
+    asyncio.run(exercise())
+
+
+def test_server_rejects_incomplete_web_build(tmp_path: Path) -> None:
+    model = compile_project(INVOICING)
+    records = RecordsService(model, InMemoryRepository())
+
+    with pytest.raises(ValueError, match="has no index.html"):
+        build_fastapi_app(
+            model,
+            records,
+            DevelopmentTokenAuthenticator(
+                TOKEN,
+                Principal("api:test", roles=frozenset({"sales_clerk"})),
+            ),
+            web_root=tmp_path,
+        )
 
 
 def test_presentation_manifest_filters_inaccessible_navigation_groups() -> None:
@@ -1449,6 +1521,7 @@ def _app(
     logger: logging.Logger | None = None,
     max_request_body_bytes: int = DEFAULT_MAX_REQUEST_BODY_BYTES,
     request_body_timeout_seconds: int = DEFAULT_REQUEST_BODY_TIMEOUT_SECONDS,
+    web_root: Path | None = None,
 ) -> Any:
     model = model or compile_project(INVOICING)
     repository = InMemoryRepository()
@@ -1468,6 +1541,7 @@ def _app(
         logger=logger,
         max_request_body_bytes=max_request_body_bytes,
         request_body_timeout_seconds=request_body_timeout_seconds,
+        web_root=web_root,
     )
 
 

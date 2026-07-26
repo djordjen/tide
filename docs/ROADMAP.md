@@ -225,9 +225,12 @@ an invoice entirely by keyboard or mouse.
   metadata without YAML, permission expressions, handlers, or database
   configuration; **implemented**
 - first dedicated Web application shell using the manifest plus existing
-  server-mode REST search/filter/sort and opaque-cursor loading; **next**
+  server-mode REST search/filter/sort and opaque-cursor loading; **implemented,
+  including responsive grouped navigation, TanStack virtualization, automatic
+  incremental fetch, safe reference display, exact formatting, personal
+  column order/widths, Best Fit/Fill/Reset, and same-origin static hosting**
 - Web detail view using the shared form layout, read-only states, collections,
-  and current-query Previous/Next navigation; **planned after the shell**
+  and current-query Previous/Next navigation; **next**
 - Web editing parity in reviewed slices: CRUD, lookups and **Save & Select**,
   collection drafts, actions, conflicts, and reports; **planned**
 - executable renderer acceptance matrix for shared TUI/Qt/Web semantics;
