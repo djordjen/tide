@@ -91,6 +91,12 @@ class BrowseApiClient(Protocol):
         identity: Any,
     ) -> ReportDocument: ...
 
+    def build_report(
+        self,
+        report_name: str,
+        parameters: Mapping[str, Any] | None = None,
+    ) -> ReportDocument: ...
+
 
 @dataclass(frozen=True, slots=True)
 class QtBrowseColumn:
@@ -120,6 +126,14 @@ class QtBrowseQuery:
 @dataclass(frozen=True, slots=True)
 class QtRecordReport:
     """One REST-exposed record report authorized for the current session."""
+
+    name: str
+    title: str
+
+
+@dataclass(frozen=True, slots=True)
+class QtSummaryReport:
+    """One parameterless REST summary report authorized for the session."""
 
     name: str
     title: str
@@ -373,6 +387,7 @@ class QtBrowseController:
         self._reference_cache: dict[tuple[str, Any], str] = {}
         self._reference_cache_lock = Lock()
         self.record_report = self._select_record_report()
+        self.summary_report = self._select_summary_report()
 
     @property
     def title(self) -> str:
@@ -431,6 +446,12 @@ class QtBrowseController:
         """Return whether the active entity has an authorized record report."""
 
         return self.record_report is not None
+
+    @property
+    def summary_report_available(self) -> bool:
+        """Return whether the active entity has an authorized simple summary."""
+
+        return self.summary_report is not None
 
     @property
     def search_label(self) -> str | None:
@@ -614,6 +635,16 @@ class QtBrowseController:
             identity,
         )
 
+    def load_summary_report(self) -> ReportDocument:
+        """Build one authorized parameterless summary through the remote API."""
+
+        if self.summary_report is None:
+            raise ValueError(
+                f"{self.entity.name} does not define an accessible "
+                "parameterless summary report"
+            )
+        return self.client.build_report(self.summary_report.name, {})
+
     def _select_record_report(self) -> QtRecordReport | None:
         authorized = frozenset(self.session.reports)
         for name, report in self.model.reports.items():
@@ -624,6 +655,22 @@ class QtBrowseController:
                 and report.get("expose", {}).get("rest") is True
             ):
                 return QtRecordReport(
+                    name=name,
+                    title=str(report.get("title", name)),
+                )
+        return None
+
+    def _select_summary_report(self) -> QtSummaryReport | None:
+        authorized = frozenset(self.session.reports)
+        for name, report in self.model.reports.items():
+            if (
+                name in authorized
+                and report["entity"] == self.entity.name
+                and report.get("kind", "record") == "summary"
+                and report.get("expose", {}).get("rest") is True
+                and not report.get("parameters")
+            ):
+                return QtSummaryReport(
                     name=name,
                     title=str(report.get("title", name)),
                 )

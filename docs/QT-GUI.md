@@ -1,7 +1,7 @@
 # Qt GUI Prototype
 
 Status: **interactive server-mode browse, master-detail editing, actions, and
-record-report preview/export**.
+record/summary-report preview and export**.
 
 TIDE now includes a small PySide6 desktop adapter that proves the normalized
 application model and secured remote-client boundary can drive a native GUI.
@@ -13,7 +13,8 @@ Post Invoice domain action. A shared YAML navigation definition drives the
 grouped Sales/Master Data sidebar, and each visited workspace retains its live
 query and table state while the user switches elsewhere. An authorized opened
 Invoice can also generate a temporary PDF and open it in the system viewer.
-Desktop sign-in remains later work.
+The Invoice workspace can preview the secured Posted Sales Summary natively and
+export it to CSV, HTML, or PDF. Desktop sign-in remains later work.
 
 ## Security and architecture
 
@@ -37,8 +38,11 @@ the server still reauthorizes every record request.
 
 Report generation follows the same boundary. FastAPI authorizes the report,
 loads and formats its data, and returns an immutable renderer-neutral
-`ReportDocument`. Qt receives no raw reporting query or database credential; it
-passes that document to the shared controlled PDF renderer in a worker.
+`ReportDocument`. Qt receives no raw reporting query or database credential.
+Record preview passes that document to the shared controlled PDF renderer;
+summary preview renders the document in a native read-only table with controlled
+CSV, HTML, and PDF exports. All blocking report work runs outside the GUI
+thread.
 
 ## Try it on Windows
 
@@ -181,6 +185,15 @@ Temporary previews are scoped to the GUI session instead of accumulating in
 `output/reports`. Save local changes before previewing so the PDF cannot
 silently represent an older stored version.
 
+From the Invoice list, choose **Posted Sales Summary**. The action is present
+only when `sales.summary` is REST-exposed, belongs to the active entity, has no
+parameters, and appears in the authenticated session capabilities. FastAPI
+builds the fixed report query over all authorized posted invoices—not merely
+the rows currently loaded or filtered in Qt. The native preview shows Customer,
+Currency, invoice count, and sales total with **Export CSV**, **Export HTML**,
+and **Export PDF**. Exports use the GUI session's temporary directory unless an
+explicit output directory was configured.
+
 To deep-link directly to either editable master-data workspace:
 
 ```bat
@@ -260,13 +273,16 @@ complete launcher contract.
 - record-report controls are the intersection of report metadata, REST
   exposure, active entity, and authenticated session capabilities; authorized
   documents become temporary PDFs opened by the system viewer;
+- parameterless summary reports use the same capability intersection and
+  server-owned `ReportDocument`, load outside the GUI thread, and open in a
+  native preview with controlled CSV/HTML/PDF export;
 - inaccessible views fail closed instead of falling back to local data;
 - the presentation/controller contract is testable without installing Qt in
   ordinary CI.
 
 ## Deliberately deferred
 
-- summary-report parameters and preview;
+- summary-report parameter editors;
 - privileged designer publishing of validated application layout defaults;
 - OIDC desktop login, access-token refresh, and secure token storage;
 - native application packaging, signing, and installers;

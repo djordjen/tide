@@ -482,6 +482,14 @@ up later rather than filling `output\reports`. The shortcut installs both the
 `gui` and `report` extras; a role without report permission does not see the
 button.
 
+On the Invoice list, choose **Posted Sales Summary** to build the authorized
+parameterless `sales.summary` document in the background. Qt opens a native
+read-only preview grouped by Customer and Currency, with invoice count and
+sales total. **Export CSV**, **Export HTML**, and **Export PDF** write controlled
+files to the GUI session's temporary report directory. The report follows its
+server-owned query rather than the current table filter or loaded rows. The
+action is hidden when the session lacks report capability.
+
 Customer and Product creation/editing are available in **Master Data**. To
 start directly in either workspace, keep the same API server running and use:
 
@@ -494,8 +502,8 @@ Use **New**, or select a row and use **Open**. The Product form demonstrates
 the `0.00` Decimal mask and the Customer/Product code fields demonstrate regex
 masks; both forms follow the YAML row layout and writable capabilities. Tab or
 Enter traverses the left field column before the right. Saving runs through
-FastAPI in the background and refreshes the secured list. Qt summary-report
-parameters remain a later tranche.
+FastAPI in the background and refreshes the secured list. Qt editors for
+reports that declare runtime parameters remain a later tranche.
 
 For a reviewed network test, first install the production identity adapter:
 

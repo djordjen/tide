@@ -2391,6 +2391,7 @@ class TideQtWindow(QMainWindow):
         self._column_widths_initialized = False
         self._detail_dialogs: set[TideQtDetailDialog] = set()
         self._edit_dialogs: set[TideQtEditDialog] = set()
+        self._report_dialogs: set[TideQtReportDialog] = set()
         self._operation_workers: set[_CallWorker] = set()
         self._navigation_workers: dict[
             _CallWorker,
@@ -2400,6 +2401,7 @@ class TideQtWindow(QMainWindow):
         self._operation_pool = QThreadPool(self)
         self._operation_pool.setMaxThreadCount(1)
         self._form_loading = False
+        self._summary_loading = False
         self._report_temp_directory = (
             None
             if report_output_directory is not None
@@ -2476,6 +2478,18 @@ class TideQtWindow(QMainWindow):
         self.new.setObjectName("new-record")
         self.open = QPushButton("Open")
         self.open.setObjectName("open-record")
+        self.summary_report = QPushButton(
+            (
+                controller.summary_report.title
+                if controller.summary_report is not None
+                else "Summary"
+            )
+        )
+        self.summary_report.setObjectName("summary-report")
+        self.summary_report.setToolTip(
+            "Build the secured summary report and open its preview"
+        )
+        self.summary_report.setVisible(controller.summary_report_available)
         self.best_fit = QPushButton("Best Fit")
         self.best_fit.setObjectName("best-fit-columns")
         self.best_fit.setToolTip("Best fit all columns to their current contents")
@@ -2489,6 +2503,7 @@ class TideQtWindow(QMainWindow):
         actions.addWidget(self.status, 1)
         actions.addWidget(self.new)
         actions.addWidget(self.open)
+        actions.addWidget(self.summary_report)
         actions.addWidget(self.best_fit)
         actions.addWidget(self.reset_layout)
         actions.addWidget(self.refresh)
@@ -2513,6 +2528,7 @@ class TideQtWindow(QMainWindow):
         header.sectionResized.connect(self._queue_column_layout_save)
         self.new.clicked.connect(self._open_new_form)
         self.open.clicked.connect(self._open_selected_form)
+        self.summary_report.clicked.connect(self._open_summary_report)
         self.best_fit.clicked.connect(self._best_fit_all_columns)
         self.reset_layout.clicked.connect(self._reset_column_layout)
         self.table.selectionModel().selectionChanged.connect(
@@ -2545,15 +2561,24 @@ class TideQtWindow(QMainWindow):
         super().closeEvent(event)
 
     def wait_for_done(self, milliseconds: int = -1) -> bool:
-        """Wait for browse, form-load, and active form-save workers."""
+        """Wait for browse, form, summary, export, and active save workers."""
 
         browse_done = self.table_model.wait_for_done(milliseconds)
         operations_done = self._operation_pool.waitForDone(milliseconds)
-        edits_done = all(
+        edit_results = tuple(
             dialog.wait_for_done(milliseconds)
             for dialog in tuple(self._edit_dialogs)
         )
-        return browse_done and operations_done and edits_done
+        report_results = tuple(
+            dialog.wait_for_done(milliseconds)
+            for dialog in tuple(self._report_dialogs)
+        )
+        return (
+            browse_done
+            and operations_done
+            and all(edit_results)
+            and all(report_results)
+        )
 
     def _initialize_column_widths(self) -> None:
         """Fit once, then leave every section under direct user control."""
@@ -2676,7 +2701,7 @@ class TideQtWindow(QMainWindow):
 
     def _update_detail_action(self, *_args: Any) -> None:
         selected = self.table.currentIndex().isValid()
-        busy = self._form_loading
+        busy = self._form_loading or self._summary_loading
         self.new.setEnabled(
             self.controller.create_available and not busy
         )
@@ -2684,6 +2709,60 @@ class TideQtWindow(QMainWindow):
             self.controller.open_available
             and selected
             and not busy
+        )
+        self.summary_report.setEnabled(
+            self.controller.summary_report_available and not busy
+        )
+
+    def _open_summary_report(self) -> None:
+        if self._summary_loading or not self.controller.summary_report_available:
+            return
+        self._summary_loading = True
+        self._notice = None
+        self._update_detail_action()
+        self._update_status()
+        worker = _CallWorker(self.controller.load_summary_report)
+        self._operation_workers.add(worker)
+        worker.signals.completed.connect(self._summary_report_ready)
+        worker.signals.failed.connect(self._summary_report_failed)
+        self._operation_pool.start(worker)
+
+    @Slot(object, object)
+    def _summary_report_ready(
+        self,
+        document: ReportDocument,
+        worker: _CallWorker,
+    ) -> None:
+        self._operation_workers.discard(worker)
+        self._summary_loading = False
+        self._notice = f"{document.title} ready"
+        self._update_detail_action()
+        self._update_status()
+        dialog = TideQtReportDialog(
+            document,
+            self.report_output_directory,
+            parent=self,
+        )
+        self._report_dialogs.add(dialog)
+        dialog.finished.connect(
+            lambda _result, current=dialog: self._report_dialogs.discard(current)
+        )
+        dialog.show()
+
+    @Slot(object, object)
+    def _summary_report_failed(
+        self,
+        error: Exception,
+        worker: _CallWorker,
+    ) -> None:
+        self._operation_workers.discard(worker)
+        self._summary_loading = False
+        self._update_detail_action()
+        self._update_status()
+        QMessageBox.critical(
+            self,
+            "TIDE Qt",
+            f"Unable to build summary report: {error}",
         )
 
     def _open_new_form(self) -> None:
@@ -3078,6 +3157,8 @@ class TideQtWindow(QMainWindow):
         query_text = f"  ·  {summary}" if summary else ""
         if self._form_loading:
             state = "Loading record form…"
+        elif self._summary_loading:
+            state = "Building summary report…"
         notice = f"{self._notice}  ·  " if self._notice else ""
         self.status.setText(
             f"{notice}{count} {noun} loaded  ·  {state}  ·  "

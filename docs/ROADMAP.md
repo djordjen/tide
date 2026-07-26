@@ -159,8 +159,10 @@ application-owned Faker profile and the real secured services.
   a saved-draft action failure, and secured refresh; **implemented**
 - Qt metadata/capability-gated Invoice report preview over the server-built
   `ReportDocument`, with background PDF rendering to a GUI-session temporary
-  directory and system-viewer launch; **implemented**; Qt summary-report
-  parameters remain deferred
+  directory and system-viewer launch; **implemented**
+- Qt capability-gated parameterless summary-report loading through FastAPI,
+  native `ReportDocument` preview, and controlled CSV/HTML/PDF export;
+  **implemented**; runtime parameter editors remain deferred
 - Qt detail-form Previous/Next navigation in current secured browse order,
   including background cursor-boundary fetch, list selection synchronization,
   in-place dialog refresh, Page Up/Page Down shortcuts, first/last state, and
@@ -200,8 +202,8 @@ an invoice entirely by keyboard or mouse.
   facades for browse, lookups, drafts, nested commits, concurrency, and
   actions; **implemented**
 - secured renderer-neutral remote report transport with Textual preview and
-  local CSV/HTML/PDF export, plus native Qt record-report preview/export;
-  **implemented**
+  local CSV/HTML/PDF export, plus native Qt record and parameterless-summary
+  preview/export; **implemented**
 - first read-only PySide6 browse and compiled record-detail dialog over the
   typed remote client/session contract, with no local database dependency;
   **implemented with a model-backed incremental list, background opaque-cursor

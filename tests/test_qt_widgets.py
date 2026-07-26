@@ -79,12 +79,44 @@ def _invoice_report_document(number: str = "INV-QT-001") -> ReportDocument:
     )
 
 
+def _sales_summary_document() -> ReportDocument:
+    return ReportDocument(
+        report="sales.summary",
+        title="Posted Sales Summary",
+        application="TIDE Invoicing",
+        generated_at=datetime(2026, 7, 26, 10, 0, tzinfo=UTC),
+        header_text=("Posted invoices grouped by Customer and Currency",),
+        record_values=(),
+        detail=ReportTable(
+            columns=(
+                ReportColumn("customer", "Customer"),
+                ReportColumn("currency", "Currency"),
+                ReportColumn("invoice_count", "Invoices", "right"),
+                ReportColumn("sales_total", "Sales total", "right"),
+            ),
+            rows=(
+                (
+                    ReportCell("ADRIA - Adria Consulting"),
+                    ReportCell("EUR"),
+                    ReportCell("2", "right"),
+                    ReportCell("2,400.00", "right"),
+                ),
+            ),
+        ),
+        footer_values=(),
+        page_footer_template="Page {page_number}",
+        suggested_filename="posted-sales-summary",
+    )
+
+
 class _WidgetClient:
     def __init__(self) -> None:
         self.queries: list[QuerySpec] = []
         self.query_threads: list[int] = []
         self.report_calls: list[tuple[str, Any]] = []
         self.report_threads: list[int] = []
+        self.summary_calls: list[tuple[str, dict[str, Any]]] = []
+        self.summary_threads: list[int] = []
 
     def query_records(
         self,
@@ -188,6 +220,15 @@ class _WidgetClient:
         self.report_threads.append(threading.get_ident())
         self.report_calls.append((report_name, identity))
         return _invoice_report_document()
+
+    def build_report(
+        self,
+        report_name: str,
+        parameters: dict[str, Any] | None = None,
+    ) -> ReportDocument:
+        self.summary_threads.append(threading.get_ident())
+        self.summary_calls.append((report_name, dict(parameters or {})))
+        return _sales_summary_document()
 
 
 class _ProductWidgetClient:
@@ -763,6 +804,7 @@ def test_qt_record_report_previews_and_exports_remote_document(
         and not window.table_model.loading,
     )
 
+    assert window.summary_report.isHidden()
     assert window.open.isEnabled() is False
     window.table.selectRow(0)
     application.processEvents()
@@ -780,6 +822,59 @@ def test_qt_record_report_previews_and_exports_remote_document(
     assert opened[0].read_bytes().startswith(b"%PDF-")
     assert "Opened temporary PDF preview" in dialog.message.text()
     dialog.close()
+    window.close()
+    assert window.wait_for_done(1000)
+
+
+def test_qt_summary_report_opens_native_preview_and_exports_csv(
+    tmp_path: Path,
+) -> None:
+    gui_thread = threading.get_ident()
+    application = QApplication.instance() or QApplication([])
+    model = compile_project(INVOICING)
+    session = _session(model).model_copy(
+        update={"reports": ("sales.summary",)}
+    )
+    client = _WidgetClient()
+    window = TideQtWindow(
+        QtBrowseController(model, client, session, page_size=5),
+        source_label="summary report test",
+        layout_settings=_layout_settings(tmp_path / "summary-layout.ini"),
+        report_output_directory=tmp_path,
+    )
+    window.show()
+    _wait_until(
+        application,
+        lambda: window.table_model.rowCount() >= 1
+        and not window.table_model.loading,
+    )
+
+    assert window.summary_report.isVisible()
+    assert window.summary_report.text() == "Posted Sales Summary"
+    assert window.summary_report.isEnabled()
+    window.summary_report.click()
+    _wait_until(application, lambda: len(window._report_dialogs) == 1)
+    dialog = next(iter(window._report_dialogs))
+
+    assert client.summary_calls == [("sales.summary", {})]
+    assert all(thread != gui_thread for thread in client.summary_threads)
+    assert dialog.windowTitle() == "TIDE Invoicing — Posted Sales Summary"
+    assert dialog.detail.columnCount() == 4
+    assert dialog.detail.item(0, 0).text() == "ADRIA - Adria Consulting"
+    assert dialog.detail.item(0, 3).text() == "2,400.00"
+    assert "Posted Sales Summary ready" in window.status.text()
+
+    dialog.export_csv.click()
+    destination = tmp_path / "posted-sales-summary.csv"
+    _wait_until(
+        application,
+        lambda: destination.is_file() and not dialog._exporting,
+    )
+    exported = destination.read_text(encoding="utf-8-sig")
+    assert "Customer,Currency,Invoices,Sales total" in exported
+    assert "ADRIA - Adria Consulting,EUR,2,\"2,400.00\"" in exported
+
+    dialog.close_button.click()
     window.close()
     assert window.wait_for_done(1000)
 

@@ -170,6 +170,12 @@ return partial totals if its declared 500-row source limit is exceeded; narrow
 criteria or revise the reviewed metadata before using a larger operational
 dataset.
 
+The Qt Invoice list exposes the same report as **Posted Sales Summary** when
+the authenticated session permits it. Qt builds it through FastAPI outside the
+GUI thread and opens a native preview with CSV, HTML, and PDF export. The
+summary uses its fixed server-side metadata query, not the list's currently
+loaded or filtered rows.
+
 Running an application may also execute its fixed `runtime.py` file. That file
 does not implement persistence or UI behavior; it explicitly registers the
 application's ordinary Python generators and action handlers with the shared

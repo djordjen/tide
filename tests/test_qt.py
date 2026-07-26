@@ -63,12 +63,43 @@ def _invoice_report_document(number: str = "INV-2026-001") -> ReportDocument:
     )
 
 
+def _sales_summary_document() -> ReportDocument:
+    return ReportDocument(
+        report="sales.summary",
+        title="Posted Sales Summary",
+        application="TIDE Invoicing",
+        generated_at=datetime(2026, 7, 26, 10, 0, tzinfo=UTC),
+        header_text=("Posted invoices grouped by Customer and Currency",),
+        record_values=(),
+        detail=ReportTable(
+            columns=(
+                ReportColumn("customer", "Customer"),
+                ReportColumn("currency", "Currency"),
+                ReportColumn("invoice_count", "Invoices", "right"),
+                ReportColumn("sales_total", "Sales total", "right"),
+            ),
+            rows=(
+                (
+                    ReportCell("ADRIA - Adria Consulting"),
+                    ReportCell("EUR"),
+                    ReportCell("2", "right"),
+                    ReportCell("2,400.00", "right"),
+                ),
+            ),
+        ),
+        footer_values=(),
+        page_footer_template="Page {page_number}",
+        suggested_filename="posted-sales-summary",
+    )
+
+
 class _BrowseClient:
     def __init__(self) -> None:
         self.queries: list[QuerySpec] = []
         self.reference_reads = 0
         self.invoice_reads = 0
         self.report_calls: list[tuple[str, Any]] = []
+        self.summary_calls: list[tuple[str, dict[str, Any]]] = []
 
     def query_records(
         self,
@@ -164,6 +195,14 @@ class _BrowseClient:
     ) -> ReportDocument:
         self.report_calls.append((report_name, identity))
         return _invoice_report_document()
+
+    def build_report(
+        self,
+        report_name: str,
+        parameters: dict[str, Any] | None = None,
+    ) -> ReportDocument:
+        self.summary_calls.append((report_name, dict(parameters or {})))
+        return _sales_summary_document()
 
 
 class _ProductClient:
@@ -600,6 +639,39 @@ def test_qt_record_report_requires_session_capability_and_uses_remote_document(
     assert document.report == "sales.invoice"
     assert "INV-2026-001" in document.plain_text()
     assert client.report_calls == [("sales.invoice", 1)]
+
+
+def test_qt_summary_report_requires_capability_and_uses_remote_document() -> None:
+    model = compile_project(INVOICING)
+    client = _BrowseClient()
+    denied = QtBrowseController(
+        model,
+        client,
+        _session(model),
+        page_size=2,
+    )
+    assert denied.summary_report_available is False
+    with pytest.raises(ValueError, match="parameterless summary report"):
+        denied.load_summary_report()
+
+    allowed = QtBrowseController(
+        model,
+        client,
+        _session(model).model_copy(
+            update={"reports": ("sales.summary",)}
+        ),
+        page_size=2,
+    )
+    assert allowed.summary_report_available is True
+    assert allowed.summary_report is not None
+    assert allowed.summary_report.name == "sales.summary"
+    assert allowed.summary_report.title == "Posted Sales Summary"
+
+    document = allowed.load_summary_report()
+
+    assert document.report == "sales.summary"
+    assert "2,400.00" in document.plain_text()
+    assert client.summary_calls == [("sales.summary", {})]
 
 
 def test_qt_browse_rejects_an_inaccessible_or_invalid_configuration() -> None:

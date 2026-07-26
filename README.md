@@ -245,7 +245,10 @@ fresh ETag-backed form for review before the next save.
 Qt now also renders the compiled, capability-gated Post action. Its
 `enabled_when` state follows the current line draft; invoking it first saves any
 changes, then posts with the returned ETag and a unique idempotency key. A
-post failure after that save reopens the saved version for correction.
+post failure after that save reopens the saved version for correction. The
+Invoice list also exposes the authorized parameterless Posted Sales Summary;
+Qt loads its server-built document in the background and provides native
+preview plus controlled CSV, HTML, and PDF export.
 Stale TUI edits likewise open a three-way Original/Current/Your draft review. Users
 may reload, continue inspecting their draft, or explicitly choose Current/Mine
 for every overlapping field before rebasing. Non-conflicting draft fields are
@@ -375,8 +378,9 @@ reporting now provides terminal preview plus CSV, HTML, and PDF export. The
 native Qt Invoice workspace uses one Open form whose two-column YAML layout and
 workflow-dependent control state match Textual; its Previous/Next controls
 update one stable dialog in the active secured browse order without dropping
-unsaved drafts, and its report action creates a temporary PDF and opens the
-system viewer. A
+unsaved drafts, its record-report action creates a temporary PDF and opens the
+system viewer, and its Posted Sales Summary action opens a native
+server-generated preview with CSV/HTML/PDF export. A
 loopback-only FastAPI server hosts
 secured
 list/get/create/update and Invoice Post routes with typed input, ETag

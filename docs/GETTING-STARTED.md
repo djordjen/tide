@@ -255,6 +255,14 @@ file in the operating system's temporary directory and opens the system PDF
 viewer. The temporary session directory is cleaned up later instead of filling
 `output\reports`. Roles without the report capability do not see the button.
 
+From the Invoice list, choose **Posted Sales Summary**. Qt asks FastAPI to build
+the existing parameterless `sales.summary` report over authorized posted
+invoices, then opens the returned renderer-neutral document in a native table.
+Use **Export CSV**, **Export HTML**, or **Export PDF** as needed. This report
+uses its reviewed metadata query and is independent of the current list search,
+filter, and loaded cursor batches. Roles without `sales.summary` capability do
+not see the action.
+
 The Product and Customer forms are available from **Master Data** in the same
 window. These shortcuts remain convenient direct startup links:
 
