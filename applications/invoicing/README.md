@@ -101,8 +101,12 @@ entry to their declared scale and complete fixed decimal places on leaving the
 field. Customer and Product codes demonstrate regular-expression masks; these
 rules are enforced through the shared services as well as reflected in the TUI
 and OpenAPI contract.
-The workspace selector opens Invoices, Customers, or Products. Customer and
-Product forms support secured create/edit operations. Customer and Product
+The shared `presentation/defaults.yaml` navigation groups Invoices under Sales
+and Customers/Products under Master Data. Textual uses its order and labels in
+the compact workspace selector; Qt renders a grouped sidebar and preserves each
+visited workspace's query, loaded rows, selection, and personal columns.
+Capability-inaccessible items are omitted. Customer and Product forms support
+secured create/edit operations. Customer and Product
 lookups also expose **New** (Ctrl+N) when authorized; the nested form uses
 **Save & Select**, preserving the unsaved invoice and applying Product defaults.
 The Qt Invoice editor follows the same metadata and API contract. Its line table

@@ -25,6 +25,7 @@ from tide.compiler.normalized import (
 )
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.presentation import (
+    application_navigation,
     browse_named_filters,
     browse_search_field,
     browse_sortable_fields,
@@ -221,10 +222,21 @@ class TideApp(App[None]):
         self.view = _select_browse_view(model, view_name)
         if self.view not in accessible_views:
             raise ValueError(f"TUI view {self.view.name!r} is not accessible")
-        self.browse_views = (
-            self.view,
-            *(view for view in accessible_views if view is not self.view),
+        navigation = application_navigation(
+            model,
+            (view.name for view in accessible_views),
+            include_views=(self.view.name,),
         )
+        self.browse_views = tuple(
+            model.views[item.view]
+            for group in navigation
+            for item in group.items
+        )
+        self._browse_view_labels = {
+            item.view: item.label
+            for group in navigation
+            for item in group.items
+        }
         self._page_size_override = page_size
         self._configure_browse_view(self.view)
         self.source_label = source_label
@@ -258,7 +270,7 @@ class TideApp(App[None]):
         with Horizontal(id="browse-query"):
             yield Select(
                 tuple(
-                    (self.model.entity(view.entity).label, view.name)
+                    (self._browse_view_labels[view.name], view.name)
                     for view in self.browse_views
                 ),
                 value=self.view.name,

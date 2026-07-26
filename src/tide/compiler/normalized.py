@@ -84,6 +84,27 @@ class ResolvedView:
 
 
 @dataclass(frozen=True, slots=True)
+class NavigationItem:
+    view: str
+    label: str
+
+    def as_dict(self) -> dict[str, str]:
+        return {"view": self.view, "label": self.label}
+
+
+@dataclass(frozen=True, slots=True)
+class NavigationGroup:
+    label: str
+    items: tuple[NavigationItem, ...]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "label": self.label,
+            "items": [item.as_dict() for item in self.items],
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ApplicationModel:
     schema_version: str
     name: str
@@ -92,6 +113,7 @@ class ApplicationModel:
     database: Mapping[str, Any]
     entities: Mapping[str, NormalizedEntity]
     views: Mapping[str, ResolvedView]
+    navigation: tuple[NavigationGroup, ...]
     reports: Mapping[str, Mapping[str, Any]]
     formats: Mapping[str, Mapping[str, Any]]
     presets: frozenset[str]
@@ -113,6 +135,7 @@ class ApplicationModel:
             "views": {
                 name: view.as_dict() for name, view in self.views.items()
             },
+            "navigation": [group.as_dict() for group in self.navigation],
             "reports": deep_thaw(self.reports),
             "formats": deep_thaw(self.formats),
             "presets": sorted(self.presets),

@@ -55,15 +55,19 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QStackedWidget,
     QTableView,
     QTableWidget,
     QTableWidgetItem,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
 from tide.api.contracts import TideSessionInfo
 from tide.compiler.normalized import ApplicationModel
+from tide.presentation import application_navigation
 from tide.reporting import (
     ReportDocument,
     write_csv,
@@ -2362,6 +2366,8 @@ class TideQtTableModel(QAbstractTableModel):
 class TideQtWindow(QMainWindow):
     """Remote Qt workspace that delegates all data access to TideApiClient."""
 
+    closeRequested = Signal()
+
     def __init__(
         self,
         controller: QtBrowseController,
@@ -2370,6 +2376,7 @@ class TideQtWindow(QMainWindow):
         layout_settings: QSettings | None = None,
         report_output_directory: str | Path | None = None,
         report_opener: Callable[[Path], bool] | None = None,
+        embedded: bool = False,
     ) -> None:
         super().__init__()
         self.controller = controller
@@ -2518,7 +2525,9 @@ class TideQtWindow(QMainWindow):
         self.table.verticalScrollBar().valueChanged.connect(
             self._prefetch_if_near_end
         )
-        close.clicked.connect(self.close)
+        close.clicked.connect(self.closeRequested.emit)
+        if not embedded:
+            self.closeRequested.connect(self.close)
         self._column_widths_initialized = self._restore_column_layout()
         self._update_detail_action()
         self.table_model.reload()
@@ -3084,6 +3093,174 @@ class TideQtWindow(QMainWindow):
             self.table_model.fetchMore()
 
 
+class TideQtWorkspaceWindow(QMainWindow):
+    """Application shell driven by the renderer-neutral navigation contract."""
+
+    def __init__(
+        self,
+        model: ApplicationModel,
+        client: BrowseApiClient,
+        session: TideSessionInfo,
+        *,
+        view_name: str | None = None,
+        page_size: int | None = None,
+        source_label: str = "remote API",
+        layout_settings: QSettings | None = None,
+        report_output_directory: str | Path | None = None,
+        report_opener: Callable[[Path], bool] | None = None,
+    ) -> None:
+        super().__init__()
+        self.model = model
+        self.client = client
+        self.session = session
+        self.page_size = page_size
+        self.source_label = source_label
+        self._layout_settings = (
+            layout_settings
+            if layout_settings is not None
+            else QSettings("TIDE Framework", "TIDE Qt")
+        )
+        self.report_output_directory = report_output_directory
+        self.report_opener = report_opener
+        self._workspaces: dict[str, TideQtWindow] = {}
+        self._view_items: dict[str, QTreeWidgetItem] = {}
+
+        initial_controller = QtBrowseController(
+            model,
+            client,
+            session,
+            view_name=view_name,
+            page_size=page_size,
+        )
+        accessible_views = tuple(
+            view.name
+            for view in model.views.values()
+            if view.kind == "browse"
+            and (
+                capabilities := session.entities.get(view.entity)
+            ) is not None
+            and "list" in capabilities.operations
+        )
+        self.navigation_groups = application_navigation(
+            model,
+            accessible_views,
+            include_views=(initial_controller.view.name,),
+        )
+
+        self.setWindowTitle(model.name)
+        self.resize(1280, 720)
+        root = QWidget(self)
+        layout = QHBoxLayout(root)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.navigation = QTreeWidget(root)
+        self.navigation.setObjectName("application-navigation")
+        self.navigation.setHeaderHidden(True)
+        self.navigation.setMinimumWidth(190)
+        self.navigation.setMaximumWidth(280)
+        for group in self.navigation_groups:
+            group_item = QTreeWidgetItem(self.navigation, [group.label])
+            group_item.setFlags(
+                group_item.flags() & ~Qt.ItemFlag.ItemIsSelectable
+            )
+            group_font = group_item.font(0)
+            group_font.setBold(True)
+            group_item.setFont(0, group_font)
+            group_item.setExpanded(True)
+            for item in group.items:
+                view_item = QTreeWidgetItem(group_item, [item.label])
+                view_item.setData(
+                    0,
+                    Qt.ItemDataRole.UserRole,
+                    item.view,
+                )
+                self._view_items[item.view] = view_item
+
+        self.stack = QStackedWidget(root)
+        self.stack.setObjectName("application-workspaces")
+        layout.addWidget(self.navigation)
+        layout.addWidget(self.stack, 1)
+        self.setCentralWidget(root)
+        self.navigation.currentItemChanged.connect(
+            self._navigation_item_changed
+        )
+        self.activate_view(
+            initial_controller.view.name,
+            controller=initial_controller,
+        )
+
+    @property
+    def current_workspace(self) -> TideQtWindow | None:
+        current = self.stack.currentWidget()
+        return current if isinstance(current, TideQtWindow) else None
+
+    def activate_view(
+        self,
+        view_name: str,
+        *,
+        controller: QtBrowseController | None = None,
+    ) -> TideQtWindow:
+        """Activate a lazily-created workspace without discarding its UI state."""
+
+        item = self._view_items.get(view_name)
+        if item is None:
+            raise ValueError(f"Qt browse view {view_name!r} is not in navigation")
+        workspace = self._workspaces.get(view_name)
+        if workspace is None:
+            selected_controller = controller or QtBrowseController(
+                self.model,
+                self.client,
+                self.session,
+                view_name=view_name,
+                page_size=self.page_size,
+            )
+            workspace = TideQtWindow(
+                selected_controller,
+                source_label=self.source_label,
+                layout_settings=self._layout_settings,
+                report_output_directory=self.report_output_directory,
+                report_opener=self.report_opener,
+                embedded=True,
+            )
+            workspace.closeRequested.connect(self.close)
+            self._workspaces[view_name] = workspace
+            self.stack.addWidget(workspace)
+        self.stack.setCurrentWidget(workspace)
+        selection_blocker = QSignalBlocker(self.navigation)
+        self.navigation.setCurrentItem(item)
+        del selection_blocker
+        self.setWindowTitle(
+            f"{self.model.name} — {workspace.controller.title}"
+        )
+        return workspace
+
+    @Slot(object, object)
+    def _navigation_item_changed(
+        self,
+        current: QTreeWidgetItem | None,
+        _previous: QTreeWidgetItem | None,
+    ) -> None:
+        if current is None:
+            return
+        view_name = current.data(0, Qt.ItemDataRole.UserRole)
+        if isinstance(view_name, str):
+            self.activate_view(view_name)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        for workspace in tuple(self._workspaces.values()):
+            workspace.close()
+        self._layout_settings.sync()
+        super().closeEvent(event)
+
+    def wait_for_done(self, milliseconds: int = -1) -> bool:
+        results = tuple(
+            workspace.wait_for_done(milliseconds)
+            for workspace in tuple(self._workspaces.values())
+        )
+        return all(results)
+
+
 def run_qt_application(
     model: ApplicationModel,
     client: BrowseApiClient,
@@ -3094,19 +3271,16 @@ def run_qt_application(
     source_label: str = "remote API",
     report_output_directory: str | Path | None = None,
 ) -> int:
-    """Run the first remote Qt renderer and return Qt's process result."""
+    """Run the remote Qt application shell and return Qt's process result."""
 
     application = QApplication.instance() or QApplication([model.name])
     application.setApplicationName(model.name)
-    controller = QtBrowseController(
+    window = TideQtWorkspaceWindow(
         model,
         client,
         session,
         view_name=view_name,
         page_size=page_size,
-    )
-    window = TideQtWindow(
-        controller,
         source_label=source_label,
         report_output_directory=report_output_directory,
     )

@@ -12,6 +12,8 @@ from pydantic import BaseModel, ValidationError
 from tide.compiler.expressions import ExpressionResult, validate_expression
 from tide.compiler.normalized import (
     ApplicationModel,
+    NavigationGroup,
+    NavigationItem,
     NormalizedEntity,
     NormalizedField,
     PropertyOrigin,
@@ -135,6 +137,12 @@ def compile_project(project: str | Path = ".") -> ApplicationModel:
         presets,
         diagnostics,
     )
+    _validate_navigation(
+        defaults_source,
+        defaults_document,
+        views,
+        diagnostics,
+    )
     _validate_reports(reports, report_documents, entities, set(formats), diagnostics)
     permissions, roles, row_policies, field_policies = _validate_security(
         security_items,
@@ -195,6 +203,26 @@ def compile_project(project: str | Path = ".") -> ApplicationModel:
             ),
         )
 
+    navigation = tuple(
+        NavigationGroup(
+            label=group.label.strip(),
+            items=tuple(
+                NavigationItem(
+                    view=item.view,
+                    label=(
+                        item.label.strip()
+                        if item.label is not None
+                        else normalized_entities[
+                            resolved_views[item.view].entity
+                        ].label
+                    ),
+                )
+                for item in group.items
+            ),
+        )
+        for group in defaults_source.navigation
+    )
+
     return ApplicationModel(
         schema_version=project_source.schema_version,
         name=project_source.application.name,
@@ -205,6 +233,7 @@ def compile_project(project: str | Path = ".") -> ApplicationModel:
         ),
         entities=immutable_mapping(normalized_entities),
         views=immutable_mapping(resolved_views),
+        navigation=navigation,
         reports=immutable_mapping(
             {
                 name: report.model_dump(
@@ -1733,6 +1762,95 @@ def _validate_inline_editor_layout(
             document,
             ("layout",),
         )
+
+
+def _validate_navigation(
+    defaults: PresentationDefaultsSource,
+    document: SourceDocument | None,
+    views: dict[str, ViewSource],
+    diagnostics: list[Diagnostic],
+) -> None:
+    """Validate the shared application-navigation contract."""
+
+    if not defaults.navigation or document is None:
+        return
+
+    group_labels: set[str] = set()
+    referenced_views: set[str] = set()
+    for group_index, group in enumerate(defaults.navigation):
+        group_path = ("navigation", group_index)
+        label = group.label.strip()
+        if not _valid_navigation_label(group.label):
+            _add(
+                diagnostics,
+                "TIDE249",
+                "navigation group labels must be non-empty, single-line text "
+                "of at most 80 characters",
+                document,
+                (*group_path, "label"),
+            )
+        elif label.casefold() in group_labels:
+            _add(
+                diagnostics,
+                "TIDE249",
+                f"duplicate navigation group label {label!r}",
+                document,
+                (*group_path, "label"),
+            )
+        else:
+            group_labels.add(label.casefold())
+
+        if not group.items:
+            _add(
+                diagnostics,
+                "TIDE249",
+                "navigation groups must contain at least one item",
+                document,
+                (*group_path, "items"),
+            )
+
+        for item_index, item in enumerate(group.items):
+            item_path = (*group_path, "items", item_index)
+            view = views.get(item.view)
+            if view is None:
+                _add(
+                    diagnostics,
+                    "TIDE249",
+                    f"unknown navigation view {item.view!r}",
+                    document,
+                    (*item_path, "view"),
+                )
+            elif _view_kind(view) != "browse":
+                _add(
+                    diagnostics,
+                    "TIDE249",
+                    f"navigation view {item.view!r} must be a browse view",
+                    document,
+                    (*item_path, "view"),
+                )
+            if item.view in referenced_views:
+                _add(
+                    diagnostics,
+                    "TIDE249",
+                    f"navigation view {item.view!r} is listed more than once",
+                    document,
+                    (*item_path, "view"),
+                )
+            referenced_views.add(item.view)
+            if item.label is not None and not _valid_navigation_label(item.label):
+                _add(
+                    diagnostics,
+                    "TIDE249",
+                    "navigation item labels must be non-empty, single-line text "
+                    "of at most 80 characters",
+                    document,
+                    (*item_path, "label"),
+                )
+
+
+def _valid_navigation_label(value: str) -> bool:
+    label = value.strip()
+    return bool(label) and "\n" not in value and "\r" not in value and len(label) <= 80
 
 
 def _resolve_views(

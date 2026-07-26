@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
-from typing import Any, Literal, Mapping
+from typing import Any, Iterable, Literal, Mapping
 
-from tide.compiler.normalized import NormalizedEntity, ResolvedView
+from tide.compiler.normalized import (
+    ApplicationModel,
+    NavigationGroup,
+    NavigationItem,
+    NormalizedEntity,
+    ResolvedView,
+)
 from tide.data import FilterCondition
 
 
@@ -37,6 +43,80 @@ class FormLayoutSection:
     @property
     def fields(self) -> tuple[str, ...]:
         return tuple(name for row in self.rows for name in row)
+
+
+def application_navigation(
+    model: ApplicationModel,
+    accessible_views: Iterable[str] | None = None,
+    *,
+    include_views: Iterable[str] = (),
+) -> tuple[NavigationGroup, ...]:
+    """Resolve capability-filtered application navigation for every renderer.
+
+    Security remains the caller's responsibility: adapters pass only browse
+    views for which the current principal has list capability.
+    """
+
+    browse_names = tuple(
+        view.name for view in model.views.values() if view.kind == "browse"
+    )
+    allowed = (
+        set(browse_names)
+        if accessible_views is None
+        else set(accessible_views) & set(browse_names)
+    )
+    if model.navigation:
+        groups = [
+            NavigationGroup(
+                label=group.label,
+                items=tuple(item for item in group.items if item.view in allowed),
+            )
+            for group in model.navigation
+        ]
+        groups = [group for group in groups if group.items]
+    else:
+        groups = [
+            NavigationGroup(
+                label="Application",
+                items=tuple(
+                    NavigationItem(
+                        view=name,
+                        label=model.entity(model.views[name].entity).label,
+                    )
+                    for name in browse_names
+                    if name in allowed
+                ),
+            )
+        ]
+        groups = [group for group in groups if group.items]
+
+    included = {item.view for group in groups for item in group.items}
+    extras = tuple(
+        NavigationItem(
+            view=name,
+            label=model.entity(model.views[name].entity).label,
+        )
+        for name in include_views
+        if name in allowed and name not in included
+    )
+    if extras:
+        other_index = next(
+            (
+                index
+                for index, group in enumerate(groups)
+                if group.label.casefold() == "other"
+            ),
+            None,
+        )
+        if other_index is None:
+            groups.append(NavigationGroup(label="Other", items=extras))
+        else:
+            group = groups[other_index]
+            groups[other_index] = NavigationGroup(
+                label=group.label,
+                items=(*group.items, *extras),
+            )
+    return tuple(groups)
 
 
 def form_layout_sections(

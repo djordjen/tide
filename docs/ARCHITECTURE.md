@@ -36,10 +36,11 @@ Record/action facades present this client behind the interfaces already
 consumed by Textual; widgets do not construct URLs or authorize operations.
 Local edit drafts remain `RecordSession` objects, while every load, lookup
 assignment, commit, and action crosses the authenticated service boundary. The
-initial Qt adapter implements the read-only half of this split: a Qt-neutral
-browse/detail controller consumes `TideApiClient`, and a lazy optional PySide6
-widget adapter renders compiled browse columns, form groups, and inline
-collections without database packages or credentials.
+Qt adapter uses Qt-neutral controllers over `TideApiClient`; a lazy optional
+PySide6 shell renders compiler-normalized application navigation, browse
+tables, forms, lookups, inline collections, actions, conflict review, and
+report previews without database packages or credentials. Its grouped
+navigation is capability-filtered, while authorization remains on the server.
 
 ```text
 applications/<name>/ (YAML + Python handlers + overlays)

@@ -228,8 +228,10 @@ can now select an explicitly configured SQLAlchemy deployment repository;
 managed deployments use durable cursor, idempotency, action-audit, and
 record-audit stores.
 The optional Qt client now provides cursor-backed browse/search/sort,
-per-principal column layouts, Invoice detail, metadata-driven Customer/Product
-forms, and Invoice-header create/update over the typed FastAPI client. Reference
+per-principal column layouts, a shared-YAML grouped application sidebar with
+retained per-view workspace state, Invoice detail, metadata-driven
+Customer/Product forms, and Invoice-header create/update over the typed FastAPI
+client. Reference
 metadata drives a debounced multi-column Customer lookup; authorized users may
 open the compiled Customer form and return through **Save & Select** without
 losing the Invoice draft. Qt mutation controls follow session capabilities,

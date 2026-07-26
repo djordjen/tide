@@ -25,6 +25,15 @@ Security is never weakened by an overlay or preference.
 Application-wide behavior belongs in `presentation/defaults.yaml`:
 
 ```yaml
+navigation:
+  - label: Sales
+    items:
+      - view: sales.Invoice.browse
+  - label: Master Data
+    items:
+      - view: crm.Customer.browse
+      - view: catalog.Product.browse
+
 browse:
   page_size: 25
   incremental_search: true
@@ -46,6 +55,22 @@ lookup:
   incremental_search: true
   close_after_selection: true
 ```
+
+`navigation` is the portable application workspace definition. Groups and
+items retain YAML order, every item must name one browse view, and a browse
+view may appear only once. An omitted item label uses the target entity label.
+The compiler rejects empty groups, invalid labels, unknown/non-browse views,
+and duplicates with `TIDE249`.
+
+Renderers intersect this definition with the authenticated principal's list
+capabilities and remove empty groups. Qt renders the result as a grouped
+application sidebar and lazily keeps each visited workspace alive, preserving
+its query, loaded records, selection, and per-view column settings. Textual's
+compact workspace selector uses the same item order and labels. `--view`
+remains a deep-link/startup override; an accessible view omitted from explicit
+navigation is made reachable for that launch without changing YAML. Future Web
+navigation must consume this same normalized contract rather than interpreting
+the source independently.
 
 For browse views, `page_size` is the bounded server fetch batch, not a
 requirement to expose page-navigation controls. Textual and Qt fill the visible

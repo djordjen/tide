@@ -30,7 +30,12 @@ from tide import compile_project
 from tide.api import TideApiClientError
 from tide.api.contracts import TideEntityCapabilities, TideSessionInfo
 from tide.data import FilterCondition, QuerySpec, SortField
-from tide.qt import QtBrowseController, TideQtReferenceEditor, TideQtWindow
+from tide.qt import (
+    QtBrowseController,
+    TideQtReferenceEditor,
+    TideQtWindow,
+    TideQtWorkspaceWindow,
+)
 from tide.reporting import (
     ReportCell,
     ReportColumn,
@@ -1713,3 +1718,57 @@ def _wait_until(
             raise AssertionError("timed out waiting for Qt background work")
         time.sleep(0.005)
     application.processEvents()
+
+
+def test_qt_application_navigation_preserves_visited_workspace_state(
+    tmp_path: Path,
+) -> None:
+    application = QApplication.instance() or QApplication([])
+    model = compile_project(INVOICING)
+    client = _InvoiceLinesWidgetClient()
+    window = TideQtWorkspaceWindow(
+        model,
+        client,
+        _invoice_lines_session(model),
+        source_label="off-screen test",
+        layout_settings=_layout_settings(tmp_path / "workspace-layout.ini"),
+    )
+    window.show()
+    invoice_workspace = window.current_workspace
+    assert invoice_workspace is not None
+    _wait_until(
+        application,
+        lambda: not invoice_workspace.table_model.loading,
+    )
+
+    assert [
+        window.navigation.topLevelItem(index).text(0)
+        for index in range(window.navigation.topLevelItemCount())
+    ] == ["Sales", "Master Data"]
+    assert window.windowTitle() == "TIDE Invoicing — Invoices"
+
+    product_workspace = window.activate_view("catalog.Product.browse")
+    _wait_until(
+        application,
+        lambda: product_workspace.table_model.rowCount() == 1
+        and not product_workspace.table_model.loading,
+    )
+    product_workspace.search.setText("Consulting")
+    product_workspace.table.setColumnWidth(0, 231)
+
+    customer_workspace = window.activate_view("crm.Customer.browse")
+    _wait_until(
+        application,
+        lambda: customer_workspace.table_model.rowCount() == 2
+        and not customer_workspace.table_model.loading,
+    )
+    restored_product_workspace = window.activate_view("catalog.Product.browse")
+
+    assert restored_product_workspace is product_workspace
+    assert window.current_workspace is product_workspace
+    assert product_workspace.search.text() == "Consulting"
+    assert product_workspace.table.columnWidth(0) == 231
+    assert window.windowTitle() == "TIDE Invoicing — Products"
+
+    window.close()
+    window.wait_for_done()

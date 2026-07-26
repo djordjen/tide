@@ -418,9 +418,13 @@ and use another terminal:
 .\start.bat gui
 ```
 
-Paste the printed API token into the hidden prompt. This starts a Qt Invoice
-workspace and installs the optional `gui` and `report` dependencies through
-`uv` when needed. Use **Open**, double-click, or **Enter** to open the selected
+Paste the printed API token into the hidden prompt. This starts the Qt
+application shell and installs the optional `gui` and `report` dependencies
+through `uv` when needed. The grouped sidebar comes from
+`presentation/defaults.yaml`; use it to move among Invoices, Customers, and
+Products. Capability-inaccessible items are absent. Returning to a visited
+workspace restores its live search/filter, loaded rows, selection, and personal
+column layout. Use **Open**, double-click, or **Enter** to open the selected
 Invoice and its lines. The same compact two-column form is used for viewing and
 editing; status, metadata, and permissions determine which fields and actions
 are enabled. **Previous** and **Next** at the form's bottom left open adjacent
@@ -478,8 +482,8 @@ up later rather than filling `output\reports`. The shortcut installs both the
 `gui` and `report` extras; a role without report permission does not see the
 button.
 
-To test metadata-driven Qt creation and editing for flat master data, keep the
-same API server running and open either:
+Customer and Product creation/editing are available in **Master Data**. To
+start directly in either workspace, keep the same API server running and use:
 
 ```powershell
 .\start.bat gui-products

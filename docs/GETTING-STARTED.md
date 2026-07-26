@@ -203,7 +203,11 @@ open another terminal and run:
 .\start.bat gui
 ```
 
-Paste the same token to open the metadata-driven Invoice browse. Select a row
+Paste the same token to open the metadata-driven application shell. Its
+**Sales** and **Master Data** groups expose the capability-allowed Invoice,
+Customer, and Product workspaces declared in `presentation/defaults.yaml`.
+Switching workspaces keeps each visited list's query, loaded records, selection,
+and personal columns intact. Invoice is selected initially. Select a row
 and use **Open**, double-click, or press **Enter**. The same YAML-defined
 two-column form opens for editable and read-only records; field, Save, and Post
 states follow permissions and Invoice status. Reaching the bottom automatically
@@ -251,7 +255,8 @@ file in the operating system's temporary directory and opens the system PDF
 viewer. The temporary session directory is cleaned up later instead of filling
 `output\reports`. Roles without the report capability do not see the button.
 
-The first editable Qt slice covers the flat Product and Customer forms:
+The Product and Customer forms are available from **Master Data** in the same
+window. These shortcuts remain convenient direct startup links:
 
 ```powershell
 .\start.bat gui-products

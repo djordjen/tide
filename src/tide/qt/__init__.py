@@ -61,6 +61,7 @@ __all__ = [
     "TideQtReferenceEditor",
     "TideQtReportDialog",
     "TideQtWindow",
+    "TideQtWorkspaceWindow",
     "run_qt_application",
 ]
 
@@ -75,6 +76,7 @@ def __getattr__(name: str) -> Any:
         "TideQtReferenceEditor",
         "TideQtReportDialog",
         "TideQtWindow",
+        "TideQtWorkspaceWindow",
         "run_qt_application",
     }:
         from .app import (
@@ -86,6 +88,7 @@ def __getattr__(name: str) -> Any:
             TideQtReferenceEditor,
             TideQtReportDialog,
             TideQtWindow,
+            TideQtWorkspaceWindow,
             run_qt_application,
         )
 
@@ -98,6 +101,7 @@ def __getattr__(name: str) -> Any:
             "TideQtReferenceEditor": TideQtReferenceEditor,
             "TideQtReportDialog": TideQtReportDialog,
             "TideQtWindow": TideQtWindow,
+            "TideQtWorkspaceWindow": TideQtWorkspaceWindow,
             "run_qt_application": run_qt_application,
         }[name]
     raise AttributeError(name)

@@ -22,8 +22,9 @@ and testable by a new developer.
 - [AI-assisted generation tutorial](AI-GENERATION-TUTORIAL.md): connect local
   ChatGPT/Codex to developer MCP, propose and preview a structured application,
   then cross the separate explicit local approval boundary;
-- [Qt GUI prototype](QT-GUI.md): install and run the first native read-only
-  renderer through the secured remote API boundary;
+- [Qt GUI prototype](QT-GUI.md): install and run the native application shell,
+  navigation, server-mode browse, editing, actions, and report preview through
+  the secured remote API boundary;
 - [Windows quick start](WINDOWS-QUICKSTART.md): `start.bat` modes and local
   setup;
 - focused reference and architecture documents listed in the

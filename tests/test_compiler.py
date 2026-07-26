@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
+import shutil
 
 import pytest
 
 from tide import CompilationFailed, compile_project
 from tide.compiler.source import load_yaml_document
+from tide.presentation import application_navigation
 
 ROOT = Path(__file__).parents[1]
 INVOICING = ROOT / "applications" / "invoicing"
@@ -23,6 +26,19 @@ def test_invoicing_fixture_compiles_to_immutable_model() -> None:
         "sales.InvoiceLine",
     }
     assert len(model.views) == 9
+    assert [
+        (group.label, [(item.view, item.label) for item in group.items])
+        for group in model.navigation
+    ] == [
+        ("Sales", [("sales.Invoice.browse", "Invoices")]),
+        (
+            "Master Data",
+            [
+                ("crm.Customer.browse", "Customers"),
+                ("catalog.Product.browse", "Products"),
+            ],
+        ),
+    ]
     assert set(model.presets) == {"master_detail", "standard_browse", "standard_form"}
     assert model.formats["money"]["decimal_places"] == 2
     assert "sales.invoice.post" in model.permissions
@@ -104,6 +120,79 @@ def test_invoicing_fixture_compiles_to_immutable_model() -> None:
         model.entities["other.Entity"] = model.entity("sales.Invoice")  # type: ignore[index]
     with pytest.raises(TypeError):
         model.views["sales.Invoice.edit"]["fields"] = {}  # type: ignore[index]
+
+
+def test_application_navigation_filters_capabilities_without_losing_groups() -> None:
+    model = compile_project(INVOICING)
+
+    navigation = application_navigation(
+        model,
+        ("sales.Invoice.browse", "catalog.Product.browse"),
+    )
+
+    assert [
+        (group.label, tuple(item.view for item in group.items))
+        for group in navigation
+    ] == [
+        ("Sales", ("sales.Invoice.browse",)),
+        ("Master Data", ("catalog.Product.browse",)),
+    ]
+    assert model.as_dict()["navigation"][0]["items"][0] == {
+        "view": "sales.Invoice.browse",
+        "label": "Invoices",
+    }
+
+    deep_link_navigation = application_navigation(
+        replace(model, navigation=(model.navigation[0],)),
+        ("sales.Invoice.browse", "catalog.Product.browse"),
+        include_views=("catalog.Product.browse",),
+    )
+    assert deep_link_navigation[-1].label == "Other"
+    assert deep_link_navigation[-1].items[0].view == "catalog.Product.browse"
+
+    generated_navigation = application_navigation(
+        replace(model, navigation=()),
+        ("crm.Customer.browse",),
+    )
+    assert generated_navigation[0].label == "Application"
+    assert generated_navigation[0].items[0].view == "crm.Customer.browse"
+
+
+def test_navigation_metadata_is_compiler_validated(tmp_path: Path) -> None:
+    project = tmp_path / "invalid-navigation"
+    shutil.copytree(INVOICING, project)
+    defaults = project / "presentation" / "defaults.yaml"
+    defaults.write_text(
+        "\n".join(
+            [
+                "navigation:",
+                "  - label: ' '",
+                "    items:",
+                "      - view: sales.Invoice.edit",
+                "      - view: missing.Entity.browse",
+                "  - label: Master Data",
+                "    items:",
+                "      - view: crm.Customer.browse",
+                "      - view: crm.Customer.browse",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(project)
+
+    navigation_diagnostics = [
+        diagnostic
+        for diagnostic in caught.value.diagnostics
+        if diagnostic.code == "TIDE249"
+    ]
+    messages = {diagnostic.message for diagnostic in navigation_diagnostics}
+    assert "navigation view 'sales.Invoice.edit' must be a browse view" in messages
+    assert "unknown navigation view 'missing.Entity.browse'" in messages
+    assert "navigation view 'crm.Customer.browse' is listed more than once" in messages
+    assert any("group labels must be non-empty" in message for message in messages)
+    assert all(diagnostic.path[0] == "navigation" for diagnostic in navigation_diagnostics)
 
 
 def test_strict_yaml_does_not_coerce_legacy_boolean_words(tmp_path: Path) -> None:

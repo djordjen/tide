@@ -133,6 +133,26 @@ tab, action-bar, or inline-view presentation reports `TIDE244`.
 `tide view explain` returns the resolved view plus provenance for every leaf or
 replaced collection, including the layer, source file, and source property path.
 
+Application navigation is an ordered list under
+`presentation/defaults.yaml`:
+
+```yaml
+navigation:
+  - label: Sales
+    items:
+      - view: sales.Invoice.browse
+  - label: Master Data
+    items:
+      - view: crm.Customer.browse
+      - view: catalog.Product.browse
+```
+
+Group and optional item labels are non-empty single-line text of at most 80
+characters. Groups contain at least one item; items name existing browse views;
+and a view may appear only once. Omitted item labels use entity labels. Invalid
+navigation reports `TIDE249`. Runtime adapters still filter the normalized
+items by authenticated list capability; navigation is not authorization.
+
 ## Diagnostics
 
 Human diagnostics use:

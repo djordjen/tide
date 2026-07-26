@@ -55,6 +55,29 @@ Portable model files do not contain production credentials or a fixed database
 URL. Deployment-specific database settings, secrets, logging, and environment
 choices belong in environment variables or deployment configuration.
 
+## Application navigation
+
+`presentation/defaults.yaml` may define the portable application map as
+ordered groups of browse views:
+
+```yaml
+navigation:
+  - label: Sales
+    items:
+      - view: sales.Invoice.browse
+  - label: Master Data
+    items:
+      - view: crm.Customer.browse
+      - view: catalog.Product.browse
+```
+
+The compiler resolves this into immutable `NavigationGroup` and
+`NavigationItem` values inside `ApplicationModel`. An item label may override
+the entity label; otherwise it is derived from that entity. Renderers consume
+the normalized values, intersect them with authenticated list capabilities,
+and remove empty groups. Textual, Qt, and future Web therefore share the same
+portable navigation without treating menu visibility as authorization.
+
 ## Database ownership modes
 
 The application manifest states who owns the physical schema. TIDE-managed

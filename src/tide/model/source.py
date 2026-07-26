@@ -352,11 +352,22 @@ class ReportSource(SourceModel):
         return self
 
 
+class NavigationItemSource(SourceModel):
+    view: str
+    label: str | None = None
+
+
+class NavigationGroupSource(SourceModel):
+    label: str
+    items: tuple[NavigationItemSource, ...]
+
+
 class PresentationDefaultsSource(SourceModel):
     browse: dict[str, Any] = Field(default_factory=dict)
     form: dict[str, Any] = Field(default_factory=dict)
     lookup: dict[str, Any] = Field(default_factory=dict)
     inline_edit: dict[str, Any] = Field(default_factory=dict)
+    navigation: tuple[NavigationGroupSource, ...] = ()
 
 
 class FormatsSource(SourceModel):

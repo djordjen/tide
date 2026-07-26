@@ -9,9 +9,11 @@ It supports an incrementally loaded browse list, metadata-defined search and
 named filters, global header sorting, read-only record detail, Customer/Product
 create and update, and complete Invoice draft editing with Customer/Product
 lookups plus authorized nested creation, three-way stale-edit review, and the
-Post Invoice domain action. An authorized opened Invoice can also generate a
-temporary PDF and open it in the system viewer. Desktop sign-in remains later
-work.
+Post Invoice domain action. A shared YAML navigation definition drives the
+grouped Sales/Master Data sidebar, and each visited workspace retains its live
+query and table state while the user switches elsewhere. An authorized opened
+Invoice can also generate a temporary PDF and open it in the system viewer.
+Desktop sign-in remains later work.
 
 ## Security and architecture
 
@@ -53,7 +55,9 @@ start.bat gui
 ```
 
 Paste the token into the hidden prompt. `uv` installs the optional GUI packages
-when needed and opens the default `sales.Invoice.browse` view. The desktop
+when needed and opens the application shell with **Invoices**, **Customers**,
+and **Products** from `presentation/defaults.yaml`; the default
+`sales.Invoice.browse` workspace is selected. The desktop
 process uses `http://127.0.0.1:8000`; plain HTTP is allowed only for loopback
 development. The first batch uses the view's configured size (25 records in the
 Invoicing presentation defaults). Scroll to the end of the loaded records and
@@ -72,6 +76,13 @@ width. **Best Fit** recalculates all widths from the currently loaded rows;
 widths. Qt stores the personal layout locally under the application, view, and
 authenticated principal. It contains field names, order, and widths only and
 does not modify YAML, access the database, or affect other users and renderers.
+
+Use the grouped sidebar to change workspaces. A workspace is created on first
+use and then retained, so switching away and back preserves its search/filter,
+loaded rows, selection, and personal column layout. Items for entities the
+session cannot list are omitted. The `gui-products` and `gui-customers`
+shortcuts, and the explicit `--view` option, remain useful deep links rather
+than separate GUI modes.
 
 Select an Invoice and press **Open**, double-click it, or press **Enter**. One
 compiled form is used for viewing and editing. Writable controls, Save, and
@@ -170,7 +181,7 @@ Temporary previews are scoped to the GUI session instead of accumulating in
 `output/reports`. Save local changes before previewing so the PDF cannot
 silently represent an older stored version.
 
-To exercise the editable flat-form slice, open either workspace instead:
+To deep-link directly to either editable master-data workspace:
 
 ```bat
 start.bat gui-products
@@ -195,7 +206,8 @@ uv run --extra gui --extra report tide gui applications/invoicing `
   --api-url http://127.0.0.1:8000
 ```
 
-Use `--view catalog.Product.browse` to open another accessible browse, or
+Use `--view catalog.Product.browse` to select another accessible browse at
+startup, or
 `--page-size 50` to override the incremental fetch batch size. This controls
 network batching rather than visible page navigation. Use `--help` to see the
 complete launcher contract.
@@ -204,6 +216,9 @@ complete launcher contract.
 
 - the same compiled browse columns, field labels, date/decimal formats, and
   right-aligned numeric values can drive Qt widgets;
+- grouped application navigation comes from one compiler-validated definition
+  shared with Textual and future Web; capabilities filter visibility, and
+  lazily retained Qt workspaces preserve their independent UI state;
 - reference identities are resolved through secured API reads and cached only
   for the current client session;
 - a `QTableView`/`QAbstractTableModel` boundary accumulates opaque server cursor

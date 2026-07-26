@@ -165,6 +165,10 @@ application-owned Faker profile and the real secured services.
   including background cursor-boundary fetch, list selection synchronization,
   in-place dialog refresh, Page Up/Page Down shortcuts, first/last state, and
   unsaved-draft protection; **implemented**
+- compiler-validated shared application navigation in presentation YAML,
+  capability filtering, Textual selector ordering, and a grouped Qt shell with
+  lazily retained per-view workspace state and `--view` deep links;
+  **implemented**; future Web consumption remains later work
 - renderer-neutral form-layout resolution for ordered YAML rows, groups,
   collections, tabs, actions, and field visibility, consumed by Textual and
   Qt; plus one Qt **Open** path whose form controls follow capability and

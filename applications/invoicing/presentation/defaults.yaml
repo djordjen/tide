@@ -1,4 +1,13 @@
 # TIDE application metadata.
+navigation:
+  - label: Sales
+    items:
+      - view: sales.Invoice.browse
+  - label: Master Data
+    items:
+      - view: crm.Customer.browse
+      - view: catalog.Product.browse
+
 browse:
   page_size: 25
   incremental_search: true

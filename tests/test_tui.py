@@ -602,6 +602,16 @@ def test_textual_workspace_switches_to_customer_management() -> None:
             await pilot.pause()
             workspace = app.query_one("#browse-view", Select)
             assert workspace.value == "sales.Invoice.browse"
+            assert [view.name for view in app.browse_views] == [
+                "sales.Invoice.browse",
+                "crm.Customer.browse",
+                "catalog.Product.browse",
+            ]
+            assert app._browse_view_labels == {
+                "sales.Invoice.browse": "Invoices",
+                "crm.Customer.browse": "Customers",
+                "catalog.Product.browse": "Products",
+            }
 
             workspace.value = "crm.Customer.browse"
             await pilot.pause()
