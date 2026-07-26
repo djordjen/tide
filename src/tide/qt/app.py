@@ -385,6 +385,7 @@ class TideQtCollectionEditor(QGroupBox):
             for field in collection.fields
         }
         self._selected_row: int | None = None
+        self._field_labels: dict[str, QLabel] = {}
 
         layout = QVBoxLayout(self)
         self.table = QTableWidget(0, len(collection.columns))
@@ -423,6 +424,7 @@ class TideQtCollectionEditor(QGroupBox):
                         ),
                     )
                     self.editors[field.name] = editor
+                    self._field_labels[field.name] = label
                     positioned[row_index, column_index] = editor
                     if not field.editable:
                         label.setStyleSheet(
@@ -437,11 +439,7 @@ class TideQtCollectionEditor(QGroupBox):
             for column_index in range(column_count):
                 for row_index in range(len(group.rows)):
                     editor = positioned.get((row_index, column_index))
-                    if (
-                        editor is not None
-                        and editor.isEnabled()
-                        and editor.focusPolicy() != Qt.FocusPolicy.NoFocus
-                    ):
+                    if editor is not None:
                         focus_order.append(editor)
         for current, following in zip(focus_order, focus_order[1:]):
             QWidget.setTabOrder(current, following)
@@ -471,6 +469,33 @@ class TideQtCollectionEditor(QGroupBox):
             self.action_buttons["remove"].clicked.connect(self.remove_line)
         self.table.itemSelectionChanged.connect(self._table_selection_changed)
         self._refresh(select=0 if self.rows else None)
+
+    def replace_collection(self, collection: QtEditCollection) -> None:
+        """Replace record rows and workflow state without rebuilding widgets."""
+
+        if _collection_structure(collection) != _collection_structure(
+            self.collection
+        ):
+            raise ValueError(
+                f"{collection.label} layout changed while navigating"
+            )
+        self.collection = collection
+        self._fields = {field.name: field for field in collection.fields}
+        self.setTitle(collection.label)
+        for name, editor in self.editors.items():
+            field = self._fields[name]
+            self.dialog._configure_field_editor(field, editor)
+            self.dialog._configure_field_label(
+                self._field_labels[name],
+                field,
+            )
+        self.rows = [
+            deepcopy(dict(record)) for record in collection.records
+        ]
+        self._refresh(
+            select=0 if self.rows else None,
+            fit_columns=False,
+        )
 
     def values(self) -> list[dict[str, Any]]:
         return deepcopy(self.rows)
@@ -591,7 +616,12 @@ class TideQtCollectionEditor(QGroupBox):
             )
         self._update_actions()
 
-    def _refresh(self, *, select: int | None) -> None:
+    def _refresh(
+        self,
+        *,
+        select: int | None,
+        fit_columns: bool = True,
+    ) -> None:
         self.table.setRowCount(len(self.rows))
         for row_index, record in enumerate(self.rows):
             cells = self.controller.collection_cells(
@@ -606,7 +636,7 @@ class TideQtCollectionEditor(QGroupBox):
                     )
                 )
                 self.table.setItem(row_index, column_index, item)
-        if self.rows:
+        if self.rows and fit_columns:
             _fit_interactive_columns(self.table, self.collection.columns)
         if select is not None and 0 <= select < len(self.rows):
             self.table.selectRow(select)
@@ -815,6 +845,7 @@ class TideQtEditDialog(QDialog):
         self.form = form
         self.editors: dict[str, QWidget] = {}
         self.collection_editors: dict[str, TideQtCollectionEditor] = {}
+        self._field_labels: dict[str, QLabel] = {}
         self._fields = {field.name: field for field in form.fields}
         self._workers: set[_CallWorker] = set()
         self._lookup_targets: dict[
@@ -844,9 +875,9 @@ class TideQtEditDialog(QDialog):
         self.resize(1050 if form.collections else 760, 720 if form.collections else 360)
 
         layout = QVBoxLayout(self)
-        heading = QLabel(form.title)
-        heading.setStyleSheet("font-size: 20px; font-weight: 600;")
-        layout.addWidget(heading)
+        self.heading = QLabel(form.title)
+        self.heading.setStyleSheet("font-size: 20px; font-weight: 600;")
+        layout.addWidget(self.heading)
         if form.omitted_collections:
             collection_labels = ", ".join(
                 controller.entity.field(name).metadata.get(
@@ -892,6 +923,7 @@ class TideQtEditDialog(QDialog):
                     )
                     editor = self._field_editor(field)
                     self.editors[field.name] = editor
+                    self._field_labels[field.name] = label
                     positioned[row_index, column_index] = editor
                     if not field.editable:
                         label.setStyleSheet("color: palette(mid); font-style: italic;")
@@ -905,11 +937,7 @@ class TideQtEditDialog(QDialog):
             for column_index in range(column_count):
                 for row_index in range(len(group.rows)):
                     editor = positioned.get((row_index, column_index))
-                    if (
-                        editor is not None
-                        and editor.isEnabled()
-                        and editor.focusPolicy() != Qt.FocusPolicy.NoFocus
-                    ):
+                    if editor is not None:
                         focus_order.append(editor)
 
         for current, following in zip(focus_order, focus_order[1:]):
@@ -994,8 +1022,53 @@ class TideQtEditDialog(QDialog):
 
         self._connect_action_state_editors()
         self.refresh_action_state()
-        if focus_order:
-            focus_order[0].setFocus()
+        first_editable = next(
+            (
+                editor
+                for editor in focus_order
+                if editor.isEnabled()
+                and editor.focusPolicy() != Qt.FocusPolicy.NoFocus
+            ),
+            None,
+        )
+        if first_editable is not None:
+            first_editable.setFocus()
+
+    def replace_form(self, form: QtEditForm) -> None:
+        """Replace an adjacent record without closing or moving this dialog."""
+
+        if _form_structure(form) != _form_structure(self.form):
+            raise ValueError("the adjacent record form layout is incompatible")
+        self.form = form
+        self._fields = {field.name: field for field in form.fields}
+        self.setWindowTitle(f"{self.controller.model.name} — {form.title}")
+        self.heading.setText(form.title)
+        for name, editor in self.editors.items():
+            field = self._fields[name]
+            self._configure_field_editor(field, editor)
+            self._configure_field_label(self._field_labels[name], field)
+            blocker = QSignalBlocker(editor)
+            _set_editor_value(
+                field,
+                editor,
+                field.value,
+                reference_display=field.reference_display,
+            )
+            del blocker
+        for collection in form.collections:
+            self.collection_editors[collection.name].replace_collection(
+                collection
+            )
+        self._save_available = any(
+            field.editable for field in form.fields
+        ) or any(collection.editable for collection in form.collections)
+        self.save_button.setVisible(self._save_available)
+        for action in form.actions:
+            button = self.action_buttons[action.name]
+            button.setText(action.label)
+        self.message.clear()
+        self.refresh_computed_preview()
+        self.refresh_action_state()
 
     def set_navigation_state(
         self,
@@ -1078,7 +1151,6 @@ class TideQtEditDialog(QDialog):
         if (
             field.field_type == "reference"
             and field.lookup_view is not None
-            and field.editable
         ):
             editor = TideQtReferenceEditor(field)
             editor.lookupRequested.connect(
@@ -1086,14 +1158,16 @@ class TideQtEditDialog(QDialog):
                 if lookup_handler is not None
                 else (lambda item=field: self._open_lookup(item))
             )
+            self._configure_field_editor(field, editor)
             return editor
-        if field.field_type == "boolean" and field.editable:
+        if field.field_type == "boolean":
             editor = QCheckBox()
             editor.setChecked(bool(field.value))
             editor.setObjectName(f"edit-field-{field.name}")
             editor.installEventFilter(self)
+            self._configure_field_editor(field, editor)
             return editor
-        if field.field_type == "choice" and field.editable:
+        if field.field_type == "choice":
             editor = QComboBox()
             editor.setObjectName(f"edit-field-{field.name}")
             if not field.required:
@@ -1106,24 +1180,11 @@ class TideQtEditDialog(QDialog):
             current = editor.findData(field.value)
             editor.setCurrentIndex(max(current, 0))
             editor.installEventFilter(self)
+            self._configure_field_editor(field, editor)
             return editor
 
         editor = QLineEdit(_edit_text(field))
         editor.setObjectName(f"edit-field-{field.name}")
-        editor.setReadOnly(not field.editable)
-        if not field.editable:
-            editor.setStyleSheet(
-                "background: palette(alternate-base); color: palette(mid);"
-            )
-            editor.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            return editor
-        if field.max_length is not None:
-            editor.setMaxLength(field.max_length)
-        validator = _field_validator(field, editor)
-        if validator is not None:
-            editor.setValidator(validator)
-        if field.field_type == "date":
-            editor.setPlaceholderText("DD.MM.YYYY")
         if field.numeric_mask is not None:
             editor.editingFinished.connect(
                 lambda current=editor, item=field: _normalize_numeric_editor(
@@ -1132,7 +1193,67 @@ class TideQtEditDialog(QDialog):
                 )
             )
         editor.installEventFilter(self)
+        self._configure_field_editor(field, editor)
         return editor
+
+    def _configure_field_editor(
+        self,
+        field: QtEditField,
+        editor: QWidget,
+    ) -> None:
+        editable = field.editable and not self._saving
+        editor.setEnabled(editable)
+        editor.setFocusPolicy(
+            Qt.FocusPolicy.StrongFocus
+            if editable
+            else Qt.FocusPolicy.NoFocus
+        )
+        if isinstance(editor, TideQtReferenceEditor):
+            editor.field = field
+            editor.select_button.setVisible(field.editable)
+            editor.clear_button.setVisible(field.editable and not field.required)
+            editor.display.setStyleSheet(
+                ""
+                if field.editable
+                else (
+                    "background: palette(alternate-base); "
+                    "color: palette(mid);"
+                )
+            )
+            return
+        if isinstance(editor, QLineEdit):
+            editor.setReadOnly(not field.editable)
+            editor.setStyleSheet(
+                ""
+                if field.editable
+                else (
+                    "background: palette(alternate-base); "
+                    "color: palette(mid);"
+                )
+            )
+            editor.setMaxLength(field.max_length or 32_767)
+            editor.setValidator(
+                _field_validator(field, editor)
+                if field.editable
+                else None
+            )
+            editor.setPlaceholderText(
+                "DD.MM.YYYY"
+                if field.field_type == "date" and field.editable
+                else ""
+            )
+
+    @staticmethod
+    def _configure_field_label(
+        label: QLabel,
+        field: QtEditField,
+    ) -> None:
+        label.setText(f"{field.label} *" if field.required else field.label)
+        label.setStyleSheet(
+            ""
+            if field.editable
+            else "color: palette(mid); font-style: italic;"
+        )
 
     def _save(self) -> None:
         if self._saving or not self._save_available:
@@ -2717,12 +2838,20 @@ class TideQtWindow(QMainWindow):
         self._operation_workers.discard(worker)
         if source not in self._edit_dialogs:
             return
+        try:
+            source.replace_form(form)
+        except ValueError as error:
+            source.set_navigation_loading(False)
+            self._refresh_dialog_navigation(source)
+            source.message.setText(
+                f"Unable to display adjacent record: {error}"
+            )
+            return
         source.set_navigation_loading(False)
-        source.reject()
         target_row = self.table_model.row_for_identity(target_identity)
         if target_row is not None:
             self.table.selectRow(target_row)
-        self._show_edit_form(form)
+        self._refresh_dialog_navigation(source)
 
     @Slot(object, object)
     def _navigation_form_failed(
@@ -3206,6 +3335,40 @@ def _set_editor_value(
             and reference_display is not None
             else _value_text(field, value)
         )
+
+
+def _form_structure(form: QtEditForm) -> tuple[Any, ...]:
+    return (
+        form.entity,
+        tuple(
+            (
+                group.label,
+                tuple(tuple(field.name for field in row) for row in group.rows),
+            )
+            for group in form.groups
+        ),
+        tuple(
+            _collection_structure(collection)
+            for collection in form.collections
+        ),
+        tuple(action.name for action in form.actions),
+    )
+
+
+def _collection_structure(collection: QtEditCollection) -> tuple[Any, ...]:
+    return (
+        collection.name,
+        collection.entity,
+        tuple(column.name for column in collection.columns),
+        tuple(
+            (
+                group.label,
+                tuple(tuple(field.name for field in row) for row in group.rows),
+            )
+            for group in collection.groups
+        ),
+        collection.actions,
+    )
 
 
 def _parse_edit_date(value: str) -> date:

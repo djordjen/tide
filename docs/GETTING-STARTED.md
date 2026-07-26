@@ -210,7 +210,8 @@ states follow permissions and Invoice status. Reaching the bottom automatically
 appends the next secured server batch; there are no page-navigation buttons.
 Inside an existing-record form, **Previous** and **Next** at bottom left move
 through that current searched/filtered/sorted list. Next also crosses a cursor
-batch boundary automatically; save or cancel a changed draft before navigating.
+batch boundary automatically. The dialog remains in place while its data and
+workflow state update; save or cancel a changed draft before navigating.
 
 For an editable draft Invoice, the Customer editor opens the compiled
 `crm.Customer.lookup` as a searchable

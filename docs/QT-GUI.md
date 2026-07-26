@@ -83,12 +83,14 @@ followed by the Lines section.
 
 **Previous** and **Next** appear at the bottom left of an existing-record form.
 They follow the current browse query and its complete server-side
-search/filter/sort order, select the adjacent row in the list, and open it in
-the same form layout. At the last loaded row, **Next** transparently requests
-the next opaque cursor batch before opening its first record. The current form
-stays open if that request fails. Navigation is disabled at the first/last
-record, is not shown for a New form, and refuses to discard a changed draft:
-save or cancel local edits before moving to another record.
+search/filter/sort order and select the adjacent row in the list. The existing
+dialog stays open at the same position and size while its title, values,
+line items, writable/read-only styling, actions, ETag, and navigation state are
+replaced in place. At the last loaded row, **Next** transparently requests the
+next opaque cursor batch before loading its first record. The current form
+also stays intact if that request fails. Navigation is disabled at the
+first/last record, is not shown for a New form, and refuses to discard a
+changed draft: save or cancel local edits before moving to another record.
 
 For an editable draft Invoice, the Customer reference is not a raw identifier:
 **Select…** or F4 opens the
@@ -218,8 +220,8 @@ complete launcher contract.
 - selected records open through their real primary-key identity into compiled
   form rows and inline collection columns, with no client-side database path;
 - opened existing-record forms navigate Previous/Next in the active secured
-  list order, cross cursor boundaries in the background, and protect unsaved
-  drafts from silent replacement;
+  list order, update one stable dialog in place, cross cursor boundaries in
+  the background, and protect unsaved drafts from silent replacement;
 - one renderer-neutral layout helper resolves YAML group rows, collection
   placement, tabs, and field visibility for Textual and Qt; Web can consume the
   same semantic contract later;

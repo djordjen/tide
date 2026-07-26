@@ -526,7 +526,7 @@ def test_qt_widget_adapter_incrementally_loads_the_server_list(
     gui_thread = threading.get_ident()
     application = QApplication.instance() or QApplication([])
     model = compile_project(INVOICING)
-    session = _session(model)
+    session = _invoice_lines_session(model)
     client = _WidgetClient()
     controller = QtBrowseController(model, client, session, page_size=5)
     layout_settings = _layout_settings(tmp_path / "browse-layout.ini")
@@ -583,9 +583,17 @@ def test_qt_widget_adapter_incrementally_loads_the_server_list(
     window.table.activated.emit(window.table_model.index(0, 0))
     _wait_until(application, lambda: len(window._edit_dialogs) == 1)
     detail = next(iter(window._edit_dialogs))
+    original_geometry = detail.geometry()
+    original_number_editor = detail.editors["number"]
+    original_customer_editor = detail.editors["customer"]
+    original_lines_editor = detail.collection_editors["lines"]
     assert detail.editors["number"].text() == "INV-QT-001"
-    assert detail.editors["customer"].text() == "ADRIA - Adria Consulting"
-    assert detail.save_button.isVisible() is False
+    assert isinstance(original_customer_editor, TideQtReferenceEditor)
+    assert (
+        original_customer_editor.display.text()
+        == "ADRIA - Adria Consulting"
+    )
+    assert detail.save_button.isVisible() is True
     assert detail.previous_button.isEnabled() is False
     assert detail.next_button.isEnabled() is True
     assert detail.previous_button.mapTo(detail, QPoint()).x() < (
@@ -602,7 +610,14 @@ def test_qt_widget_adapter_incrementally_loads_the_server_list(
         and next(iter(window._edit_dialogs)).form.identity == 2,
     )
     next_detail = next(iter(window._edit_dialogs))
+    assert next_detail is detail
+    assert next_detail.geometry() == original_geometry
+    assert next_detail.editors["number"] is original_number_editor
+    assert next_detail.editors["customer"] is original_customer_editor
+    assert next_detail.collection_editors["lines"] is original_lines_editor
     assert next_detail.editors["number"].text() == "INV-QT-002"
+    assert next_detail.save_button.isVisible() is False
+    assert next_detail.collection_editors["lines"].table.rowCount() == 0
     assert next_detail.previous_button.isEnabled() is True
     assert next_detail.next_button.isEnabled() is False
     assert window.table.currentIndex().row() == 1
@@ -614,7 +629,11 @@ def test_qt_widget_adapter_incrementally_loads_the_server_list(
         and next(iter(window._edit_dialogs)).form.identity == 1,
     )
     previous_detail = next(iter(window._edit_dialogs))
+    assert previous_detail is detail
+    assert previous_detail.geometry() == original_geometry
     assert previous_detail.editors["number"].text() == "INV-QT-001"
+    assert previous_detail.save_button.isVisible() is True
+    assert previous_detail.collection_editors["lines"].table.rowCount() == 1
     assert previous_detail.previous_button.isEnabled() is False
     assert previous_detail.next_button.isEnabled() is True
     assert window.table.currentIndex().row() == 0
@@ -959,6 +978,7 @@ def test_qt_detail_next_fetches_the_adjacent_cursor_batch(
         and next(iter(window._edit_dialogs)).form.identity == 51,
     )
     adjacent = next(iter(window._edit_dialogs))
+    assert adjacent is last_loaded
     assert [query.cursor for query in client.queries] == [
         None,
         "products-batch-2",

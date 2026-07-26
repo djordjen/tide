@@ -372,8 +372,9 @@ through keyboard or mouse controls. Secured invoice and posted-sales summary
 reporting now provides terminal preview plus CSV, HTML, and PDF export. The
 native Qt Invoice workspace uses one Open form whose two-column YAML layout and
 workflow-dependent control state match Textual; its Previous/Next controls
-follow the active secured browse order without dropping unsaved drafts, and its
-report action creates a temporary PDF and opens the system viewer. A
+update one stable dialog in the active secured browse order without dropping
+unsaved drafts, and its report action creates a temporary PDF and opens the
+system viewer. A
 loopback-only FastAPI server hosts
 secured
 list/get/create/update and Invoice Post routes with typed input, ETag
