@@ -53,7 +53,11 @@ Query/Table/Virtual; a production build can be hosted after the FastAPI routes
 at the same origin. The projection now includes readable semantic form
 sections and collections; record reads add server-evaluated workflow field
 state so Web can render a stable detail view without receiving authorization
-expressions.
+expressions. For compiler-resolved flat scalar forms, the same projection adds
+safe editor constraints and resolved defaults. Web create/update calls the
+ordinary generated REST resources, returns an observed ETag when present, and
+uses structured server validation issues for field feedback; the service layer
+still owns authorization, normalization, workflow rules, and concurrency.
 
 ```text
 applications/<name>/ (YAML + Python handlers + overlays)

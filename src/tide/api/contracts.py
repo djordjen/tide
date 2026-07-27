@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -277,6 +278,39 @@ class TidePresentationColumn(BaseModel):
     reference: TidePresentationReference | None = None
 
 
+class TidePresentationFormField(TidePresentationColumn):
+    """Safe editor metadata for one readable scalar form field."""
+
+    writable: bool = False
+    required: bool = False
+    help: str | None = None
+    max_length: int | None = Field(default=None, ge=1)
+    choices: tuple[str, ...] = ()
+    regex: str | None = Field(default=None, max_length=1024)
+    numeric_mask: str | None = Field(default=None, max_length=64)
+    precision: int | None = Field(default=None, ge=1)
+    scale: int | None = Field(default=None, ge=0)
+    minimum: Decimal | None = None
+    maximum: Decimal | None = None
+    validations: tuple[str, ...] = ()
+    has_default: bool = False
+    default_value: str | int | Decimal | bool | date | datetime | None = None
+
+    @model_validator(mode="after")
+    def editor_constraints_are_consistent(
+        self,
+    ) -> TidePresentationFormField:
+        if (
+            self.precision is not None
+            and self.scale is not None
+            and self.scale > self.precision
+        ):
+            raise ValueError("form field scale cannot exceed precision")
+        if not self.has_default and self.default_value is not None:
+            raise ValueError("form field default value requires has_default")
+        return self
+
+
 class TidePresentationFormGroup(BaseModel):
     """One ordered renderer-neutral scalar-field section."""
 
@@ -315,7 +349,7 @@ class TideFormPresentation(BaseModel):
     entity: str = Field(min_length=1)
     label: str = Field(min_length=1)
     display_template: str | None = None
-    fields: dict[str, TidePresentationColumn]
+    fields: dict[str, TidePresentationFormField]
     sections: tuple[TidePresentationFormSection, ...] = Field(min_length=1)
 
     @model_validator(mode="after")

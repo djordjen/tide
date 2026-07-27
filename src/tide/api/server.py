@@ -50,6 +50,7 @@ from tide.api.openapi import (
     DEFAULT_BASE_PATH,
     REST_OPERATIONS,
     TideApiError,
+    TideApiValidationIssue,
     build_openapi_preview,
     rest_exposures,
 )
@@ -328,9 +329,26 @@ def build_fastapi_app(
         error: TideRuntimeError,
     ) -> JSONResponse:
         status = _runtime_status(error)
+        issues = (
+            tuple(
+                TideApiValidationIssue(
+                    rule=issue.rule,
+                    message=issue.message,
+                    fields=issue.fields,
+                    severity=issue.severity,
+                )
+                for issue in error.issues
+            )
+            if isinstance(error, ValidationFailed)
+            else ()
+        )
         return JSONResponse(
             status_code=status,
-            content=TideApiError(code=error.code, message=str(error)).model_dump(),
+            content=TideApiError(
+                code=error.code,
+                message=str(error),
+                issues=issues,
+            ).model_dump(),
             headers=(
                 {"WWW-Authenticate": "Bearer"}
                 if status == 401
@@ -358,13 +376,29 @@ def build_fastapi_app(
     @app.exception_handler(RequestValidationError)
     async def request_validation_error_handler(
         _request: Request,
-        _error: RequestValidationError,
+        error: RequestValidationError,
     ) -> JSONResponse:
         return JSONResponse(
             status_code=422,
             content=TideApiError(
                 code="invalid_request",
                 message="request validation failed",
+                issues=tuple(
+                    TideApiValidationIssue(
+                        rule=str(item.get("type", "invalid")),
+                        message=str(item.get("msg", "invalid value")),
+                        fields=(
+                            tuple(
+                                str(part)
+                                for part in tuple(item.get("loc", ()))[1:]
+                                if not isinstance(part, int)
+                            )
+                            if tuple(item.get("loc", ()))[:1] == ("body",)
+                            else ()
+                        ),
+                    )
+                    for item in error.errors()
+                ),
             ).model_dump(),
         )
 
@@ -974,7 +1008,9 @@ def _create_endpoint(
         _set_etag(response, entity, stored)
         identity = stored[_primary_key(entity).name]
         response.headers["Location"] = f"{resource_path}/{identity}"
-        return record_model.model_validate(_wire_record(records.model, entity, stored))
+        return record_model.model_validate(
+            _wire_record_with_state(records, entity, stored, context)
+        )
 
     create_record.__name__ = f"create_{entity.name.replace('.', '_')}"
     create_record.__annotations__["payload"] = input_model
@@ -1010,7 +1046,9 @@ def _update_endpoint(
             session.set(field_name, value)
         stored = records.commit(session, context)
         _set_etag(response, entity, stored)
-        return record_model.model_validate(_wire_record(records.model, entity, stored))
+        return record_model.model_validate(
+            _wire_record_with_state(records, entity, stored, context)
+        )
 
     update_record.__name__ = f"update_{entity.name.replace('.', '_')}"
     update_record.__annotations__["payload"] = input_model
@@ -1204,18 +1242,9 @@ def _get_endpoint(
         except (TypeError, ValueError, InvalidOperation) as error:
             raise _bad_request("record identity has an invalid type") from error
         _set_etag(response, entity, record)
-        projected = _wire_record(records.model, entity, record)
-        writable_fields = _record_writable_fields(
-            records,
-            entity,
-            record,
-            context,
+        return record_model.model_validate(
+            _wire_record_with_state(records, entity, record, context)
         )
-        if writable_fields:
-            projected.setdefault("_tide", {})["writable_fields"] = list(
-                writable_fields
-            )
-        return record_model.model_validate(projected)
 
     get_record.__name__ = f"get_{entity.name.replace('.', '_')}"
     get_record.__annotations__["identity"] = _identity_annotation(
@@ -1223,6 +1252,26 @@ def _get_endpoint(
         primary_key,
     )
     return get_record
+
+
+def _wire_record_with_state(
+    records: RecordsService,
+    entity: NormalizedEntity,
+    values: Mapping[str, Any],
+    context: RequestContext,
+) -> dict[str, Any]:
+    projected = _wire_record(records.model, entity, values)
+    writable_fields = _record_writable_fields(
+        records,
+        entity,
+        values,
+        context,
+    )
+    if writable_fields:
+        projected.setdefault("_tide", {})["writable_fields"] = list(
+            writable_fields
+        )
+    return projected
 
 
 def _record_writable_fields(

@@ -182,8 +182,18 @@ search, filters, sorting, seamless cursor loading, and personal column
 layouts. Select a row and choose **Open**, press Enter, or double-click it to
 load the shared-YAML detail layout and inline collections. Previous/Next and
 Page Up/Page Down move through the current secured list without replacing the
-form. See [Web UI](WEB-UI.md) for its architecture, security boundary,
-production build, tests, and current limitations.
+form.
+
+Open **Products** or **Customers** and choose **New** to exercise the first Web
+editing slice. Defaults, required fields, choices, masks, and numeric
+constraints come from the compiled application model. Save a record, reopen
+it, change one field, and save again; Web sends the create/update through
+FastAPI and places authoritative validation messages beside their fields. If
+the entity defines a concurrency token, the update also returns the record's
+ETag. Invoice remains a secured detail view while lookup and master-detail Web
+editing are developed as later vertical slices. See [Web UI](WEB-UI.md) for
+its architecture, security boundary, production build, tests, and current
+limitations.
 
 The unauthenticated `GET /health/live` endpoint is process-only. The
 `GET /health/ready` endpoint checks runtime persistence dependencies and returns

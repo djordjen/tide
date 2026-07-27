@@ -28,8 +28,8 @@ deep abstraction hierarchies. Application structure is declarative; complex
 business behavior remains ordinary Python.
 
 New here? Follow [Getting Started](docs/GETTING-STARTED.md) to run the demo TUI,
-open the [Web UI](docs/WEB-UI.md), use Studio, inspect REST/OpenAPI and MCP, and
-optionally connect SQL Server.
+open the [Web UI](docs/WEB-UI.md), create or edit Customer/Product records, use
+Studio, inspect REST/OpenAPI and MCP, and optionally connect SQL Server.
 The native [Qt GUI prototype](docs/QT-GUI.md) can browse and inspect records,
 create/edit Customer and Product forms, and edit complete Invoice drafts with
 Customer/Product lookups, nested **Save & Select**, and line totals—all without
@@ -397,6 +397,10 @@ loading, reference display, exact formatting, and personal column layouts.
 Its one Open path now renders the shared form rows and inline collections,
 distinguishes server-evaluated workflow locks, and navigates Previous/Next
 within the current secured browse order without replacing the detail shell.
+Flat Customer/Product forms now use typed metadata-driven controls for create
+and update, preserve exact decimal input, show field-addressable validation,
+send changed fields only, and return an observed ETag when concurrency is
+declared.
 The typed HTTP client preserves exact field types,
 protected values, cursors, ETags, and stable errors while rejecting mismatched
 applications, principals, and unsafe unencrypted non-loopback URLs. Neither

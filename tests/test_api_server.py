@@ -235,6 +235,33 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
             "unit_price",
             "total",
         ]
+        product_fields = manifest["forms"]["catalog.Product.edit"]["fields"]
+        assert {
+            "writable": product_fields["code"]["writable"],
+            "required": product_fields["code"]["required"],
+            "max_length": product_fields["code"]["max_length"],
+            "regex": product_fields["code"]["regex"],
+        } == {
+            "writable": True,
+            "required": True,
+            "max_length": 30,
+            "regex": "[A-Z][A-Z0-9-]{0,29}",
+        }
+        assert {
+            "required": product_fields["unit_price"]["required"],
+            "numeric_mask": product_fields["unit_price"]["numeric_mask"],
+            "precision": product_fields["unit_price"]["precision"],
+            "scale": product_fields["unit_price"]["scale"],
+            "minimum": product_fields["unit_price"]["minimum"],
+        } == {
+            "required": True,
+            "numeric_mask": "0.00",
+            "precision": 12,
+            "scale": 2,
+            "minimum": "0",
+        }
+        assert product_fields["active"]["has_default"] is True
+        assert product_fields["active"]["default_value"] is True
         assert presentation.headers["cache-control"] == "no-store"
         assert anonymous_presentation.status_code == 401
         for response in (missing, incorrect):
@@ -787,15 +814,13 @@ def test_server_lists_gets_and_pages_secured_records() -> None:
         assert missing.status_code == 404
         assert missing.json()["code"] == "not_found"
         assert invalid.status_code == 422
-        assert invalid.json() == {
-            "code": "invalid_request",
-            "message": "request validation failed",
-        }
+        assert invalid.json()["code"] == "invalid_request"
+        assert invalid.json()["message"] == "request validation failed"
+        assert invalid.json()["issues"][0]["fields"] == []
         assert invalid_limit.status_code == 422
-        assert invalid_limit.json() == {
-            "code": "invalid_request",
-            "message": "request validation failed",
-        }
+        assert invalid_limit.json()["code"] == "invalid_request"
+        assert invalid_limit.json()["message"] == "request validation failed"
+        assert invalid_limit.json()["issues"][0]["fields"] == []
 
     asyncio.run(exercise())
 
@@ -812,6 +837,16 @@ def test_server_creates_and_patches_through_records_service() -> None:
                     "code": "API-PRODUCT",
                     "name": "API product",
                     "unit_price": "19.95",
+                    "active": True,
+                },
+            )
+            duplicate_product = await client.post(
+                "/api/v1/products",
+                headers=_authorization(),
+                json={
+                    "code": "API-PRODUCT",
+                    "name": "Duplicate API product",
+                    "unit_price": "9.95",
                     "active": True,
                 },
             )
@@ -868,7 +903,18 @@ def test_server_creates_and_patches_through_records_service() -> None:
         assert created_product.json()["id"] == 4
         assert created_product.json()["unit_price"] == "19.95"
         assert created_product.headers["location"] == "/api/v1/products/4"
+        assert duplicate_product.status_code == 422
+        assert duplicate_product.json()["code"] == "validation_failed"
+        assert duplicate_product.json()["issues"] == [
+            {
+                "rule": "unique",
+                "message": "code must be unique",
+                "fields": ["code"],
+                "severity": "error",
+            }
+        ]
         assert rejected_system_field.status_code == 422
+        assert rejected_system_field.json()["issues"][0]["fields"] == ["id"]
         assert created_invoice.status_code == 201
         assert created_invoice.json()["number"] == "INV-2026-000009"
         assert created_invoice.json()["total"] == "170.00"

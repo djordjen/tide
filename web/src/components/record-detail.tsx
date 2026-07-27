@@ -4,22 +4,34 @@ import {
   useState,
   type CSSProperties,
 } from "react"
-import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
+import {
+  AlertTriangle,
   ChevronLeft,
   ChevronRight,
   LoaderCircle,
   LockKeyhole,
   Rows3,
+  Save,
   ShieldCheck,
   X,
 } from "lucide-react"
 
+import { RecordFormEditor } from "@/components/record-form-editor"
 import { TideDisplayValue } from "@/components/tide-display-value"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { TideApiError, type TideApi } from "@/lib/api"
+import {
+  TideApiError,
+  type TideApi,
+  type TideValidationIssue,
+} from "@/lib/api"
 import type {
   TideBrowsePresentation,
   TideFormPresentation,
@@ -29,13 +41,23 @@ import type {
   TideRecord,
 } from "@/lib/contracts"
 import { formatRecordDisplay } from "@/lib/format"
+import {
+  changedMutationPayload,
+  formDraft,
+  isFlatEditableForm,
+  mutationPayload,
+  validateFormDraft,
+  type TideFormDraft,
+  type TideFormErrors,
+} from "@/lib/form-draft"
 import { cn } from "@/lib/utils"
 
 interface RecordDetailProps {
   api: TideApi
   view: TideBrowsePresentation
   form: TideFormPresentation
-  identity: unknown
+  mode: "create" | "update"
+  identity: unknown | null
   position: number
   loadedCount: number
   canPrevious: boolean
@@ -44,12 +66,14 @@ interface RecordDetailProps {
   onPrevious: () => void
   onNext: () => void
   onClose: () => void
+  onSaved: (record: TideRecord, mode: "create" | "update") => void
 }
 
 export function RecordDetail({
   api,
   view,
   form,
+  mode,
   identity,
   position,
   loadedCount,
@@ -59,22 +83,70 @@ export function RecordDetail({
   onPrevious,
   onNext,
   onClose,
+  onSaved,
 }: RecordDetailProps) {
+  const queryClient = useQueryClient()
   const query = useQuery({
     queryKey: ["record-detail", view.view, identity],
-    queryFn: ({ signal }) => api.getRecord(view, identity, signal),
+    queryFn: ({ signal }) => {
+      if (identity === null) {
+        throw new Error("record identity missing")
+      }
+      return api.getRecord(view, identity, signal)
+    },
+    enabled: mode === "update" && identity !== null,
     staleTime: 15_000,
     placeholderData: keepPreviousData,
   })
   const tabs = useMemo(() => formTabs(form.sections), [form.sections])
   const [selectedTab, setSelectedTab] = useState(tabs[0] ?? "")
-  const record = query.data
+  const [draft, setDraft] = useState<TideFormDraft>(() =>
+    formDraft(form),
+  )
+  const [fieldErrors, setFieldErrors] = useState<TideFormErrors>({})
+  const [saveError, setSaveError] = useState<TideApiError | null>(null)
+  const snapshot = query.data
+  const record = snapshot?.record
   const error =
     query.error instanceof TideApiError
       ? query.error
       : query.error
         ? new TideApiError("The record could not be loaded.")
         : null
+  const flatEditable = isFlatEditableForm(form)
+  const operationAvailable = view.operations.includes(
+    mode === "create" ? "create" : "update",
+  )
+  const editableFields = useMemo(
+    () =>
+      new Set(
+        Object.values(form.fields)
+          .filter(
+            (field) =>
+              flatEditable &&
+              operationAvailable &&
+              field.writable &&
+              (mode === "create" ||
+                (record?._tide?.writable_fields ?? []).includes(
+                  field.name,
+                )),
+          )
+          .map((field) => field.name),
+      ),
+    [
+      flatEditable,
+      form.fields,
+      mode,
+      operationAvailable,
+      record?._tide?.writable_fields,
+    ],
+  )
+  const editorActive = editableFields.size > 0
+  const changes =
+    mode === "update" && record
+      ? changedMutationPayload(form, draft, editableFields, record)
+      : {}
+  const dirty = mode === "create" || Object.keys(changes).length > 0
 
   useEffect(() => {
     if (!tabs.includes(selectedTab)) {
@@ -83,18 +155,94 @@ export function RecordDetail({
   }, [selectedTab, tabs])
 
   useEffect(() => {
+    if (mode === "create") {
+      setDraft(formDraft(form))
+      setFieldErrors({})
+      setSaveError(null)
+    } else if (record && !query.isPlaceholderData) {
+      setDraft(formDraft(form, record))
+      setFieldErrors({})
+      setSaveError(null)
+    }
+  }, [form, mode, query.isPlaceholderData, record])
+
+  const saveMutation = useMutation({
+    mutationFn: ({
+      payload,
+    }: {
+      payload: Record<string, unknown>
+    }) =>
+      mode === "create"
+        ? api.createRecord(view, payload)
+        : api.updateRecord(
+            view,
+            identity,
+            payload,
+            snapshot?.etag ?? null,
+          ),
+    onSuccess: (saved) => {
+      setFieldErrors({})
+      setSaveError(null)
+      if (mode === "update" && identity !== null) {
+        queryClient.setQueryData(
+          ["record-detail", view.view, identity],
+          saved,
+        )
+        setDraft(formDraft(form, saved.record))
+      }
+      onSaved(saved.record, mode)
+    },
+    onError: (mutationError) => {
+      const apiError =
+        mutationError instanceof TideApiError
+          ? mutationError
+          : new TideApiError("The record could not be saved.")
+      setSaveError(apiError)
+      setFieldErrors(issueFieldErrors(form, apiError.issues))
+    },
+  })
+
+  function save() {
+    const clientErrors = validateFormDraft(
+      form,
+      draft,
+      editableFields,
+    )
+    setFieldErrors(clientErrors)
+    setSaveError(null)
+    if (Object.keys(clientErrors).length > 0) {
+      focusFirstError(clientErrors)
+      return
+    }
+    const payload =
+      mode === "create"
+        ? mutationPayload(form, draft, editableFields)
+        : changes
+    if (mode === "update" && Object.keys(payload).length === 0) {
+      return
+    }
+    saveMutation.mutate({ payload })
+  }
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "PageUp" && canPrevious && !navigationPending) {
+      if (
+        event.key === "PageUp" &&
+        canPrevious &&
+        !navigationPending &&
+        !dirty
+      ) {
         event.preventDefault()
         onPrevious()
       } else if (
         event.key === "PageDown" &&
         canNext &&
-        !navigationPending
+        !navigationPending &&
+        !dirty
       ) {
         event.preventDefault()
         onNext()
-      } else if (event.key === "Escape") {
+      } else if (event.key === "Escape" && !saveMutation.isPending) {
         event.preventDefault()
         onClose()
       }
@@ -104,10 +252,12 @@ export function RecordDetail({
   }, [
     canNext,
     canPrevious,
+    dirty,
     navigationPending,
     onClose,
     onNext,
     onPrevious,
+    saveMutation.isPending,
   ])
 
   const visibleSections =
@@ -122,7 +272,9 @@ export function RecordDetail({
         record,
         view.identity_field,
       )
-    : String(identity)
+    : mode === "create"
+      ? `New ${form.label}`
+      : String(identity)
   const writable = new Set(record?._tide?.writable_fields ?? [])
 
   return (
@@ -131,16 +283,26 @@ export function RecordDetail({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="truncate text-2xl font-semibold tracking-tight">
-              {form.label} — {display || String(identity)}
+              {mode === "create"
+                ? `New ${form.label}`
+                : `${form.label} — ${display || String(identity)}`}
             </h1>
-            <Badge variant="outline">Secured detail</Badge>
+            <Badge variant="outline">
+              {mode === "create"
+                ? "New record"
+                : editorActive
+                  ? "Secured editor"
+                  : "Secured detail"}
+            </Badge>
             {query.isFetching ? (
               <LoaderCircle className="size-4 animate-spin text-muted-foreground" />
             ) : null}
           </div>
           <p className="mt-1.5 flex items-center gap-1.5 text-sm text-muted-foreground">
             <ShieldCheck className="size-3.5" />
-            Record {position + 1} of {loadedCount} loaded in the current query
+            {mode === "create"
+              ? "Defaults and validation come from the compiled application model"
+              : `Record ${position + 1} of ${loadedCount} loaded in the current query`}
           </p>
         </div>
         <Button
@@ -167,6 +329,27 @@ export function RecordDetail({
           >
             Try again
           </Button>
+        </div>
+      ) : null}
+
+      {saveError ? (
+        <div
+          role="alert"
+          className="mb-4 flex shrink-0 items-start gap-3 rounded-xl border border-destructive/25 bg-destructive/8 px-4 py-3 text-sm text-destructive"
+        >
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <div>
+            <p className="font-medium">
+              {saveError.status === 412
+                ? "This record changed on the server."
+                : "The record could not be saved."}
+            </p>
+            <p className="mt-0.5 text-xs leading-5 text-destructive/85">
+              {saveError.status === 412
+                ? "Cancel and reopen it to review the current values before editing again."
+                : saveError.message}
+            </p>
+          </div>
         </div>
       ) : null}
 
@@ -197,8 +380,31 @@ export function RecordDetail({
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border bg-card shadow-sm">
-        {!record && query.isPending ? (
+        {mode === "update" && !record && query.isPending ? (
           <DetailSkeleton />
+        ) : editorActive && (mode === "create" || record) ? (
+          <div className="space-y-5 p-4 md:p-5">
+            <RecordFormEditor
+              api={api}
+              form={{ ...form, sections: visibleSections }}
+              draft={draft}
+              editableFields={editableFields}
+              errors={fieldErrors}
+              disabled={saveMutation.isPending}
+              onChange={(name, value) => {
+                setDraft((current) => ({ ...current, [name]: value }))
+                setFieldErrors((current) => {
+                  if (!current[name]) {
+                    return current
+                  }
+                  const next = { ...current }
+                  delete next[name]
+                  return next
+                })
+                setSaveError(null)
+              }}
+            />
+          </div>
         ) : record ? (
           <div className="space-y-5 p-4 md:p-5">
             {visibleSections.map((section, index) =>
@@ -225,30 +431,64 @@ export function RecordDetail({
       </div>
 
       <footer className="mt-4 flex shrink-0 items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            disabled={!canPrevious || navigationPending}
-            onClick={onPrevious}
-          >
-            <ChevronLeft />
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            disabled={!canNext || navigationPending}
-            onClick={onNext}
-          >
-            Next
-            <ChevronRight />
-          </Button>
-          <span className="hidden text-xs text-muted-foreground xl:inline">
-            Page Up / Page Down
-          </span>
+        <div>
+          {mode === "update" ? (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                disabled={!canPrevious || navigationPending || dirty}
+                onClick={onPrevious}
+              >
+                <ChevronLeft />
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                disabled={!canNext || navigationPending || dirty}
+                onClick={onNext}
+              >
+                Next
+                <ChevronRight />
+              </Button>
+              <span className="hidden text-xs text-muted-foreground xl:inline">
+                {dirty
+                  ? "Save or Cancel before navigating"
+                  : "Page Up / Page Down"}
+              </span>
+            </div>
+          ) : null}
         </div>
-        <Button className="hidden md:inline-flex" onClick={onClose}>
-          Close
-        </Button>
+        <div className="flex items-center gap-2">
+          {editorActive ? (
+            <>
+              <Button
+                variant="outline"
+                disabled={saveMutation.isPending}
+                onClick={onClose}
+              >
+                Cancel
+              </Button>
+              <Button
+                disabled={
+                  saveMutation.isPending ||
+                  (mode === "update" && !dirty)
+                }
+                onClick={save}
+              >
+                {saveMutation.isPending ? (
+                  <LoaderCircle className="animate-spin" />
+                ) : (
+                  <Save />
+                )}
+                Save
+              </Button>
+            </>
+          ) : (
+            <Button className="hidden md:inline-flex" onClick={onClose}>
+              Close
+            </Button>
+          )}
+        </div>
       </footer>
     </main>
   )
@@ -438,4 +678,38 @@ function formTabs(sections: TidePresentationFormSection[]): string[] {
   return [
     ...new Set(sections.map((section) => section.tab ?? "General")),
   ]
+}
+
+function issueFieldErrors(
+  form: TideFormPresentation,
+  issues: TideValidationIssue[],
+): TideFormErrors {
+  const errors: TideFormErrors = {}
+  for (const issue of issues) {
+    for (const name of issue.fields) {
+      const field = form.fields[name]
+      if (!field || errors[name]) {
+        continue
+      }
+      errors[name] = issue.message.replace(
+        new RegExp(`^${escapeRegExp(name)}\\b`, "i"),
+        field.label,
+      )
+    }
+  }
+  return errors
+}
+
+function focusFirstError(errors: TideFormErrors) {
+  const name = Object.keys(errors)[0]
+  if (!name) {
+    return
+  }
+  requestAnimationFrame(() => {
+    document.getElementById(`tide-editor-${name}`)?.focus()
+  })
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }

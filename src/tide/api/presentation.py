@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from string import Formatter
 from typing import Mapping
 
@@ -11,6 +12,7 @@ from tide.api.contracts import (
     TideFormPresentation,
     TidePresentationColumn,
     TidePresentationFormCollection,
+    TidePresentationFormField,
     TidePresentationFormGroup,
     TidePresentationFormat,
     TidePresentationManifest,
@@ -213,7 +215,7 @@ def _form_contract(
         return None
 
     readable = frozenset(capabilities.readable_fields)
-    fields: dict[str, TidePresentationColumn] = {}
+    fields: dict[str, TidePresentationFormField] = {}
     sections: list[
         TidePresentationFormGroup | TidePresentationFormCollection
     ] = []
@@ -232,12 +234,13 @@ def _form_contract(
             if not rows:
                 continue
             for name in (name for row in rows for name in row):
-                fields[name] = _column_contract(
+                fields[name] = _form_field_contract(
                     entity,
                     name,
                     model,
                     session,
                     exposures,
+                    writable=name in capabilities.writable_fields,
                     base_path=base_path,
                 )
             sections.append(
@@ -306,6 +309,77 @@ def _form_contract(
         display_template=_safe_display_template(entity, readable),
         fields=fields,
         sections=tuple(sections),
+    )
+
+
+def _form_field_contract(
+    entity: NormalizedEntity,
+    field_name: str,
+    model: ApplicationModel,
+    session: TideSessionInfo,
+    exposures: Mapping[str, RestExposure],
+    *,
+    writable: bool,
+    base_path: str,
+) -> TidePresentationFormField:
+    field = entity.field(field_name)
+    metadata = field.metadata
+    column = _column_contract(
+        entity,
+        field_name,
+        model,
+        session,
+        exposures,
+        base_path=base_path,
+    )
+    edit_mask = metadata.get("edit_mask")
+    validation = metadata.get("validation")
+    validations = (
+        (str(validation),)
+        if isinstance(validation, str)
+        else tuple(str(item) for item in (validation or ()))
+    )
+    has_default = (
+        "default" in metadata or metadata.get("default_factory") == "today"
+    )
+    default_value = (
+        date.today()
+        if metadata.get("default_factory") == "today"
+        else metadata.get("default")
+    )
+    return TidePresentationFormField(
+        **column.model_dump(),
+        writable=writable,
+        required=bool(metadata.get("required")),
+        help=str(metadata["help"]) if metadata.get("help") else None,
+        max_length=(
+            int(metadata["length"])
+            if metadata.get("length") is not None
+            else None
+        ),
+        choices=tuple(str(item) for item in metadata.get("choices", ())),
+        regex=(
+            str(edit_mask["regex"])
+            if isinstance(edit_mask, Mapping)
+            and edit_mask.get("regex") is not None
+            else None
+        ),
+        numeric_mask=edit_mask if isinstance(edit_mask, str) else None,
+        precision=(
+            int(metadata["precision"])
+            if metadata.get("precision") is not None
+            else None
+        ),
+        scale=(
+            int(metadata["scale"])
+            if metadata.get("scale") is not None
+            else None
+        ),
+        minimum=metadata.get("minimum"),
+        maximum=metadata.get("maximum"),
+        validations=validations,
+        has_default=has_default,
+        default_value=default_value if has_default else None,
     )
 
 

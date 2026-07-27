@@ -6,6 +6,7 @@ import type {
   TideQueryInput,
   TideRecord,
   TideRecordPage,
+  TideRecordSnapshot,
   TideSessionInfo,
 } from "@/lib/contracts"
 
@@ -15,12 +16,21 @@ const DEFAULT_BASE_PATH = "/api/v1"
 interface TideErrorEnvelope {
   code?: unknown
   message?: unknown
+  issues?: unknown
+}
+
+export interface TideValidationIssue {
+  rule: string
+  message: string
+  fields: string[]
+  severity: string
 }
 
 export class TideApiError extends Error {
   readonly status: number
   readonly code: string
   readonly correlationId: string | null
+  readonly issues: TideValidationIssue[]
 
   constructor(
     message: string,
@@ -28,10 +38,12 @@ export class TideApiError extends Error {
       status = 0,
       code = "transport_error",
       correlationId = null,
+      issues = [],
     }: {
       status?: number
       code?: string
       correlationId?: string | null
+      issues?: TideValidationIssue[]
     } = {},
   ) {
     super(message)
@@ -39,6 +51,7 @@ export class TideApiError extends Error {
     this.status = status
     this.code = code
     this.correlationId = correlationId
+    this.issues = issues
   }
 }
 
@@ -121,11 +134,45 @@ export class TideApi {
     view: TideBrowsePresentation,
     identity: unknown,
     signal?: AbortSignal,
-  ): Promise<TideRecord> {
+  ): Promise<TideRecordSnapshot> {
     const segment = encodeURIComponent(String(identity))
-    return this.request<TideRecord>(
+    return this.recordRequest(
       `${view.resource_path}/${segment}`,
       { method: "GET" },
+      signal,
+    )
+  }
+
+  createRecord(
+    view: TideBrowsePresentation,
+    values: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<TideRecordSnapshot> {
+    return this.recordRequest(
+      view.resource_path,
+      {
+        method: "POST",
+        body: JSON.stringify(values),
+      },
+      signal,
+    )
+  }
+
+  updateRecord(
+    view: TideBrowsePresentation,
+    identity: unknown,
+    values: Record<string, unknown>,
+    etag: string | null,
+    signal?: AbortSignal,
+  ): Promise<TideRecordSnapshot> {
+    const segment = encodeURIComponent(String(identity))
+    return this.recordRequest(
+      `${view.resource_path}/${segment}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(values),
+        headers: etag ? { "If-Match": etag } : undefined,
+      },
       signal,
     )
   }
@@ -148,6 +195,30 @@ export class TideApi {
     init: RequestInit,
     signal?: AbortSignal,
   ): Promise<T> {
+    return (await this.requestWithResponse<T>(path, init, signal)).data
+  }
+
+  private async recordRequest(
+    path: string,
+    init: RequestInit,
+    signal?: AbortSignal,
+  ): Promise<TideRecordSnapshot> {
+    const result = await this.requestWithResponse<TideRecord>(
+      path,
+      init,
+      signal,
+    )
+    return {
+      record: result.data,
+      etag: result.response.headers.get("ETag"),
+    }
+  }
+
+  private async requestWithResponse<T>(
+    path: string,
+    init: RequestInit,
+    signal?: AbortSignal,
+  ): Promise<{ data: T; response: Response }> {
     const safePath = safeApiPath(path)
     let response: Response
     try {
@@ -191,11 +262,15 @@ export class TideApi {
         status: response.status,
         code,
         correlationId,
+        issues: safeValidationIssues(envelope.issues),
       })
     }
 
     try {
-      return (await response.json()) as T
+      return {
+        data: (await response.json()) as T,
+        response,
+      }
     } catch {
       throw new TideApiError("The server returned an invalid JSON response.", {
         status: response.status,
@@ -204,6 +279,34 @@ export class TideApi {
       })
     }
   }
+}
+
+function safeValidationIssues(value: unknown): TideValidationIssue[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.flatMap((item) => {
+    if (
+      typeof item !== "object" ||
+      item === null ||
+      typeof Reflect.get(item, "rule") !== "string" ||
+      typeof Reflect.get(item, "message") !== "string"
+    ) {
+      return []
+    }
+    const fields = Reflect.get(item, "fields")
+    const severity = Reflect.get(item, "severity")
+    return [
+      {
+        rule: Reflect.get(item, "rule") as string,
+        message: Reflect.get(item, "message") as string,
+        fields: Array.isArray(fields)
+          ? fields.filter((field): field is string => typeof field === "string")
+          : [],
+        severity: typeof severity === "string" ? severity : "error",
+      },
+    ]
+  })
 }
 
 function safeApiPath(path: string): string {

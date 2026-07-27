@@ -1,7 +1,7 @@
 # Web UI
 
-**Status: generic metadata-driven browse and secured detail slices are
-implemented.**
+**Status: generic metadata-driven browse, secured detail, and flat-form
+editing slices are implemented.**
 
 TIDE Web is a reusable React renderer for compiled TIDE applications. The
 checked-in Invoicing application is the golden example, but the browser code
@@ -57,7 +57,16 @@ database.
 - clearly distinguished workflow-locked and writable fields, based on safe
   per-record state evaluated by the server;
 - Previous/Next navigation in the current secured browse order, including
-  cursor-boundary loading and Page Up/Page Down shortcuts.
+  cursor-boundary loading and Page Up/Page Down shortcuts;
+- capability-gated **New** and **Save** workflows for flat scalar Customer and
+  Product forms;
+- typed Boolean, choice, text, email, date, datetime, integer, and exact
+  decimal controls, including metadata defaults, required state, length,
+  regular-expression, numeric-mask, precision/scale, range, and choice hints;
+- Enter traversal, date `+`/`-` shortcuts, changed-fields-only updates, and
+  field-addressable client and server validation feedback;
+- optimistic update protection whenever the entity declares a concurrency
+  token and its record response supplies an ETag.
 
 The YAML column order remains the shared application default. Ordinary browser
 reordering and resizing are personal preferences and never edit application
@@ -79,12 +88,22 @@ names or shadcn component names. A renderer maps shared field types, formats,
 alignment, and future conditional-style tokens to its own controls. This keeps
 the same YAML meaningful to Textual, Qt, Web, and later renderers.
 
-The detail manifest is also a safe projection. It contains field display
-metadata and resolved semantic layout, but no YAML expressions, permissions,
-handlers, or database configuration. `GET` record responses may include
-server-evaluated `writable_fields` hints so the browser can distinguish locked
-fields. These hints are advisory: every later mutation is authorized and
+The detail manifest is also a safe projection. It contains resolved semantic
+layout plus the editor facts needed to render a useful form: type, writable
+hint, required state, help, choices, bounded masks, numeric constraints,
+validation names, and already-resolved defaults. It contains no YAML
+expressions, permission/workflow rules, handlers, or database configuration.
+Record responses may include server-evaluated `writable_fields` hints so the
+browser can distinguish locked fields. These hints and the browser's early
+validation are advisory: every mutation is authorized, normalized, and
 validated again by FastAPI and the shared services.
+
+Create sends only currently writable scalar fields. Update sends only changed
+fields and returns refreshed per-record field state. If a record `GET` supplies
+an ETag, Web returns it through `If-Match`; a stale response is shown as an
+explicit concurrency message instead of silently overwriting the record.
+Validation responses may carry safe field-addressable issues so the browser can
+place the authoritative message beside the corresponding editor.
 
 The current development connection screen accepts a bearer token manually.
 Provider-specific interactive browser sign-in, token refresh, and logout are a
@@ -135,8 +154,8 @@ against one supported Node version alongside the Python 3.11 framework suite.
 
 ## Next slice
 
-The next Web milestone is carefully bounded editing for flat scalar
-Customer/Product forms: typed controls, masks, defaults, validation, create and
-ETag-protected update. Lookup selection and **Save & Select**, Invoice
-master-detail drafts, conflict review, domain actions, and report preview will
-then follow as separate reviewed vertical slices.
+The next Web milestone is renderer acceptance coverage for the semantic
+behaviors now shared by Textual, Qt, and Web. After that, lookup selection and
+**Save & Select** are the next editing vertical slice. Invoice master-detail
+drafts, conflict review, domain actions, and report preview remain separate
+reviewed milestones.

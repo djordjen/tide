@@ -7,8 +7,10 @@ import {
 } from "react"
 import { useInfiniteQuery } from "@tanstack/react-query"
 import {
+  CircleCheck,
   Filter,
   FolderOpen,
+  Plus,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -38,6 +40,7 @@ import type {
   TideRecord,
   TideSortInput,
 } from "@/lib/contracts"
+import { isFlatEditableForm } from "@/lib/form-draft"
 import { cn } from "@/lib/utils"
 
 interface BrowseWorkspaceProps {
@@ -63,6 +66,8 @@ export function BrowseWorkspace({
     null,
   )
   const [activeIdentity, setActiveIdentity] = useState<unknown | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [feedback, setFeedback] = useState<string | null>(null)
   const [navigationPending, setNavigationPending] = useState(false)
   const scrollReset = useRef<(() => void) | null>(null)
 
@@ -113,6 +118,7 @@ export function BrowseWorkspace({
   useEffect(() => {
     scrollReset.current?.()
     setSelectedIdentity(null)
+    setFeedback(null)
   }, [debouncedSearch, filterName, sort])
 
   const identityOf = useCallback(
@@ -210,7 +216,7 @@ export function BrowseWorkspace({
     <main
       className={cn(
         "min-h-0 flex-1 flex-col p-4 md:p-6",
-        activeIdentity === null ? "flex" : "hidden",
+        activeIdentity === null && !creating ? "flex" : "hidden",
       )}
     >
       <div className="mb-5 flex shrink-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -286,23 +292,38 @@ export function BrowseWorkspace({
           ) : null}
 
           {form ? (
-            <Button
-              variant="outline"
-              disabled={selectedIdentity === null}
-              onClick={() => {
-                const record = records.find(
-                  (candidate) =>
-                    String(identityOf(candidate)) ===
-                    String(selectedIdentity),
-                )
-                if (record) {
-                  openRecord(record)
-                }
-              }}
-            >
-              <FolderOpen />
-              Open
-            </Button>
+            <>
+              {isFlatEditableForm(form) &&
+              Object.values(form.fields).some((field) => field.writable) &&
+              view.operations.includes("create") ? (
+                <Button
+                  onClick={() => {
+                    setFeedback(null)
+                    setCreating(true)
+                  }}
+                >
+                  <Plus />
+                  New
+                </Button>
+              ) : null}
+              <Button
+                variant="outline"
+                disabled={selectedIdentity === null}
+                onClick={() => {
+                  const record = records.find(
+                    (candidate) =>
+                      String(identityOf(candidate)) ===
+                      String(selectedIdentity),
+                  )
+                  if (record) {
+                    openRecord(record)
+                  }
+                }}
+              >
+                <FolderOpen />
+                Open
+              </Button>
+            </>
           ) : null}
 
           <Button
@@ -335,6 +356,16 @@ export function BrowseWorkspace({
         </div>
       ) : null}
 
+      {feedback ? (
+        <div
+          role="status"
+          className="mb-4 flex shrink-0 items-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/8 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300"
+        >
+          <CircleCheck className="size-4" />
+          {feedback}
+        </div>
+      ) : null}
+
       <TideDataGrid
         api={api}
         application={application}
@@ -357,12 +388,13 @@ export function BrowseWorkspace({
         }}
       />
     </main>
-    {activeIdentity !== null && form ? (
+    {(activeIdentity !== null || creating) && form ? (
       <RecordDetail
         api={api}
         view={view}
         form={form}
-        identity={activeIdentity}
+        mode={creating ? "create" : "update"}
+        identity={creating ? null : activeIdentity}
         position={Math.max(activeIndex, 0)}
         loadedCount={records.length}
         canPrevious={activeIndex > 0}
@@ -373,7 +405,22 @@ export function BrowseWorkspace({
         navigationPending={navigationPending}
         onPrevious={() => void navigate(-1)}
         onNext={() => void navigate(1)}
-        onClose={() => setActiveIdentity(null)}
+        onClose={() => {
+          setCreating(false)
+          setActiveIdentity(null)
+        }}
+        onSaved={(record, mode) => {
+          const identity = identityOf(record)
+          setSelectedIdentity(identity)
+          setFeedback(
+            `${form.label} ${mode === "create" ? "created" : "updated"} successfully.`,
+          )
+          if (mode === "create") {
+            setCreating(false)
+            setActiveIdentity(null)
+          }
+          void query.refetch()
+        }}
       />
     ) : null}
     </>

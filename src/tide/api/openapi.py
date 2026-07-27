@@ -43,6 +43,17 @@ class TideProtectionMetadata(BaseModel):
     )
 
 
+class TideApiValidationIssue(BaseModel):
+    """One safe field-addressable validation issue."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    rule: str
+    message: str
+    fields: tuple[str, ...] = ()
+    severity: str = "error"
+
+
 class TideApiError(BaseModel):
     """Stable error envelope available to generated adapters."""
 
@@ -50,6 +61,10 @@ class TideApiError(BaseModel):
 
     code: str
     message: str
+    issues: tuple[TideApiValidationIssue, ...] = Field(
+        default=(),
+        exclude_if=lambda value: not value,
+    )
 
 
 @dataclass(frozen=True, slots=True)

@@ -104,17 +104,19 @@ reports only whether the safe record-history route is available and does not
 disclose the permission name. It is capability information for rendering and
 early feedback, never a replacement for per-request authorization.
 
-The authenticated `GET /api/v1/_tide/presentation` resource is the first Web
+The authenticated `GET /api/v1/_tide/presentation` resource is the Web
 renderer foundation. It projects the compiler-normalized application
-navigation and browse metadata into a versioned, principal-bound contract:
+navigation, browse metadata, and safe form editor facts into a versioned,
+principal-bound contract:
 resource/query paths, identity fields, visible readable columns, labels, types,
 alignment and formats, reference targets, search, structured named filters,
-sortable fields, fetch size, and currently available REST operations. Whole
-views, empty navigation groups, protected fields, and controls that depend on a
-protected field are omitted. The projection never returns raw YAML, database
-configuration, permission expressions, or application Python. Its operation
-list is advisory; every list/query/get request is authorized again by the
-ordinary service route.
+sortable fields, fetch size, currently available REST operations, required
+state, choices, masks, numeric constraints, validation names, and resolved
+defaults. Whole views, empty navigation groups, protected fields, and controls
+that depend on a protected field are omitted. The projection never returns raw
+YAML, database configuration, permission/workflow expressions, or application
+Python. Its operation and writable hints are advisory; every request is
+authorized again by the ordinary service route.
 
 Every completed framework HTTP response includes an effective
 `X-Correlation-ID`. A caller may
@@ -539,16 +541,23 @@ grouped navigation and virtualized server-mode browse workspaces from the safe
 presentation manifest and existing structured REST queries. Search, named
 filters, sorting, opaque-cursor loading, exact formatting, authorized reference
 display, and personal column layouts do not require raw YAML in the browser.
-The manifest also projects safe renderer-neutral form groups, rows, tabs, and
-inline collection columns. A selected record loads through the authenticated
-generated `GET` route into a stable detail shell with workflow-aware locked
-fields and current-query Previous/Next navigation.
+The manifest also projects safe renderer-neutral form groups, rows, tabs,
+inline collection columns, and bounded scalar editor constraints. A selected
+record loads through the authenticated generated `GET` route into a stable
+detail shell with workflow-aware locked fields and current-query Previous/Next
+navigation. Flat Customer and Product forms now create and update through the
+ordinary generated routes. The browser preserves Decimal text, sends only
+changed fields in `PATCH`, and returns an observed ETag in `If-Match` whenever
+the entity defines optimistic concurrency.
 
 Record responses can include server-evaluated `writable_fields` presentation
 hints. They contain no permission or workflow expression and are not an
 authorization grant: mutation routes continue to reauthorize row and field
 access, normalize values, enforce validation and workflow rules, and apply
-optimistic concurrency.
+optimistic concurrency. Validation failures may add safe `issues` containing a
+rule, message, severity, and field names to the stable error envelope. Clients
+can place those messages beside controls; non-validation errors retain the
+existing compact envelope.
 
 This contract does not make the browser an authorization authority. The Web
 client may use capabilities to avoid offering unavailable controls, but actual

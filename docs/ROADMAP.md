@@ -233,10 +233,12 @@ an invoice entirely by keyboard or mouse.
 - Web detail view using the shared form layout, read-only states, collections,
   and current-query Previous/Next navigation; **implemented**
 - Web editing parity in reviewed slices: CRUD, lookups and **Save & Select**,
-  collection drafts, actions, conflicts, and reports; **planned**, beginning
-  with flat scalar Customer/Product editing
+  collection drafts, actions, conflicts, and reports; **flat scalar
+  Customer/Product create/update is implemented** with typed controls,
+  defaults, masks, field-addressable validation, changed-field PATCH, and
+  conditional ETag preconditions; later slices remain planned
 - executable renderer acceptance matrix for shared TUI/Qt/Web semantics;
-  **planned after the first Web editing slice**
+  **next planned Web milestone**
 
 Exit condition: TUI, REST, and MCP produce equivalent secured outcomes through
 the same services.

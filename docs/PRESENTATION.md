@@ -219,11 +219,22 @@ groups, while renderers resolve their scalar fields in order into one
 two-column header before collection sections.
 
 Remote Web clients receive a capability-filtered form projection rather than
-raw layout YAML. It includes only readable scalar fields and authorized inline
-collection columns. The record resource may add a safe, server-evaluated list
-of fields currently writable for presentation; an absent or empty list renders
-the form read-only. This state is advisory and never replaces mutation-time
-service authorization.
+raw layout YAML. It includes only readable scalar fields, authorized inline
+collection columns, and safe editor facts: field type, principal-level
+writable hint, required/help state, choices, bounded masks, numeric
+constraints, validation names, and resolved defaults. The record resource may
+add a safe, server-evaluated list of fields currently writable for
+presentation; an absent or empty list renders an existing record read-only.
+This state and client-side validation are advisory and never replace
+mutation-time service authorization, normalization, workflow checks, or
+validation.
+
+The first Web mutation slice deliberately accepts only forms whose sections
+contain flat scalar groups. Create and update use the generated REST resource;
+exact decimal drafts remain text until the server parses them, update submits
+only changed fields, and an observed ETag is returned through `If-Match`.
+Unsupported lookups, inline collections, actions, and conflict resolution stay
+read-only until their own reviewed contracts are implemented.
 
 Qt record reports follow the same renderer-neutral boundary as Textual. The
 active entity's record report is visible only when it is REST-exposed and

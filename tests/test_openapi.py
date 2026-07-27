@@ -67,6 +67,11 @@ def test_preview_generates_typed_pydantic_record_and_page_models() -> None:
         "writable_fields",
     }
     assert "_tide" not in invoice["required"]
+    error = schemas["TideApiError"]
+    assert error["properties"]["issues"]["items"] == {
+        "$ref": "#/components/schemas/TideApiValidationIssue"
+    }
+    assert set(error["required"]) == {"code", "message"}
 
     page = schemas["SalesInvoicePage"]
     assert page["properties"]["records"]["items"] == {

@@ -66,6 +66,24 @@ export interface TidePresentationColumn {
   reference: TidePresentationReference | null
 }
 
+export interface TidePresentationFormField
+  extends TidePresentationColumn {
+  writable: boolean
+  required: boolean
+  help: string | null
+  max_length: number | null
+  choices: string[]
+  regex: string | null
+  numeric_mask: string | null
+  precision: number | null
+  scale: number | null
+  minimum: string | number | null
+  maximum: string | number | null
+  validations: string[]
+  has_default: boolean
+  default_value: unknown
+}
+
 export interface TidePresentationNamedFilter {
   name: string
   label: string
@@ -114,7 +132,7 @@ export interface TideFormPresentation {
   entity: string
   label: string
   display_template: string | null
-  fields: Record<string, TidePresentationColumn>
+  fields: Record<string, TidePresentationFormField>
   sections: TidePresentationFormSection[]
 }
 
@@ -147,6 +165,11 @@ export interface TideProtectionMetadata {
 
 export type TideRecord = Record<string, unknown> & {
   _tide?: TideProtectionMetadata
+}
+
+export interface TideRecordSnapshot {
+  record: TideRecord
+  etag: string | null
 }
 
 export interface TideRecordPage {

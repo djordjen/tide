@@ -26,8 +26,8 @@ and testable by a new developer.
   navigation, server-mode browse, editing, actions, and report preview through
   the secured remote API boundary;
 - [Web UI](WEB-UI.md): run, build, test, and understand the first generic
-  React shell, server-mode browse grid, personal layouts, and shared-metadata
-  record detail;
+  React shell, server-mode browse grid, personal layouts, shared-metadata
+  record detail, and flat Customer/Product create/update forms;
 - [Windows quick start](WINDOWS-QUICKSTART.md): `start.bat` modes and local
   setup;
 - focused reference and architecture documents listed in the
@@ -37,7 +37,7 @@ and testable by a new developer.
 
 No additional standalone documentation tranche should get ahead of the
 implementation. The next guide will accompany the next user-visible feature;
-production deployment, expanded Qt editing, Web editing, and controlled
+production deployment, expanded Web editing, and controlled
 migration execution remain deliberately deferred below.
 
 Each tranche should include runnable commands, expected output, relevant
@@ -47,8 +47,7 @@ examples where practical.
 ## Later, when the feature is real
 
 - production deployment and packaging guide;
-- expanded Qt GUI editing guide and renderer comparison;
-- expanded Web editing and renderer-comparison guide;
+- renderer comparison and expanded Web lookup/master-detail editing guide;
 - controlled migration execution and recovery tutorial;
 - reusable module/plugin authoring.
 
