@@ -154,8 +154,9 @@ against one supported Node version alongside the Python 3.11 framework suite.
 
 ## Next slice
 
-The next Web milestone is renderer acceptance coverage for the semantic
-behaviors now shared by Textual, Qt, and Web. After that, lookup selection and
-**Save & Select** are the next editing vertical slice. Invoice master-detail
-drafts, conflict review, domain actions, and report preview remain separate
-reviewed milestones.
+The executable
+[renderer acceptance matrix](RENDERER-ACCEPTANCE.md) now protects the shared
+semantic baseline and records deliberate gaps. Lookup selection and
+**Save & Select** are therefore the next Web editing vertical slice. Invoice
+master-detail drafts, conflict review, domain actions, and report preview
+remain separate reviewed milestones.

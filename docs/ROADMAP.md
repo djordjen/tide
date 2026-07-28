@@ -238,7 +238,10 @@ an invoice entirely by keyboard or mouse.
   defaults, masks, field-addressable validation, changed-field PATCH, and
   conditional ETag preconditions; later slices remain planned
 - executable renderer acceptance matrix for shared TUI/Qt/Web semantics;
-  **next planned Web milestone**
+  **implemented** with a versioned YAML matrix, compiled Invoicing golden
+  contract, safe Web-projection comparison, and CI-verified evidence links;
+  the matrix records Web lookup, master-detail, conflict, action, and report
+  gaps explicitly
 
 Exit condition: TUI, REST, and MCP produce equivalent secured outcomes through
 the same services.

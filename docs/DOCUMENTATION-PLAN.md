@@ -28,6 +28,8 @@ and testable by a new developer.
 - [Web UI](WEB-UI.md): run, build, test, and understand the first generic
   React shell, server-mode browse grid, personal layouts, shared-metadata
   record detail, and flat Customer/Product create/update forms;
+- [Renderer acceptance matrix](RENDERER-ACCEPTANCE.md): review the executable
+  Textual/Qt/Web parity baseline and the explicitly deferred Web gaps;
 - [Windows quick start](WINDOWS-QUICKSTART.md): `start.bat` modes and local
   setup;
 - focused reference and architecture documents listed in the
@@ -47,7 +49,7 @@ examples where practical.
 ## Later, when the feature is real
 
 - production deployment and packaging guide;
-- renderer comparison and expanded Web lookup/master-detail editing guide;
+- expanded Web lookup/master-detail editing guide;
 - controlled migration execution and recovery tutorial;
 - reusable module/plugin authoring.
 

@@ -17,6 +17,7 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QPoint, QSettings, Qt
 from PySide6.QtGui import QKeySequence
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -1001,6 +1002,10 @@ def test_qt_flat_product_form_creates_and_updates_through_api(
     assert active.isChecked() is True
     assert create_dialog.previous_button.isVisible() is False
     assert create_dialog.next_button.isVisible() is False
+    code.setFocus()
+    QTest.keyClick(code, Qt.Key.Key_Return)
+    application.processEvents()
+    assert name.hasFocus()
 
     code.setText("lowercase")
     name.setText("Support")

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, expect, it, vi } from "vitest"
 
@@ -81,6 +81,18 @@ it("opens a shared-layout detail and navigates without replacing the shell", asy
   ).toBeInTheDocument()
   expect(screen.getByRole("heading", { name: "Lines" })).toBeInTheDocument()
   expect(screen.getByText("Demo line 1")).toBeInTheDocument()
+  const totalHeader = screen.getByRole("columnheader", { name: "Total" })
+  expect(totalHeader).toHaveClass("text-right")
+  const linesTable = totalHeader.closest("table")
+  expect(linesTable).not.toBeNull()
+  expect(
+    within(linesTable as HTMLTableElement).getByRole("cell", {
+      name: "100.00",
+    }),
+  ).toHaveClass(
+    "text-right",
+    "tabular-nums",
+  )
   expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled()
 
   await user.click(screen.getByRole("button", { name: "Next" }))

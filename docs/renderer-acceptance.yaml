@@ -1,0 +1,354 @@
+schema_version: "0.1"
+reference_application: applications/invoicing
+
+renderers:
+  tui:
+    label: Textual TUI
+  qt:
+    label: Qt GUI
+  web:
+    label: React Web
+
+reference_contract:
+  navigation:
+    - label: Sales
+      views: [sales.Invoice.browse]
+    - label: Master Data
+      views: [crm.Customer.browse, catalog.Product.browse]
+  browse:
+    sales.Invoice.browse:
+      columns: [number, invoice_date, customer, status, total]
+      alignments:
+        number: left
+        invoice_date: left
+        customer: left
+        status: left
+        total: right
+  forms:
+    sales.Invoice.edit:
+      sections:
+        - kind: group
+          label: Invoice
+          rows:
+            - [number, invoice_date]
+            - [status, currency]
+            - [customer, total]
+            - [posted_at, posted_by]
+            - [version]
+        - kind: collection
+          label: Lines
+          collection: lines
+          columns:
+            - line_number
+            - product
+            - description
+            - quantity
+            - unit_price
+            - total
+    catalog.Product.edit:
+      sections:
+        - kind: group
+          label: Product
+          rows:
+            - [code, unit_price]
+            - [name, active]
+
+capabilities:
+  - id: capability_filtered_navigation
+    tier: parity
+    description: Shared navigation order and labels are filtered by current capabilities.
+    renderers:
+      tui:
+        status: covered
+        evidence:
+          - path: tests/test_tui.py
+            selector: test_textual_workspace_switches_to_customer_management
+            runner: python
+      qt:
+        status: covered
+        evidence:
+          - path: tests/test_qt_widgets.py
+            selector: test_qt_application_navigation_preserves_visited_workspace_state
+            runner: python-gui
+      web:
+        status: covered
+        evidence:
+          - path: web/src/App.test.tsx
+            selector: connects through the safe manifest and renders capability navigation
+            runner: web
+
+  - id: opaque_cursor_continuation
+    tier: parity
+    description: Browse and record navigation append bounded opaque-cursor batches.
+    renderers:
+      tui:
+        status: covered
+        evidence:
+          - path: tests/test_tui.py
+            selector: test_textual_invoice_browse_incrementally_loads_on_scroll
+            runner: python
+      qt:
+        status: covered
+        evidence:
+          - path: tests/test_qt.py
+            selector: test_qt_browse_formats_incremental_cursor_batches
+            runner: python
+          - path: tests/test_qt_widgets.py
+            selector: test_qt_widget_adapter_incrementally_loads_the_server_list
+            runner: python-gui
+      web:
+        status: covered
+        evidence:
+          - path: web/src/App.detail.test.tsx
+            selector: opens a shared-layout detail and navigates without replacing the shell
+            runner: web
+
+  - id: shared_form_layout
+    tier: parity
+    description: Form rows, groups, collections, order, and labels come from one compiled contract.
+    renderers:
+      tui:
+        status: covered
+        evidence:
+          - path: tests/test_tui.py
+            selector: test_textual_form_renders_portable_tabs_and_action_bar_order
+            runner: python
+      qt:
+        status: covered
+        evidence:
+          - path: tests/test_qt.py
+            selector: test_qt_detail_uses_form_groups_and_nested_inline_collection
+            runner: python
+      web:
+        status: covered
+        evidence:
+          - path: web/src/App.detail.test.tsx
+            selector: opens a shared-layout detail and navigates without replacing the shell
+            runner: web
+
+  - id: workflow_field_state
+    tier: parity
+    description: Current server-owned workflow state visibly locks fields and prevents mutation offers.
+    renderers:
+      tui:
+        status: covered
+        evidence:
+          - path: tests/test_tui.py
+            selector: test_textual_posted_invoice_is_readonly
+            runner: python
+      qt:
+        status: covered
+        evidence:
+          - path: tests/test_qt_widgets.py
+            selector: test_qt_invoice_poster_gets_a_read_only_action_form
+            runner: python-gui
+          - path: tests/test_qt.py
+            selector: test_qt_invoice_conflict_treats_lines_as_one_unit_and_honors_new_locks
+            runner: python
+      web:
+        status: covered
+        evidence:
+          - path: web/src/App.detail.test.tsx
+            selector: opens a shared-layout detail and navigates without replacing the shell
+            runner: web
+
+  - id: flat_scalar_create_update
+    tier: parity
+    description: Customer and Product scalar forms use metadata defaults, masks, validation, and secured mutations.
+    renderers:
+      tui:
+        status: covered
+        evidence:
+          - path: tests/test_tui.py
+            selector: test_textual_workspace_switches_to_customer_management
+            runner: python
+      qt:
+        status: covered
+        evidence:
+          - path: tests/test_qt.py
+            selector: test_qt_flat_product_form_uses_defaults_writable_fields_and_etag
+            runner: python
+          - path: tests/test_qt_widgets.py
+            selector: test_qt_flat_product_form_creates_and_updates_through_api
+            runner: python-gui
+      web:
+        status: covered
+        evidence:
+          - path: web/src/App.edit.test.tsx
+            selector: creates and updates a flat metadata form through the secured API
+            runner: web
+
+  - id: exact_formatting_and_alignment
+    tier: parity
+    description: Exact decimals and dates share formatting metadata; numeric columns align right.
+    renderers:
+      tui:
+        status: covered
+        evidence:
+          - path: tests/test_tui.py
+            selector: test_textual_invoice_edit_saves_header_and_line_transactionally
+            runner: python
+      qt:
+        status: covered
+        evidence:
+          - path: tests/test_qt.py
+            selector: test_qt_browse_formats_incremental_cursor_batches
+            runner: python
+      web:
+        status: covered
+        evidence:
+          - path: web/src/lib/format.test.ts
+            selector: formats exact decimal source text without binary float conversion
+            runner: web
+          - path: web/src/App.detail.test.tsx
+            selector: opens a shared-layout detail and navigates without replacing the shell
+            runner: web
+
+  - id: keyboard_form_and_record_navigation
+    tier: parity
+    description: Keyboard traversal and record navigation invoke the same guarded actions as buttons.
+    renderers:
+      tui:
+        status: covered
+        evidence:
+          - path: tests/test_tui.py
+            selector: test_textual_form_focuses_columns_and_enter_advances
+            runner: python
+      qt:
+        status: covered
+        evidence:
+          - path: tests/test_qt_widgets.py
+            selector: test_qt_widget_adapter_incrementally_loads_the_server_list
+            runner: python-gui
+          - path: tests/test_qt_widgets.py
+            selector: test_qt_flat_product_form_creates_and_updates_through_api
+            runner: python-gui
+      web:
+        status: covered
+        evidence:
+          - path: web/src/App.edit.test.tsx
+            selector: creates and updates a flat metadata form through the secured API
+            runner: web
+          - path: web/src/App.detail.test.tsx
+            selector: opens a shared-layout detail and navigates without replacing the shell
+            runner: web
+
+  - id: personal_column_layout
+    tier: roadmap
+    description: Personal resize/order state remains separate from application YAML defaults.
+    renderers:
+      tui:
+        status: not_applicable
+        note: Terminal columns use application metadata and responsive terminal sizing; direct drag resizing is not a TUI interaction.
+      qt:
+        status: covered
+        evidence:
+          - path: tests/test_qt_widgets.py
+            selector: test_qt_column_layout_is_personal_and_resettable
+            runner: python-gui
+      web:
+        status: covered
+        evidence:
+          - path: web/src/lib/layout-preferences.test.ts
+            selector: reconciles stored field names without changing application metadata
+            runner: web
+
+  - id: lookup_and_save_select
+    tier: roadmap
+    description: Multi-column reference lookup may create a missing target and select it without losing the parent draft.
+    renderers:
+      tui:
+        status: covered
+        evidence:
+          - path: tests/test_tui.py
+            selector: test_textual_lookup_creates_product_and_preserves_invoice_draft
+            runner: python
+      qt:
+        status: covered
+        evidence:
+          - path: tests/test_qt_widgets.py
+            selector: test_qt_invoice_customer_lookup_search_create_and_select
+            runner: python-gui
+      web:
+        status: planned
+        note: This is the next Web editing vertical slice after the acceptance matrix.
+
+  - id: master_detail_collection_draft
+    tier: roadmap
+    description: Invoice and line edits remain one local draft and one authoritative parent transaction.
+    renderers:
+      tui:
+        status: covered
+        evidence:
+          - path: tests/test_tui.py
+            selector: test_textual_invoice_edit_saves_header_and_line_transactionally
+            runner: python
+      qt:
+        status: covered
+        evidence:
+          - path: tests/test_qt_widgets.py
+            selector: test_qt_invoice_line_editor_applies_product_defaults_and_total
+            runner: python-gui
+      web:
+        status: planned
+        note: Web currently renders Invoice collections read-only.
+
+  - id: stale_conflict_review
+    tier: roadmap
+    description: Stale drafts require explicit Original/Current/Draft review and a fresh ETag.
+    renderers:
+      tui:
+        status: covered
+        evidence:
+          - path: tests/test_tui.py
+            selector: test_textual_stale_edit_rebases_only_non_conflicting_draft_fields
+            runner: python
+      qt:
+        status: covered
+        evidence:
+          - path: tests/test_qt_widgets.py
+            selector: test_qt_stale_product_edit_opens_three_way_review_and_rebase
+            runner: python-gui
+      web:
+        status: planned
+        note: Web currently reports a stale update and asks the user to reopen the record.
+
+  - id: domain_actions
+    tier: roadmap
+    description: Metadata actions reuse service authorization, ETags, idempotency, validation, and audit.
+    renderers:
+      tui:
+        status: covered
+        evidence:
+          - path: tests/test_tui.py
+            selector: test_textual_invoice_post_uses_registered_action_and_audit
+            runner: python
+      qt:
+        status: covered
+        evidence:
+          - path: tests/test_qt_widgets.py
+            selector: test_qt_invoice_post_saves_lines_then_runs_the_secured_action
+            runner: python-gui
+      web:
+        status: planned
+        note: Web does not yet render or execute form-domain actions.
+
+  - id: report_preview_and_export
+    tier: roadmap
+    description: Renderers preview the same server-built report document and controlled exports.
+    renderers:
+      tui:
+        status: covered
+        evidence:
+          - path: tests/test_tui.py
+            selector: test_textual_invoice_report_preview_and_exports
+            runner: python
+      qt:
+        status: covered
+        evidence:
+          - path: tests/test_qt_widgets.py
+            selector: test_qt_record_report_previews_and_exports_remote_document
+            runner: python-gui
+      web:
+        status: planned
+        note: Web report preview and export are separate future slices.

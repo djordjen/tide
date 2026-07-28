@@ -12,7 +12,7 @@
 TIDE is a proposed open-source, metadata-driven runtime and development
 environment for database-oriented business applications. Its first-class
 client is a keyboard-first, mouse-aware terminal interface that can run
-locally or through SSH. REST, MCP, reports, and a future web interface use the
+locally or through SSH. REST, MCP, reports, Qt, and the Web UI use the
 same application services, permissions, validation, and transaction model.
 
 TIDE takes inspiration from:
@@ -310,6 +310,7 @@ Start with [the documentation index](docs/README.md). Important documents are:
 - [AI-assisted generation tutorial](docs/AI-GENERATION-TUTORIAL.md)
 - [Web UI](docs/WEB-UI.md)
 - [Qt GUI prototype](docs/QT-GUI.md)
+- [Renderer acceptance matrix](docs/RENDERER-ACCEPTANCE.md)
 - [Documentation plan](docs/DOCUMENTATION-PLAN.md)
 - [Vision](docs/VISION.md)
 - [Architecture](docs/ARCHITECTURE.md)
