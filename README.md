@@ -402,6 +402,11 @@ Flat Customer/Product forms now use typed metadata-driven controls for create
 and update, preserve exact decimal input, show field-addressable validation,
 send changed fields only, and return an observed ETag when concurrency is
 declared.
+Invoice Customer now uses the compiler-approved multi-column lookup. Search
+queries only declared readable fields, selection defaults remain server-owned,
+and authorized users can create a missing Customer through nested
+**Save & Select** without losing the Invoice draft; existing line rows remain
+visible and unchanged while Web master-detail editing remains the next slice.
 The typed HTTP client preserves exact field types,
 protected values, cursors, ETags, and stable errors while rejecting mismatched
 applications, principals, and unsafe unencrypted non-loopback URLs. Neither

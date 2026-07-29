@@ -235,6 +235,54 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
             "unit_price",
             "total",
         ]
+        customer_lookup = invoice_form["fields"]["customer"]["lookup"]
+        assert customer_lookup == {
+            "view": "crm.Customer.lookup",
+            "title": "Select Customer",
+            "owner_entity": "sales.Invoice",
+            "field": "customer",
+            "target_entity": "crm.Customer",
+            "resource_path": "/api/v1/customers",
+            "query_path": "/api/v1/customers/_query",
+            "selection_path": "/api/v1/_tide/reference-selection",
+            "identity_field": "id",
+            "columns": [
+                {
+                    "name": "code",
+                    "label": "Code",
+                    "field_type": "string",
+                    "alignment": "left",
+                    "format": None,
+                    "format_options": None,
+                    "target_entity": None,
+                    "reference": None,
+                },
+                {
+                    "name": "name",
+                    "label": "Name",
+                    "field_type": "string",
+                    "alignment": "left",
+                    "format": None,
+                    "format_options": None,
+                    "target_entity": None,
+                    "reference": None,
+                },
+                {
+                    "name": "email",
+                    "label": "Email",
+                    "field_type": "string",
+                    "alignment": "left",
+                    "format": None,
+                    "format_options": None,
+                    "target_entity": None,
+                    "reference": None,
+                },
+            ],
+            "search_fields": ["code", "name", "email"],
+            "page_size": 20,
+            "operations": ["list", "get", "create", "update", "delete"],
+            "create_view": "crm.Customer.edit",
+        }
         product_fields = manifest["forms"]["catalog.Product.edit"]["fields"]
         assert {
             "writable": product_fields["code"]["writable"],
@@ -486,6 +534,12 @@ def test_presentation_manifest_filters_inaccessible_navigation_groups() -> None:
             "list",
             "get",
         ]
+        assert (
+            manifest["forms"]["sales.Invoice.edit"]["fields"]["customer"][
+                "lookup"
+            ]
+            is None
+        )
 
         assert denied.status_code == 200
         assert denied.json()["navigation"] == []

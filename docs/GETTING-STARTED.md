@@ -190,10 +190,16 @@ constraints come from the compiled application model. Save a record, reopen
 it, change one field, and save again; Web sends the create/update through
 FastAPI and places authoritative validation messages beside their fields. If
 the entity defines a concurrency token, the update also returns the record's
-ETag. Invoice remains a secured detail view while lookup and master-detail Web
-editing are developed as later vertical slices. See [Web UI](WEB-UI.md) for
-its architecture, security boundary, production build, tests, and current
-limitations.
+ETag.
+
+Open a Draft **Invoice** and choose **Select…** beside Customer. The
+multi-column window searches the YAML-declared Code, Name, and Email fields.
+Select an existing Customer, or choose **New Customer**, complete the nested
+form, and use **Save & Select**. The Invoice draft and its visible line table
+remain open; Customer selection/defaults pass through FastAPI rather than
+being interpreted in the browser. Line editing and Product lookup remain the
+next Web master-detail slice. See [Web UI](WEB-UI.md) for its architecture,
+security boundary, production build, tests, and current limitations.
 
 The unauthenticated `GET /health/live` endpoint is process-only. The
 `GET /health/ready` endpoint checks runtime persistence dependencies and returns

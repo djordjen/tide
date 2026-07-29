@@ -24,8 +24,9 @@ decision log rather than being silently assumed in implementation code.
    Invoice posting plus temporary system-PDF preview over FastAPI without
    database credentials.
 7. [Web UI](WEB-UI.md) runs the generic React application shell, server-mode
-   browse grid, shared-metadata record detail, flat Customer/Product editing,
-   personal column layouts, and same-origin production build.
+   browse grid, shared-metadata record detail, Customer/Product editing,
+   Invoice Customer lookup with nested **Save & Select**, personal column
+   layouts, and same-origin production build.
 8. [Renderer acceptance matrix](RENDERER-ACCEPTANCE.md) records and executes
    the shared Textual/Qt/Web baseline plus deliberate parity gaps.
 9. [Documentation plan](DOCUMENTATION-PLAN.md) records the small, testable

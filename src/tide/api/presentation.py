@@ -19,6 +19,7 @@ from tide.api.contracts import (
     TidePresentationNamedFilter,
     TidePresentationNavigationGroup,
     TidePresentationNavigationItem,
+    TidePresentationLookup,
     TidePresentationReference,
     TideSessionInfo,
 )
@@ -27,6 +28,7 @@ from tide.compiler.normalized import (
     ApplicationModel,
     NormalizedEntity,
     NormalizedField,
+    ResolvedView,
 )
 from tide.presentation import (
     application_navigation,
@@ -95,6 +97,7 @@ def build_presentation_manifest(
                 entity,
                 session,
                 exposures,
+                view=None,
                 base_path=base_path,
             )
             if form is not None:
@@ -175,6 +178,38 @@ def build_presentation_manifest(
                 items=tuple(items),
             )
         )
+
+    pending_forms = {
+        field.lookup.create_view
+        for form in forms.values()
+        for field in form.fields.values()
+        if field.lookup is not None
+        and field.lookup.create_view is not None
+        and field.lookup.create_view not in forms
+    }
+    while pending_forms:
+        view_name = pending_forms.pop()
+        candidate = model.views.get(view_name)
+        if candidate is None:
+            continue
+        form = _form_contract(
+            model,
+            model.entity(candidate.entity),
+            session,
+            exposures,
+            view=candidate,
+            base_path=base_path,
+        )
+        if form is None:
+            continue
+        forms[form.view] = form
+        pending_forms.update(
+            field.lookup.create_view
+            for field in form.fields.values()
+            if field.lookup is not None
+            and field.lookup.create_view is not None
+            and field.lookup.create_view not in forms
+        )
     return TidePresentationManifest(
         application=model.name,
         application_version=model.version,
@@ -192,6 +227,7 @@ def _form_contract(
     session: TideSessionInfo,
     exposures: Mapping[str, RestExposure],
     *,
+    view: ResolvedView | None,
     base_path: str,
 ) -> TideFormPresentation | None:
     capabilities = session.entities.get(entity.name)
@@ -203,7 +239,7 @@ def _form_contract(
         or "get" not in exposure.operations
     ):
         return None
-    view = next(
+    view = view or next(
         (
             candidate
             for candidate in model.views.values()
@@ -211,7 +247,11 @@ def _form_contract(
         ),
         None,
     )
-    if view is None:
+    if (
+        view is None
+        or view.kind != "form"
+        or view.entity != entity.name
+    ):
         return None
 
     readable = frozenset(capabilities.readable_fields)
@@ -240,6 +280,7 @@ def _form_contract(
                     model,
                     session,
                     exposures,
+                    view=view,
                     writable=name in capabilities.writable_fields,
                     base_path=base_path,
                 )
@@ -319,6 +360,7 @@ def _form_field_contract(
     session: TideSessionInfo,
     exposures: Mapping[str, RestExposure],
     *,
+    view: ResolvedView,
     writable: bool,
     base_path: str,
 ) -> TidePresentationFormField:
@@ -350,6 +392,16 @@ def _form_field_contract(
     return TidePresentationFormField(
         **column.model_dump(),
         writable=writable,
+        lookup=_lookup_contract(
+            entity,
+            field,
+            view,
+            model,
+            session,
+            exposures,
+            writable=writable,
+            base_path=base_path,
+        ),
         required=bool(metadata.get("required")),
         help=str(metadata["help"]) if metadata.get("help") else None,
         max_length=(
@@ -380,6 +432,149 @@ def _form_field_contract(
         validations=validations,
         has_default=has_default,
         default_value=default_value if has_default else None,
+    )
+
+
+def _lookup_contract(
+    owner: NormalizedEntity,
+    field: NormalizedField,
+    form_view: ResolvedView,
+    model: ApplicationModel,
+    session: TideSessionInfo,
+    exposures: Mapping[str, RestExposure],
+    *,
+    writable: bool,
+    base_path: str,
+) -> TidePresentationLookup | None:
+    if (
+        not writable
+        or field.metadata["type"] != "reference"
+        or field.target_entity is None
+    ):
+        return None
+    raw_fields = form_view.data.get("fields", {})
+    configuration = (
+        raw_fields.get(field.name, {})
+        if isinstance(raw_fields, Mapping)
+        else {}
+    )
+    if not isinstance(configuration, Mapping):
+        return None
+    if configuration.get("editor") != "lookup":
+        return None
+    lookup_name = configuration.get(
+        "lookup_view",
+        field.metadata.get("lookup_view"),
+    )
+    lookup = model.views.get(str(lookup_name)) if lookup_name else None
+    if (
+        lookup is None
+        or lookup.kind != "lookup"
+        or lookup.entity != field.target_entity
+    ):
+        return None
+
+    target = model.entity(field.target_entity)
+    capabilities = session.entities.get(target.name)
+    exposure = exposures.get(target.name)
+    if (
+        capabilities is None
+        or exposure is None
+        or "list" not in capabilities.operations
+        or "get" not in capabilities.operations
+        or "list" not in exposure.operations
+        or "get" not in exposure.operations
+        or _primary_key(target) not in capabilities.readable_fields
+    ):
+        return None
+    readable = frozenset(capabilities.readable_fields)
+    column_names = tuple(
+        name
+        for name in browse_columns(lookup, target)
+        if name in readable
+    )
+    configured_search = tuple(lookup.data.get("search", ()))
+    search_candidates = (
+        configured_search
+        or tuple(target.metadata.get("search_fields", ()))
+    )
+    search_fields = tuple(
+        name
+        for name in search_candidates
+        if isinstance(name, str)
+        and name in readable
+        and name in target.fields
+        and target.field(name).metadata["type"] in {"string", "choice"}
+        and not target.field(name).metadata.get("computed")
+    )
+    if not column_names or not search_fields:
+        return None
+
+    root_path = f"{base_path.rstrip('/')}/{exposure.path}"
+    operations = tuple(
+        operation
+        for operation in capabilities.operations
+        if operation in exposure.operations
+    )
+    create_name = configuration.get("create_view")
+    create_view = (
+        model.views.get(str(create_name))
+        if create_name is not None
+        else None
+    )
+    create_form_has_writable_fields = bool(
+        create_view is not None
+        and create_view.kind == "form"
+        and create_view.entity == target.name
+        and any(
+            name in readable
+            and name in capabilities.writable_fields
+            and target.field(name).metadata["type"] != "collection"
+            for section in form_layout_sections(create_view, target)
+            if section.kind == "group"
+            for row in section.rows
+            for name in row
+        )
+    )
+    create_available = bool(
+        configuration.get("allow_create") is True
+        and create_view is not None
+        and create_view.kind == "form"
+        and create_view.entity == target.name
+        and "create" in operations
+        and create_form_has_writable_fields
+    )
+    return TidePresentationLookup(
+        view=lookup.name,
+        title=f"Select {target.label.removesuffix('s') or target.label}",
+        owner_entity=owner.name,
+        field=field.name,
+        target_entity=target.name,
+        resource_path=root_path,
+        query_path=f"{root_path}/_query",
+        selection_path=f"{base_path.rstrip('/')}/_tide/reference-selection",
+        identity_field=_primary_key(target),
+        columns=tuple(
+            _column_contract(
+                target,
+                name,
+                model,
+                session,
+                exposures,
+                base_path=base_path,
+            )
+            for name in column_names
+        ),
+        search_fields=search_fields,
+        page_size=max(
+            1,
+            min(
+                500,
+                int(lookup.data.get("settings", {}).get("page_size", 20)),
+            ),
+        ),
+        operations=operations,
+        create_view=create_view.name if create_available else None,
     )
 
 

@@ -229,6 +229,7 @@ export function AppShell({
           principal={connection.session.principal}
           view={view}
           form={form}
+          forms={connection.presentation.forms}
         />
       </section>
     </div>

@@ -1,12 +1,14 @@
 import type {
   TideBrowsePresentation,
   TideConnection,
+  TidePresentationLookup,
   TidePresentationManifest,
   TidePresentationReference,
   TideQueryInput,
   TideRecord,
   TideRecordPage,
   TideRecordSnapshot,
+  TideReferenceSelectionResult,
   TideSessionInfo,
 } from "@/lib/contracts"
 
@@ -175,6 +177,93 @@ export class TideApi {
       },
       signal,
     )
+  }
+
+  async searchLookup(
+    lookup: TidePresentationLookup,
+    searchText: string,
+    signal?: AbortSignal,
+  ): Promise<TideRecord[]> {
+    const candidate = searchText.trim()
+    const fields = candidate ? lookup.search_fields : [null]
+    const records = new Map<string, TideRecord>()
+    for (const field of fields) {
+      const page = await this.request<TideRecordPage>(
+        lookup.query_path,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            filters:
+              field === null
+                ? []
+                : [
+                    {
+                      field,
+                      operator: "icontains",
+                      value: candidate,
+                    },
+                  ],
+            sort: [
+              {
+                field: lookup.search_fields[0],
+                descending: false,
+              },
+            ],
+            limit: lookup.page_size,
+            cursor: null,
+          } satisfies TideQueryInput),
+        },
+        signal,
+      )
+      for (const record of page.records) {
+        const identity = record[lookup.identity_field]
+        if (identity === null || identity === undefined) {
+          continue
+        }
+        records.set(String(identity), record)
+        if (records.size >= lookup.page_size) {
+          return [...records.values()]
+        }
+      }
+    }
+    return [...records.values()]
+  }
+
+  createLookupRecord(
+    lookup: TidePresentationLookup,
+    values: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<TideRecordSnapshot> {
+    return this.recordRequest(
+      lookup.resource_path,
+      {
+        method: "POST",
+        body: JSON.stringify(values),
+      },
+      signal,
+    )
+  }
+
+  async applyReferenceSelection(
+    lookup: TidePresentationLookup,
+    values: Record<string, unknown>,
+    identity: unknown,
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown>> {
+    const result = await this.request<TideReferenceSelectionResult>(
+      lookup.selection_path,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          entity: lookup.owner_entity,
+          field: lookup.field,
+          values,
+          identity,
+        }),
+      },
+      signal,
+    )
+    return result.values
   }
 
   getReference(

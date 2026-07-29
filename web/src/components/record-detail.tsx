@@ -37,6 +37,7 @@ import type {
   TideFormPresentation,
   TidePresentationFormCollection,
   TidePresentationFormGroup,
+  TidePresentationManifest,
   TidePresentationFormSection,
   TideRecord,
 } from "@/lib/contracts"
@@ -44,7 +45,7 @@ import { formatRecordDisplay } from "@/lib/format"
 import {
   changedMutationPayload,
   formDraft,
-  isFlatEditableForm,
+  isEditableForm,
   mutationPayload,
   validateFormDraft,
   type TideFormDraft,
@@ -56,6 +57,7 @@ interface RecordDetailProps {
   api: TideApi
   view: TideBrowsePresentation
   form: TideFormPresentation
+  forms: TidePresentationManifest["forms"]
   mode: "create" | "update"
   identity: unknown | null
   position: number
@@ -73,6 +75,7 @@ export function RecordDetail({
   api,
   view,
   form,
+  forms,
   mode,
   identity,
   position,
@@ -113,7 +116,7 @@ export function RecordDetail({
       : query.error
         ? new TideApiError("The record could not be loaded.")
         : null
-  const flatEditable = isFlatEditableForm(form)
+  const editableForm = isEditableForm(form)
   const operationAvailable = view.operations.includes(
     mode === "create" ? "create" : "update",
   )
@@ -123,7 +126,7 @@ export function RecordDetail({
         Object.values(form.fields)
           .filter(
             (field) =>
-              flatEditable &&
+              editableForm &&
               operationAvailable &&
               field.writable &&
               (mode === "create" ||
@@ -134,7 +137,7 @@ export function RecordDetail({
           .map((field) => field.name),
       ),
     [
-      flatEditable,
+      editableForm,
       form.fields,
       mode,
       operationAvailable,
@@ -387,6 +390,7 @@ export function RecordDetail({
             <RecordFormEditor
               api={api}
               form={{ ...form, sections: visibleSections }}
+              forms={forms}
               draft={draft}
               editableFields={editableFields}
               errors={fieldErrors}
@@ -403,7 +407,41 @@ export function RecordDetail({
                 })
                 setSaveError(null)
               }}
+              onApplyValues={(values) => {
+                setDraft((current) => ({ ...current, ...values }))
+                setFieldErrors((current) => {
+                  const next = { ...current }
+                  for (const name of Object.keys(values)) {
+                    delete next[name]
+                  }
+                  return next
+                })
+                setSaveError(null)
+              }}
             />
+            {visibleSections
+              .filter(
+                (
+                  section,
+                ): section is TidePresentationFormCollection =>
+                  section.kind === "collection",
+              )
+              .map((section) => (
+                <DetailCollection
+                  key={`collection-${section.name}`}
+                  api={api}
+                  record={(record ?? draft) as TideRecord}
+                  section={section}
+                />
+              ))}
+            {visibleSections.some(
+              (section) => section.kind === "collection",
+            ) ? (
+              <p className="rounded-xl border border-dashed bg-muted/25 px-4 py-3 text-xs leading-5 text-muted-foreground">
+                Collection rows are shown from the secured record and are not
+                changed by this header form.
+              </p>
+            ) : null}
           </div>
         ) : record ? (
           <div className="space-y-5 p-4 md:p-5">

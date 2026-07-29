@@ -14,15 +14,13 @@ const EDITABLE_SCALAR_TYPES = new Set([
   "datetime",
   "decimal",
   "integer",
+  "reference",
   "string",
 ])
 
-export function isFlatEditableForm(form: TideFormPresentation): boolean {
-  return (
-    form.sections.every((section) => section.kind === "group") &&
-    Object.values(form.fields).every((field) =>
-      EDITABLE_SCALAR_TYPES.has(field.field_type),
-    )
+export function isEditableForm(form: TideFormPresentation): boolean {
+  return Object.values(form.fields).every((field) =>
+    EDITABLE_SCALAR_TYPES.has(field.field_type),
   )
 }
 
@@ -223,6 +221,9 @@ function draftValue(
   if (field.field_type === "boolean") {
     return Boolean(value)
   }
+  if (field.field_type === "reference") {
+    return value
+  }
   if (
     field.field_type === "date" &&
     typeof value === "string"
@@ -238,6 +239,11 @@ function payloadValue(
 ): unknown {
   if (field.field_type === "boolean") {
     return Boolean(value)
+  }
+  if (field.field_type === "reference") {
+    return value === "" || value === null || value === undefined
+      ? null
+      : value
   }
   const raw = String(value ?? "").trim()
   if (!raw) {

@@ -66,9 +66,27 @@ export interface TidePresentationColumn {
   reference: TidePresentationReference | null
 }
 
+export interface TidePresentationLookup {
+  view: string
+  title: string
+  owner_entity: string
+  field: string
+  target_entity: string
+  resource_path: string
+  query_path: string
+  selection_path: string
+  identity_field: string
+  columns: TidePresentationColumn[]
+  search_fields: string[]
+  page_size: number
+  operations: TideOperation[]
+  create_view: string | null
+}
+
 export interface TidePresentationFormField
   extends TidePresentationColumn {
   writable: boolean
+  lookup?: TidePresentationLookup | null
   required: boolean
   help: string | null
   max_length: number | null
@@ -175,6 +193,10 @@ export interface TideRecordSnapshot {
 export interface TideRecordPage {
   records: TideRecord[]
   next_cursor: string | null
+}
+
+export interface TideReferenceSelectionResult {
+  values: Record<string, unknown>
 }
 
 export interface TideQueryInput {

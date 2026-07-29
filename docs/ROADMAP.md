@@ -234,14 +234,17 @@ an invoice entirely by keyboard or mouse.
   and current-query Previous/Next navigation; **implemented**
 - Web editing parity in reviewed slices: CRUD, lookups and **Save & Select**,
   collection drafts, actions, conflicts, and reports; **flat scalar
-  Customer/Product create/update is implemented** with typed controls,
+  Customer/Product create/update and Invoice Customer lookup/Save & Select are
+  implemented** with typed controls,
   defaults, masks, field-addressable validation, changed-field PATCH, and
-  conditional ETag preconditions; later slices remain planned
+  conditional ETag preconditions; lookup search uses readable metadata columns
+  and the server-owned reference-selection operation; collection Product
+  lookup follows the still-planned Web master-detail draft
 - executable renderer acceptance matrix for shared TUI/Qt/Web semantics;
   **implemented** with a versioned YAML matrix, compiled Invoicing golden
   contract, safe Web-projection comparison, and CI-verified evidence links;
-  the matrix records Web lookup, master-detail, conflict, action, and report
-  gaps explicitly
+  the matrix records the closed Web scalar-lookup gap plus the remaining
+  master-detail, conflict, action, and report gaps explicitly
 
 Exit condition: TUI, REST, and MCP produce equivalent secured outcomes through
 the same services.

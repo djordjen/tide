@@ -39,6 +39,7 @@ The required baseline is green for all three renderers:
 | Shared form rows, groups, and collections | Covered | Covered | Covered |
 | Workflow-aware editable/read-only state | Covered | Covered | Covered |
 | Flat Customer/Product create and update | Covered | Covered | Covered |
+| Multi-column lookup and Save & Select | Covered | Covered | Covered |
 | Exact formatting and numeric alignment | Covered | Covered | Covered |
 | Keyboard form and record navigation | Covered | Covered | Covered |
 
@@ -53,8 +54,7 @@ The same matrix records non-parity work instead of hiding it:
 
 - personal column order/width is implemented in Qt and Web; direct drag
   resizing is not a terminal interaction;
-- lookup and nested **Save & Select** are implemented in Textual and Qt and
-  are the next Web editing slice;
+- lookup and nested **Save & Select** are implemented in all three renderers;
 - Invoice master-detail drafts, three-way stale-conflict review, domain
   actions, and report preview/export are implemented in Textual and Qt but
   remain planned for Web.

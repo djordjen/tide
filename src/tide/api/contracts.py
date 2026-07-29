@@ -278,10 +278,42 @@ class TidePresentationColumn(BaseModel):
     reference: TidePresentationReference | None = None
 
 
+class TidePresentationLookup(BaseModel):
+    """One authorized compiler-approved reference lookup for a form field."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    view: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    owner_entity: str = Field(min_length=1)
+    field: str = Field(min_length=1)
+    target_entity: str = Field(min_length=1)
+    resource_path: str = Field(pattern=r"^/")
+    query_path: str = Field(pattern=r"^/")
+    selection_path: str = Field(pattern=r"^/")
+    identity_field: str = Field(min_length=1)
+    columns: tuple[TidePresentationColumn, ...] = Field(min_length=1)
+    search_fields: tuple[str, ...] = Field(min_length=1)
+    page_size: int = Field(ge=1, le=500)
+    operations: tuple[TideOperation, ...] = ()
+    create_view: str | None = None
+
+    @model_validator(mode="after")
+    def lookup_configuration_is_consistent(
+        self,
+    ) -> TidePresentationLookup:
+        if len(self.search_fields) != len(set(self.search_fields)):
+            raise ValueError("lookup search fields must not be repeated")
+        if self.create_view is not None and "create" not in self.operations:
+            raise ValueError("lookup create view requires create capability")
+        return self
+
+
 class TidePresentationFormField(TidePresentationColumn):
     """Safe editor metadata for one readable scalar form field."""
 
     writable: bool = False
+    lookup: TidePresentationLookup | None = None
     required: bool = False
     help: str | None = None
     max_length: int | None = Field(default=None, ge=1)
@@ -308,6 +340,12 @@ class TidePresentationFormField(TidePresentationColumn):
             raise ValueError("form field scale cannot exceed precision")
         if not self.has_default and self.default_value is not None:
             raise ValueError("form field default value requires has_default")
+        if self.lookup is not None and (
+            self.field_type != "reference"
+            or self.target_entity != self.lookup.target_entity
+            or self.name != self.lookup.field
+        ):
+            raise ValueError("form lookup must match its reference field")
         return self
 
 
@@ -460,14 +498,22 @@ class TidePresentationManifest(BaseModel):
             raise ValueError(
                 "presentation navigation entity does not match its browse view"
             )
-        referenced_forms = {
+        detail_forms = {
             view.detail_view
             for view in self.views.values()
             if view.detail_view is not None
         }
+        lookup_forms = {
+            field.lookup.create_view
+            for form in self.forms.values()
+            for field in form.fields.values()
+            if field.lookup is not None
+            and field.lookup.create_view is not None
+        }
+        referenced_forms = detail_forms | lookup_forms
         if referenced_forms != set(self.forms):
             raise ValueError(
-                "presentation browse detail views and forms must match"
+                "presentation detail/lookup views and forms must match"
             )
         if any(
             self.forms[view.detail_view].entity != view.entity

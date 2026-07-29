@@ -550,6 +550,16 @@ ordinary generated routes. The browser preserves Decimal text, sends only
 changed fields in `PATCH`, and returns an observed ETag in `If-Match` whenever
 the entity defines optimistic concurrency.
 
+Compiler-approved reference editors add a bounded lookup subset to that same
+manifest: target resource/query paths, readable display columns, declared
+search fields, identity field, allowed operations, and an optional authorized
+create form. Web searches through the ordinary structured query routes and
+then posts the parent draft plus selected identity to
+`/_tide/reference-selection`. Declarative selection assignments, protected
+target values, and field-write permission remain server-owned. Nested
+**Save & Select** first creates the independent target record through its
+generated route and only then applies it to the preserved parent draft.
+
 Record responses can include server-evaluated `writable_fields` presentation
 hints. They contain no permission or workflow expression and are not an
 authorization grant: mutation routes continue to reauthorize row and field

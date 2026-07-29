@@ -270,8 +270,11 @@ capabilities:
             selector: test_qt_invoice_customer_lookup_search_create_and_select
             runner: python-gui
       web:
-        status: planned
-        note: This is the next Web editing vertical slice after the acceptance matrix.
+        status: covered
+        evidence:
+          - path: web/src/App.lookup.test.tsx
+            selector: searches a metadata lookup and creates a related record with Save & Select
+            runner: web
 
   - id: master_detail_collection_draft
     tier: roadmap

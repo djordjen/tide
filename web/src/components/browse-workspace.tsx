@@ -37,10 +37,11 @@ import type {
   TideBrowsePresentation,
   TideFilterInput,
   TideFormPresentation,
+  TidePresentationManifest,
   TideRecord,
   TideSortInput,
 } from "@/lib/contracts"
-import { isFlatEditableForm } from "@/lib/form-draft"
+import { isEditableForm } from "@/lib/form-draft"
 import { cn } from "@/lib/utils"
 
 interface BrowseWorkspaceProps {
@@ -49,6 +50,7 @@ interface BrowseWorkspaceProps {
   principal: string
   view: TideBrowsePresentation
   form: TideFormPresentation | null
+  forms: TidePresentationManifest["forms"]
 }
 
 export function BrowseWorkspace({
@@ -57,6 +59,7 @@ export function BrowseWorkspace({
   principal,
   view,
   form,
+  forms,
 }: BrowseWorkspaceProps) {
   const [search, setSearch] = useState("")
   const debouncedSearch = useDebouncedValue(search.trim(), 300)
@@ -293,7 +296,7 @@ export function BrowseWorkspace({
 
           {form ? (
             <>
-              {isFlatEditableForm(form) &&
+              {isEditableForm(form) &&
               Object.values(form.fields).some((field) => field.writable) &&
               view.operations.includes("create") ? (
                 <Button
@@ -393,6 +396,7 @@ export function BrowseWorkspace({
         api={api}
         view={view}
         form={form}
+        forms={forms}
         mode={creating ? "create" : "update"}
         identity={creating ? null : activeIdentity}
         position={Math.max(activeIndex, 0)}

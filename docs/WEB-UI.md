@@ -93,6 +93,11 @@ layout plus the editor facts needed to render a useful form: type, writable
 hint, required state, help, choices, bounded masks, numeric constraints,
 validation names, and already-resolved defaults. It contains no YAML
 expressions, permission/workflow rules, handlers, or database configuration.
+For an authorized reference field configured with `editor: lookup`, the same
+manifest adds only the compiler-approved lookup view, readable columns,
+searchable fields, bounded fetch size, target REST paths, and allowed nested
+create form. A missing list/read/write capability removes the lookup rather
+than weakening it.
 Record responses may include server-evaluated `writable_fields` hints so the
 browser can distinguish locked fields. These hints and the browser's early
 validation are advisory: every mutation is authorized, normalized, and
@@ -104,6 +109,17 @@ an ETag, Web returns it through `If-Match`; a stale response is shown as an
 explicit concurrency message instead of silently overwriting the record.
 Validation responses may carry safe field-addressable issues so the browser can
 place the authoritative message beside the corresponding editor.
+
+Invoice headers now use that reference contract for Customer. **Select…** opens
+a debounced multi-column table and searches every YAML-declared readable search
+field through ordinary structured REST queries. Choosing a row calls
+`/_tide/reference-selection`; React never implements `on_select` assignments.
+When `allow_create: true`, target create permission, and a compiled target form
+all agree, **New Customer** opens a nested metadata-driven form.
+**Save & Select** creates that independent master record, applies the returned
+identity through the same server operation, and returns to the unchanged
+Invoice draft. Existing Invoice lines remain visible but read-only in this
+slice.
 
 The current development connection screen accepts a bearer token manually.
 Provider-specific interactive browser sign-in, token refresh, and logout are a
@@ -152,11 +168,12 @@ npm run test:e2e
 small browser smoke test for the built connection surface. CI runs all of these
 against one supported Node version alongside the Python 3.11 framework suite.
 
-## Next slice
+## Current boundary and next slice
 
 The executable
 [renderer acceptance matrix](RENDERER-ACCEPTANCE.md) now protects the shared
-semantic baseline and records deliberate gaps. Lookup selection and
-**Save & Select** are therefore the next Web editing vertical slice. Invoice
-master-detail drafts, conflict review, domain actions, and report preview
-remain separate reviewed milestones.
+semantic baseline and records deliberate gaps. Multi-column lookup selection
+and nested **Save & Select** are covered for scalar references such as
+Invoice Customer. Product selection belongs to the next Invoice
+master-detail slice because Web line collections are still read-only. Conflict
+review, domain actions, and report preview remain separate reviewed milestones.
