@@ -22,7 +22,11 @@ import {
   X,
 } from "lucide-react"
 
-import { RecordFormEditor } from "@/components/record-form-editor"
+import { EditableCollection } from "@/components/editable-collection"
+import {
+  formEditorId,
+  RecordFormEditor,
+} from "@/components/record-form-editor"
 import { TideDisplayValue } from "@/components/tide-display-value"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -44,9 +48,13 @@ import type {
 import { formatRecordDisplay } from "@/lib/format"
 import {
   changedMutationPayload,
+  collectionDraftRows,
+  collectionMutationPayload,
+  collectionPayloadChanged,
   formDraft,
   isEditableForm,
   mutationPayload,
+  validateCollectionDrafts,
   validateFormDraft,
   type TideFormDraft,
   type TideFormErrors,
@@ -106,6 +114,12 @@ export function RecordDetail({
   const [draft, setDraft] = useState<TideFormDraft>(() =>
     formDraft(form),
   )
+  const [collectionDrafts, setCollectionDrafts] = useState<
+    Record<string, TideRecord[]>
+  >(() => collectionDraftState(form))
+  const [collectionErrors, setCollectionErrors] = useState<
+    Record<string, TideFormErrors[]>
+  >({})
   const [fieldErrors, setFieldErrors] = useState<TideFormErrors>({})
   const [saveError, setSaveError] = useState<TideApiError | null>(null)
   const snapshot = query.data
@@ -144,11 +158,70 @@ export function RecordDetail({
       record?._tide?.writable_fields,
     ],
   )
-  const editorActive = editableFields.size > 0
-  const changes =
+  const collectionSections = useMemo(
+    () =>
+      form.sections.filter(
+        (
+          section,
+        ): section is TidePresentationFormCollection =>
+          section.kind === "collection",
+      ),
+    [form.sections],
+  )
+  const editableCollections = useMemo(
+    () =>
+      new Set(
+        collectionSections
+          .filter(
+            (section) =>
+              operationAvailable &&
+              section.writable === true &&
+              (section.draft_operations ?? []).includes(
+                mode === "create" ? "create" : "update",
+              ) &&
+              (mode === "create" ||
+                (record?._tide?.writable_fields ?? []).includes(
+                  section.name,
+                )),
+          )
+          .map((section) => section.name),
+      ),
+    [
+      collectionSections,
+      mode,
+      operationAvailable,
+      record?._tide?.writable_fields,
+    ],
+  )
+  const editorActive =
+    editableFields.size > 0 || editableCollections.size > 0
+  const scalarChanges =
     mode === "update" && record
       ? changedMutationPayload(form, draft, editableFields, record)
       : {}
+  const collectionChanges =
+    mode === "update" && record
+      ? Object.fromEntries(
+          collectionSections
+            .filter(
+              (section) =>
+                editableCollections.has(section.name) &&
+                collectionPayloadChanged(
+                  section,
+                  collectionDrafts[section.name] ?? [],
+                  record[section.name],
+                ),
+            )
+            .map((section) => [
+              section.name,
+              collectionMutationPayload(
+                section,
+                collectionDrafts[section.name] ?? [],
+              ),
+            ]),
+        )
+      : {}
+  const changes = { ...scalarChanges, ...collectionChanges }
   const dirty = mode === "create" || Object.keys(changes).length > 0
 
   useEffect(() => {
@@ -160,10 +233,14 @@ export function RecordDetail({
   useEffect(() => {
     if (mode === "create") {
       setDraft(formDraft(form))
+      setCollectionDrafts(collectionDraftState(form))
+      setCollectionErrors({})
       setFieldErrors({})
       setSaveError(null)
     } else if (record && !query.isPlaceholderData) {
       setDraft(formDraft(form, record))
+      setCollectionDrafts(collectionDraftState(form, record))
+      setCollectionErrors({})
       setFieldErrors({})
       setSaveError(null)
     }
@@ -192,6 +269,7 @@ export function RecordDetail({
           saved,
         )
         setDraft(formDraft(form, saved.record))
+        setCollectionDrafts(collectionDraftState(form, saved.record))
       }
       onSaved(saved.record, mode)
     },
@@ -211,15 +289,51 @@ export function RecordDetail({
       draft,
       editableFields,
     )
+    const nextCollectionErrors = Object.fromEntries(
+      collectionSections
+        .filter((section) => editableCollections.has(section.name))
+        .map((section) => [
+          section.name,
+          validateCollectionDrafts(
+            section,
+            collectionDrafts[section.name] ?? [],
+          ),
+        ]),
+    )
     setFieldErrors(clientErrors)
+    setCollectionErrors(nextCollectionErrors)
     setSaveError(null)
     if (Object.keys(clientErrors).length > 0) {
-      focusFirstError(clientErrors)
+      focusFirstError(form, clientErrors)
+      return
+    }
+    const invalidCollection = collectionSections.find((section) =>
+      (nextCollectionErrors[section.name] ?? []).some(
+        (errors) => Object.keys(errors).length > 0,
+      ),
+    )
+    if (invalidCollection) {
+      focusFirstCollectionError(invalidCollection.name)
       return
     }
     const payload =
       mode === "create"
-        ? mutationPayload(form, draft, editableFields)
+        ? {
+            ...mutationPayload(form, draft, editableFields),
+            ...Object.fromEntries(
+              collectionSections
+                .filter((section) =>
+                  editableCollections.has(section.name),
+                )
+                .map((section) => [
+                  section.name,
+                  collectionMutationPayload(
+                    section,
+                    collectionDrafts[section.name] ?? [],
+                  ),
+                ]),
+            ),
+          }
         : changes
     if (mode === "update" && Object.keys(payload).length === 0) {
       return
@@ -427,21 +541,39 @@ export function RecordDetail({
                   section.kind === "collection",
               )
               .map((section) => (
-                <DetailCollection
-                  key={`collection-${section.name}`}
-                  api={api}
-                  record={(record ?? draft) as TideRecord}
-                  section={section}
-                />
+                editableCollections.has(section.name) ? (
+                  <EditableCollection
+                    key={`collection-${section.name}`}
+                    api={api}
+                    section={section}
+                    forms={forms}
+                    rows={collectionDrafts[section.name] ?? []}
+                    errors={collectionErrors[section.name] ?? []}
+                    editable
+                    disabled={saveMutation.isPending}
+                    onRowsChange={(rows) => {
+                      setCollectionDrafts((current) => ({
+                        ...current,
+                        [section.name]: rows,
+                      }))
+                      setSaveError(null)
+                    }}
+                    onErrorsChange={(errors) =>
+                      setCollectionErrors((current) => ({
+                        ...current,
+                        [section.name]: errors,
+                      }))
+                    }
+                  />
+                ) : (
+                  <DetailCollection
+                    key={`collection-${section.name}`}
+                    api={api}
+                    record={(record ?? draft) as TideRecord}
+                    section={section}
+                  />
+                )
               ))}
-            {visibleSections.some(
-              (section) => section.kind === "collection",
-            ) ? (
-              <p className="rounded-xl border border-dashed bg-muted/25 px-4 py-3 text-xs leading-5 text-muted-foreground">
-                Collection rows are shown from the secured record and are not
-                changed by this header form.
-              </p>
-            ) : null}
           </div>
         ) : record ? (
           <div className="space-y-5 p-4 md:p-5">
@@ -718,6 +850,26 @@ function formTabs(sections: TidePresentationFormSection[]): string[] {
   ]
 }
 
+function collectionDraftState(
+  form: TideFormPresentation,
+  record?: TideRecord,
+): Record<string, TideRecord[]> {
+  return Object.fromEntries(
+    form.sections
+      .filter(
+        (
+          section,
+        ): section is TidePresentationFormCollection =>
+          section.kind === "collection" &&
+          section.writable === true,
+      )
+      .map((section) => [
+        section.name,
+        collectionDraftRows(section, record?.[section.name]),
+      ]),
+  )
+}
+
 function issueFieldErrors(
   form: TideFormPresentation,
   issues: TideValidationIssue[],
@@ -738,13 +890,28 @@ function issueFieldErrors(
   return errors
 }
 
-function focusFirstError(errors: TideFormErrors) {
+function focusFirstError(
+  form: TideFormPresentation,
+  errors: TideFormErrors,
+) {
   const name = Object.keys(errors)[0]
   if (!name) {
     return
   }
   requestAnimationFrame(() => {
-    document.getElementById(`tide-editor-${name}`)?.focus()
+    document.getElementById(formEditorId(form, name))?.focus()
+  })
+}
+
+function focusFirstCollectionError(
+  collectionName: string,
+) {
+  requestAnimationFrame(() => {
+    document
+      .querySelector<HTMLElement>(
+        `[data-tide-collection="${collectionName}"]`,
+      )
+      ?.scrollIntoView({ block: "nearest" })
   })
 }
 

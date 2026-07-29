@@ -293,8 +293,11 @@ capabilities:
             selector: test_qt_invoice_line_editor_applies_product_defaults_and_total
             runner: python-gui
       web:
-        status: planned
-        note: Web currently renders Invoice collections read-only.
+        status: covered
+        evidence:
+          - path: web/src/App.lookup.test.tsx
+            selector: saves Invoice line drafts and Product Save & Select as one parent update
+            runner: web
 
   - id: stale_conflict_review
     tier: roadmap

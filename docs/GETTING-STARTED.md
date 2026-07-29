@@ -196,10 +196,18 @@ Open a Draft **Invoice** and choose **Select…** beside Customer. The
 multi-column window searches the YAML-declared Code, Name, and Email fields.
 Select an existing Customer, or choose **New Customer**, complete the nested
 form, and use **Save & Select**. The Invoice draft and its visible line table
-remain open; Customer selection/defaults pass through FastAPI rather than
-being interpreted in the browser. Line editing and Product lookup remain the
-next Web master-detail slice. See [Web UI](WEB-UI.md) for its architecture,
-security boundary, production build, tests, and current limitations.
+remain open; Customer selection/defaults pass through FastAPI rather than being
+interpreted in the browser.
+
+Select an Invoice line or choose **Add line**. The fields follow the shared
+`sales.InvoiceLine.inline_edit` YAML layout. **Select…** beside Product supports
+the same searchable multi-column lookup and nested **New Product → Save &
+Select** flow; Description and Unit Price are returned by the server-owned
+selection operation. **Apply line** validates the local row, **Remove line**
+deletes it from the draft, and the Invoice **Save** sends the complete line
+replacement once with its ETag. The server revalidates and recalculates totals.
+See [Web UI](WEB-UI.md) for its architecture, security boundary, production
+build, tests, and current limitations.
 
 The unauthenticated `GET /health/live` endpoint is process-only. The
 `GET /health/ready` endpoint checks runtime persistence dependencies and returns

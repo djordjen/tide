@@ -231,9 +231,7 @@ validation.
 
 Web create and update use the generated REST resource; exact decimal drafts
 remain text until the server parses them, update submits only changed fields,
-and an observed ETag is returned through `If-Match`. A form may keep authorized
-inline collections visible while its scalar header is edited; those collection
-rows are explicitly unchanged until Web master-detail drafting is implemented.
+and an observed ETag is returned through `If-Match`.
 
 For a scalar reference configured with `editor: lookup`, the safe manifest
 projects the compiler-approved lookup view, readable columns, declared
@@ -241,9 +239,17 @@ search fields, target/query/selection paths, bounded page size, and optional
 authorized create form. Web uses the ordinary structured query API, then calls
 the server reference-selection operation so declarative assignments and
 protected values are not interpreted in React. Nested **Save & Select** creates
-the target independently and applies it to the preserved parent draft. Inline
-collection editing, actions, and conflict resolution stay read-only until
-their own reviewed contracts are implemented.
+the target independently and applies it to the preserved parent draft.
+
+An editable Web collection requires the same compiler-resolved inline view,
+writable parent collection field, readable child identity, target nested
+create/update capability, and writable child fields as the desktop renderer.
+The safe projection includes ordered editor groups and Add/Apply/Remove actions,
+but no workflow or computed expressions. Product selection uses the same
+server reference-selection operation, while the full child replacement is
+sent only in one ETag-protected parent mutation. Computed line and Invoice
+totals are authoritative after that save. Domain actions and conflict
+resolution remain read-only until their own reviewed contracts are implemented.
 
 Qt record reports follow the same renderer-neutral boundary as Textual. The
 active entity's record report is visible only when it is REST-exposed and

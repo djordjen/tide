@@ -235,6 +235,54 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
             "unit_price",
             "total",
         ]
+        assert {
+            "view": line_section["view"],
+            "identity_field": line_section["identity_field"],
+            "actions": line_section["actions"],
+            "draft_operations": line_section["draft_operations"],
+            "writable": line_section["writable"],
+        } == {
+            "view": "sales.InvoiceLine.inline_edit",
+            "identity_field": "id",
+            "actions": ["add", "apply", "remove"],
+            "draft_operations": ["create", "update"],
+            "writable": True,
+        }
+        assert list(line_section["fields"]) == [
+            "line_number",
+            "unit_price",
+            "product",
+            "quantity",
+            "description",
+        ]
+        assert line_section["groups"] == [
+            {
+                "kind": "group",
+                "label": "Line details",
+                "rows": [
+                    ["line_number", "unit_price"],
+                    ["product", "quantity"],
+                    ["description"],
+                ],
+                "tab": None,
+            }
+        ]
+        product_lookup = line_section["fields"]["product"]["lookup"]
+        assert {
+            "view": product_lookup["view"],
+            "owner_entity": product_lookup["owner_entity"],
+            "field": product_lookup["field"],
+            "target_entity": product_lookup["target_entity"],
+            "search_fields": product_lookup["search_fields"],
+            "create_view": product_lookup["create_view"],
+        } == {
+            "view": "catalog.Product.lookup",
+            "owner_entity": "sales.InvoiceLine",
+            "field": "product",
+            "target_entity": "catalog.Product",
+            "search_fields": ["code", "name"],
+            "create_view": "catalog.Product.edit",
+        }
         customer_lookup = invoice_form["fields"]["customer"]["lookup"]
         assert customer_lookup == {
             "view": "crm.Customer.lookup",
@@ -539,6 +587,10 @@ def test_presentation_manifest_filters_inaccessible_navigation_groups() -> None:
                 "lookup"
             ]
             is None
+        )
+        assert not any(
+            section["kind"] == "collection"
+            for section in manifest["forms"]["sales.Invoice.edit"]["sections"]
         )
 
         assert denied.status_code == 200

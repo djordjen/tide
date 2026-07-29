@@ -180,12 +180,11 @@ def build_presentation_manifest(
         )
 
     pending_forms = {
-        field.lookup.create_view
+        lookup.create_view
         for form in forms.values()
-        for field in form.fields.values()
-        if field.lookup is not None
-        and field.lookup.create_view is not None
-        and field.lookup.create_view not in forms
+        for lookup in _form_lookups(form)
+        if lookup.create_view is not None
+        and lookup.create_view not in forms
     }
     while pending_forms:
         view_name = pending_forms.pop()
@@ -204,11 +203,10 @@ def build_presentation_manifest(
             continue
         forms[form.view] = form
         pending_forms.update(
-            field.lookup.create_view
-            for field in form.fields.values()
-            if field.lookup is not None
-            and field.lookup.create_view is not None
-            and field.lookup.create_view not in forms
+            lookup.create_view
+            for lookup in _form_lookups(form)
+            if lookup.create_view is not None
+            and lookup.create_view not in forms
         )
     return TidePresentationManifest(
         application=model.name,
@@ -321,11 +319,98 @@ def _form_contract(
         )
         if not column_names:
             continue
+        inverse = field.metadata.get("inverse")
+        target_writable = frozenset(target_capabilities.writable_fields)
+        editor_names = frozenset(
+            name
+            for name in target_readable & target_writable
+            if name in target.fields
+            and name != inverse
+            and not target.field(name).metadata.get("primary_key")
+            and not target.field(name).metadata.get("computed")
+            and not target.field(name).metadata.get("readonly")
+            and target.field(name).metadata.get("write", "normal") == "normal"
+            and target.field(name).metadata["type"] != "collection"
+        )
+        editor_fields: dict[str, TidePresentationFormField] = {}
+        editor_groups: list[TidePresentationFormGroup] = []
+        for editor_section in form_layout_sections(inline, target):
+            if editor_section.kind != "group":
+                continue
+            rows = tuple(
+                tuple(name for name in row if name in editor_names)
+                for row in editor_section.rows
+            )
+            rows = tuple(row for row in rows if row)
+            if not rows:
+                continue
+            for name in (name for row in rows for name in row):
+                editor_fields[name] = _form_field_contract(
+                    target,
+                    name,
+                    model,
+                    session,
+                    exposures,
+                    view=inline,
+                    writable=True,
+                    base_path=base_path,
+                )
+            editor_groups.append(
+                TidePresentationFormGroup(
+                    label=editor_section.label,
+                    rows=rows,
+                    tab=editor_section.tab,
+                )
+            )
+        if not editor_groups:
+            fallback = tuple(
+                name for name in column_names if name in editor_names
+            )
+            if fallback:
+                for name in fallback:
+                    editor_fields[name] = _form_field_contract(
+                        target,
+                        name,
+                        model,
+                        session,
+                        exposures,
+                        view=inline,
+                        writable=True,
+                        base_path=base_path,
+                    )
+                editor_groups.append(
+                    TidePresentationFormGroup(
+                        label=target.label,
+                        rows=tuple((name,) for name in fallback),
+                    )
+                )
+        draft_operations = tuple(
+            operation
+            for operation in target_capabilities.draft_operations
+            if operation in field.metadata.get("cascade", ())
+        )
+        writable = bool(
+            collection_name in capabilities.writable_fields
+            and _primary_key(target) in target_readable
+            and editor_fields
+            and draft_operations
+        )
+        actions = tuple(
+            action
+            for action in section.actions
+            if action in {"add", "apply", "remove"}
+        ) or ("add", "apply", "remove")
         sections.append(
             TidePresentationFormCollection(
                 name=collection_name,
                 label=field_label(field),
                 entity=target.name,
+                view=inline.name,
+                identity_field=(
+                    _primary_key(target)
+                    if _primary_key(target) in target_readable
+                    else None
+                ),
                 columns=tuple(
                     _column_contract(
                         target,
@@ -337,6 +422,11 @@ def _form_contract(
                     )
                     for name in column_names
                 ),
+                fields=editor_fields if writable else {},
+                groups=tuple(editor_groups) if writable else (),
+                actions=actions if writable else (),
+                draft_operations=draft_operations if writable else (),
+                writable=writable,
                 tab=section.tab,
             )
         )
@@ -350,6 +440,24 @@ def _form_contract(
         display_template=_safe_display_template(entity, readable),
         fields=fields,
         sections=tuple(sections),
+    )
+
+
+def _form_lookups(
+    form: TideFormPresentation,
+) -> tuple[TidePresentationLookup, ...]:
+    return tuple(
+        field.lookup
+        for field in (
+            *form.fields.values(),
+            *(
+                field
+                for section in form.sections
+                if isinstance(section, TidePresentationFormCollection)
+                for field in section.fields.values()
+            ),
+        )
+        if field.lookup is not None
     )
 
 

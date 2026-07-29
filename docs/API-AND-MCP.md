@@ -560,6 +560,15 @@ target values, and field-write permission remain server-owned. Nested
 **Save & Select** first creates the independent target record through its
 generated route and only then applies it to the preserved parent draft.
 
+Authorized inline collections extend that projection with the child identity,
+readable columns, writable editor fields, semantic rows, supported nested draft
+operations, and YAML Add/Apply/Remove order. They do not create independently
+addressable child mutation routes. Web keeps child changes local and submits a
+complete filtered collection replacement through the generated parent
+create/update route with its normal ETag. The service layer then reauthorizes
+the parent and nested fields, normalizes references and decimals, validates,
+handles orphan deletion, recalculates stored values, and commits once.
+
 Record responses can include server-evaluated `writable_fields` presentation
 hints. They contain no permission or workflow expression and are not an
 authorization grant: mutation routes continue to reauthorize row and field

@@ -118,8 +118,18 @@ When `allow_create: true`, target create permission, and a compiled target form
 all agree, **New Customer** opens a nested metadata-driven form.
 **Save & Select** creates that independent master record, applies the returned
 identity through the same server operation, and returns to the unchanged
-Invoice draft. Existing Invoice lines remain visible but read-only in this
-slice.
+Invoice draft.
+
+Invoice lines use the same pattern through the compiler-resolved
+`sales.InvoiceLine.inline_edit` view. The safe manifest exposes the line
+identity, readable table columns, authorized writable fields, semantic editor
+rows, nested draft operations, and YAML Add/Apply/Remove order only when all
+required capabilities agree. Selecting Product opens its multi-column lookup;
+**New Product → Save & Select** preserves the Invoice and line draft while the
+server returns Description and Unit Price assignments. Add, edit, and remove
+remain local until Invoice **Save** sends one complete nested replacement with
+the observed ETag. FastAPI then reauthorizes, normalizes, validates, handles
+orphans, and recalculates stored line and Invoice totals transactionally.
 
 The current development connection screen accepts a bearer token manually.
 Provider-specific interactive browser sign-in, token refresh, and logout are a
@@ -174,6 +184,7 @@ The executable
 [renderer acceptance matrix](RENDERER-ACCEPTANCE.md) now protects the shared
 semantic baseline and records deliberate gaps. Multi-column lookup selection
 and nested **Save & Select** are covered for scalar references such as
-Invoice Customer. Product selection belongs to the next Invoice
-master-detail slice because Web line collections are still read-only. Conflict
-review, domain actions, and report preview remain separate reviewed milestones.
+Invoice Customer and collection references such as InvoiceLine Product.
+Transactional Invoice master-detail drafts are also covered. Three-way
+conflict review is the next Web editing slice; domain actions and report
+preview remain separate reviewed milestones.

@@ -60,8 +60,12 @@ optional safe create form; selection and declarative defaults still run through
 the server reference-selection operation. Web create/update calls the ordinary
 generated REST resources, returns an observed ETag when present, and uses
 structured server validation issues for field feedback; the service layer still
-owns authorization, normalization, workflow rules, and concurrency. Inline
-collection rows remain read-only until Web master-detail drafting is complete.
+owns authorization, normalization, workflow rules, and concurrency. Authorized
+inline collections add only readable columns, writable editor fields, draft
+operations, and the YAML action order to the safe projection. Web keeps child
+changes local, filters nested input fields, and submits one complete collection
+replacement through the parent mutation; the server owns child authorization,
+normalization, stored computation, orphan handling, concurrency, and commit.
 
 ```text
 applications/<name>/ (YAML + Python handlers + overlays)

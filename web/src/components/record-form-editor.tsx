@@ -47,6 +47,7 @@ interface RecordFormEditorProps {
   editableFields: ReadonlySet<string>
   errors: TideFormErrors
   disabled: boolean
+  idScope?: string
   onChange: (name: string, value: unknown) => void
   onApplyValues: (values: Record<string, unknown>) => void
 }
@@ -59,6 +60,7 @@ export function RecordFormEditor({
   editableFields,
   errors,
   disabled,
+  idScope,
   onChange,
   onApplyValues,
 }: RecordFormEditorProps) {
@@ -77,6 +79,7 @@ export function RecordFormEditor({
             editableFields={editableFields}
             errors={errors}
             disabled={disabled}
+            idScope={idScope}
             onChange={onChange}
             onApplyValues={onApplyValues}
           />
@@ -95,6 +98,7 @@ function EditorGroup({
   editableFields,
   errors,
   disabled,
+  idScope,
   onChange,
   onApplyValues,
 }: {
@@ -106,6 +110,7 @@ function EditorGroup({
   editableFields: ReadonlySet<string>
   errors: TideFormErrors
   disabled: boolean
+  idScope?: string
   onChange: (name: string, value: unknown) => void
   onApplyValues: (values: Record<string, unknown>) => void
 }) {
@@ -148,6 +153,7 @@ function EditorGroup({
                       draft={record}
                       error={errors[name]}
                       disabled={disabled}
+                      idScope={idScope}
                       onChange={(value) => onChange(name, value)}
                       onApplyValues={onApplyValues}
                     />
@@ -184,6 +190,7 @@ function FieldEditor({
   draft,
   error,
   disabled,
+  idScope,
   onChange,
   onApplyValues,
 }: {
@@ -195,10 +202,11 @@ function FieldEditor({
   draft: TideFormDraft
   error?: string
   disabled: boolean
+  idScope?: string
   onChange: (value: unknown) => void
   onApplyValues: (values: Record<string, unknown>) => void
 }) {
-  const id = `tide-editor-${field.name}`
+  const id = formEditorId(form, field.name, idScope)
   const helpId = `${id}-help`
   const errorId = `${id}-error`
   const describedBy = error ? errorId : field.help ? helpId : undefined
@@ -215,6 +223,7 @@ function FieldEditor({
         draft={draft}
         error={error}
         disabled={disabled}
+        idScope={idScope}
         onApplyValues={onApplyValues}
       />
     )
@@ -359,6 +368,7 @@ function ReferenceEditor({
   draft,
   error,
   disabled,
+  idScope,
   onApplyValues,
 }: {
   api: TideApi
@@ -370,10 +380,11 @@ function ReferenceEditor({
   draft: TideFormDraft
   error?: string
   disabled: boolean
+  idScope?: string
   onApplyValues: (values: Record<string, unknown>) => void
 }) {
   const [open, setOpen] = useState(false)
-  const id = `tide-editor-${field.name}`
+  const id = formEditorId(form, field.name, idScope)
   const helpId = `${id}-help`
   const errorId = `${id}-error`
   const describedBy = error ? errorId : field.help ? helpId : undefined
@@ -845,7 +856,7 @@ function NestedCreate({
     if (Object.keys(nextErrors).length > 0) {
       const first = Object.keys(nextErrors)[0]
       requestAnimationFrame(() =>
-        document.getElementById(`tide-editor-${first}`)?.focus(),
+        document.getElementById(formEditorId(form, first))?.focus(),
       )
       return
     }
@@ -926,6 +937,18 @@ function referenceSelectionDraft(
           value !== "" && value !== null && value !== undefined,
       ),
   )
+}
+
+export function formEditorId(
+  form: TideFormPresentation,
+  fieldName: string,
+  scope?: string,
+): string {
+  const view = `${form.view}${scope ? `-${scope}` : ""}`.replace(
+    /[^A-Za-z0-9_-]+/g,
+    "-",
+  )
+  return `tide-editor-${view}-${fieldName}`
 }
 
 function trapDialogFocus(

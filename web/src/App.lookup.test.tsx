@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, waitFor, within } from "@testing-library/react"
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, expect, it, vi } from "vitest"
 
@@ -7,6 +13,7 @@ import App from "@/App"
 import { TooltipProvider } from "@/components/ui/tooltip"
 
 afterEach(() => {
+  cleanup()
   vi.unstubAllGlobals()
   window.localStorage.clear()
 })
@@ -99,6 +106,12 @@ it("searches a metadata lookup and creates a related record with Save & Select",
       const customerMatch = /\/customers\/(\d+)$/.exec(url)
       if (customerMatch && init?.method === "GET") {
         return jsonResponse(customers.get(Number(customerMatch[1])))
+      }
+      const productMatch = /\/products\/(\d+)$/.exec(url)
+      if (productMatch && init?.method === "GET") {
+        return jsonResponse(
+          product(Number(productMatch[1]), "DEMO", "Demo product", "100.00"),
+        )
       }
       throw new Error(`Unexpected URL ${url}`)
     }),
@@ -200,6 +213,201 @@ it("searches a metadata lookup and creates a related record with Save & Select",
   )
 })
 
+it("saves Invoice line drafts and Product Save & Select as one parent update", async () => {
+  const selections: Array<Record<string, unknown>> = []
+  const invoiceUpdates: Array<Record<string, unknown>> = []
+  const products = new Map<number, Record<string, unknown>>([
+    [1, product(1, "DEMO", "Demo product", "100.00")],
+    [2, product(2, "SUP", "Support package", "25.00")],
+  ])
+  let nextProductId = 3
+  let storedInvoice = invoice(1)
+
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith("/_tide/session")) {
+        return jsonResponse(session)
+      }
+      if (url.endsWith("/_tide/presentation")) {
+        return jsonResponse(presentation)
+      }
+      if (url.endsWith("/invoices/_query")) {
+        return jsonResponse({
+          records: [
+            {
+              id: 1,
+              number: storedInvoice.number,
+              customer: storedInvoice.customer,
+              status: storedInvoice.status,
+              total: storedInvoice.total,
+            },
+          ],
+          next_cursor: null,
+        })
+      }
+      if (url.endsWith("/invoices/1") && init?.method === "GET") {
+        return jsonResponse(storedInvoice, {
+          headers: { ETag: '"4"' },
+        })
+      }
+      if (url.endsWith("/invoices/1") && init?.method === "PATCH") {
+        expect(new Headers(init.headers).get("If-Match")).toBe('"4"')
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>
+        invoiceUpdates.push(body)
+        storedInvoice = {
+          ...storedInvoice,
+          ...body,
+          total: "50.00",
+          version: 5,
+        }
+        return jsonResponse(storedInvoice, {
+          headers: { ETag: '"5"' },
+        })
+      }
+      if (url.endsWith("/products/_query")) {
+        return jsonResponse({
+          records: [...products.values()],
+          next_cursor: null,
+        })
+      }
+      if (url.endsWith("/products") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>
+        const created = product(
+          nextProductId,
+          String(body.code),
+          String(body.name),
+          String(body.unit_price),
+        )
+        products.set(nextProductId, created)
+        nextProductId += 1
+        return jsonResponse(created, { status: 201 })
+      }
+      if (url.endsWith("/_tide/reference-selection")) {
+        const body = JSON.parse(String(init?.body)) as {
+          entity: string
+          field: string
+          values: Record<string, unknown>
+          identity: number
+        }
+        selections.push(body)
+        const selected = products.get(body.identity)
+        return jsonResponse({
+          values: {
+            ...body.values,
+            product: body.identity,
+            description: selected?.name,
+            unit_price: selected?.unit_price,
+          },
+        })
+      }
+      const productMatch = /\/products\/(\d+)$/.exec(url)
+      if (productMatch && init?.method === "GET") {
+        return jsonResponse(products.get(Number(productMatch[1])))
+      }
+      const customerMatch = /\/customers\/(\d+)$/.exec(url)
+      if (customerMatch && init?.method === "GET") {
+        return jsonResponse(
+          customer(
+            Number(customerMatch[1]),
+            "ADRIA",
+            "Adria Consulting",
+            "hello@adria.test",
+          ),
+        )
+      }
+      throw new Error(`Unexpected URL ${url}`)
+    }),
+  )
+
+  const user = userEvent.setup()
+  renderApp()
+  await user.type(
+    screen.getByLabelText("Application token"),
+    "a-development-token-that-is-long-enough",
+  )
+  await user.click(
+    screen.getByRole("button", { name: "Connect securely" }),
+  )
+  await user.dblClick(
+    await screen.findByRole("row", { name: /INV-2026-0001/ }),
+  )
+
+  await user.click(
+    await screen.findByRole("button", { name: "Select Product" }),
+  )
+  const lookupDialog = await screen.findByRole("dialog", {
+    name: "Select Product",
+  })
+  expect(
+    within(lookupDialog).getByRole("columnheader", {
+      name: "Unit Price",
+    }),
+  ).toBeInTheDocument()
+  await user.click(
+    within(lookupDialog).getByRole("button", { name: "New Product" }),
+  )
+  await user.type(within(lookupDialog).getByLabelText(/^Code/), "CARE")
+  await user.type(
+    within(lookupDialog).getByLabelText(/^Unit Price/),
+    "25.00",
+  )
+  await user.type(
+    within(lookupDialog).getByLabelText(/^Name/),
+    "Care package",
+  )
+  await user.click(
+    within(lookupDialog).getByRole("button", {
+      name: "Save & Select",
+    }),
+  )
+
+  expect(selections.at(-1)).toMatchObject({
+    entity: "sales.InvoiceLine",
+    field: "product",
+    identity: 3,
+    values: {
+      line_number: "1",
+      product: 1,
+      description: "Demo line",
+      quantity: "1.000",
+      unit_price: "100.00",
+    },
+  })
+  expect(
+    (await screen.findAllByDisplayValue("Care package")).length,
+  ).toBeGreaterThan(0)
+
+  const quantity = screen.getByLabelText(/^Quantity/)
+  await user.clear(quantity)
+  await user.type(quantity, "2.000")
+  await user.click(screen.getByRole("button", { name: "Apply line" }))
+
+  await user.click(screen.getByRole("button", { name: "Add line" }))
+  expect(screen.getByText("2 draft rows")).toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "Remove line" }))
+  expect(screen.getByText("1 draft rows")).toBeInTheDocument()
+
+  await user.click(screen.getByRole("button", { name: "Save" }))
+  await waitFor(() =>
+    expect(invoiceUpdates).toEqual([
+      {
+        lines: [
+          {
+            id: 10,
+            line_number: 1,
+            unit_price: "25.00",
+            product: 3,
+            quantity: "2.000",
+            description: "Care package",
+          },
+        ],
+      },
+    ]),
+  )
+})
+
 function renderApp() {
   const client = new QueryClient({
     defaultOptions: {
@@ -242,6 +450,24 @@ function customer(id: number, code: string, name: string, email: string) {
   }
 }
 
+function product(
+  id: number,
+  code: string,
+  name: string,
+  unitPrice: string,
+) {
+  return {
+    id,
+    code,
+    name,
+    unit_price: unitPrice,
+    active: true,
+    _tide: {
+      writable_fields: ["code", "name", "unit_price", "active"],
+    },
+  }
+}
+
 function invoice(id: number) {
   return {
     id,
@@ -251,10 +477,15 @@ function invoice(id: number) {
     currency: "EUR",
     customer: 1,
     total: "100.00",
+    version: 4,
     lines: [
       {
         id: 10,
+        line_number: 1,
+        product: 1,
         description: "Demo line",
+        quantity: "1.000",
+        unit_price: "100.00",
         total: "100.00",
       },
     ],
@@ -282,6 +513,13 @@ const customerReference = {
   display_template: "{code} - {name}",
 }
 
+const productReference = {
+  entity: "catalog.Product",
+  resource_path: "/api/v1/products",
+  identity_field: "id",
+  display_template: "{code} - {name}",
+}
+
 const lookup = {
   view: "crm.Customer.lookup",
   title: "Select Customer",
@@ -301,6 +539,33 @@ const lookup = {
   page_size: 20,
   operations: ["list", "get", "create", "update"],
   create_view: "crm.Customer.edit",
+}
+
+const productLookup = {
+  view: "catalog.Product.lookup",
+  title: "Select Product",
+  owner_entity: "sales.InvoiceLine",
+  field: "product",
+  target_entity: "catalog.Product",
+  resource_path: "/api/v1/products",
+  query_path: "/api/v1/products/_query",
+  selection_path: "/api/v1/_tide/reference-selection",
+  identity_field: "id",
+  columns: [
+    { ...plainColumn, name: "code", label: "Code" },
+    { ...plainColumn, name: "name", label: "Name" },
+    {
+      ...plainColumn,
+      name: "unit_price",
+      label: "Unit Price",
+      field_type: "decimal",
+      alignment: "right",
+    },
+  ],
+  search_fields: ["code", "name"],
+  page_size: 20,
+  operations: ["list", "get", "create", "update"],
+  create_view: "catalog.Product.edit",
 }
 
 const baseField = {
@@ -421,11 +686,42 @@ const invoiceForm = {
       name: "lines",
       label: "Lines",
       entity: "sales.InvoiceLine",
+      view: "sales.InvoiceLine.inline_edit",
+      identity_field: "id",
       columns: [
+        {
+          ...plainColumn,
+          name: "line_number",
+          label: "Line Number",
+          field_type: "integer",
+          alignment: "right",
+        },
+        {
+          ...plainColumn,
+          name: "product",
+          label: "Product",
+          field_type: "reference",
+          target_entity: "catalog.Product",
+          reference: productReference,
+        },
         {
           ...plainColumn,
           name: "description",
           label: "Description",
+        },
+        {
+          ...plainColumn,
+          name: "quantity",
+          label: "Quantity",
+          field_type: "decimal",
+          alignment: "right",
+        },
+        {
+          ...plainColumn,
+          name: "unit_price",
+          label: "Unit Price",
+          field_type: "decimal",
+          alignment: "right",
         },
         {
           ...plainColumn,
@@ -435,6 +731,77 @@ const invoiceForm = {
           alignment: "right",
         },
       ],
+      fields: {
+        line_number: {
+          ...baseField,
+          name: "line_number",
+          label: "Line Number",
+          field_type: "integer",
+          alignment: "right",
+          writable: true,
+          required: true,
+          numeric_mask: "0",
+        },
+        unit_price: {
+          ...baseField,
+          name: "unit_price",
+          label: "Unit Price",
+          field_type: "decimal",
+          alignment: "right",
+          writable: true,
+          required: true,
+          numeric_mask: "0.00",
+          precision: 12,
+          scale: 2,
+        },
+        product: {
+          ...baseField,
+          name: "product",
+          label: "Product",
+          field_type: "reference",
+          target_entity: "catalog.Product",
+          reference: productReference,
+          writable: true,
+          lookup: productLookup,
+          required: true,
+        },
+        quantity: {
+          ...baseField,
+          name: "quantity",
+          label: "Quantity",
+          field_type: "decimal",
+          alignment: "right",
+          writable: true,
+          required: true,
+          numeric_mask: "0.000",
+          precision: 12,
+          scale: 3,
+          minimum: "0.001",
+        },
+        description: {
+          ...baseField,
+          name: "description",
+          label: "Description",
+          writable: true,
+          required: true,
+          max_length: 200,
+        },
+      },
+      groups: [
+        {
+          kind: "group",
+          label: "Line details",
+          rows: [
+            ["line_number", "unit_price"],
+            ["product", "quantity"],
+            ["description"],
+          ],
+          tab: null,
+        },
+      ],
+      actions: ["add", "apply", "remove"],
+      draft_operations: ["create", "update"],
+      writable: true,
       tab: null,
     },
   ],
@@ -491,6 +858,61 @@ const customerForm = {
   ],
 }
 
+const productForm = {
+  view: "catalog.Product.edit",
+  entity: "catalog.Product",
+  label: "Product",
+  display_template: "{code} - {name}",
+  fields: {
+    code: {
+      ...baseField,
+      name: "code",
+      label: "Code",
+      writable: true,
+      required: true,
+    },
+    unit_price: {
+      ...baseField,
+      name: "unit_price",
+      label: "Unit Price",
+      field_type: "decimal",
+      alignment: "right",
+      writable: true,
+      required: true,
+      numeric_mask: "0.00",
+      precision: 12,
+      scale: 2,
+    },
+    name: {
+      ...baseField,
+      name: "name",
+      label: "Name",
+      writable: true,
+      required: true,
+    },
+    active: {
+      ...baseField,
+      name: "active",
+      label: "Active",
+      field_type: "boolean",
+      writable: true,
+      has_default: true,
+      default_value: true,
+    },
+  },
+  sections: [
+    {
+      kind: "group",
+      label: "Product",
+      rows: [
+        ["code", "unit_price"],
+        ["name", "active"],
+      ],
+      tab: null,
+    },
+  ],
+}
+
 const session = {
   wire_version: "0.1",
   application: "TIDE Invoicing",
@@ -527,5 +949,6 @@ const presentation = {
   forms: {
     "sales.Invoice.edit": invoiceForm,
     "crm.Customer.edit": customerForm,
+    "catalog.Product.edit": productForm,
   },
 }

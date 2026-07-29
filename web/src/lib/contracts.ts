@@ -137,7 +137,14 @@ export interface TidePresentationFormCollection {
   name: string
   label: string
   entity: string
+  view?: string
+  identity_field?: string | null
   columns: TidePresentationColumn[]
+  fields?: Record<string, TidePresentationFormField>
+  groups?: TidePresentationFormGroup[]
+  actions?: Array<"add" | "apply" | "remove">
+  draft_operations?: Array<"create" | "update">
+  writable?: boolean
   tab: string | null
 }
 

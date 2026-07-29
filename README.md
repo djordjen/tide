@@ -405,8 +405,11 @@ declared.
 Invoice Customer now uses the compiler-approved multi-column lookup. Search
 queries only declared readable fields, selection defaults remain server-owned,
 and authorized users can create a missing Customer through nested
-**Save & Select** without losing the Invoice draft; existing line rows remain
-visible and unchanged while Web master-detail editing remains the next slice.
+**Save & Select** without losing the Invoice draft. The same authenticated
+contract now drives InvoiceLine Add/Apply/Remove, Product lookup and nested
+**Save & Select**; the complete header and line draft is committed through one
+ETag-protected parent mutation, where the server revalidates and recalculates
+stored totals.
 The typed HTTP client preserves exact field types,
 protected values, cursors, ETags, and stable errors while rejecting mismatched
 applications, principals, and unsafe unencrypted non-loopback URLs. Neither

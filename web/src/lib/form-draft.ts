@@ -1,5 +1,6 @@
 import type {
   TideFormPresentation,
+  TidePresentationFormCollection,
   TidePresentationFormField,
   TideRecord,
 } from "@/lib/contracts"
@@ -159,6 +160,125 @@ export function changedMutationPayload(
         comparableValue(form.fields[name], record[name]),
     ),
   )
+}
+
+export function collectionEditorForm(
+  collection: TidePresentationFormCollection,
+): TideFormPresentation | null {
+  const fields = collection.fields ?? {}
+  const groups = collection.groups ?? []
+  if (
+    !collection.view ||
+    Object.keys(fields).length === 0 ||
+    groups.length === 0
+  ) {
+    return null
+  }
+  return {
+    view: collection.view,
+    entity: collection.entity,
+    label: collection.label.replace(/s$/, "") || collection.label,
+    display_template: null,
+    fields,
+    sections: groups,
+  }
+}
+
+export function collectionDraftRows(
+  collection: TidePresentationFormCollection,
+  records: unknown,
+): TideRecord[] {
+  const form = collectionEditorForm(collection)
+  if (!form || !Array.isArray(records)) {
+    return []
+  }
+  return records.map((record) => {
+    const source =
+      record && typeof record === "object"
+        ? (record as TideRecord)
+        : ({} as TideRecord)
+    return { ...source, ...formDraft(form, source) }
+  })
+}
+
+export function newCollectionDraft(
+  collection: TidePresentationFormCollection,
+  records: TideRecord[],
+): TideRecord {
+  const form = collectionEditorForm(collection)
+  if (!form) {
+    return {}
+  }
+  const draft = formDraft(form)
+  const lineNumber = form.fields.line_number
+  if (lineNumber?.field_type === "integer") {
+    draft.line_number = String(
+      Math.max(
+        0,
+        ...records.map((record) =>
+          Number(record.line_number ?? 0),
+        ),
+      ) + 1,
+    )
+  }
+  return draft
+}
+
+export function collectionMutationPayload(
+  collection: TidePresentationFormCollection,
+  records: TideRecord[],
+): Array<Record<string, unknown>> {
+  const form = collectionEditorForm(collection)
+  if (!form) {
+    return []
+  }
+  const writable = new Set(
+    Object.values(form.fields)
+      .filter((field) => field.writable)
+      .map((field) => field.name),
+  )
+  return records.map((record) => {
+    const values = mutationPayload(form, record, writable)
+    const identityField = collection.identity_field
+    const identity = identityField ? record[identityField] : null
+    return identityField &&
+      identity !== null &&
+      identity !== undefined &&
+      identity !== ""
+      ? { [identityField]: identity, ...values }
+      : values
+  })
+}
+
+export function validateCollectionDrafts(
+  collection: TidePresentationFormCollection,
+  records: TideRecord[],
+): TideFormErrors[] {
+  const form = collectionEditorForm(collection)
+  if (!form) {
+    return []
+  }
+  const writable = new Set(
+    Object.values(form.fields)
+      .filter((field) => field.writable)
+      .map((field) => field.name),
+  )
+  return records.map((record) =>
+    validateFormDraft(form, record, writable),
+  )
+}
+
+export function collectionPayloadChanged(
+  collection: TidePresentationFormCollection,
+  draft: TideRecord[],
+  original: unknown,
+): boolean {
+  const current = collectionMutationPayload(collection, draft)
+  const baseline = collectionMutationPayload(
+    collection,
+    collectionDraftRows(collection, original),
+  )
+  return JSON.stringify(current) !== JSON.stringify(baseline)
 }
 
 export function acceptsNumericDraft(

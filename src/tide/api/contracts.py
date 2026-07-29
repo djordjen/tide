@@ -32,6 +32,7 @@ TideFilterOperator = Literal[
     "icontains",
 ]
 TideAlignment = Literal["left", "center", "right"]
+TideCollectionAction = Literal["add", "apply", "remove"]
 
 
 class TideReportValue(BaseModel):
@@ -361,7 +362,7 @@ class TidePresentationFormGroup(BaseModel):
 
 
 class TidePresentationFormCollection(BaseModel):
-    """One readable inline collection in an authenticated detail form."""
+    """One capability-filtered inline collection in a detail form."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -369,8 +370,50 @@ class TidePresentationFormCollection(BaseModel):
     name: str = Field(min_length=1)
     label: str = Field(min_length=1)
     entity: str = Field(min_length=1)
+    view: str = Field(min_length=1)
+    identity_field: str | None = Field(default=None, min_length=1)
     columns: tuple[TidePresentationColumn, ...] = Field(min_length=1)
+    fields: dict[str, TidePresentationFormField] = Field(default_factory=dict)
+    groups: tuple[TidePresentationFormGroup, ...] = ()
+    actions: tuple[TideCollectionAction, ...] = ()
+    draft_operations: tuple[Literal["create", "update"], ...] = ()
+    writable: bool = False
     tab: str | None = None
+
+    @model_validator(mode="after")
+    def editor_configuration_is_consistent(
+        self,
+    ) -> TidePresentationFormCollection:
+        editor_names = {
+            field_name
+            for group in self.groups
+            for row in group.rows
+            for field_name in row
+        }
+        if editor_names != set(self.fields):
+            raise ValueError(
+                "collection editor groups and declared fields must match"
+            )
+        if len(self.actions) != len(set(self.actions)):
+            raise ValueError("collection actions must not be repeated")
+        if self.writable and (
+            self.identity_field is None
+            or not self.fields
+            or not self.groups
+            or not self.actions
+            or not self.draft_operations
+        ):
+            raise ValueError(
+                "writable collection requires fields, groups, actions, "
+                "and draft operations"
+            )
+        if any(
+            field.lookup is not None
+            and field.lookup.owner_entity != self.entity
+            for field in self.fields.values()
+        ):
+            raise ValueError("collection lookup owner must match its entity")
+        return self
 
 
 TidePresentationFormSection = (
@@ -506,7 +549,18 @@ class TidePresentationManifest(BaseModel):
         lookup_forms = {
             field.lookup.create_view
             for form in self.forms.values()
-            for field in form.fields.values()
+            for field in (
+                *form.fields.values(),
+                *(
+                    field
+                    for section in form.sections
+                    if isinstance(
+                        section,
+                        TidePresentationFormCollection,
+                    )
+                    for field in section.fields.values()
+                ),
+            )
             if field.lookup is not None
             and field.lookup.create_view is not None
         }
