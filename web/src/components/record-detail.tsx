@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
 } from "react"
@@ -23,6 +24,7 @@ import {
 } from "lucide-react"
 
 import { EditableCollection } from "@/components/editable-collection"
+import { RecordConflictReview } from "@/components/record-conflict-review"
 import {
   formEditorId,
   RecordFormEditor,
@@ -44,7 +46,14 @@ import type {
   TidePresentationManifest,
   TidePresentationFormSection,
   TideRecord,
+  TideRecordSnapshot,
 } from "@/lib/contracts"
+import {
+  compareRecordConflict,
+  resolveRecordConflict,
+  type TideConflictChoice,
+  type TideRecordConflict,
+} from "@/lib/conflicts"
 import { formatRecordDisplay } from "@/lib/format"
 import {
   changedMutationPayload,
@@ -79,6 +88,20 @@ interface RecordDetailProps {
   onSaved: (record: TideRecord, mode: "create" | "update") => void
 }
 
+interface SaveAttempt {
+  payload: Record<string, unknown>
+  fieldNames: string[]
+  originalValues: Record<string, unknown>
+  draftValues: Record<string, unknown>
+}
+
+interface PendingConflictReview {
+  current: TideRecordSnapshot
+  comparison: TideRecordConflict
+  draftValues: Record<string, unknown>
+  lockedFields: Set<string>
+}
+
 export function RecordDetail({
   api,
   view,
@@ -97,6 +120,7 @@ export function RecordDetail({
   onSaved,
 }: RecordDetailProps) {
   const queryClient = useQueryClient()
+  const skipNextHydration = useRef(false)
   const query = useQuery({
     queryKey: ["record-detail", view.view, identity],
     queryFn: ({ signal }) => {
@@ -122,6 +146,14 @@ export function RecordDetail({
   >({})
   const [fieldErrors, setFieldErrors] = useState<TideFormErrors>({})
   const [saveError, setSaveError] = useState<TideApiError | null>(null)
+  const [rebaseNotice, setRebaseNotice] = useState<string | null>(null)
+  const [conflictReview, setConflictReview] =
+    useState<PendingConflictReview | null>(null)
+  const [conflictChoices, setConflictChoices] = useState<
+    Record<string, TideConflictChoice>
+  >({})
+  const [conflictOpen, setConflictOpen] = useState(false)
+  const [conflictLoading, setConflictLoading] = useState(false)
   const snapshot = query.data
   const record = snapshot?.record
   const error =
@@ -232,26 +264,35 @@ export function RecordDetail({
 
   useEffect(() => {
     if (mode === "create") {
+      skipNextHydration.current = false
       setDraft(formDraft(form))
       setCollectionDrafts(collectionDraftState(form))
       setCollectionErrors({})
       setFieldErrors({})
       setSaveError(null)
+      setRebaseNotice(null)
+      setConflictReview(null)
+      setConflictChoices({})
+      setConflictOpen(false)
     } else if (record && !query.isPlaceholderData) {
+      if (skipNextHydration.current) {
+        skipNextHydration.current = false
+        return
+      }
       setDraft(formDraft(form, record))
       setCollectionDrafts(collectionDraftState(form, record))
       setCollectionErrors({})
       setFieldErrors({})
       setSaveError(null)
+      setRebaseNotice(null)
+      setConflictReview(null)
+      setConflictChoices({})
+      setConflictOpen(false)
     }
   }, [form, mode, query.isPlaceholderData, record])
 
   const saveMutation = useMutation({
-    mutationFn: ({
-      payload,
-    }: {
-      payload: Record<string, unknown>
-    }) =>
+    mutationFn: ({ payload }: SaveAttempt) =>
       mode === "create"
         ? api.createRecord(view, payload)
         : api.updateRecord(
@@ -263,6 +304,10 @@ export function RecordDetail({
     onSuccess: (saved) => {
       setFieldErrors({})
       setSaveError(null)
+      setRebaseNotice(null)
+      setConflictReview(null)
+      setConflictChoices({})
+      setConflictOpen(false)
       if (mode === "update" && identity !== null) {
         queryClient.setQueryData(
           ["record-detail", view.view, identity],
@@ -273,15 +318,73 @@ export function RecordDetail({
       }
       onSaved(saved.record, mode)
     },
-    onError: (mutationError) => {
+    onError: async (mutationError, attempt) => {
       const apiError =
         mutationError instanceof TideApiError
           ? mutationError
           : new TideApiError("The record could not be saved.")
       setSaveError(apiError)
       setFieldErrors(issueFieldErrors(form, apiError.issues))
+      if (
+        apiError.status === 412 &&
+        mode === "update" &&
+        identity !== null
+      ) {
+        await loadConflictReview(apiError, attempt)
+      }
     },
   })
+  const busy = saveMutation.isPending || conflictLoading
+
+  async function loadConflictReview(
+    staleError: TideApiError,
+    attempt: SaveAttempt,
+  ) {
+    setConflictLoading(true)
+    setConflictReview(null)
+    setConflictChoices({})
+    setConflictOpen(false)
+    try {
+      const current = await api.getRecord(view, identity)
+      const currentValues = conflictRecordValues(
+        form,
+        collectionSections,
+        current.record,
+        attempt.fieldNames,
+      )
+      const currentWritable = new Set(
+        current.record._tide?.writable_fields ?? [],
+      )
+      const review: PendingConflictReview = {
+        current,
+        comparison: compareRecordConflict(
+          attempt.originalValues,
+          currentValues,
+          attempt.draftValues,
+          attempt.fieldNames,
+        ),
+        draftValues: attempt.draftValues,
+        lockedFields: new Set(
+          attempt.fieldNames.filter(
+            (name) => !currentWritable.has(name),
+          ),
+        ),
+      }
+      setSaveError(staleError)
+      setConflictReview(review)
+      setConflictOpen(true)
+    } catch (reviewError) {
+      setSaveError(
+        reviewError instanceof TideApiError
+          ? reviewError
+          : new TideApiError(
+              "The current record could not be loaded for conflict review.",
+            ),
+      )
+    } finally {
+      setConflictLoading(false)
+    }
+  }
 
   function save() {
     const clientErrors = validateFormDraft(
@@ -303,6 +406,10 @@ export function RecordDetail({
     setFieldErrors(clientErrors)
     setCollectionErrors(nextCollectionErrors)
     setSaveError(null)
+    setRebaseNotice(null)
+    setConflictReview(null)
+    setConflictChoices({})
+    setConflictOpen(false)
     if (Object.keys(clientErrors).length > 0) {
       focusFirstError(form, clientErrors)
       return
@@ -338,11 +445,102 @@ export function RecordDetail({
     if (mode === "update" && Object.keys(payload).length === 0) {
       return
     }
-    saveMutation.mutate({ payload })
+    const fieldNames =
+      mode === "update"
+        ? [...editableFields, ...editableCollections]
+        : []
+    const originalValues =
+      mode === "update" && record
+        ? conflictRecordValues(
+            form,
+            collectionSections,
+            record,
+            fieldNames,
+          )
+        : {}
+    saveMutation.mutate({
+      payload,
+      fieldNames,
+      originalValues,
+      draftValues: { ...originalValues, ...payload },
+    })
+  }
+
+  function reloadConflictCurrent() {
+    if (!conflictReview || identity === null) {
+      return
+    }
+    hydrateConflictSnapshot(conflictReview.current, [])
+    setRebaseNotice(
+      "Current server values were loaded; the stale draft was discarded.",
+    )
+  }
+
+  function applyConflictResolution() {
+    if (!conflictReview || identity === null) {
+      return
+    }
+    const resolution = resolveRecordConflict(
+      conflictReview.comparison,
+      conflictChoices,
+    )
+    if (!resolution.complete) {
+      return
+    }
+    const retainedFields = resolution.draftFields.filter(
+      (name) => !conflictReview.lockedFields.has(name),
+    )
+    const droppedFields = resolution.draftFields.filter((name) =>
+      conflictReview.lockedFields.has(name),
+    )
+    hydrateConflictSnapshot(
+      conflictReview.current,
+      retainedFields,
+      conflictReview.draftValues,
+    )
+    let notice = retainedFields.length
+      ? "Current server values were loaded and the resolved draft changes were retained. Review them, then save again."
+      : "Current server values were loaded; no draft changes were retained."
+    if (droppedFields.length > 0) {
+      notice += ` Workflow rules now lock: ${droppedFields
+        .map((name) => conflictFieldLabel(form, collectionSections, name))
+        .join(", ")}.`
+    }
+    setRebaseNotice(notice)
+  }
+
+  function hydrateConflictSnapshot(
+    current: TideRecordSnapshot,
+    retainedFields: readonly string[],
+    draftValues: Record<string, unknown> = {},
+  ) {
+    if (identity === null) {
+      return
+    }
+    const rebasedRecord: TideRecord = { ...current.record }
+    for (const name of retainedFields) {
+      rebasedRecord[name] = structuredClone(draftValues[name])
+    }
+    skipNextHydration.current = true
+    queryClient.setQueryData(
+      ["record-detail", view.view, identity],
+      current,
+    )
+    setDraft(formDraft(form, rebasedRecord))
+    setCollectionDrafts(collectionDraftState(form, rebasedRecord))
+    setCollectionErrors({})
+    setFieldErrors({})
+    setSaveError(null)
+    setConflictReview(null)
+    setConflictChoices({})
+    setConflictOpen(false)
   }
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (conflictOpen || conflictLoading) {
+        return
+      }
       if (
         event.key === "PageUp" &&
         canPrevious &&
@@ -359,7 +557,7 @@ export function RecordDetail({
       ) {
         event.preventDefault()
         onNext()
-      } else if (event.key === "Escape" && !saveMutation.isPending) {
+      } else if (event.key === "Escape" && !busy) {
         event.preventDefault()
         onClose()
       }
@@ -369,12 +567,14 @@ export function RecordDetail({
   }, [
     canNext,
     canPrevious,
+    conflictLoading,
+    conflictOpen,
     dirty,
     navigationPending,
     onClose,
     onNext,
     onPrevious,
-    saveMutation.isPending,
+    busy,
   ])
 
   const visibleSections =
@@ -452,19 +652,52 @@ export function RecordDetail({
       {saveError ? (
         <div
           role="alert"
-          className="mb-4 flex shrink-0 items-start gap-3 rounded-xl border border-destructive/25 bg-destructive/8 px-4 py-3 text-sm text-destructive"
+          className="mb-4 flex shrink-0 items-start justify-between gap-4 rounded-xl border border-destructive/25 bg-destructive/8 px-4 py-3 text-sm text-destructive"
         >
-          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            <div>
+              <p className="font-medium">
+                {saveError.status === 412
+                  ? "This record changed on the server."
+                  : "The record could not be saved."}
+              </p>
+              <p className="mt-0.5 text-xs leading-5 text-destructive/85">
+                {saveError.status === 412
+                  ? conflictLoading
+                    ? "Loading current values for a three-way review…"
+                    : conflictReview
+                      ? "Review Original, Current, and Draft values before rebasing onto the latest version."
+                      : "Your stale draft remains open. Save again to refresh the conflict review."
+                  : saveError.message}
+              </p>
+            </div>
+          </div>
+          {saveError.status === 412 &&
+          conflictReview &&
+          !conflictOpen ? (
+            <Button
+              className="shrink-0"
+              size="sm"
+              variant="outline"
+              onClick={() => setConflictOpen(true)}
+            >
+              Review changes
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {rebaseNotice ? (
+        <div
+          role="status"
+          className="mb-4 flex shrink-0 items-start gap-3 rounded-xl border border-primary/25 bg-primary/7 px-4 py-3 text-sm text-foreground"
+        >
+          <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
           <div>
-            <p className="font-medium">
-              {saveError.status === 412
-                ? "This record changed on the server."
-                : "The record could not be saved."}
-            </p>
-            <p className="mt-0.5 text-xs leading-5 text-destructive/85">
-              {saveError.status === 412
-                ? "Cancel and reopen it to review the current values before editing again."
-                : saveError.message}
+            <p className="font-medium">Draft rebased onto current values</p>
+            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+              {rebaseNotice}
             </p>
           </div>
         </div>
@@ -508,7 +741,7 @@ export function RecordDetail({
               draft={draft}
               editableFields={editableFields}
               errors={fieldErrors}
-              disabled={saveMutation.isPending}
+              disabled={busy}
               onChange={(name, value) => {
                 setDraft((current) => ({ ...current, [name]: value }))
                 setFieldErrors((current) => {
@@ -519,7 +752,13 @@ export function RecordDetail({
                   delete next[name]
                   return next
                 })
-                setSaveError(null)
+                if (conflictReview) {
+                  setConflictReview(null)
+                  setConflictChoices({})
+                  setConflictOpen(false)
+                } else {
+                  setSaveError(null)
+                }
               }}
               onApplyValues={(values) => {
                 setDraft((current) => ({ ...current, ...values }))
@@ -530,7 +769,13 @@ export function RecordDetail({
                   }
                   return next
                 })
-                setSaveError(null)
+                if (conflictReview) {
+                  setConflictReview(null)
+                  setConflictChoices({})
+                  setConflictOpen(false)
+                } else {
+                  setSaveError(null)
+                }
               }}
             />
             {visibleSections
@@ -550,13 +795,19 @@ export function RecordDetail({
                     rows={collectionDrafts[section.name] ?? []}
                     errors={collectionErrors[section.name] ?? []}
                     editable
-                    disabled={saveMutation.isPending}
+                    disabled={busy}
                     onRowsChange={(rows) => {
                       setCollectionDrafts((current) => ({
                         ...current,
                         [section.name]: rows,
                       }))
-                      setSaveError(null)
+                      if (conflictReview) {
+                        setConflictReview(null)
+                        setConflictChoices({})
+                        setConflictOpen(false)
+                      } else {
+                        setSaveError(null)
+                      }
                     }}
                     onErrorsChange={(errors) =>
                       setCollectionErrors((current) => ({
@@ -633,19 +884,19 @@ export function RecordDetail({
             <>
               <Button
                 variant="outline"
-                disabled={saveMutation.isPending}
+                disabled={busy}
                 onClick={onClose}
               >
                 Cancel
               </Button>
               <Button
                 disabled={
-                  saveMutation.isPending ||
+                  busy ||
                   (mode === "update" && !dirty)
                 }
                 onClick={save}
               >
-                {saveMutation.isPending ? (
+                {busy ? (
                   <LoaderCircle className="animate-spin" />
                 ) : (
                   <Save />
@@ -660,6 +911,25 @@ export function RecordDetail({
           )}
         </div>
       </footer>
+
+      {conflictReview && conflictOpen ? (
+        <RecordConflictReview
+          form={form}
+          collections={collectionSections}
+          conflict={conflictReview.comparison}
+          lockedFields={conflictReview.lockedFields}
+          choices={conflictChoices}
+          onChoice={(name, choice) =>
+            setConflictChoices((current) => ({
+              ...current,
+              [name]: choice,
+            }))
+          }
+          onContinueEditing={() => setConflictOpen(false)}
+          onReloadCurrent={reloadConflictCurrent}
+          onApply={applyConflictResolution}
+        />
+      ) : null}
     </main>
   )
 }
@@ -913,6 +1183,46 @@ function focusFirstCollectionError(
       )
       ?.scrollIntoView({ block: "nearest" })
   })
+}
+
+function conflictRecordValues(
+  form: TideFormPresentation,
+  collections: TidePresentationFormCollection[],
+  record: TideRecord,
+  fieldNames: readonly string[],
+): Record<string, unknown> {
+  const scalarNames = new Set(
+    fieldNames.filter((name) => form.fields[name] !== undefined),
+  )
+  const values = mutationPayload(
+    form,
+    formDraft(form, record),
+    scalarNames,
+  )
+  for (const name of fieldNames) {
+    const collection = collections.find(
+      (section) => section.name === name,
+    )
+    if (collection) {
+      values[name] = collectionMutationPayload(
+        collection,
+        collectionDraftRows(collection, record[name]),
+      )
+    }
+  }
+  return values
+}
+
+function conflictFieldLabel(
+  form: TideFormPresentation,
+  collections: TidePresentationFormCollection[],
+  name: string,
+): string {
+  return (
+    form.fields[name]?.label ??
+    collections.find((collection) => collection.name === name)?.label ??
+    name
+  )
 }
 
 function escapeRegExp(value: string): string {

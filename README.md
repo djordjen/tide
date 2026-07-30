@@ -409,7 +409,10 @@ and authorized users can create a missing Customer through nested
 contract now drives InvoiceLine Add/Apply/Remove, Product lookup and nested
 **Save & Select**; the complete header and line draft is committed through one
 ETag-protected parent mutation, where the server revalidates and recalculates
-stored totals.
+stored totals. A stale Web save now opens the same explicit
+Original/Current/Your draft review used by the other renderers, requires a
+choice for overlapping changes, honors new workflow locks, and rebases onto
+the latest ETag for review before a separate save.
 The typed HTTP client preserves exact field types,
 protected values, cursors, ETags, and stable errors while rejecting mismatched
 applications, principals, and unsafe unencrypted non-loopback URLs. Neither

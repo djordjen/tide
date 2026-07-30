@@ -66,7 +66,10 @@ database.
 - Enter traversal, date `+`/`-` shortcuts, changed-fields-only updates, and
   field-addressable client and server validation feedback;
 - optimistic update protection whenever the entity declares a concurrency
-  token and its record response supplies an ETag.
+  token and its record response supplies an ETag;
+- explicit Original/Current/Your draft review after a stale update, including
+  Current/Mine overlap choices, safe draft-only rebase, current workflow-lock
+  reevaluation, and a fresh ETag-backed form for review before saving again.
 
 The YAML column order remains the shared application default. Ordinary browser
 reordering and resizing are personal preferences and never edit application
@@ -105,8 +108,15 @@ validated again by FastAPI and the shared services.
 
 Create sends only currently writable scalar fields. Update sends only changed
 fields and returns refreshed per-record field state. If a record `GET` supplies
-an ETag, Web returns it through `If-Match`; a stale response is shown as an
-explicit concurrency message instead of silently overwriting the record.
+an ETag, Web returns it through `If-Match`. A stale response loads the latest
+secured record and opens an explicit three-way review. Draft-only changes can
+be retained safely; overlapping changes require a Current or Mine choice.
+Collections such as Invoice Lines are deliberately compared as one unit rather
+than merged row by row. Applying the resolution reloads current server values,
+drops fields newly locked by workflow rules, and reopens the resolved draft on
+the latest ETag. It never writes automatically: the user reviews and saves
+again, so FastAPI repeats authorization, normalization, validation, and
+concurrency checks.
 Validation responses may carry safe field-addressable issues so the browser can
 place the authoritative message beside the corresponding editor.
 
@@ -186,5 +196,5 @@ semantic baseline and records deliberate gaps. Multi-column lookup selection
 and nested **Save & Select** are covered for scalar references such as
 Invoice Customer and collection references such as InvoiceLine Product.
 Transactional Invoice master-detail drafts are also covered. Three-way
-conflict review is the next Web editing slice; domain actions and report
-preview remain separate reviewed milestones.
+conflict review now has the same loss-prevention semantics in Textual, Qt, and
+Web. Domain actions and report preview remain separate reviewed milestones.

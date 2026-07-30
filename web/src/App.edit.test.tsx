@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, waitFor } from "@testing-library/react"
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, expect, it, vi } from "vitest"
 
@@ -7,6 +13,7 @@ import App from "@/App"
 import { TooltipProvider } from "@/components/ui/tooltip"
 
 afterEach(() => {
+  cleanup()
   vi.unstubAllGlobals()
   window.localStorage.clear()
 })
@@ -159,6 +166,130 @@ it("creates and updates a flat metadata form through the secured API", async () 
   expect(
     await screen.findByRole("heading", {
       name: "Product — P00001 - Updated support",
+    }),
+  ).toBeInTheDocument()
+})
+
+it("reviews a stale draft and rebases explicit choices onto the fresh ETag", async () => {
+  const requests: Array<{
+    body: Record<string, unknown>
+    ifMatch: string | null
+  }> = []
+  let stale = true
+  let stored = product(1, "P00001", "Support", "10.00")
+  let etag = '"7"'
+
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith("/_tide/session")) {
+        return jsonResponse(session)
+      }
+      if (url.endsWith("/_tide/presentation")) {
+        return jsonResponse(presentation)
+      }
+      if (url.endsWith("/products/_query")) {
+        return jsonResponse({ records: [stored], next_cursor: null })
+      }
+      if (url.endsWith("/products/1") && init?.method === "GET") {
+        return jsonResponse(stored, { headers: { ETag: etag } })
+      }
+      if (url.endsWith("/products/1") && init?.method === "PATCH") {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>
+        requests.push({
+          body,
+          ifMatch: new Headers(init.headers).get("If-Match"),
+        })
+        if (stale) {
+          stale = false
+          stored = {
+            ...stored,
+            name: "Server support",
+            active: false,
+            _tide: {
+              writable_fields: ["code", "name", "active"],
+            },
+          }
+          etag = '"8"'
+          return jsonResponse(
+            {
+              code: "stale_version",
+              message: "expected version 7, found 8",
+            },
+            { status: 412 },
+          )
+        }
+        stored = { ...stored, ...body }
+        etag = '"9"'
+        return jsonResponse(stored, { headers: { ETag: etag } })
+      }
+      throw new Error(`Unexpected URL ${url}`)
+    }),
+  )
+
+  const user = userEvent.setup()
+  renderApp()
+  await user.type(
+    screen.getByLabelText("Application token"),
+    "a-development-token-that-is-long-enough",
+  )
+  await user.click(
+    screen.getByRole("button", { name: "Connect securely" }),
+  )
+  await user.dblClick(await screen.findByRole("row", { name: /P00001/ }))
+
+  const name = await screen.findByLabelText(/^Name/)
+  const price = screen.getByLabelText(/^Unit Price/)
+  await user.clear(name)
+  await user.type(name, "My support")
+  await user.clear(price)
+  await user.type(price, "11.00")
+  await user.click(screen.getByRole("button", { name: "Save" }))
+
+  const review = await screen.findByRole("dialog", {
+    name: "Record changed elsewhere",
+  })
+  expect(within(review).getByText("Server support")).toBeInTheDocument()
+  expect(within(review).getByText("My support")).toBeInTheDocument()
+  expect(
+    within(review).getByLabelText("Unit Price is now locked"),
+  ).toBeInTheDocument()
+  const apply = within(review).getByRole("button", {
+    name: "Apply resolution",
+  })
+  expect(apply).toBeDisabled()
+  await user.click(
+    within(review).getByRole("button", { name: "Use my Name" }),
+  )
+  expect(apply).toBeEnabled()
+  await user.click(apply)
+
+  expect(
+    await screen.findByText("Draft rebased onto current values"),
+  ).toBeInTheDocument()
+  expect(screen.getByLabelText(/^Name/)).toHaveValue("My support")
+  expect(screen.queryByLabelText(/^Unit Price/)).not.toBeInTheDocument()
+  expect(screen.getAllByText("Unit Price").length).toBeGreaterThan(0)
+  expect(screen.getAllByText("10.00").length).toBeGreaterThan(0)
+  expect(screen.getByRole("checkbox", { name: "Active" })).not.toBeChecked()
+
+  await user.click(screen.getByRole("button", { name: "Save" }))
+  await waitFor(() =>
+    expect(requests).toEqual([
+      {
+        body: { unit_price: "11.00", name: "My support" },
+        ifMatch: '"7"',
+      },
+      {
+        body: { name: "My support" },
+        ifMatch: '"8"',
+      },
+    ]),
+  )
+  expect(
+    await screen.findByRole("heading", {
+      name: "Product — P00001 - My support",
     }),
   ).toBeInTheDocument()
 })

@@ -316,8 +316,11 @@ capabilities:
             selector: test_qt_stale_product_edit_opens_three_way_review_and_rebase
             runner: python-gui
       web:
-        status: planned
-        note: Web currently reports a stale update and asks the user to reopen the record.
+        status: covered
+        evidence:
+          - path: web/src/App.edit.test.tsx
+            selector: reviews a stale draft and rebases explicit choices onto the fresh ETag
+            runner: web
 
   - id: domain_actions
     tier: roadmap

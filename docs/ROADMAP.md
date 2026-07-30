@@ -240,12 +240,16 @@ an invoice entirely by keyboard or mouse.
   defaults, masks, field-addressable validation, changed-field PATCH, and
   conditional ETag preconditions; lookup search uses readable metadata columns
   and the server-owned reference-selection operation; nested line changes use
-  one complete ETag-protected parent update and server-owned recomputation
+  one complete ETag-protected parent update and server-owned recomputation;
+  **three-way stale-conflict review is implemented** with explicit
+  Original/Current/Draft comparison, Current/Mine overlap choices,
+  collection-as-one-unit semantics, workflow-lock reevaluation, and review on
+  the fresh ETag before a separate save
 - executable renderer acceptance matrix for shared TUI/Qt/Web semantics;
   **implemented** with a versioned YAML matrix, compiled Invoicing golden
   contract, safe Web-projection comparison, and CI-verified evidence links;
-  the matrix records the closed Web scalar-lookup/master-detail gaps plus the
-  remaining conflict, action, and report gaps explicitly
+  the matrix records the closed Web scalar-lookup, master-detail, and conflict
+  gaps plus the remaining action and report gaps explicitly
 
 Exit condition: TUI, REST, and MCP produce equivalent secured outcomes through
 the same services.

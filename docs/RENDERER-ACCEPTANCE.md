@@ -57,8 +57,9 @@ The same matrix records non-parity work instead of hiding it:
   resizing is not a terminal interaction;
 - lookup and nested **Save & Select** are implemented in all three renderers;
 - Invoice master-detail drafts are implemented in all three renderers;
-- three-way stale-conflict review, domain actions, and report preview/export
-  are implemented in Textual and Qt but remain planned for Web.
+- three-way stale-conflict review is implemented in all three renderers;
+- domain actions and report preview/export are implemented in Textual and Qt
+  but remain planned for Web.
 
 Changing a renderer status to **covered** requires adding executable evidence
 in the same change. If application YAML changes the shared layout, the golden
