@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date
 from string import Formatter
 from typing import Mapping
+from urllib.parse import quote
 
 from tide.api.contracts import (
     TideBrowsePresentation,
@@ -22,6 +23,7 @@ from tide.api.contracts import (
     TidePresentationNavigationItem,
     TidePresentationLookup,
     TidePresentationReference,
+    TidePresentationReport,
     TideSessionInfo,
 )
 from tide.api.openapi import RestExposure
@@ -209,6 +211,27 @@ def build_presentation_manifest(
             if lookup.create_view is not None
             and lookup.create_view not in forms
         )
+    accessible_entities = {view.entity for view in views.values()}
+    reports = {
+        name: TidePresentationReport(
+            name=name,
+            title=str(report.get("title") or name),
+            kind=str(report.get("kind", "record")),
+            entity=str(report["entity"]),
+            resource_path=(
+                f"{base_path.rstrip('/')}/_tide/reports/"
+                f"{quote(name, safe='')}"
+            ),
+        )
+        for name, report in model.reports.items()
+        if name in session.reports
+        and report.get("expose", {}).get("rest") is True
+        and str(report["entity"]) in accessible_entities
+        and (
+            report.get("kind", "record") != "summary"
+            or not report.get("parameters")
+        )
+    }
     return TidePresentationManifest(
         application=model.name,
         application_version=model.version,
@@ -217,6 +240,7 @@ def build_presentation_manifest(
         navigation=tuple(navigation),
         views=views,
         forms=forms,
+        reports=reports,
     )
 
 

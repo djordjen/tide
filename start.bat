@@ -75,27 +75,27 @@ goto finish
 :api
 call :prepare_api_token
 echo Starting the API against SQL Server...
-uv run --extra api --extra client --extra sqlserver tide serve applications/invoicing --database-env --role sales_clerk --port 8000
+uv run --extra api --extra client --extra report --extra sqlserver tide serve applications/invoicing --database-env --role sales_clerk --port 8000
 goto finish
 
 :api_demo
 call :prepare_api_token
 echo Starting the API tutorial server with isolated demo data...
-uv run --extra api --extra client tide serve applications/invoicing --demo --role sales_clerk --role auditor --port 8000
+uv run --extra api --extra client --extra report tide serve applications/invoicing --demo --role sales_clerk --role auditor --port 8000
 goto finish
 
 :mcp
 call :prepare_api_token
 echo Starting the API and secured runtime MCP server against SQL Server...
 echo MCP clients connect to http://127.0.0.1:8000/mcp using the token above.
-uv run --extra api --extra client --extra mcp --extra sqlserver tide serve applications/invoicing --database-env --role sales_clerk --role auditor --port 8000 --mcp
+uv run --extra api --extra client --extra mcp --extra report --extra sqlserver tide serve applications/invoicing --database-env --role sales_clerk --role auditor --port 8000 --mcp
 goto finish
 
 :mcp_demo
 call :prepare_api_token
 echo Starting the API and secured runtime MCP server with isolated demo data...
 echo MCP clients connect to http://127.0.0.1:8000/mcp using the token above.
-uv run --extra api --extra client --extra mcp tide serve applications/invoicing --demo --role sales_clerk --role auditor --port 8000 --mcp
+uv run --extra api --extra client --extra mcp --extra report tide serve applications/invoicing --demo --role sales_clerk --role auditor --port 8000 --mcp
 goto finish
 
 :api_check

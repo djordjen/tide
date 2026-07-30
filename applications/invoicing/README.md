@@ -129,6 +129,11 @@ projects only safe action labels/idempotency requirements plus per-record
 visible/enabled hints. **Post invoice** saves any dirty header/line draft first,
 uses the returned ETag and a unique idempotency key for the action request, and
 replaces the open form with the posted read-only record state.
+The Web list also exposes **Posted Sales Summary**, while a saved Invoice
+exposes **Preview Invoice**. Both use the secured renderer-neutral document and
+offer server-generated CSV, standalone HTML, and PDF downloads. Report queries,
+criteria, permission expressions, and database configuration remain on the
+server.
 The Qt list exposes one **Open** action rather than separate View/Edit/Preview
 modes. The opened form uses the same YAML-defined two-column header as Textual;
 status and capabilities determine whether fields, Save, and Post are enabled.

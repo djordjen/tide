@@ -14,6 +14,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 
 afterEach(() => {
   cleanup()
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
   window.localStorage.clear()
 })
@@ -555,6 +556,195 @@ it("saves a dirty Invoice before posting it through the domain action", async ()
   expect(screen.getByRole("button", { name: "Post invoice" })).toBeDisabled()
 })
 
+it("previews secured record and summary reports and downloads controlled exports", async () => {
+  const reportRequests: Array<{ method: string; url: string }> = []
+  const downloadedNames: string[] = []
+  const NativeURL = URL
+  vi.stubGlobal(
+    "URL",
+    class extends NativeURL {
+      static createObjectURL() {
+        return "blob:tide-report"
+      }
+
+      static revokeObjectURL() {}
+    },
+  )
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
+    function click(this: HTMLAnchorElement) {
+      downloadedNames.push(this.download)
+    },
+  )
+
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith("/_tide/session")) {
+        return jsonResponse(session)
+      }
+      if (url.endsWith("/_tide/presentation")) {
+        return jsonResponse(presentation)
+      }
+      if (url.endsWith("/invoices/_query")) {
+        const stored = invoice(1)
+        return jsonResponse({
+          records: [
+            {
+              id: 1,
+              number: stored.number,
+              customer: stored.customer,
+              status: stored.status,
+              total: stored.total,
+            },
+          ],
+          next_cursor: null,
+        })
+      }
+      if (
+        url.endsWith("/_tide/reports/sales.summary") &&
+        init?.method === "POST"
+      ) {
+        reportRequests.push({ method: "POST", url })
+        return jsonResponse(summaryReport())
+      }
+      if (
+        url.endsWith("/_tide/reports/sales.summary/exports/csv") &&
+        init?.method === "POST"
+      ) {
+        reportRequests.push({ method: "POST", url })
+        return downloadResponse(
+          "Customer,Currency,Invoices,Sales total\r\n",
+          "posted-sales-summary.csv",
+          "text/csv",
+        )
+      }
+      if (
+        url.endsWith("/_tide/reports/sales.invoice/records/1") &&
+        init?.method === "GET"
+      ) {
+        reportRequests.push({ method: "GET", url })
+        return jsonResponse(invoiceReport())
+      }
+      if (
+        url.endsWith(
+          "/_tide/reports/sales.invoice/records/1/exports/pdf",
+        ) &&
+        init?.method === "GET"
+      ) {
+        reportRequests.push({ method: "GET", url })
+        return downloadResponse(
+          "%PDF-test",
+          "invoice-INV-2026-0001.pdf",
+          "application/pdf",
+        )
+      }
+      if (url.endsWith("/invoices/1") && init?.method === "GET") {
+        return jsonResponse(invoice(1), {
+          headers: { ETag: '"4"' },
+        })
+      }
+      const productMatch = /\/products\/(\d+)$/.exec(url)
+      if (productMatch && init?.method === "GET") {
+        return jsonResponse(
+          product(
+            Number(productMatch[1]),
+            "DEMO",
+            "Demo product",
+            "100.00",
+          ),
+        )
+      }
+      const customerMatch = /\/customers\/(\d+)$/.exec(url)
+      if (customerMatch && init?.method === "GET") {
+        return jsonResponse(
+          customer(
+            Number(customerMatch[1]),
+            "ADRIA",
+            "Adria Consulting",
+            "hello@adria.test",
+          ),
+        )
+      }
+      throw new Error(`Unexpected URL ${url}`)
+    }),
+  )
+
+  const user = userEvent.setup()
+  renderApp()
+  await user.type(
+    screen.getByLabelText("Application token"),
+    "a-development-token-that-is-long-enough",
+  )
+  await user.click(
+    screen.getByRole("button", { name: "Connect securely" }),
+  )
+
+  await user.click(
+    await screen.findByRole("button", {
+      name: "Posted Sales Summary",
+    }),
+  )
+  const summaryDialog = await screen.findByRole("dialog", {
+    name: "Posted Sales Summary",
+  })
+  expect(within(summaryDialog).getByText("4,610.00")).toBeInTheDocument()
+  await user.click(
+    within(summaryDialog).getByRole("button", {
+      name: "Download CSV",
+    }),
+  )
+  await waitFor(() =>
+    expect(downloadedNames).toContain("posted-sales-summary.csv"),
+  )
+  await user.click(
+    within(summaryDialog).getByRole("button", {
+      name: "Close report preview",
+    }),
+  )
+
+  await user.dblClick(
+    await screen.findByRole("row", { name: /INV-2026-0001/ }),
+  )
+  await user.click(
+    await screen.findByRole("button", { name: "Preview Invoice" }),
+  )
+  const invoiceDialog = await screen.findByRole("dialog", {
+    name: "Invoice",
+  })
+  expect(within(invoiceDialog).getByText("Demo line")).toBeInTheDocument()
+  await user.click(
+    within(invoiceDialog).getByRole("button", {
+      name: "Download PDF",
+    }),
+  )
+  await waitFor(() =>
+    expect(downloadedNames).toContain("invoice-INV-2026-0001.pdf"),
+  )
+  expect(reportRequests.map(({ method, url }) => ({
+    method,
+    path: new NativeURL(url, "http://tide.test").pathname,
+  }))).toEqual([
+    {
+      method: "POST",
+      path: "/api/v1/_tide/reports/sales.summary",
+    },
+    {
+      method: "POST",
+      path: "/api/v1/_tide/reports/sales.summary/exports/csv",
+    },
+    {
+      method: "GET",
+      path: "/api/v1/_tide/reports/sales.invoice/records/1",
+    },
+    {
+      method: "GET",
+      path:
+        "/api/v1/_tide/reports/sales.invoice/records/1/exports/pdf",
+    },
+  ])
+})
+
 function renderApp() {
   const client = new QueryClient({
     defaultOptions: {
@@ -580,6 +770,22 @@ function jsonResponse(
     headers: {
       "Content-Type": "application/json",
       ...Object.fromEntries(new Headers(init.headers)),
+    },
+  })
+}
+
+function downloadResponse(
+  value: string,
+  filename: string,
+  contentType: string,
+): Response {
+  return new Response(value, {
+    headers: {
+      "Content-Type": contentType,
+      "Content-Disposition": (
+        `attachment; filename="${filename}"; ` +
+        `filename*=UTF-8''${encodeURIComponent(filename)}`
+      ),
     },
   })
 }
@@ -642,6 +848,70 @@ function invoice(id: number) {
         post: { visible: true, enabled: true },
       },
     },
+  }
+}
+
+function invoiceReport() {
+  return {
+    wire_version: "0.1",
+    report: "sales.invoice",
+    title: "Invoice",
+    application: "TIDE Invoicing",
+    generated_at: "2026-07-30T12:00:00Z",
+    header_text: ["Invoice"],
+    record_values: [
+      { label: "Invoice number", text: "INV-2026-0001", alignment: "left" },
+    ],
+    detail: {
+      columns: [
+        { name: "description", label: "Description", alignment: "left" },
+        { name: "total", label: "Total", alignment: "right" },
+      ],
+      rows: [
+        [
+          { text: "Demo line", alignment: "left" },
+          { text: "100.00", alignment: "right" },
+        ],
+      ],
+    },
+    footer_values: [
+      { label: "Total", text: "100.00", alignment: "right" },
+    ],
+    page_footer_template: "Page {page_number} of {page_count}",
+    suggested_filename: "invoice-INV-2026-0001",
+  }
+}
+
+function summaryReport() {
+  return {
+    wire_version: "0.1",
+    report: "sales.summary",
+    title: "Posted Sales Summary",
+    application: "TIDE Invoicing",
+    generated_at: "2026-07-30T12:00:00Z",
+    header_text: [],
+    record_values: [],
+    detail: {
+      columns: [
+        { name: "customer", label: "Customer", alignment: "left" },
+        { name: "currency", label: "Currency", alignment: "left" },
+        { name: "invoice_count", label: "Invoices", alignment: "right" },
+        { name: "sales_total", label: "Sales total", alignment: "right" },
+      ],
+      rows: [
+        [
+          { text: "ADRIA - Adria Consulting", alignment: "left" },
+          { text: "EUR", alignment: "left" },
+          { text: "3", alignment: "right" },
+          { text: "4,610.00", alignment: "right" },
+        ],
+      ],
+    },
+    footer_values: [
+      { label: "Source records", text: "3", alignment: "right" },
+    ],
+    page_footer_template: "Page {page_number} of {page_count}",
+    suggested_filename: "sales-summary-2026-07-30",
   }
 }
 
@@ -1078,7 +1348,7 @@ const session = {
   authentication: "development-bearer",
   principal: "development:api",
   roles: ["sales_clerk"],
-  reports: [],
+  reports: ["sales.invoice", "sales.summary"],
   entities: {},
 }
 
@@ -1107,5 +1377,23 @@ const presentation = {
     "sales.Invoice.edit": invoiceForm,
     "crm.Customer.edit": customerForm,
     "catalog.Product.edit": productForm,
+  },
+  reports: {
+    "sales.invoice": {
+      name: "sales.invoice",
+      title: "Invoice",
+      kind: "record",
+      entity: "sales.Invoice",
+      resource_path: "/api/v1/_tide/reports/sales.invoice",
+      export_formats: ["csv", "html", "pdf"],
+    },
+    "sales.summary": {
+      name: "sales.summary",
+      title: "Posted Sales Summary",
+      kind: "summary",
+      entity: "sales.Invoice",
+      resource_path: "/api/v1/_tide/reports/sales.summary",
+      export_formats: ["csv", "html", "pdf"],
+    },
   },
 }

@@ -11,6 +11,7 @@ import re
 import secrets
 from time import perf_counter
 from typing import Any, Callable, Literal, Mapping, Protocol
+from urllib.parse import quote
 
 from fastapi import (
     Body,
@@ -89,7 +90,14 @@ from tide.runtime import (
     ValidationFailed,
     VersionPreconditionRequired,
 )
-from tide.reporting import ReportService
+from tide.reporting import (
+    PdfDependencyMissing,
+    ReportDocument,
+    ReportService,
+    render_csv,
+    render_html,
+    render_pdf,
+)
 from tide.security import PROTECTED
 from tide.services import ActionService, AuditHistoryReader, AuditHistoryService, RecordsService
 
@@ -587,18 +595,11 @@ def build_fastapi_app(
             values=_wire_draft(model, entity, updated),
         )
 
-    @app.post(
-        f"{base_path.rstrip('/')}/_tide/reports/{{report_name}}",
-        tags=["TIDE"],
-        summary="Build one secured summary report",
-        response_model=TideReportDocument,
-        responses=_documented_errors(400, 401, 403, 404, 422),
-    )
-    def summary_report(
-        context: RequestContext = Depends(request_context),
-        report_name: str = Path(min_length=1),
-        parameters: dict[str, Any] = Body(default_factory=dict),
-    ) -> TideReportDocument:
+    def build_summary_document(
+        report_name: str,
+        parameters: Mapping[str, Any],
+        context: RequestContext,
+    ) -> ReportDocument:
         report = model.reports.get(report_name)
         if (
             report is None
@@ -606,21 +607,13 @@ def build_fastapi_app(
             or report.get("expose", {}).get("rest") is not True
         ):
             raise NotFoundError(f"report {report_name!r} was not found")
-        document = report_service.build(report_name, parameters, context)
-        return TideReportDocument.model_validate(asdict(document))
+        return report_service.build(report_name, parameters, context)
 
-    @app.get(
-        f"{base_path.rstrip('/')}/_tide/reports/{{report_name}}/records/{{identity}}",
-        tags=["TIDE"],
-        summary="Build one secured record report",
-        response_model=TideReportDocument,
-        responses=_documented_errors(400, 401, 403, 404, 422),
-    )
-    def record_report(
-        context: RequestContext = Depends(request_context),
-        report_name: str = Path(min_length=1),
-        identity: str = Path(min_length=1),
-    ) -> TideReportDocument:
+    def build_record_document(
+        report_name: str,
+        identity: str,
+        context: RequestContext,
+    ) -> ReportDocument:
         report = model.reports.get(report_name)
         if (
             report is None
@@ -634,12 +627,79 @@ def build_fastapi_app(
             typed_identity = _coerce_identity(model, primary_key, identity)
         except (TypeError, ValueError, InvalidOperation) as error:
             raise _bad_request("record identity has an invalid type") from error
-        document = report_service.build_for_record(
+        return report_service.build_for_record(
             report_name,
             typed_identity,
             context,
         )
+
+    @app.post(
+        f"{base_path.rstrip('/')}/_tide/reports/{{report_name}}",
+        tags=["TIDE"],
+        summary="Build one secured summary report",
+        response_model=TideReportDocument,
+        responses=_documented_errors(400, 401, 403, 404, 422),
+    )
+    def summary_report(
+        context: RequestContext = Depends(request_context),
+        report_name: str = Path(min_length=1),
+        parameters: dict[str, Any] = Body(default_factory=dict),
+    ) -> TideReportDocument:
+        document = build_summary_document(report_name, parameters, context)
         return TideReportDocument.model_validate(asdict(document))
+
+    @app.post(
+        (
+            f"{base_path.rstrip('/')}/_tide/reports/"
+            "{report_name}/exports/{export_format}"
+        ),
+        tags=["TIDE"],
+        summary="Export one secured summary report",
+        response_class=Response,
+        responses=_documented_errors(400, 401, 403, 404, 422, 503),
+    )
+    def summary_report_export(
+        context: RequestContext = Depends(request_context),
+        report_name: str = Path(min_length=1),
+        export_format: Literal["csv", "html", "pdf"] = Path(),
+        parameters: dict[str, Any] = Body(default_factory=dict),
+    ) -> Response:
+        document = build_summary_document(report_name, parameters, context)
+        return _report_export_response(document, export_format)
+
+    @app.get(
+        f"{base_path.rstrip('/')}/_tide/reports/{{report_name}}/records/{{identity}}",
+        tags=["TIDE"],
+        summary="Build one secured record report",
+        response_model=TideReportDocument,
+        responses=_documented_errors(400, 401, 403, 404, 422),
+    )
+    def record_report(
+        context: RequestContext = Depends(request_context),
+        report_name: str = Path(min_length=1),
+        identity: str = Path(min_length=1),
+    ) -> TideReportDocument:
+        document = build_record_document(report_name, identity, context)
+        return TideReportDocument.model_validate(asdict(document))
+
+    @app.get(
+        (
+            f"{base_path.rstrip('/')}/_tide/reports/"
+            "{report_name}/records/{identity}/exports/{export_format}"
+        ),
+        tags=["TIDE"],
+        summary="Export one secured record report",
+        response_class=Response,
+        responses=_documented_errors(400, 401, 403, 404, 422, 503),
+    )
+    def record_report_export(
+        context: RequestContext = Depends(request_context),
+        report_name: str = Path(min_length=1),
+        identity: str = Path(min_length=1),
+        export_format: Literal["csv", "html", "pdf"] = Path(),
+    ) -> Response:
+        document = build_record_document(report_name, identity, context)
+        return _report_export_response(document, export_format)
 
     for entity_name, exposure in exposures.items():
         entity = model.entity(entity_name)
@@ -1360,6 +1420,47 @@ def _record_action_states(
     return result
 
 
+def _report_export_response(
+    document: ReportDocument,
+    export_format: Literal["csv", "html", "pdf"],
+) -> Response:
+    """Render one already-authorized report with a safe attachment name."""
+
+    filename = f"{document.suggested_filename}.{export_format}"
+    fallback = re.sub(
+        r"[^A-Za-z0-9._-]+",
+        "-",
+        filename.encode("ascii", "ignore").decode("ascii"),
+    ).strip("-.") or f"report.{export_format}"
+    disposition = (
+        f'attachment; filename="{fallback}"; '
+        f"filename*=UTF-8''{quote(filename, safe='')}"
+    )
+    if export_format == "csv":
+        content = render_csv(document).encode("utf-8-sig")
+        media_type = "text/csv; charset=utf-8"
+    elif export_format == "html":
+        content = render_html(document).encode("utf-8")
+        media_type = "text/html; charset=utf-8"
+    else:
+        try:
+            content = render_pdf(document)
+        except PdfDependencyMissing as error:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "report_format_unavailable",
+                    "message": str(error),
+                },
+            ) from error
+        media_type = "application/pdf"
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": disposition},
+    )
+
+
 def _decode_draft(
     model: ApplicationModel,
     entity: NormalizedEntity,
@@ -1487,6 +1588,7 @@ def _documented_errors(*statuses: int) -> dict[int, dict[str, Any]]:
         413: "Request body exceeds the configured limit",
         422: "Request validation failed",
         428: "Required mutation precondition is missing",
+        503: "Requested optional report format is unavailable",
     }
     return {
         status: {

@@ -114,6 +114,7 @@ def test_reference_contract_matches_compiled_model_and_web_projection() -> None:
         authentication="renderer-acceptance",
         principal="acceptance:all-fields",
         roles=("sales_clerk",),
+        reports=tuple(model.reports),
         entities={
             name: TideEntityCapabilities(
                 operations=tuple(
@@ -160,6 +161,15 @@ def test_reference_contract_matches_compiled_model_and_web_projection() -> None:
         assert _web_sections(manifest.forms[view_name]) == (
             form_expected["sections"]
         )
+    assert [
+        {
+            "name": report.name,
+            "title": report.title,
+            "kind": report.kind,
+            "entity": report.entity,
+        }
+        for report in manifest.reports.values()
+    ] == expected["reports"]
 
 
 def _matrix() -> dict[str, Any]:

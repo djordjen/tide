@@ -230,6 +230,7 @@ export function AppShell({
           view={view}
           form={form}
           forms={connection.presentation.forms}
+          reports={connection.presentation.reports ?? {}}
         />
       </section>
     </div>

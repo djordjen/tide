@@ -16,6 +16,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleCheck,
+  FileText,
   LoaderCircle,
   LockKeyhole,
   Play,
@@ -47,6 +48,7 @@ import type {
   TidePresentationFormAction,
   TidePresentationFormGroup,
   TidePresentationManifest,
+  TidePresentationReport,
   TidePresentationFormSection,
   TideRecord,
   TideRecordSnapshot,
@@ -78,6 +80,7 @@ interface RecordDetailProps {
   view: TideBrowsePresentation
   form: TideFormPresentation
   forms: TidePresentationManifest["forms"]
+  reports: TidePresentationReport[]
   mode: "create" | "update"
   identity: unknown | null
   position: number
@@ -90,6 +93,7 @@ interface RecordDetailProps {
   onClose: () => void
   onSaved: (record: TideRecord, mode: "create" | "update") => void
   onActionCompleted: (record: TideRecord, label: string) => void
+  onPreviewReport: (report: TidePresentationReport) => void
 }
 
 interface SaveAttempt {
@@ -141,6 +145,7 @@ export function RecordDetail({
   view,
   form,
   forms,
+  reports,
   mode,
   identity,
   position,
@@ -153,6 +158,7 @@ export function RecordDetail({
   onClose,
   onSaved,
   onActionCompleted,
+  onPreviewReport,
 }: RecordDetailProps) {
   const queryClient = useQueryClient()
   const skipNextHydration = useRef(false)
@@ -1156,7 +1162,7 @@ export function RecordDetail({
             </div>
           ) : null}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {editorActive ? (
             <>
               <Button
@@ -1186,6 +1192,24 @@ export function RecordDetail({
               Close
             </Button>
           )}
+          {mode === "update"
+            ? reports.map((report) => (
+                <Button
+                  key={report.name}
+                  disabled={busy || dirty}
+                  title={
+                    dirty
+                      ? "Save or cancel changes before previewing this report"
+                      : `Preview ${report.title}`
+                  }
+                  variant="outline"
+                  onClick={() => onPreviewReport(report)}
+                >
+                  <FileText />
+                  Preview {report.title}
+                </Button>
+              ))
+            : null}
           {visibleActions.map((action) => {
             const state = record?._tide?.actions?.[action.name]
             return (

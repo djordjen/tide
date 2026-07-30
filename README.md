@@ -417,7 +417,11 @@ the latest ETag for review before a separate save. The Web form now also
 renders authorized YAML-ordered domain actions. **Post invoice** saves a dirty
 draft first, sends the returned ETag and a unique idempotency key through the
 generated FastAPI action route, and refreshes the open form into its posted,
-read-only state without exposing workflow expressions to the browser.
+read-only state without exposing workflow expressions to the browser. The
+Invoice list's **Posted Sales Summary** and saved detail's **Preview Invoice**
+open responsive previews of the same server-built report documents used by the
+other renderers, with separately authorized CSV, standalone HTML, and PDF
+downloads.
 The typed HTTP client preserves exact field types,
 protected values, cursors, ETags, and stable errors while rejecting mismatched
 applications, principals, and unsafe unencrypted non-loopback URLs. Neither

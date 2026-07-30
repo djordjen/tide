@@ -11,6 +11,7 @@ import httpx
 import pytest
 import uvicorn
 
+import tide.api.server as api_server
 from tide import compile_project
 from tide.api.auth import OidcJwtAuthenticator
 from tide.api.config import (
@@ -23,6 +24,7 @@ from tide.cli import main
 from tide.data import InMemoryRepository
 from tide.runtime import Channel, Principal, RequestContext
 from tide.runtime.application import configure_application_runtime
+from tide.reporting import PdfDependencyMissing
 from tide.services import ActionService, RecordsService
 from tide.tui import seed_demo_data
 
@@ -119,6 +121,24 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
             "sales.Invoice.browse",
             "crm.Customer.browse",
             "catalog.Product.browse",
+        }
+        assert manifest["reports"] == {
+            "sales.invoice": {
+                "name": "sales.invoice",
+                "title": "Invoice",
+                "kind": "record",
+                "entity": "sales.Invoice",
+                "resource_path": "/api/v1/_tide/reports/sales.invoice",
+                "export_formats": ["csv", "html", "pdf"],
+            },
+            "sales.summary": {
+                "name": "sales.summary",
+                "title": "Posted Sales Summary",
+                "kind": "summary",
+                "entity": "sales.Invoice",
+                "resource_path": "/api/v1/_tide/reports/sales.summary",
+                "export_formats": ["csv", "html", "pdf"],
+            },
         }
         assert set(manifest["forms"]) == {
             "sales.Invoice.edit",
@@ -440,6 +460,19 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
     assert set(schema["paths"]["/api/v1/_tide/reports/{report_name}"]) == {
         "post"
     }
+    assert set(
+        schema["paths"][
+            "/api/v1/_tide/reports/{report_name}/exports/{export_format}"
+        ]
+    ) == {"post"}
+    assert set(
+        schema["paths"][
+            (
+                "/api/v1/_tide/reports/{report_name}/records/"
+                "{identity}/exports/{export_format}"
+            )
+        ]
+    ) == {"get"}
     assert "/api/v1/invoices/{id}/actions/post" in schema["paths"]
     assert "413" in schema["paths"]["/api/v1/invoices"]["post"]["responses"]
     assert "408" in schema["paths"]["/api/v1/invoices"]["post"]["responses"]
@@ -605,10 +638,12 @@ def test_presentation_manifest_filters_inaccessible_navigation_groups() -> None:
             section["kind"] == "collection"
             for section in manifest["forms"]["sales.Invoice.edit"]["sections"]
         )
+        assert manifest["reports"] == {}
 
         assert denied.status_code == 200
         assert denied.json()["navigation"] == []
         assert denied.json()["views"] == {}
+        assert denied.json()["reports"] == {}
 
     asyncio.run(exercise())
 
@@ -1306,6 +1341,23 @@ def test_server_builds_only_authorized_renderer_neutral_reports() -> None:
                 headers=_authorization(),
                 json={},
             )
+            pdf = await client.get(
+                (
+                    "/api/v1/_tide/reports/sales.invoice/records/1/"
+                    "exports/pdf"
+                ),
+                headers=_authorization(),
+            )
+            summary_csv = await client.post(
+                "/api/v1/_tide/reports/sales.summary/exports/csv",
+                headers=_authorization(),
+                json={},
+            )
+            summary_html = await client.post(
+                "/api/v1/_tide/reports/sales.summary/exports/html",
+                headers=_authorization(),
+                json={},
+            )
         async with _client(denied_app) as client:
             session = await client.get(
                 "/api/v1/_tide/session",
@@ -1317,6 +1369,11 @@ def test_server_builds_only_authorized_renderer_neutral_reports() -> None:
             )
             denied_summary = await client.post(
                 "/api/v1/_tide/reports/sales.summary",
+                headers=_authorization(),
+                json={},
+            )
+            denied_export = await client.post(
+                "/api/v1/_tide/reports/sales.summary/exports/csv",
                 headers=_authorization(),
                 json={},
             )
@@ -1336,11 +1393,59 @@ def test_server_builds_only_authorized_renderer_neutral_reports() -> None:
         assert unknown.json()["code"] == "not_found"
         assert summary.status_code == 200
         assert summary.json()["detail"]["rows"][0][-1]["text"] == "4,610.00"
+        assert pdf.status_code == 200
+        assert pdf.content.startswith(b"%PDF-")
+        assert pdf.headers["content-type"] == "application/pdf"
+        assert (
+            'filename="invoice-INV-2026-0001.pdf"'
+            in pdf.headers["content-disposition"]
+        )
+        assert summary_csv.status_code == 200
+        assert summary_csv.content.startswith(b"\xef\xbb\xbf")
+        assert b"Customer,Currency,Invoices,Sales total" in summary_csv.content
+        assert summary_csv.headers["content-type"] == "text/csv; charset=utf-8"
+        assert summary_html.status_code == 200
+        assert b"<!doctype html>" in summary_html.content
+        assert b"Posted Sales Summary" in summary_html.content
+        assert summary_html.headers["content-type"] == "text/html; charset=utf-8"
         assert session.json()["reports"] == []
         assert denied.status_code == 403
         assert denied.json()["code"] == "forbidden"
         assert denied_summary.status_code == 403
         assert denied_summary.json()["code"] == "forbidden"
+        assert denied_export.status_code == 403
+        assert denied_export.json()["code"] == "forbidden"
+
+    asyncio.run(exercise())
+
+
+def test_report_pdf_export_fails_closed_without_optional_renderer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def missing_pdf(_document: Any) -> bytes:
+        raise PdfDependencyMissing
+
+    monkeypatch.setattr(api_server, "render_pdf", missing_pdf)
+    app = _app("sales_clerk")
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            response = await client.get(
+                (
+                    "/api/v1/_tide/reports/sales.invoice/records/1/"
+                    "exports/pdf"
+                ),
+                headers=_authorization(),
+            )
+
+        assert response.status_code == 503
+        assert response.json() == {
+            "code": "report_format_unavailable",
+            "message": (
+                "PDF export requires the 'report' extra: "
+                "pip install tide-framework[report]"
+            ),
+        }
 
     asyncio.run(exercise())
 

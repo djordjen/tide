@@ -1,5 +1,7 @@
 export type TideOperation = "list" | "get" | "create" | "update" | "delete"
 export type TideAlignment = "left" | "center" | "right"
+export type TideReportKind = "record" | "summary"
+export type TideReportExportFormat = "csv" | "html" | "pdf"
 export type TideFilterOperator =
   | "eq"
   | "ne"
@@ -179,6 +181,15 @@ export interface TidePresentationNavigationGroup {
   items: TidePresentationNavigationItem[]
 }
 
+export interface TidePresentationReport {
+  name: string
+  title: string
+  kind: TideReportKind
+  entity: string
+  resource_path: string
+  export_formats: TideReportExportFormat[]
+}
+
 export interface TidePresentationManifest {
   wire_version: "0.1"
   application: string
@@ -188,6 +199,46 @@ export interface TidePresentationManifest {
   navigation: TidePresentationNavigationGroup[]
   views: Record<string, TideBrowsePresentation>
   forms: Record<string, TideFormPresentation>
+  reports?: Record<string, TidePresentationReport>
+}
+
+export interface TideReportValue {
+  label: string
+  text: string
+  alignment: TideAlignment
+}
+
+export interface TideReportColumn {
+  name: string
+  label: string
+  alignment: TideAlignment
+}
+
+export interface TideReportCell {
+  text: string
+  alignment: TideAlignment
+}
+
+export interface TideReportDocument {
+  wire_version: "0.1"
+  report: string
+  title: string
+  application: string
+  generated_at: string
+  header_text: string[]
+  record_values: TideReportValue[]
+  detail: {
+    columns: TideReportColumn[]
+    rows: TideReportCell[][]
+  }
+  footer_values: TideReportValue[]
+  page_footer_template: string
+  suggested_filename: string
+}
+
+export interface TideReportDownload {
+  blob: Blob
+  filename: string
 }
 
 export interface TideProtectionMetadata {

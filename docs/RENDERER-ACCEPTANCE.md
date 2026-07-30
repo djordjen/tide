@@ -42,6 +42,7 @@ The required baseline is green for all three renderers:
 | Multi-column lookup and Save & Select | Covered | Covered | Covered |
 | Transactional Invoice master-detail draft | Covered | Covered | Covered |
 | Metadata-driven domain actions | Covered | Covered | Covered |
+| Secured report preview and export | Covered | Covered | Covered |
 | Exact formatting and numeric alignment | Covered | Covered | Covered |
 | Keyboard form and record navigation | Covered | Covered | Covered |
 
@@ -60,8 +61,7 @@ The same matrix records non-parity work instead of hiding it:
 - Invoice master-detail drafts are implemented in all three renderers;
 - three-way stale-conflict review is implemented in all three renderers;
 - domain actions are implemented in all three renderers;
-- report preview/export is implemented in Textual and Qt but remains planned
-  for Web.
+- report preview/export is implemented in all three renderers.
 
 Changing a renderer status to **covered** requires adding executable evidence
 in the same change. If application YAML changes the shared layout, the golden

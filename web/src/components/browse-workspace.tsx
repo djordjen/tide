@@ -7,6 +7,7 @@ import {
 } from "react"
 import { useInfiniteQuery } from "@tanstack/react-query"
 import {
+  ChartNoAxesCombined,
   CircleCheck,
   Filter,
   FolderOpen,
@@ -18,6 +19,7 @@ import {
 } from "lucide-react"
 
 import { RecordDetail } from "@/components/record-detail"
+import { ReportPreview } from "@/components/report-preview"
 import { TideDataGrid } from "@/components/tide-data-grid"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -38,6 +40,7 @@ import type {
   TideFilterInput,
   TideFormPresentation,
   TidePresentationManifest,
+  TidePresentationReport,
   TideRecord,
   TideSortInput,
 } from "@/lib/contracts"
@@ -51,6 +54,7 @@ interface BrowseWorkspaceProps {
   view: TideBrowsePresentation
   form: TideFormPresentation | null
   forms: TidePresentationManifest["forms"]
+  reports: Record<string, TidePresentationReport>
 }
 
 export function BrowseWorkspace({
@@ -60,6 +64,7 @@ export function BrowseWorkspace({
   view,
   form,
   forms,
+  reports,
 }: BrowseWorkspaceProps) {
   const [search, setSearch] = useState("")
   const debouncedSearch = useDebouncedValue(search.trim(), 300)
@@ -72,6 +77,10 @@ export function BrowseWorkspace({
   const [creating, setCreating] = useState(false)
   const [feedback, setFeedback] = useState<string | null>(null)
   const [navigationPending, setNavigationPending] = useState(false)
+  const [previewRequest, setPreviewRequest] = useState<{
+    report: TidePresentationReport
+    identity: unknown | null
+  } | null>(null)
   const scrollReset = useRef<(() => void) | null>(null)
 
   const selectedFilter = view.named_filters.find(
@@ -132,6 +141,15 @@ export function BrowseWorkspace({
     (record) =>
       activeIdentity !== null &&
       String(identityOf(record)) === String(activeIdentity),
+  )
+  const availableReports = Object.values(reports).filter(
+    (report) => report.entity === view.entity,
+  )
+  const summaryReports = availableReports.filter(
+    (report) => report.kind === "summary",
+  )
+  const recordReports = availableReports.filter(
+    (report) => report.kind === "record",
   )
   const openRecord = useCallback(
     (record: TideRecord) => {
@@ -236,7 +254,7 @@ export function BrowseWorkspace({
           </p>
         </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           {view.search_field ? (
             <div className="relative min-w-0 sm:w-72">
               <Search className="pointer-events-none absolute top-2.5 left-3 size-4 text-muted-foreground" />
@@ -329,6 +347,19 @@ export function BrowseWorkspace({
             </>
           ) : null}
 
+          {summaryReports.map((report) => (
+            <Button
+              key={report.name}
+              variant="outline"
+              onClick={() =>
+                setPreviewRequest({ report, identity: null })
+              }
+            >
+              <ChartNoAxesCombined />
+              {report.title}
+            </Button>
+          ))}
+
           <Button
             aria-label="Refresh records"
             size="icon"
@@ -397,6 +428,7 @@ export function BrowseWorkspace({
         view={view}
         form={form}
         forms={forms}
+        reports={recordReports}
         mode={creating ? "create" : "update"}
         identity={creating ? null : activeIdentity}
         position={Math.max(activeIndex, 0)}
@@ -429,6 +461,17 @@ export function BrowseWorkspace({
           setSelectedIdentity(identityOf(record))
           void query.refetch()
         }}
+        onPreviewReport={(report) =>
+          setPreviewRequest({ report, identity: activeIdentity })
+        }
+      />
+    ) : null}
+    {previewRequest ? (
+      <ReportPreview
+        api={api}
+        report={previewRequest.report}
+        identity={previewRequest.identity}
+        onClose={() => setPreviewRequest(null)}
       />
     ) : null}
     </>

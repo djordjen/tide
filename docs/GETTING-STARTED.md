@@ -206,6 +206,14 @@ Select** flow; Description and Unit Price are returned by the server-owned
 selection operation. **Apply line** validates the local row, **Remove line**
 deletes it from the draft, and the Invoice **Save** sends the complete line
 replacement once with its ETag. The server revalidates and recalculates totals.
+
+From the Invoice list, choose **Posted Sales Summary** to build a secured
+parameterless summary and preview the server-formatted table. Open a saved
+Invoice and choose **Preview Invoice** for its record report. Both previews
+offer controlled CSV, standalone HTML, and PDF downloads. FastAPI rebuilds and
+reauthorizes each export; the browser receives neither the report query nor a
+database connection.
+
 See [Web UI](WEB-UI.md) for its architecture, security boundary, production
 build, tests, and current limitations.
 

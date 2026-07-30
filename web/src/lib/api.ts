@@ -10,6 +10,10 @@ import type {
   TideRecordPage,
   TideRecordSnapshot,
   TideReferenceSelectionResult,
+  TideReportDocument,
+  TideReportDownload,
+  TideReportExportFormat,
+  TidePresentationReport,
   TideSessionInfo,
 } from "@/lib/contracts"
 
@@ -206,6 +210,50 @@ export class TideApi {
     )
   }
 
+  buildReport(
+    report: TidePresentationReport,
+    identity: unknown | null,
+    signal?: AbortSignal,
+  ): Promise<TideReportDocument> {
+    const path = reportRequestPath(report, identity)
+    return this.request<TideReportDocument>(
+      path,
+      report.kind === "summary"
+        ? { method: "POST", body: JSON.stringify({}) }
+        : { method: "GET" },
+      signal,
+    )
+  }
+
+  async exportReport(
+    report: TidePresentationReport,
+    exportFormat: TideReportExportFormat,
+    identity: unknown | null,
+    signal?: AbortSignal,
+  ): Promise<TideReportDownload> {
+    if (!report.export_formats.includes(exportFormat)) {
+      throw new TideApiError(
+        `${exportFormat.toUpperCase()} export is unavailable for this report.`,
+        { code: "report_format_unavailable" },
+      )
+    }
+    const path = `${reportRequestPath(report, identity)}/exports/${exportFormat}`
+    const response = await this.authorizedResponse(
+      path,
+      report.kind === "summary"
+        ? { method: "POST", body: JSON.stringify({}) }
+        : { method: "GET" },
+      signal,
+      "*/*",
+    )
+    return {
+      blob: await response.blob(),
+      filename:
+        responseFilename(response.headers.get("Content-Disposition")) ??
+        `report.${exportFormat}`,
+    }
+  }
+
   async searchLookup(
     lookup: TidePresentationLookup,
     searchText: string,
@@ -335,6 +383,27 @@ export class TideApi {
     init: RequestInit,
     signal?: AbortSignal,
   ): Promise<{ data: T; response: Response }> {
+    const response = await this.authorizedResponse(path, init, signal)
+    try {
+      return {
+        data: (await response.json()) as T,
+        response,
+      }
+    } catch {
+      throw new TideApiError("The server returned an invalid JSON response.", {
+        status: response.status,
+        code: "invalid_response",
+        correlationId: response.headers.get("X-Correlation-ID"),
+      })
+    }
+  }
+
+  private async authorizedResponse(
+    path: string,
+    init: RequestInit,
+    signal?: AbortSignal,
+    accept = "application/json",
+  ): Promise<Response> {
     const safePath = safeApiPath(path)
     let response: Response
     try {
@@ -343,7 +412,7 @@ export class TideApi {
         cache: "no-store",
         credentials: "omit",
         headers: {
-          Accept: "application/json",
+          Accept: accept,
           Authorization: `Bearer ${this.token}`,
           ...(init.body ? { "Content-Type": "application/json" } : {}),
           ...init.headers,
@@ -381,19 +450,7 @@ export class TideApi {
         issues: safeValidationIssues(envelope.issues),
       })
     }
-
-    try {
-      return {
-        data: (await response.json()) as T,
-        response,
-      }
-    } catch {
-      throw new TideApiError("The server returned an invalid JSON response.", {
-        status: response.status,
-        code: "invalid_response",
-        correlationId: response.headers.get("X-Correlation-ID"),
-      })
-    }
+    return response
   }
 }
 
@@ -438,4 +495,34 @@ function safeApiPath(path: string): string {
     )
   }
   return path.replace(/\/+$/, "")
+}
+
+function reportRequestPath(
+  report: TidePresentationReport,
+  identity: unknown | null,
+): string {
+  if (report.kind === "summary") {
+    return report.resource_path
+  }
+  if (identity === null || identity === undefined) {
+    throw new TideApiError("Select a record before previewing this report.", {
+      code: "report_record_required",
+    })
+  }
+  return `${report.resource_path}/records/${encodeURIComponent(String(identity))}`
+}
+
+function responseFilename(disposition: string | null): string | null {
+  if (!disposition) {
+    return null
+  }
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1]
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded)
+    } catch {
+      return null
+    }
+  }
+  return /filename="([^"]+)"/i.exec(disposition)?.[1] ?? null
 }

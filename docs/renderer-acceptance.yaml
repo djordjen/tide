@@ -52,6 +52,15 @@ reference_contract:
           rows:
             - [code, unit_price]
             - [name, active]
+  reports:
+    - name: sales.invoice
+      title: Invoice
+      kind: record
+      entity: sales.Invoice
+    - name: sales.summary
+      title: Posted Sales Summary
+      kind: summary
+      entity: sales.Invoice
 
 capabilities:
   - id: capability_filtered_navigation
@@ -362,5 +371,11 @@ capabilities:
             selector: test_qt_record_report_previews_and_exports_remote_document
             runner: python-gui
       web:
-        status: planned
-        note: Web report preview and export are separate future slices.
+        status: covered
+        evidence:
+          - path: web/src/App.lookup.test.tsx
+            selector: previews secured record and summary reports and downloads controlled exports
+            runner: web
+          - path: tests/test_api_server.py
+            selector: test_server_builds_only_authorized_renderer_neutral_reports
+            runner: python

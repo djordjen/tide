@@ -247,12 +247,14 @@ an invoice entirely by keyboard or mouse.
   the fresh ETag before a separate save; **metadata-driven domain actions are
   implemented**, including server-evaluated per-record state, save-first
   chaining onto the returned ETag, per-attempt idempotency keys, and in-place
-  post-action state refresh; **Web report preview/export remains planned**
+  post-action state refresh; **Web record/summary report preview and controlled
+  CSV/HTML/PDF export are implemented** through the server-built
+  renderer-neutral document and authorized export routes
 - executable renderer acceptance matrix for shared TUI/Qt/Web semantics;
   **implemented** with a versioned YAML matrix, compiled Invoicing golden
   contract, safe Web-projection comparison, and CI-verified evidence links;
-  the matrix records the closed Web scalar-lookup, master-detail, conflict, and
-  action gaps plus the remaining report gap explicitly
+  the matrix records the closed Web scalar-lookup, master-detail, conflict,
+  action, and report gaps explicitly
 
 Exit condition: TUI, REST, and MCP produce equivalent secured outcomes through
 the same services.

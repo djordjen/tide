@@ -33,6 +33,8 @@ TideFilterOperator = Literal[
 ]
 TideAlignment = Literal["left", "center", "right"]
 TideCollectionAction = Literal["add", "apply", "remove"]
+TideReportKind = Literal["record", "summary"]
+TideReportExportFormat = Literal["csv", "html", "pdf"]
 
 
 class TideReportValue(BaseModel):
@@ -520,6 +522,23 @@ class TidePresentationNavigationGroup(BaseModel):
     items: tuple[TidePresentationNavigationItem, ...] = Field(min_length=1)
 
 
+class TidePresentationReport(BaseModel):
+    """One authorized renderer-neutral report entry point."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    kind: TideReportKind
+    entity: str = Field(min_length=1)
+    resource_path: str = Field(pattern=r"^/")
+    export_formats: tuple[TideReportExportFormat, ...] = (
+        "csv",
+        "html",
+        "pdf",
+    )
+
+
 class TidePresentationManifest(BaseModel):
     """Versioned safe presentation projection for remote UI renderers."""
 
@@ -533,6 +552,7 @@ class TidePresentationManifest(BaseModel):
     navigation: tuple[TidePresentationNavigationGroup, ...] = ()
     views: dict[str, TideBrowsePresentation]
     forms: dict[str, TideFormPresentation] = Field(default_factory=dict)
+    reports: dict[str, TidePresentationReport] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def navigation_matches_views(self) -> TidePresentationManifest:

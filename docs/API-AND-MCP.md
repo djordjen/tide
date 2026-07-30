@@ -118,6 +118,22 @@ YAML, database configuration, permission/workflow expressions, or application
 Python. Its operation and writable hints are advisory; every request is
 authorized again by the ordinary service route.
 
+The same manifest projects authorized REST reports only as safe name, title,
+record/summary kind, owning entity, resource path, and supported export
+formats. It omits report queries, criteria, bands, expressions, and permission
+names. Record and parameterless summary endpoints return an immutable,
+renderer-neutral `ReportDocument`; controlled export endpoints rebuild that
+document under the same authorization and return CSV, standalone HTML, or PDF:
+
+```text
+POST /api/v1/_tide/reports/{report}/exports/{format}
+GET  /api/v1/_tide/reports/{report}/records/{id}/exports/{format}
+```
+
+PDF delivery requires the optional `report` installation extra. If it is
+absent, only that requested format fails closed with HTTP 503; report discovery,
+preview documents, CSV, and HTML remain available.
+
 Every completed framework HTTP response includes an effective
 `X-Correlation-ID`. A caller may
 supply a bounded log-safe identifier; missing, malformed, or oversized values
