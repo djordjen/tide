@@ -124,6 +124,11 @@ for an authenticated capability. Its enabled state follows the local
 `enabled_when` expression. Invoking it saves changed lines first, then sends the
 new ETag and a per-attempt idempotency key to the shared FastAPI action route;
 a failure after saving reopens the saved draft for correction.
+The Web Invoice form consumes the same ordered action metadata. The server
+projects only safe action labels/idempotency requirements plus per-record
+visible/enabled hints. **Post invoice** saves any dirty header/line draft first,
+uses the returned ETag and a unique idempotency key for the action request, and
+replaces the open form with the posted read-only record state.
 The Qt list exposes one **Open** action rather than separate View/Edit/Preview
 modes. The opened form uses the same YAML-defined two-column header as Textual;
 status and capabilities determine whether fields, Save, and Post are enabled.

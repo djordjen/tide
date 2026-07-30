@@ -3,6 +3,7 @@ import type {
   TideConnection,
   TidePresentationLookup,
   TidePresentationManifest,
+  TidePresentationFormAction,
   TidePresentationReference,
   TideQueryInput,
   TideRecord,
@@ -174,6 +175,32 @@ export class TideApi {
         method: "PATCH",
         body: JSON.stringify(values),
         headers: etag ? { "If-Match": etag } : undefined,
+      },
+      signal,
+    )
+  }
+
+  executeAction(
+    view: TideBrowsePresentation,
+    identity: unknown,
+    action: TidePresentationFormAction,
+    etag: string | null,
+    idempotencyKey: string | null,
+    signal?: AbortSignal,
+  ): Promise<TideRecordSnapshot> {
+    const identitySegment = encodeURIComponent(String(identity))
+    const actionSegment = encodeURIComponent(action.name)
+    return this.recordRequest(
+      `${view.resource_path}/${identitySegment}/actions/${actionSegment}`,
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+        headers: {
+          ...(etag ? { "If-Match": etag } : {}),
+          ...(idempotencyKey
+            ? { "Idempotency-Key": idempotencyKey }
+            : {}),
+        },
       },
       signal,
     )

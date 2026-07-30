@@ -425,6 +425,10 @@ export function BrowseWorkspace({
           }
           void query.refetch()
         }}
+        onActionCompleted={(record) => {
+          setSelectedIdentity(identityOf(record))
+          void query.refetch()
+        }}
       />
     ) : null}
     </>

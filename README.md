@@ -35,7 +35,8 @@ create/edit Customer and Product forms, and edit complete Invoice drafts with
 Customer/Product lookups, nested **Save & Select**, and line totals—all without
 database credentials. Stale GUI edits open an explicit three-way conflict
 review rather than failing with a generic message or silently overwriting data,
-and the metadata-defined **Post invoice** action runs through FastAPI.
+and the metadata-defined **Post invoice** action runs through FastAPI in both
+Qt and Web.
 
 ## TUI preview
 
@@ -412,7 +413,11 @@ ETag-protected parent mutation, where the server revalidates and recalculates
 stored totals. A stale Web save now opens the same explicit
 Original/Current/Your draft review used by the other renderers, requires a
 choice for overlapping changes, honors new workflow locks, and rebases onto
-the latest ETag for review before a separate save.
+the latest ETag for review before a separate save. The Web form now also
+renders authorized YAML-ordered domain actions. **Post invoice** saves a dirty
+draft first, sends the returned ETag and a unique idempotency key through the
+generated FastAPI action route, and refreshes the open form into its posted,
+read-only state without exposing workflow expressions to the browser.
 The typed HTTP client preserves exact field types,
 protected values, cursors, ETags, and stable errors while rejecting mismatched
 applications, principals, and unsafe unencrypted non-loopback URLs. Neither

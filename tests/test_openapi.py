@@ -63,8 +63,16 @@ def test_preview_generates_typed_pydantic_record_and_page_models() -> None:
     }
     record_metadata = schemas["TideProtectionMetadata"]
     assert set(record_metadata["properties"]) == {
+        "actions",
         "protected_fields",
         "writable_fields",
+    }
+    assert record_metadata["properties"]["actions"]["anyOf"][0][
+        "additionalProperties"
+    ] == {"$ref": "#/components/schemas/TideRecordActionState"}
+    assert set(schemas["TideRecordActionState"]["required"]) == {
+        "enabled",
+        "visible",
     }
     assert "_tide" not in invoice["required"]
     error = schemas["TideApiError"]

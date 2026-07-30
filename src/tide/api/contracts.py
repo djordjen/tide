@@ -421,6 +421,16 @@ TidePresentationFormSection = (
 )
 
 
+class TidePresentationFormAction(BaseModel):
+    """One capability-gated domain action without source expressions."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    idempotent: bool = False
+
+
 class TideFormPresentation(BaseModel):
     """One capability-filtered semantic detail-form contract."""
 
@@ -432,6 +442,7 @@ class TideFormPresentation(BaseModel):
     display_template: str | None = None
     fields: dict[str, TidePresentationFormField]
     sections: tuple[TidePresentationFormSection, ...] = Field(min_length=1)
+    actions: tuple[TidePresentationFormAction, ...] = ()
 
     @model_validator(mode="after")
     def sections_reference_declared_fields(self) -> TideFormPresentation:
@@ -453,6 +464,9 @@ class TideFormPresentation(BaseModel):
         ]
         if len(collection_names) != len(set(collection_names)):
             raise ValueError("form repeats an inline collection")
+        action_names = [action.name for action in self.actions]
+        if len(action_names) != len(set(action_names)):
+            raise ValueError("form repeats a domain action")
         return self
 
 

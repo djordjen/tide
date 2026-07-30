@@ -11,6 +11,7 @@ from tide.api.contracts import (
     TideFilterInput,
     TideFormPresentation,
     TidePresentationColumn,
+    TidePresentationFormAction,
     TidePresentationFormCollection,
     TidePresentationFormField,
     TidePresentationFormGroup,
@@ -440,6 +441,30 @@ def _form_contract(
         display_template=_safe_display_template(entity, readable),
         fields=fields,
         sections=tuple(sections),
+        actions=tuple(
+            TidePresentationFormAction(
+                name=action_name,
+                label=str(
+                    entity.actions[action_name].get("label")
+                    or action_name.replace("_", " ").title()
+                ),
+                idempotent=bool(
+                    entity.actions[action_name].get("idempotent")
+                ),
+            )
+            for action_name in (
+                str(name)
+                for name in view.data.get(
+                    "actions",
+                    ("cancel", "save", *entity.actions),
+                )
+            )
+            if action_name not in {"cancel", "save"}
+            and action_name in entity.actions
+            and action_name in capabilities.actions
+            and entity.actions[action_name].get("expose", {}).get("rest")
+            is True
+        ),
     )
 
 

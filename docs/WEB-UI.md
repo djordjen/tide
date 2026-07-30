@@ -1,7 +1,7 @@
 # Web UI
 
-**Status: generic metadata-driven browse, secured detail, and flat-form
-editing slices are implemented.**
+**Status: generic metadata-driven browse, secured detail/editing, lookup,
+master-detail, conflict-review, and domain-action slices are implemented.**
 
 TIDE Web is a reusable React renderer for compiled TIDE applications. The
 checked-in Invoicing application is the golden example, but the browser code
@@ -49,7 +49,7 @@ database.
 - drag reordering and manual column resizing;
 - **Best Fit all**, per-column Best Fit, **Fill available**, and
   **Reset app layout**;
-- personal column order and widths scoped by application, principal, and view.
+- personal column order and widths scoped by application, principal, and view;
 - row selection plus one **Open** path through button, double-click, or Enter;
 - stable in-place record detail without closing or repositioning the shell;
 - renderer-neutral form rows, groups, tabs, and inline collections projected
@@ -69,7 +69,11 @@ database.
   token and its record response supplies an ETag;
 - explicit Original/Current/Your draft review after a stale update, including
   Current/Mine overlap choices, safe draft-only rebase, current workflow-lock
-  reevaluation, and a fresh ETag-backed form for review before saving again.
+  reevaluation, and a fresh ETag-backed form for review before saving again;
+- metadata-ordered, capability-gated domain actions with server-evaluated
+  per-record visibility and enabled state; and
+- save-then-action execution for changed drafts using the saved record's fresh
+  ETag plus a unique idempotency key where the action requires one.
 
 The YAML column order remains the shared application default. Ordinary browser
 reordering and resizing are personal preferences and never edit application
@@ -101,6 +105,7 @@ manifest adds only the compiler-approved lookup view, readable columns,
 searchable fields, bounded fetch size, target REST paths, and allowed nested
 create form. A missing list/read/write capability removes the lookup rather
 than weakening it.
+
 Record responses may include server-evaluated `writable_fields` hints so the
 browser can distinguish locked fields. These hints and the browser's early
 validation are advisory: every mutation is authorized, normalized, and
@@ -119,6 +124,18 @@ again, so FastAPI repeats authorization, normalization, validation, and
 concurrency checks.
 Validation responses may carry safe field-addressable issues so the browser can
 place the authoritative message beside the corresponding editor.
+
+Domain-action discovery follows the same fail-closed projection. The manifest
+contains only the authorized REST action name, label, order, and idempotency
+requirement; it never exposes permission, visibility, or workflow expressions.
+Each record response carries server-evaluated `visible` and `enabled` hints,
+while the action endpoint repeats authorization and business-rule checks.
+When a form has unsaved changes, Web first sends the ordinary ETag-protected
+update. An action disabled for the stored record may therefore become available
+after draft changes such as adding the first line; Web rechecks the fresh
+server-returned action state before invoking it with the returned ETag. The
+**Post invoice** result replaces the current form data in place, immediately
+locking fields and disabling the action according to the returned record state.
 
 Invoice headers now use that reference contract for Customer. **Select…** opens
 a debounced multi-column table and searches every YAML-declared readable search
@@ -197,4 +214,6 @@ and nested **Save & Select** are covered for scalar references such as
 Invoice Customer and collection references such as InvoiceLine Product.
 Transactional Invoice master-detail drafts are also covered. Three-way
 conflict review now has the same loss-prevention semantics in Textual, Qt, and
-Web. Domain actions and report preview remain separate reviewed milestones.
+Web. Metadata-driven domain actions now have the same service-mediated,
+ETag/idempotency-protected semantics in all three renderers. Web report preview
+and controlled export is the remaining renderer-parity slice.

@@ -26,8 +26,17 @@ READ_OPERATIONS = frozenset({"list", "get"})
 REST_OPERATIONS = frozenset({"list", "get", "create", "update", "delete"})
 
 
+class TideRecordActionState(BaseModel):
+    """Server-evaluated visibility and enabled state for one action."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    visible: bool
+    enabled: bool
+
+
 class TideProtectionMetadata(BaseModel):
-    """Safe per-record wire metadata for protected and writable fields."""
+    """Safe per-record wire metadata for fields and domain actions."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -37,6 +46,11 @@ class TideProtectionMetadata(BaseModel):
         exclude_if=lambda value: value is None,
     )
     writable_fields: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        exclude_if=lambda value: value is None,
+    )
+    actions: dict[str, TideRecordActionState] | None = Field(
         default=None,
         min_length=1,
         exclude_if=lambda value: value is None,

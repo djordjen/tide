@@ -1093,7 +1093,14 @@ def _action_endpoint(
             expected_version=expected,
         )
         _set_etag(response, entity, stored)
-        return record_model.model_validate(_wire_record(actions.model, entity, stored))
+        return record_model.model_validate(
+            _wire_record_with_state(
+                actions.records,
+                entity,
+                stored,
+                context,
+            )
+        )
 
     execute_action.__name__ = (
         f"execute_{entity.name.replace('.', '_')}_{action_name}"
@@ -1271,6 +1278,14 @@ def _wire_record_with_state(
         projected.setdefault("_tide", {})["writable_fields"] = list(
             writable_fields
         )
+    action_states = _record_action_states(
+        records,
+        entity,
+        values,
+        context,
+    )
+    if action_states:
+        projected.setdefault("_tide", {})["actions"] = action_states
     return projected
 
 
@@ -1308,6 +1323,41 @@ def _record_writable_fields(
                 continue
         result.append(name)
     return tuple(result)
+
+
+def _record_action_states(
+    records: RecordsService,
+    entity: NormalizedEntity,
+    values: Mapping[str, Any],
+    context: RequestContext,
+) -> dict[str, dict[str, bool]]:
+    """Return safe record-specific action hints without exposing expressions."""
+
+    result: dict[str, dict[str, bool]] = {}
+    for action_name, action in entity.actions.items():
+        if (
+            action.get("expose", {}).get("rest") is not True
+            or not records.security.can_execute_action(action, context)
+        ):
+            continue
+        try:
+            visible_when = action.get("visible_when")
+            visible = not visible_when or bool(
+                evaluate_expression(str(visible_when), values)
+            )
+            enabled_when = action.get("enabled_when")
+            enabled = visible and (
+                not enabled_when
+                or bool(evaluate_expression(str(enabled_when), values))
+            )
+        except (AttributeError, KeyError, TypeError, ValueError):
+            visible = False
+            enabled = False
+        result[action_name] = {
+            "visible": visible,
+            "enabled": enabled,
+        }
+    return result
 
 
 def _decode_draft(

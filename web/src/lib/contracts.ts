@@ -152,6 +152,12 @@ export type TidePresentationFormSection =
   | TidePresentationFormGroup
   | TidePresentationFormCollection
 
+export interface TidePresentationFormAction {
+  name: string
+  label: string
+  idempotent: boolean
+}
+
 export interface TideFormPresentation {
   view: string
   entity: string
@@ -159,6 +165,7 @@ export interface TideFormPresentation {
   display_template: string | null
   fields: Record<string, TidePresentationFormField>
   sections: TidePresentationFormSection[]
+  actions?: TidePresentationFormAction[]
 }
 
 export interface TidePresentationNavigationItem {
@@ -186,6 +193,12 @@ export interface TidePresentationManifest {
 export interface TideProtectionMetadata {
   protected_fields?: string[]
   writable_fields?: string[]
+  actions?: Record<string, TideRecordActionState>
+}
+
+export interface TideRecordActionState {
+  visible: boolean
+  enabled: boolean
 }
 
 export type TideRecord = Record<string, unknown> & {

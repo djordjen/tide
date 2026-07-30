@@ -15,8 +15,10 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  CircleCheck,
   LoaderCircle,
   LockKeyhole,
+  Play,
   Rows3,
   Save,
   ShieldCheck,
@@ -42,6 +44,7 @@ import type {
   TideBrowsePresentation,
   TideFormPresentation,
   TidePresentationFormCollection,
+  TidePresentationFormAction,
   TidePresentationFormGroup,
   TidePresentationManifest,
   TidePresentationFormSection,
@@ -86,6 +89,7 @@ interface RecordDetailProps {
   onNext: () => void
   onClose: () => void
   onSaved: (record: TideRecord, mode: "create" | "update") => void
+  onActionCompleted: (record: TideRecord, label: string) => void
 }
 
 interface SaveAttempt {
@@ -100,6 +104,36 @@ interface PendingConflictReview {
   comparison: TideRecordConflict
   draftValues: Record<string, unknown>
   lockedFields: Set<string>
+}
+
+interface RecordActionAttempt {
+  action: TidePresentationFormAction
+  base: TideRecordSnapshot
+  saveAttempt: SaveAttempt
+  idempotencyKey: string | null
+}
+
+interface RecordActionResult {
+  action: TidePresentationFormAction
+  snapshot: TideRecordSnapshot
+}
+
+class RecordActionExecutionError extends Error {
+  readonly apiError: TideApiError
+  readonly stage: "save" | "action"
+  readonly saved: TideRecordSnapshot | null
+
+  constructor(
+    apiError: TideApiError,
+    stage: "save" | "action",
+    saved: TideRecordSnapshot | null = null,
+  ) {
+    super(apiError.message)
+    this.name = "RecordActionExecutionError"
+    this.apiError = apiError
+    this.stage = stage
+    this.saved = saved
+  }
 }
 
 export function RecordDetail({
@@ -118,6 +152,7 @@ export function RecordDetail({
   onNext,
   onClose,
   onSaved,
+  onActionCompleted,
 }: RecordDetailProps) {
   const queryClient = useQueryClient()
   const skipNextHydration = useRef(false)
@@ -146,6 +181,12 @@ export function RecordDetail({
   >({})
   const [fieldErrors, setFieldErrors] = useState<TideFormErrors>({})
   const [saveError, setSaveError] = useState<TideApiError | null>(null)
+  const [actionError, setActionError] = useState<{
+    label: string
+    error: TideApiError
+    savedBeforeAction: boolean
+  } | null>(null)
+  const [actionNotice, setActionNotice] = useState<string | null>(null)
   const [rebaseNotice, setRebaseNotice] = useState<string | null>(null)
   const [conflictReview, setConflictReview] =
     useState<PendingConflictReview | null>(null)
@@ -270,6 +311,8 @@ export function RecordDetail({
       setCollectionErrors({})
       setFieldErrors({})
       setSaveError(null)
+      setActionError(null)
+      setActionNotice(null)
       setRebaseNotice(null)
       setConflictReview(null)
       setConflictChoices({})
@@ -284,6 +327,8 @@ export function RecordDetail({
       setCollectionErrors({})
       setFieldErrors({})
       setSaveError(null)
+      setActionError(null)
+      setActionNotice(null)
       setRebaseNotice(null)
       setConflictReview(null)
       setConflictChoices({})
@@ -304,6 +349,8 @@ export function RecordDetail({
     onSuccess: (saved) => {
       setFieldErrors({})
       setSaveError(null)
+      setActionError(null)
+      setActionNotice(null)
       setRebaseNotice(null)
       setConflictReview(null)
       setConflictChoices({})
@@ -334,13 +381,141 @@ export function RecordDetail({
       }
     },
   })
-  const busy = saveMutation.isPending || conflictLoading
+  const actionMutation = useMutation({
+    mutationFn: async (
+      attempt: RecordActionAttempt,
+    ): Promise<RecordActionResult> => {
+      let current = attempt.base
+      if (Object.keys(attempt.saveAttempt.payload).length > 0) {
+        try {
+          current = await api.updateRecord(
+            view,
+            identity,
+            attempt.saveAttempt.payload,
+            attempt.base.etag,
+          )
+        } catch (error) {
+          throw new RecordActionExecutionError(
+            actionApiError(error, "The draft could not be saved."),
+            "save",
+          )
+        }
+      }
+      const currentState =
+        current.record._tide?.actions?.[attempt.action.name]
+      if (!currentState?.visible || !currentState.enabled) {
+        throw new RecordActionExecutionError(
+          new TideApiError(
+            `${attempt.action.label} is unavailable after saving the current draft.`,
+            { code: "action_disabled" },
+          ),
+          "action",
+          current === attempt.base ? null : current,
+        )
+      }
+      try {
+        return {
+          action: attempt.action,
+          snapshot: await api.executeAction(
+            view,
+            identity,
+            attempt.action,
+            current.etag,
+            attempt.idempotencyKey,
+          ),
+        }
+      } catch (error) {
+        throw new RecordActionExecutionError(
+          actionApiError(error, `${attempt.action.label} could not be completed.`),
+          "action",
+          current === attempt.base ? null : current,
+        )
+      }
+    },
+    onSuccess: ({ action, snapshot: completed }) => {
+      setRecordSnapshot(completed)
+      setFieldErrors({})
+      setCollectionErrors({})
+      setSaveError(null)
+      setActionError(null)
+      setRebaseNotice(null)
+      setConflictReview(null)
+      setConflictChoices({})
+      setConflictOpen(false)
+      setActionNotice(`${action.label} completed successfully.`)
+      onActionCompleted(completed.record, action.label)
+    },
+    onError: async (mutationError, attempt) => {
+      const failure =
+        mutationError instanceof RecordActionExecutionError
+          ? mutationError
+          : new RecordActionExecutionError(
+              actionApiError(
+                mutationError,
+                `${attempt.action.label} could not be completed.`,
+              ),
+              "action",
+            )
+      if (failure.saved) {
+        setRecordSnapshot(failure.saved)
+      }
+      if (failure.apiError.status === 412) {
+        if (failure.stage === "save") {
+          await loadConflictReview(
+            failure.apiError,
+            attempt.saveAttempt,
+          )
+        } else {
+          const baseline = failure.saved ?? attempt.base
+          const originalValues = conflictRecordValues(
+            form,
+            collectionSections,
+            baseline.record,
+            attempt.saveAttempt.fieldNames,
+          )
+          await loadConflictReview(failure.apiError, {
+            payload: {},
+            fieldNames: attempt.saveAttempt.fieldNames,
+            originalValues,
+            draftValues: originalValues,
+          })
+        }
+        return
+      }
+      setActionNotice(null)
+      setActionError({
+        label: attempt.action.label,
+        error: failure.apiError,
+        savedBeforeAction: failure.saved !== null,
+      })
+      setFieldErrors(issueFieldErrors(form, failure.apiError.issues))
+    },
+  })
+  const busy =
+    saveMutation.isPending ||
+    actionMutation.isPending ||
+    conflictLoading
+
+  function setRecordSnapshot(next: TideRecordSnapshot) {
+    if (identity === null) {
+      return
+    }
+    skipNextHydration.current = true
+    queryClient.setQueryData(
+      ["record-detail", view.view, identity],
+      next,
+    )
+    setDraft(formDraft(form, next.record))
+    setCollectionDrafts(collectionDraftState(form, next.record))
+  }
 
   async function loadConflictReview(
     staleError: TideApiError,
     attempt: SaveAttempt,
   ) {
     setConflictLoading(true)
+    setActionError(null)
+    setActionNotice(null)
     setConflictReview(null)
     setConflictChoices({})
     setConflictOpen(false)
@@ -386,7 +561,7 @@ export function RecordDetail({
     }
   }
 
-  function save() {
+  function preparePayload(): Record<string, unknown> | null {
     const clientErrors = validateFormDraft(
       form,
       draft,
@@ -405,14 +580,9 @@ export function RecordDetail({
     )
     setFieldErrors(clientErrors)
     setCollectionErrors(nextCollectionErrors)
-    setSaveError(null)
-    setRebaseNotice(null)
-    setConflictReview(null)
-    setConflictChoices({})
-    setConflictOpen(false)
     if (Object.keys(clientErrors).length > 0) {
       focusFirstError(form, clientErrors)
-      return
+      return null
     }
     const invalidCollection = collectionSections.find((section) =>
       (nextCollectionErrors[section.name] ?? []).some(
@@ -421,9 +591,9 @@ export function RecordDetail({
     )
     if (invalidCollection) {
       focusFirstCollectionError(invalidCollection.name)
-      return
+      return null
     }
-    const payload =
+    return (
       mode === "create"
         ? {
             ...mutationPayload(form, draft, editableFields),
@@ -442,9 +612,30 @@ export function RecordDetail({
             ),
           }
         : changes
+    )
+  }
+
+  function save() {
+    const payload = preparePayload()
+    if (payload === null) {
+      return
+    }
     if (mode === "update" && Object.keys(payload).length === 0) {
       return
     }
+    setSaveError(null)
+    setActionError(null)
+    setActionNotice(null)
+    setRebaseNotice(null)
+    setConflictReview(null)
+    setConflictChoices({})
+    setConflictOpen(false)
+    saveMutation.mutate(buildSaveAttempt(payload))
+  }
+
+  function buildSaveAttempt(
+    payload: Record<string, unknown>,
+  ): SaveAttempt {
     const fieldNames =
       mode === "update"
         ? [...editableFields, ...editableCollections]
@@ -458,11 +649,53 @@ export function RecordDetail({
             fieldNames,
           )
         : {}
-    saveMutation.mutate({
+    return {
       payload,
       fieldNames,
       originalValues,
       draftValues: { ...originalValues, ...payload },
+    }
+  }
+
+  function runAction(action: TidePresentationFormAction) {
+    if (
+      mode !== "update" ||
+      identity === null ||
+      !snapshot ||
+      busy
+    ) {
+      return
+    }
+    const state = record?._tide?.actions?.[action.name]
+    if (!state?.visible || (!state.enabled && !dirty)) {
+      setActionError({
+        label: action.label,
+        error: new TideApiError(
+          `${action.label} is unavailable for the current record.`,
+          { code: "action_disabled" },
+        ),
+        savedBeforeAction: false,
+      })
+      return
+    }
+    const payload = preparePayload()
+    if (payload === null) {
+      return
+    }
+    setSaveError(null)
+    setActionError(null)
+    setActionNotice(null)
+    setRebaseNotice(null)
+    setConflictReview(null)
+    setConflictChoices({})
+    setConflictOpen(false)
+    actionMutation.mutate({
+      action,
+      base: snapshot,
+      saveAttempt: buildSaveAttempt(payload),
+      idempotencyKey: action.idempotent
+        ? `web:${globalThis.crypto.randomUUID()}`
+        : null,
     })
   }
 
@@ -531,6 +764,8 @@ export function RecordDetail({
     setCollectionErrors({})
     setFieldErrors({})
     setSaveError(null)
+    setActionError(null)
+    setActionNotice(null)
     setConflictReview(null)
     setConflictChoices({})
     setConflictOpen(false)
@@ -593,6 +828,13 @@ export function RecordDetail({
       ? `New ${form.label}`
       : String(identity)
   const writable = new Set(record?._tide?.writable_fields ?? [])
+  const visibleActions =
+    mode === "update"
+      ? (form.actions ?? []).filter(
+          (action) =>
+            record?._tide?.actions?.[action.name]?.visible === true,
+        )
+      : []
 
   return (
     <main className="flex min-h-0 flex-1 flex-col p-4 md:p-6">
@@ -688,6 +930,35 @@ export function RecordDetail({
         </div>
       ) : null}
 
+      {actionError ? (
+        <div
+          role="alert"
+          className="mb-4 flex shrink-0 items-start gap-3 rounded-xl border border-destructive/25 bg-destructive/8 px-4 py-3 text-sm text-destructive"
+        >
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <div>
+            <p className="font-medium">
+              {actionError.label} could not be completed
+            </p>
+            <p className="mt-0.5 text-xs leading-5 text-destructive/85">
+              {actionError.savedBeforeAction
+                ? `Your draft was saved, but the action failed: ${actionError.error.message}`
+                : actionError.error.message}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {actionNotice ? (
+        <div
+          role="status"
+          className="mb-4 flex shrink-0 items-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/8 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300"
+        >
+          <CircleCheck className="size-4 shrink-0" />
+          {actionNotice}
+        </div>
+      ) : null}
+
       {rebaseNotice ? (
         <div
           role="status"
@@ -759,6 +1030,8 @@ export function RecordDetail({
                 } else {
                   setSaveError(null)
                 }
+                setActionError(null)
+                setActionNotice(null)
               }}
               onApplyValues={(values) => {
                 setDraft((current) => ({ ...current, ...values }))
@@ -776,6 +1049,8 @@ export function RecordDetail({
                 } else {
                   setSaveError(null)
                 }
+                setActionError(null)
+                setActionNotice(null)
               }}
             />
             {visibleSections
@@ -808,6 +1083,8 @@ export function RecordDetail({
                       } else {
                         setSaveError(null)
                       }
+                      setActionError(null)
+                      setActionNotice(null)
                     }}
                     onErrorsChange={(errors) =>
                       setCollectionErrors((current) => ({
@@ -909,6 +1186,31 @@ export function RecordDetail({
               Close
             </Button>
           )}
+          {visibleActions.map((action) => {
+            const state = record?._tide?.actions?.[action.name]
+            return (
+              <Button
+                key={action.name}
+                className="bg-emerald-600 text-white hover:bg-emerald-600/90 dark:bg-emerald-600 dark:text-white"
+                disabled={busy || (!state?.enabled && !dirty)}
+                title={
+                  !state?.enabled && !dirty
+                    ? `${action.label} is unavailable for the current record`
+                    : dirty
+                      ? `Save the draft, then run ${action.label}`
+                      : `Run ${action.label}`
+                }
+                onClick={() => runAction(action)}
+              >
+                {actionMutation.isPending ? (
+                  <LoaderCircle className="animate-spin" />
+                ) : (
+                  <Play />
+                )}
+                {action.label}
+              </Button>
+            )
+          })}
         </div>
       </footer>
 
@@ -1223,6 +1525,15 @@ function conflictFieldLabel(
     collections.find((collection) => collection.name === name)?.label ??
     name
   )
+}
+
+function actionApiError(
+  error: unknown,
+  fallback: string,
+): TideApiError {
+  return error instanceof TideApiError
+    ? error
+    : new TideApiError(fallback)
 }
 
 function escapeRegExp(value: string): string {

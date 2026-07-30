@@ -244,12 +244,15 @@ an invoice entirely by keyboard or mouse.
   **three-way stale-conflict review is implemented** with explicit
   Original/Current/Draft comparison, Current/Mine overlap choices,
   collection-as-one-unit semantics, workflow-lock reevaluation, and review on
-  the fresh ETag before a separate save
+  the fresh ETag before a separate save; **metadata-driven domain actions are
+  implemented**, including server-evaluated per-record state, save-first
+  chaining onto the returned ETag, per-attempt idempotency keys, and in-place
+  post-action state refresh; **Web report preview/export remains planned**
 - executable renderer acceptance matrix for shared TUI/Qt/Web semantics;
   **implemented** with a versioned YAML matrix, compiled Invoicing golden
   contract, safe Web-projection comparison, and CI-verified evidence links;
-  the matrix records the closed Web scalar-lookup, master-detail, and conflict
-  gaps plus the remaining action and report gaps explicitly
+  the matrix records the closed Web scalar-lookup, master-detail, conflict, and
+  action gaps plus the remaining report gap explicitly
 
 Exit condition: TUI, REST, and MCP produce equivalent secured outcomes through
 the same services.

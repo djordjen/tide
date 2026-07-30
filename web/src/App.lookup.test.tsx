@@ -408,6 +408,153 @@ it("saves Invoice line drafts and Product Save & Select as one parent update", a
   )
 })
 
+it("saves a dirty Invoice before posting it through the domain action", async () => {
+  const requests: Array<{
+    method: string
+    url: string
+    headers: Headers
+    body: Record<string, unknown>
+  }> = []
+  let storedInvoice = invoice(1)
+  storedInvoice._tide.actions.post.enabled = false
+
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith("/_tide/session")) {
+        return jsonResponse(session)
+      }
+      if (url.endsWith("/_tide/presentation")) {
+        return jsonResponse(presentation)
+      }
+      if (url.endsWith("/invoices/_query")) {
+        return jsonResponse({
+          records: [
+            {
+              id: 1,
+              number: storedInvoice.number,
+              customer: storedInvoice.customer,
+              status: storedInvoice.status,
+              total: storedInvoice.total,
+            },
+          ],
+          next_cursor: null,
+        })
+      }
+      if (url.endsWith("/invoices/1") && init?.method === "GET") {
+        return jsonResponse(storedInvoice, {
+          headers: { ETag: '"4"' },
+        })
+      }
+      if (url.endsWith("/invoices/1") && init?.method === "PATCH") {
+        const headers = new Headers(init.headers)
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>
+        requests.push({ method: "PATCH", url, headers, body })
+        storedInvoice = {
+          ...storedInvoice,
+          ...body,
+          version: 5,
+          _tide: {
+            ...storedInvoice._tide,
+            actions: {
+              post: { visible: true, enabled: true },
+            },
+          },
+        }
+        return jsonResponse(storedInvoice, {
+          headers: { ETag: '"5"' },
+        })
+      }
+      if (
+        url.endsWith("/invoices/1/actions/post") &&
+        init?.method === "POST"
+      ) {
+        const headers = new Headers(init.headers)
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>
+        requests.push({ method: "POST", url, headers, body })
+        storedInvoice = {
+          ...storedInvoice,
+          status: "posted",
+          version: 6,
+          _tide: {
+            writable_fields: [],
+            actions: {
+              post: { visible: true, enabled: false },
+            },
+          },
+        }
+        return jsonResponse(storedInvoice, {
+          headers: { ETag: '"6"' },
+        })
+      }
+      const productMatch = /\/products\/(\d+)$/.exec(url)
+      if (productMatch && init?.method === "GET") {
+        return jsonResponse(
+          product(
+            Number(productMatch[1]),
+            "DEMO",
+            "Demo product",
+            "100.00",
+          ),
+        )
+      }
+      const customerMatch = /\/customers\/(\d+)$/.exec(url)
+      if (customerMatch && init?.method === "GET") {
+        return jsonResponse(
+          customer(
+            Number(customerMatch[1]),
+            "ADRIA",
+            "Adria Consulting",
+            "hello@adria.test",
+          ),
+        )
+      }
+      throw new Error(`Unexpected URL ${url}`)
+    }),
+  )
+
+  const user = userEvent.setup()
+  renderApp()
+  await user.type(
+    screen.getByLabelText("Application token"),
+    "a-development-token-that-is-long-enough",
+  )
+  await user.click(
+    screen.getByRole("button", { name: "Connect securely" }),
+  )
+  await user.dblClick(
+    await screen.findByRole("row", { name: /INV-2026-0001/ }),
+  )
+
+  const currency = await screen.findByLabelText(/^Currency/)
+  await user.clear(currency)
+  await user.type(currency, "USD")
+  await user.click(
+    screen.getByRole("button", { name: "Post invoice" }),
+  )
+
+  await waitFor(() => expect(requests).toHaveLength(2))
+  expect(requests[0]).toMatchObject({
+    method: "PATCH",
+    body: { currency: "USD" },
+  })
+  expect(requests[0].headers.get("If-Match")).toBe('"4"')
+  expect(requests[1]).toMatchObject({
+    method: "POST",
+    body: {},
+  })
+  expect(requests[1].headers.get("If-Match")).toBe('"5"')
+  expect(requests[1].headers.get("Idempotency-Key")).toMatch(
+    /^web:[0-9a-f-]+$/,
+  )
+  expect(
+    await screen.findByText("Post invoice completed successfully."),
+  ).toBeInTheDocument()
+  expect(screen.getAllByText("posted").length).toBeGreaterThan(0)
+  expect(screen.getByRole("button", { name: "Post invoice" })).toBeDisabled()
+})
+
 function renderApp() {
   const client = new QueryClient({
     defaultOptions: {
@@ -491,6 +638,9 @@ function invoice(id: number) {
     ],
     _tide: {
       writable_fields: ["invoice_date", "currency", "customer", "lines"],
+      actions: {
+        post: { visible: true, enabled: true },
+      },
     },
   }
 }
@@ -803,6 +953,13 @@ const invoiceForm = {
       draft_operations: ["create", "update"],
       writable: true,
       tab: null,
+    },
+  ],
+  actions: [
+    {
+      name: "post",
+      label: "Post invoice",
+      idempotent: true,
     },
   ],
 }

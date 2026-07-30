@@ -200,6 +200,13 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
         assert invoice_form["entity"] == "sales.Invoice"
         assert invoice_form["label"] == "Invoice"
         assert invoice_form["display_template"] == "number"
+        assert invoice_form["actions"] == [
+            {
+                "name": "post",
+                "label": "Post invoice",
+                "idempotent": True,
+            }
+        ]
         assert list(invoice_form["fields"]) == [
             "number",
             "invoice_date",
@@ -484,6 +491,9 @@ def test_record_get_projects_server_evaluated_workflow_field_state() -> None:
             (posted.json().get("_tide") or {}).get("writable_fields")
             is None
         )
+        assert posted.json()["_tide"]["actions"] == {
+            "post": {"visible": True, "enabled": False}
+        }
         assert draft.status_code == 200
         assert draft.json()["_tide"] == {
             "protected_fields": ["posted_by"],
@@ -492,7 +502,10 @@ def test_record_get_projects_server_evaluated_workflow_field_state() -> None:
                 "customer",
                 "invoice_date",
                 "lines",
-            ]
+            ],
+            "actions": {
+                "post": {"visible": True, "enabled": True},
+            },
         }
 
     asyncio.run(exercise())
@@ -1165,6 +1178,9 @@ def test_server_posts_with_version_and_idempotency_preconditions() -> None:
         assert posted.status_code == 200
         assert posted.json()["status"] == "posted"
         assert posted.json()["version"] == 2
+        assert posted.json()["_tide"]["actions"] == {
+            "post": {"visible": True, "enabled": False}
+        }
         assert posted.headers["etag"] == '"2"'
         assert replay.status_code == 200
         assert replay.json()["version"] == 2
