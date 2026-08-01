@@ -547,6 +547,11 @@ Web renderer can instead use TIDE's optional same-origin Authorization Code
 with PKCE flow, which keeps provider tokens behind FastAPI. See
 [Web authentication](WEB-AUTHENTICATION.md) for the client registration,
 additional `--web-oidc-*` flags, session boundary, and exact hosting command.
+Run its `tide auth check-oidc` example before opening the network listener; the
+text result is suitable for an operator and `--json` produces a secret-free CI
+artifact. A successful preflight must still be followed by one real browser
+sign-in because discovery cannot prove the client registration or issued
+claims.
 Do not put access tokens, client secrets, or private-key passwords in a batch
 file. A password-protected key can use `--ssl-keyfile-password-env NAME`.
 Reverse-proxy trust is not implemented yet; this command's non-loopback mode

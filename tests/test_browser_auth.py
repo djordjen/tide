@@ -36,6 +36,20 @@ def test_browser_auth_code_pkce_session_and_refresh() -> None:
                     "issuer": ISSUER,
                     "authorization_endpoint": f"{ISSUER}/authorize?ui=modern",
                     "token_endpoint": f"{ISSUER}/token",
+                    "response_types_supported": ["code"],
+                    "grant_types_supported": [
+                        "authorization_code",
+                        "refresh_token",
+                    ],
+                    "code_challenge_methods_supported": ["S256"],
+                    "token_endpoint_auth_methods_supported": [
+                        "client_secret_basic"
+                    ],
+                    "scopes_supported": [
+                        "openid",
+                        "profile",
+                        "offline_access",
+                    ],
                 },
             )
         form = parse_qs(request.content.decode("ascii"))
@@ -71,6 +85,9 @@ def test_browser_auth_code_pkce_session_and_refresh() -> None:
             http_client=client,
             clock=lambda: now[0],
         )
+        assert browser.provider_info is not None
+        assert browser.provider_info.refresh_token_advertised is True
+        assert browser.provider_info.warnings == ()
         started = browser.begin_login(return_to="/?view=sales")
         authorization = urlsplit(started.authorization_url)
         query = parse_qs(authorization.query)
@@ -170,3 +187,77 @@ def test_browser_auth_discovery_fails_closed(metadata: dict[str, str]) -> None:
                 redirect_uri="https://tide.example.test/api/v1/_tide/auth/callback",
                 http_client=client,
             )
+
+
+@pytest.mark.parametrize(
+    ("metadata_change", "message"),
+    [
+        ({"response_types_supported": ["id_token"]}, "authorization-code response"),
+        ({"code_challenge_methods_supported": ["plain"]}, "PKCE S256"),
+        (
+            {"token_endpoint_auth_methods_supported": ["client_secret_post"]},
+            "client_secret_basic",
+        ),
+    ],
+)
+def test_browser_auth_rejects_incompatible_provider_capabilities(
+    metadata_change: dict[str, list[str]],
+    message: str,
+) -> None:
+    metadata: dict[str, object] = {
+        "issuer": ISSUER,
+        "authorization_endpoint": f"{ISSUER}/authorize",
+        "token_endpoint": f"{ISSUER}/token",
+        "response_types_supported": ["code"],
+        "code_challenge_methods_supported": ["S256"],
+        "token_endpoint_auth_methods_supported": ["client_secret_basic"],
+    }
+    metadata.update(metadata_change)
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, json=metadata)
+    )
+    with httpx.Client(transport=transport) as client:
+        with pytest.raises(BrowserAuthenticationError, match=message):
+            OidcBrowserAuth.from_discovery(
+                issuer=ISSUER,
+                authenticator=_Authenticator(),
+                client_id="tide-web",
+                client_secret="provider-secret",
+                redirect_uri=(
+                    "https://tide.example.test/api/v1/_tide/auth/callback"
+                ),
+                http_client=client,
+            )
+
+
+def test_browser_auth_reports_provider_warnings_for_public_client() -> None:
+    metadata = {
+        "issuer": ISSUER,
+        "authorization_endpoint": f"{ISSUER}/authorize",
+        "token_endpoint": f"{ISSUER}/token",
+        "response_types_supported": ["code"],
+        "token_endpoint_auth_methods_supported": ["none"],
+        "scopes_supported": ["openid", "profile"],
+    }
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, json=metadata)
+    )
+    with httpx.Client(transport=transport) as client:
+        browser = OidcBrowserAuth.from_discovery(
+            issuer=ISSUER,
+            authenticator=_Authenticator(),
+            client_id="tide-web",
+            redirect_uri="https://tide.example.test/api/v1/_tide/auth/callback",
+            scopes=("openid", "profile", "offline_access"),
+            http_client=client,
+        )
+
+    assert browser.provider_info is not None
+    assert browser.provider_info.token_endpoint_auth_methods == ("none",)
+    assert browser.provider_info.warnings == (
+        "provider metadata does not advertise PKCE methods; TIDE will send "
+        "S256, but interactive acceptance must confirm provider enforcement",
+        "provider metadata does not advertise requested scope(s): offline_access",
+        "provider metadata does not advertise the refresh_token grant; "
+        "interactive acceptance must confirm renewable sessions",
+    )

@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
 import httpx
@@ -741,6 +742,124 @@ def test_browser_oidc_session_authenticates_and_requires_csrf() -> None:
 
     asyncio.run(exercise())
     assert app.openapi()["x-tide"]["browser_authentication"] is True
+
+
+def test_real_browser_oidc_adapter_completes_fastapi_acceptance_flow() -> None:
+    token_requests: list[dict[str, list[str]]] = []
+
+    class TestOidcAuthenticator:
+        authentication_type = "oidc-jwt"
+        production = True
+
+        def authenticate(self, credential: str) -> Principal | None:
+            if credential != "accepted-provider-access-token":
+                return None
+            return Principal(
+                "oidc:accepted-user",
+                roles=frozenset({"sales_clerk"}),
+            )
+
+    def provider(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url == "https://identity.example.test/token"
+        assert request.headers["authorization"].startswith("Basic ")
+        form = parse_qs(request.content.decode("ascii"))
+        token_requests.append(form)
+        return httpx.Response(
+            200,
+            json={
+                "token_type": "Bearer",
+                "access_token": "accepted-provider-access-token",
+                "refresh_token": "accepted-provider-refresh-token",
+                "expires_in": 3600,
+            },
+        )
+
+    authenticator = TestOidcAuthenticator()
+    with httpx.Client(transport=httpx.MockTransport(provider)) as provider_client:
+        browser_auth = OidcBrowserAuth(
+            authenticator=authenticator,
+            authorization_endpoint="https://identity.example.test/authorize",
+            token_endpoint="https://identity.example.test/token",
+            client_id="tide-web",
+            client_secret="provider-client-secret",
+            redirect_uri=(
+                "http://127.0.0.1:8000/api/v1/_tide/browser-auth/callback"
+            ),
+            scopes=("openid", "profile", "offline_access"),
+            http_client=provider_client,
+        )
+        app = _app(
+            "sales_clerk",
+            browser_auth=browser_auth,
+            authenticator=authenticator,
+        )
+
+        async def exercise() -> None:
+            async with _client(app) as client:
+                login = await client.get(
+                    "/api/v1/_tide/browser-auth/login",
+                    params={"return_to": "/?view=sales.Invoice.browse"},
+                )
+                authorization = urlsplit(login.headers["location"])
+                authorization_query = parse_qs(authorization.query)
+                callback = await client.get(
+                    "/api/v1/_tide/browser-auth/callback",
+                    params={
+                        "state": authorization_query["state"][0],
+                        "code": "accepted-provider-code",
+                    },
+                )
+                browser_session = await client.get(
+                    "/api/v1/_tide/browser-auth/session"
+                )
+                session = await client.get("/api/v1/_tide/session")
+                csrf_token = browser_session.json()["csrf_token"]
+                missing_csrf = await client.post(
+                    "/api/v1/products",
+                    json={
+                        "code": "OIDC-ACCEPTANCE",
+                        "name": "OIDC acceptance product",
+                        "unit_price": "12.50",
+                        "active": True,
+                    },
+                )
+                created = await client.post(
+                    "/api/v1/products",
+                    json={
+                        "code": "OIDC-ACCEPTANCE",
+                        "name": "OIDC acceptance product",
+                        "unit_price": "12.50",
+                        "active": True,
+                    },
+                    headers={"X-TIDE-CSRF": csrf_token},
+                )
+                logout = await client.post(
+                    "/api/v1/_tide/browser-auth/logout",
+                    headers={"X-TIDE-CSRF": csrf_token},
+                )
+                after_logout = await client.get("/api/v1/_tide/session")
+
+            assert login.status_code == 302
+            assert authorization.hostname == "identity.example.test"
+            assert authorization_query["response_type"] == ["code"]
+            assert authorization_query["code_challenge_method"] == ["S256"]
+            assert callback.status_code == 303
+            assert callback.headers["location"] == "/?view=sales.Invoice.browse"
+            assert browser_session.status_code == 200
+            assert session.status_code == 200
+            assert session.json()["principal"] == "oidc:accepted-user"
+            assert missing_csrf.status_code == 403
+            assert created.status_code == 201
+            assert logout.status_code == 204
+            assert after_logout.status_code == 401
+
+        asyncio.run(exercise())
+
+    assert len(token_requests) == 1
+    assert token_requests[0]["grant_type"] == ["authorization_code"]
+    assert token_requests[0]["code"] == ["accepted-provider-code"]
+    assert token_requests[0]["code_verifier"]
 
 
 def test_presentation_manifest_filters_inaccessible_navigation_groups() -> None:
@@ -2086,6 +2205,7 @@ def _app(
     request_body_timeout_seconds: int = DEFAULT_REQUEST_BODY_TIMEOUT_SECONDS,
     web_root: Path | None = None,
     browser_auth: Any = None,
+    authenticator: Any = None,
 ) -> Any:
     model = model or compile_project(INVOICING)
     repository = InMemoryRepository()
@@ -2100,7 +2220,7 @@ def _app(
     return build_fastapi_app(
         model,
         records,
-        DevelopmentTokenAuthenticator(TOKEN, principal),
+        authenticator or DevelopmentTokenAuthenticator(TOKEN, principal),
         actions=actions,
         logger=logger,
         max_request_body_bytes=max_request_body_bytes,

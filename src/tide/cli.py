@@ -937,6 +937,101 @@ def _create_parser() -> argparse.ArgumentParser:
     )
     check_server.set_defaults(handler=_api_check_server)
 
+    authentication = commands.add_parser(
+        "auth",
+        help="inspect identity-provider compatibility",
+    )
+    authentication_commands = authentication.add_subparsers(
+        dest="authentication_command"
+    )
+    check_oidc = authentication_commands.add_parser(
+        "check-oidc",
+        help="preflight an OIDC bearer and browser-login configuration",
+    )
+    check_oidc.add_argument(
+        "project",
+        nargs="?",
+        default=".",
+        metavar="APPLICATION",
+        help="application root or tide.yaml (default: current directory)",
+    )
+    check_oidc.add_argument(
+        "--oidc-issuer",
+        required=True,
+        help="exact HTTPS issuer URL used for OIDC discovery",
+    )
+    check_oidc.add_argument(
+        "--oidc-audience",
+        required=True,
+        help="required access-token audience for this TIDE server",
+    )
+    check_oidc.add_argument(
+        "--oidc-role-claim",
+        default="roles",
+        help="dot-separated claim containing external roles (default: roles)",
+    )
+    check_oidc.add_argument(
+        "--oidc-role-map",
+        action="append",
+        default=[],
+        metavar="EXTERNAL=TIDE_ROLE",
+        help="map an external role to an application role; repeat as needed",
+    )
+    check_oidc.add_argument(
+        "--oidc-algorithm",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="accepted asymmetric JWT algorithm; repeat (default: RS256)",
+    )
+    check_oidc.add_argument(
+        "--oidc-token-type",
+        action="append",
+        default=[],
+        metavar="TYPE",
+        help="accepted JWT typ header; repeat (defaults: at+jwt and JWT)",
+    )
+    check_oidc.add_argument(
+        "--oidc-leeway",
+        type=float,
+        default=30.0,
+        help="JWT clock-skew leeway in seconds (default: 30)",
+    )
+    check_oidc.add_argument(
+        "--oidc-timeout",
+        type=float,
+        default=5.0,
+        help="OIDC discovery timeout in seconds (default: 5)",
+    )
+    check_oidc.add_argument(
+        "--web-oidc-client-id",
+        required=True,
+        help="registered Web OIDC client ID",
+    )
+    check_oidc.add_argument(
+        "--web-oidc-client-secret-env",
+        metavar="NAME",
+        help="read the optional confidential Web OIDC client secret from NAME",
+    )
+    check_oidc.add_argument(
+        "--web-oidc-redirect-uri",
+        required=True,
+        help="exact registered browser callback URI",
+    )
+    check_oidc.add_argument(
+        "--web-oidc-scope",
+        action="append",
+        default=[],
+        metavar="SCOPE",
+        help="browser OIDC scope; repeat (defaults: openid and profile)",
+    )
+    check_oidc.add_argument(
+        "--json",
+        action="store_true",
+        help="emit a machine-readable compatibility result",
+    )
+    check_oidc.set_defaults(handler=_auth_check_oidc)
+
     mcp = commands.add_parser("mcp", help="run Model Context Protocol adapters")
     mcp_commands = mcp.add_subparsers(dest="mcp_command")
     mcp_dev = mcp_commands.add_parser(
@@ -2459,6 +2554,118 @@ def _api_check_server(arguments: argparse.Namespace) -> int:
         f"Connected to {session.application} {session.application_version} as "
         f"{session.principal} ({operations} operation(s), {actions} action(s))."
     )
+    return 0
+
+
+def _auth_check_oidc(arguments: argparse.Namespace) -> int:
+    model = compile_project(arguments.project)
+    client_secret = None
+    if arguments.web_oidc_client_secret_env:
+        client_secret = os.environ.get(arguments.web_oidc_client_secret_env)
+        if not client_secret:
+            print(
+                "OIDC preflight failed: browser client-secret environment "
+                f"variable {arguments.web_oidc_client_secret_env!r} is not set",
+                file=sys.stderr,
+            )
+            return 1
+    try:
+        from tide.api.auth import OidcJwtAuthenticator
+        from tide.api.browser_auth import OidcBrowserAuth
+    except ModuleNotFoundError as error:
+        if error.name in {"httpx", "jwt", "cryptography"} or (
+            error.name or ""
+        ).startswith(("httpx.", "jwt.", "cryptography.")):
+            print(
+                "The OIDC adapter is not installed. Install the 'auth' extra "
+                "(for example: uv sync --extra auth).",
+                file=sys.stderr,
+            )
+            return 1
+        raise
+
+    try:
+        role_map = _parse_oidc_role_map(arguments.oidc_role_map, model)
+        authenticator = OidcJwtAuthenticator.from_discovery(
+            issuer=arguments.oidc_issuer,
+            audience=arguments.oidc_audience,
+            role_claim=arguments.oidc_role_claim,
+            role_map=role_map,
+            algorithms=tuple(arguments.oidc_algorithm) or ("RS256",),
+            token_types=tuple(arguments.oidc_token_type) or ("at+jwt", "JWT"),
+            leeway=arguments.oidc_leeway,
+            timeout=arguments.oidc_timeout,
+        )
+        browser_configuration: dict[str, Any] = {}
+        if arguments.web_oidc_scope:
+            browser_configuration["scopes"] = tuple(arguments.web_oidc_scope)
+        browser_auth = OidcBrowserAuth.from_discovery(
+            issuer=arguments.oidc_issuer,
+            authenticator=authenticator,
+            client_id=arguments.web_oidc_client_id,
+            client_secret=client_secret,
+            redirect_uri=arguments.web_oidc_redirect_uri,
+            timeout=arguments.oidc_timeout,
+            **browser_configuration,
+        )
+    except ValueError as error:
+        print(f"OIDC preflight failed: {error}", file=sys.stderr)
+        return 1
+
+    provider = browser_auth.provider_info
+    if provider is None:
+        print(
+            "OIDC preflight failed: provider capability information is unavailable",
+            file=sys.stderr,
+        )
+        return 1
+    requested_scopes = tuple(arguments.web_oidc_scope) or (
+        "openid",
+        "profile",
+    )
+    client_authentication = (
+        "client_secret_basic" if client_secret is not None else "none"
+    )
+    limitation = (
+        "Discovery cannot prove client/callback registration, issued access-token "
+        "claims, mapped roles, or refresh-token issuance; complete one interactive "
+        "browser sign-in before deployment."
+    )
+    result = {
+        "compatible": True,
+        "application": model.name,
+        "application_version": model.version,
+        "audience": arguments.oidc_audience,
+        "role_claim": arguments.oidc_role_claim,
+        "role_map": role_map,
+        "browser_client": {
+            "client_id": arguments.web_oidc_client_id,
+            "client_authentication": client_authentication,
+            "redirect_uri": arguments.web_oidc_redirect_uri,
+            "requested_scopes": list(requested_scopes),
+        },
+        "provider": provider.as_dict(),
+        "limitations": [limitation],
+    }
+    if arguments.json:
+        _print_json(result)
+        return 0
+
+    print(
+        f"OIDC preflight passed for {model.name} {model.version}: "
+        f"{provider.issuer}"
+    )
+    print(
+        "Browser flow: authorization code + PKCE S256; token client "
+        f"authentication: {client_authentication}."
+    )
+    print(
+        f"Requested scopes: {', '.join(requested_scopes)}; "
+        f"role mapping(s): {len(role_map)}."
+    )
+    for warning in provider.warnings:
+        print(f"Warning: {warning}")
+    print(f"Next: {limitation}")
     return 0
 
 

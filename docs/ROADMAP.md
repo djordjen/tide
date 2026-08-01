@@ -235,8 +235,12 @@ an invoice entirely by keyboard or mouse.
 - optional production Web identity without provider tokens in React;
   **implemented with OIDC Authorization Code/PKCE, single-use browser-bound
   login state, server-held access/refresh tokens, opaque HTTP-only cookies,
-  per-session CSRF, restored sessions, and local logout; shared encrypted
-  multi-worker storage, provider-wide logout, and trusted proxy hosting remain**
+  per-session CSRF, restored sessions, local logout, fail-closed published
+  capability checks/warnings, a secret-free `tide auth check-oidc` text/JSON
+  preflight, and real-adapter FastAPI acceptance coverage; a reviewed sign-in
+  against each deployment's actual provider is still required, while shared
+  encrypted multi-worker storage, provider-wide logout, and trusted proxy
+  hosting remain**
 - Web detail view using the shared form layout, read-only states, collections,
   and current-query Previous/Next navigation; **implemented**
 - Web editing parity in reviewed slices: CRUD, lookups and **Save & Select**,

@@ -219,6 +219,12 @@ opaque HTTP-only session cookie plus CSRF proof to React. See
 [Web authentication](WEB-AUTHENTICATION.md); its cookie is not an MCP
 credential.
 
+Before deploying Web login, `tide auth check-oidc` applies the same
+provider-capability validation as server startup and can emit secret-free JSON
+for CI. It verifies discovery compatibility and application role-map targets;
+it does not claim that a registered client, issued token claims, or refresh
+issuance work until an operator completes the documented interactive sign-in.
+
 Response schemas keep every model field present and nullable so a protected
 value can be represented as JSON null. Optional `_tide.protected_fields`
 metadata distinguishes protection from a genuine null. Decimal values are JSON
@@ -621,6 +627,7 @@ current session boundary.
 ```bash
 tide api describe
 tide api export-openapi
+tide auth check-oidc
 tide mcp dev applications/invoicing
 tide serve --mcp
 ```

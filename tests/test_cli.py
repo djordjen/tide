@@ -7,6 +7,8 @@ from types import SimpleNamespace
 from sqlalchemy import create_engine
 
 from tide import compile_project
+from tide.api.auth import OidcJwtAuthenticator
+from tide.api.browser_auth import OidcBrowserAuth, OidcBrowserProviderInfo
 from tide.cli import main
 from tide.data import (
     SQLAlchemyActionExecutionStore,
@@ -452,6 +454,121 @@ def test_api_check_server_reports_compatible_authenticated_session(
     assert captured["token"] == token
     assert captured["base_path"] == "/api/v1"
     assert token not in output
+
+
+def test_auth_check_oidc_reports_safe_provider_compatibility(
+    monkeypatch,
+    capsys,
+) -> None:
+    captured: dict[str, dict[str, object]] = {}
+    secret = "provider-client-secret"
+    monkeypatch.setenv("CHECK_WEB_CLIENT_SECRET", secret)
+
+    class StubAuthenticator:
+        pass
+
+    def fake_authenticator_discovery(cls, **configuration):
+        captured["authenticator"] = configuration
+        return StubAuthenticator()
+
+    def fake_browser_discovery(cls, **configuration):
+        captured["browser"] = configuration
+        return SimpleNamespace(
+            provider_info=OidcBrowserProviderInfo(
+                issuer="https://identity.example.test/tenant",
+                authorization_endpoint=(
+                    "https://identity.example.test/tenant/authorize"
+                ),
+                token_endpoint="https://identity.example.test/tenant/token",
+                response_types=("code",),
+                grant_types=("authorization_code", "refresh_token"),
+                pkce_methods=("S256",),
+                token_endpoint_auth_methods=("client_secret_basic",),
+                scopes=("openid", "profile", "offline_access"),
+                warnings=(),
+            )
+        )
+
+    monkeypatch.setattr(
+        OidcJwtAuthenticator,
+        "from_discovery",
+        classmethod(fake_authenticator_discovery),
+    )
+    monkeypatch.setattr(
+        OidcBrowserAuth,
+        "from_discovery",
+        classmethod(fake_browser_discovery),
+    )
+
+    result = main(
+        [
+            "auth",
+            "check-oidc",
+            str(INVOICING),
+            "--oidc-issuer",
+            "https://identity.example.test/tenant",
+            "--oidc-audience",
+            "tide-api",
+            "--oidc-role-map",
+            "external-sales=sales_clerk",
+            "--web-oidc-client-id",
+            "tide-web",
+            "--web-oidc-client-secret-env",
+            "CHECK_WEB_CLIENT_SECRET",
+            "--web-oidc-redirect-uri",
+            "https://tide.example.test/api/v1/_tide/browser-auth/callback",
+            "--web-oidc-scope",
+            "openid",
+            "--web-oidc-scope",
+            "offline_access",
+            "--json",
+        ]
+    )
+
+    output_text = capsys.readouterr().out
+    output = json.loads(output_text)
+    assert result == 0
+    assert output["compatible"] is True
+    assert output["provider"]["pkce_methods"] == ["S256"]
+    assert output["provider"]["refresh_token_advertised"] is True
+    assert output["browser_client"]["client_authentication"] == (
+        "client_secret_basic"
+    )
+    assert output["role_map"] == {"external-sales": "sales_clerk"}
+    assert captured["authenticator"]["audience"] == "tide-api"
+    assert captured["browser"]["client_secret"] == secret
+    assert secret not in output_text
+
+
+def test_auth_check_oidc_requires_configured_client_secret(
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.delenv("MISSING_WEB_CLIENT_SECRET", raising=False)
+
+    result = main(
+        [
+            "auth",
+            "check-oidc",
+            str(INVOICING),
+            "--oidc-issuer",
+            "https://identity.example.test/tenant",
+            "--oidc-audience",
+            "tide-api",
+            "--web-oidc-client-id",
+            "tide-web",
+            "--web-oidc-client-secret-env",
+            "MISSING_WEB_CLIENT_SECRET",
+            "--web-oidc-redirect-uri",
+            "https://tide.example.test/api/v1/_tide/browser-auth/callback",
+        ]
+    )
+
+    assert result == 1
+    assert capsys.readouterr().err == (
+        "OIDC preflight failed: browser client-secret environment variable "
+        "'MISSING_WEB_CLIENT_SECRET' is not set\n"
+    )
 
 
 def test_tide_run_database_requires_configured_environment_variable(

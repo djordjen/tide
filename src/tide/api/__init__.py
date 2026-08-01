@@ -14,6 +14,7 @@ __all__ = [
     "HttpServerLimits",
     "OidcDiscoveryError",
     "OidcBrowserAuth",
+    "OidcBrowserProviderInfo",
     "OidcJwtAuthenticator",
     "OpenApiPreview",
     "RemoteActionService",
@@ -37,15 +38,18 @@ def __getattr__(name: str) -> Any:
     if name in {
         "BrowserAuthenticationError",
         "OidcBrowserAuth",
+        "OidcBrowserProviderInfo",
     }:
         from tide.api.browser_auth import (
             BrowserAuthenticationError,
             OidcBrowserAuth,
+            OidcBrowserProviderInfo,
         )
 
         return {
             "BrowserAuthenticationError": BrowserAuthenticationError,
             "OidcBrowserAuth": OidcBrowserAuth,
+            "OidcBrowserProviderInfo": OidcBrowserProviderInfo,
         }[name]
     if name in {
         "OidcDiscoveryError",

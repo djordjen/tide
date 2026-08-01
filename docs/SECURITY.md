@@ -186,7 +186,12 @@ HTTP-only session cookie and a per-session CSRF value used on every mutation.
 Login state is short-lived, single-use, browser-bound, and count-bounded.
 Refresh repeats token validation and requires the subject to remain unchanged;
 failures end the session. Development-token behavior remains separate and
-loopback-only. See [Web authentication](WEB-AUTHENTICATION.md).
+loopback-only. Discovery must advertise the authorization-code response and
+the configured public or confidential token-endpoint authentication method.
+When PKCE methods are published they must include `S256`; omission produces an
+explicit acceptance warning, while TIDE still sends S256 and never downgrades.
+`tide auth check-oidc` applies the same compatibility contract before a server
+is started. See [Web authentication](WEB-AUTHENTICATION.md).
 
 The identity provider remains responsible for token issuance, user consent,
 MFA, refresh/revocation policy, and provider configuration. The current local

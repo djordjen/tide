@@ -58,6 +58,57 @@ For a provider-approved public PKCE client, omit the secret option. Never place
 client secrets, TLS-key passwords, access tokens, or refresh tokens in a batch
 file or application YAML.
 
+## Preflight a provider
+
+Before opening a network listener, run the same configuration through TIDE's
+read-only provider preflight. The flags intentionally match `tide serve` so a
+reviewed configuration can be copied without translating names:
+
+```powershell
+$env:TIDE_WEB_CLIENT_SECRET = "replace-from-secret-store"
+
+uv run --extra auth tide auth check-oidc applications/invoicing `
+  --oidc-issuer https://identity.example.com/tenant `
+  --oidc-audience tide-api `
+  --oidc-role-map external-sales=sales_clerk `
+  --web-oidc-client-id tide-web `
+  --web-oidc-client-secret-env TIDE_WEB_CLIENT_SECRET `
+  --web-oidc-redirect-uri `
+    https://tide.example.com:8443/api/v1/_tide/browser-auth/callback `
+  --web-oidc-scope openid `
+  --web-oidc-scope profile `
+  --web-oidc-scope offline_access
+```
+
+Add `--json` for a secret-free CI artifact. The command verifies the exact
+HTTPS issuer and published JWKS URL, authorization and token endpoints,
+authorization-code response/grant compatibility, PKCE `S256` when the provider
+publishes its supported methods, the configured public (`none`) or confidential
+(`client_secret_basic`) token authentication method, requested scopes, and
+application role-map targets. It fails before server startup when published
+metadata is incompatible.
+
+These checks follow [OpenID Connect Discovery](https://openid.net/specs/openid-connect-discovery-1_0.html),
+[OAuth Authorization Server Metadata](https://www.rfc-editor.org/rfc/rfc8414.html),
+and the current [OAuth security best practice](https://www.rfc-editor.org/rfc/rfc9700.html).
+PKCE capability metadata is optional and some providers support S256 without
+publishing that field. In that case preflight emits a warning, TIDE still sends
+S256 and never downgrades, and reviewed provider documentation plus interactive
+acceptance must confirm that the verifier is enforced. Preflight also cannot
+prove that the client ID and exact callback were registered, that a real access
+token carries the configured audience/role claim, or that the provider will
+issue a refresh token. Complete the following interactive acceptance after
+preflight:
+
+1. Start the direct-TLS host with the same flags.
+2. Choose **Sign in securely** and complete the provider's MFA/consent flow.
+3. Confirm the expected TIDE principal, navigation, and role-limited actions.
+4. Perform one permitted mutation to exercise the session's CSRF boundary.
+5. Disconnect, refresh the page, and confirm that the local TIDE session ended.
+
+Record the preflight JSON and this reviewed sign-in result with deployment
+evidence; never record the client secret, authorization code, or tokens.
+
 ## Example direct-TLS host
 
 Build the Web renderer first, set the confidential client secret in the server

@@ -53,6 +53,41 @@ class BrowserSessionAccess:
 
 
 @dataclass(frozen=True, slots=True)
+class OidcBrowserProviderInfo:
+    """Safe capability summary derived from verified provider metadata."""
+
+    issuer: str
+    authorization_endpoint: str
+    token_endpoint: str
+    response_types: tuple[str, ...]
+    grant_types: tuple[str, ...]
+    pkce_methods: tuple[str, ...]
+    token_endpoint_auth_methods: tuple[str, ...]
+    scopes: tuple[str, ...] | None
+    warnings: tuple[str, ...]
+
+    @property
+    def refresh_token_advertised(self) -> bool:
+        return "refresh_token" in self.grant_types
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "issuer": self.issuer,
+            "authorization_endpoint": self.authorization_endpoint,
+            "token_endpoint": self.token_endpoint,
+            "response_types": list(self.response_types),
+            "grant_types": list(self.grant_types),
+            "pkce_methods": list(self.pkce_methods),
+            "token_endpoint_auth_methods": list(
+                self.token_endpoint_auth_methods
+            ),
+            "scopes": list(self.scopes) if self.scopes is not None else None,
+            "refresh_token_advertised": self.refresh_token_advertised,
+            "warnings": list(self.warnings),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class _LoginTransaction:
     binding_digest: bytes
     code_verifier: str
@@ -97,6 +132,7 @@ class OidcBrowserAuth:
         timeout: float = 5.0,
         http_client: httpx.Client | None = None,
         clock: Callable[[], float] = time.time,
+        provider_info: OidcBrowserProviderInfo | None = None,
     ) -> None:
         _validate_https_endpoint(
             authorization_endpoint,
@@ -149,6 +185,7 @@ class OidcBrowserAuth:
         self.max_transactions = max_transactions
         self.max_sessions = max_sessions
         self.timeout = timeout
+        self.provider_info = provider_info
         self.secure_cookie = secure_cookie
         self.transaction_cookie_name = (
             "__Host-tide_oidc_transaction"
@@ -183,31 +220,29 @@ class OidcBrowserAuth:
         _validate_https_issuer(issuer)
         if not math.isfinite(timeout) or timeout <= 0:
             raise ValueError("OIDC browser timeout must be greater than zero")
+        requested_scopes = tuple(scopes)
         metadata = _load_discovery(
             issuer,
             timeout=timeout,
             http_client=http_client,
         )
-        authorization_endpoint = metadata.get("authorization_endpoint")
-        token_endpoint = metadata.get("token_endpoint")
-        if not isinstance(authorization_endpoint, str):
-            raise BrowserAuthenticationError(
-                "OIDC discovery metadata has no authorization endpoint"
-            )
-        if not isinstance(token_endpoint, str):
-            raise BrowserAuthenticationError(
-                "OIDC discovery metadata has no token endpoint"
-            )
+        provider_info = _provider_info(
+            metadata,
+            issuer=issuer,
+            confidential_client=client_secret is not None,
+            requested_scopes=requested_scopes,
+        )
         return cls(
             authenticator=authenticator,
-            authorization_endpoint=authorization_endpoint,
-            token_endpoint=token_endpoint,
+            authorization_endpoint=provider_info.authorization_endpoint,
+            token_endpoint=provider_info.token_endpoint,
             client_id=client_id,
             redirect_uri=redirect_uri,
             client_secret=client_secret,
-            scopes=scopes,
+            scopes=requested_scopes,
             timeout=timeout,
             http_client=http_client,
+            provider_info=provider_info,
             **configuration,
         )
 
@@ -506,6 +541,146 @@ def _load_discovery(
             "OIDC discovery issuer does not exactly match the configured issuer"
         )
     return metadata
+
+
+def _provider_info(
+    metadata: Mapping[str, Any],
+    *,
+    issuer: str,
+    confidential_client: bool,
+    requested_scopes: Sequence[str],
+) -> OidcBrowserProviderInfo:
+    authorization_endpoint = metadata.get("authorization_endpoint")
+    token_endpoint = metadata.get("token_endpoint")
+    if not isinstance(authorization_endpoint, str):
+        raise BrowserAuthenticationError(
+            "OIDC discovery metadata has no authorization endpoint"
+        )
+    if not isinstance(token_endpoint, str):
+        raise BrowserAuthenticationError(
+            "OIDC discovery metadata has no token endpoint"
+        )
+    _validate_https_endpoint(
+        authorization_endpoint,
+        label="OIDC authorization endpoint",
+    )
+    _validate_https_endpoint(token_endpoint, label="OIDC token endpoint")
+
+    response_types = _metadata_string_array(
+        metadata,
+        "response_types_supported",
+        required=True,
+    )
+    if "code" not in response_types:
+        raise BrowserAuthenticationError(
+            "OIDC provider does not advertise the authorization-code response type"
+        )
+    grant_types = _metadata_string_array(
+        metadata,
+        "grant_types_supported",
+        default=("authorization_code", "implicit"),
+    )
+    if "authorization_code" not in grant_types:
+        raise BrowserAuthenticationError(
+            "OIDC provider does not advertise the authorization-code grant"
+        )
+    advertised_pkce_methods = _optional_metadata_string_array(
+        metadata,
+        "code_challenge_methods_supported",
+    )
+    pkce_methods = advertised_pkce_methods or ()
+    if advertised_pkce_methods is not None and "S256" not in pkce_methods:
+        raise BrowserAuthenticationError(
+            "OIDC provider does not advertise PKCE S256"
+        )
+    token_auth_methods = _metadata_string_array(
+        metadata,
+        "token_endpoint_auth_methods_supported",
+        default=("client_secret_basic",),
+    )
+    required_auth_method = (
+        "client_secret_basic" if confidential_client else "none"
+    )
+    if required_auth_method not in token_auth_methods:
+        client_kind = "confidential" if confidential_client else "public"
+        raise BrowserAuthenticationError(
+            "OIDC provider does not advertise "
+            f"{required_auth_method!r} token authentication required by the "
+            f"configured {client_kind} Web client"
+        )
+
+    scopes = _optional_metadata_string_array(metadata, "scopes_supported")
+    if scopes is not None and "openid" not in scopes:
+        raise BrowserAuthenticationError(
+            "OIDC provider metadata does not advertise the required 'openid' scope"
+        )
+    warnings: list[str] = []
+    if advertised_pkce_methods is None:
+        warnings.append(
+            "provider metadata does not advertise PKCE methods; TIDE will send "
+            "S256, but interactive acceptance must confirm provider enforcement"
+        )
+    if scopes is not None:
+        unadvertised_scopes = sorted(set(requested_scopes) - set(scopes))
+        if unadvertised_scopes:
+            warnings.append(
+                "provider metadata does not advertise requested scope(s): "
+                + ", ".join(unadvertised_scopes)
+            )
+    if (
+        "offline_access" in requested_scopes
+        and "refresh_token" not in grant_types
+    ):
+        warnings.append(
+            "provider metadata does not advertise the refresh_token grant; "
+            "interactive acceptance must confirm renewable sessions"
+        )
+    return OidcBrowserProviderInfo(
+        issuer=issuer,
+        authorization_endpoint=authorization_endpoint,
+        token_endpoint=token_endpoint,
+        response_types=response_types,
+        grant_types=grant_types,
+        pkce_methods=pkce_methods,
+        token_endpoint_auth_methods=token_auth_methods,
+        scopes=scopes,
+        warnings=tuple(warnings),
+    )
+
+
+def _metadata_string_array(
+    metadata: Mapping[str, Any],
+    name: str,
+    *,
+    required: bool = False,
+    default: tuple[str, ...] = (),
+) -> tuple[str, ...]:
+    if name not in metadata:
+        if required:
+            raise BrowserAuthenticationError(
+                f"OIDC discovery metadata has no {name!r} array"
+            )
+        return default
+    value = metadata[name]
+    if (
+        not isinstance(value, Sequence)
+        or isinstance(value, (str, bytes, bytearray))
+        or not value
+        or any(not isinstance(item, str) or not item for item in value)
+    ):
+        raise BrowserAuthenticationError(
+            f"OIDC discovery metadata {name!r} must be a non-empty string array"
+        )
+    return tuple(dict.fromkeys(value))
+
+
+def _optional_metadata_string_array(
+    metadata: Mapping[str, Any],
+    name: str,
+) -> tuple[str, ...] | None:
+    if name not in metadata:
+        return None
+    return _metadata_string_array(metadata, name)
 
 
 def _safe_return_to(value: str) -> str:

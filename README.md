@@ -346,6 +346,7 @@ tide model validate
 tide model explain sales.Invoice.customer
 tide view explain sales.Invoice.edit
 tide api export-openapi
+tide auth check-oidc
 tide db check
 tide db diff
 tide db migrate
