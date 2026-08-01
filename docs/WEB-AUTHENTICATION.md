@@ -1,18 +1,77 @@
 # Web authentication
 
-TIDE Web supports two deliberately separate connection modes:
-
-- local `web-demo` and `web` shortcuts use a loopback-only development bearer
-  token pasted into the current browser runtime; and
-- reviewed deployments may enable same-origin browser sign-in through an
-  OpenID Connect provider.
+TIDE Web uses framework-owned username/password authentication by default. It
+does not require a Microsoft account, social login, cloud identity tenant, or
+other third-party login service. The optional OpenID Connect adapter remains
+isolated for deployments that may choose it later; it is not required by the
+framework or the Invoicing example.
 
 Both modes become the same server-owned `Principal` and pass through the same
 permissions, row policies, validation, concurrency, actions, reports, and audit
 services. Neither mode gives React database credentials or lets it choose
 roles.
 
-## Browser OIDC flow
+## Local username/password flow
+
+The first `start.bat web-demo` or `start.bat web` run creates a separate
+`.tide/local-auth.sqlite3` identity store and securely prompts for the initial
+`admin` password. The password is not echoed or written to `start.bat`, YAML,
+the application database, or browser storage. Subsequent starts show the normal
+Web sign-in form.
+
+The local identity store is TIDE-owned and intentionally separate from both
+managed application tables and legacy databases. It stores a unique random salt
+and a versioned PBKDF2-HMAC-SHA-256 password hash, never the password. A local
+user's roles are assigned by the developer/administrator command and must name
+roles compiled from the application YAML; a login request cannot supply roles.
+
+Create another user with the Windows shortcut:
+
+```powershell
+.\start.bat auth-user
+```
+
+Or use the cross-platform command and select the exact application roles:
+
+```powershell
+uv run tide auth create-user applications/invoicing `
+  --store .tide/local-auth.sqlite3 `
+  --username djordje `
+  --display-name "Djordje Najdanovic" `
+  --role sales_clerk `
+  --role auditor
+```
+
+The command prompts twice without echoing the password. To replace it later:
+
+```powershell
+uv run tide auth set-password applications/invoicing `
+  --store .tide/local-auth.sqlite3 `
+  --username djordje
+```
+
+Local browser sessions are opaque, HTTP-only, time-bounded and process-local.
+React receives only the cookie and a per-session CSRF proof. A small bounded
+failed-login window slows repeated guessing, and every accepted identity is
+still reauthorized by the ordinary service layer. A server restart logs browser
+users out but does not remove users or password hashes.
+
+For a built same-origin Web renderer, start the local adapter explicitly:
+
+```powershell
+uv run --extra api --extra report --extra sqlserver tide serve `
+  applications/invoicing --database-env `
+  --auth local `
+  --local-auth-store .tide/local-auth.sqlite3 `
+  --web-root web/dist `
+  --host 127.0.0.1 --port 8000
+```
+
+Non-loopback local-password serving requires direct TLS with the existing
+`--ssl-certfile` and `--ssl-keyfile` options. Reverse-proxy trust remains a
+separate deployment feature.
+
+## Optional browser OIDC flow
 
 The optional browser flow uses Authorization Code with PKCE (`S256`):
 

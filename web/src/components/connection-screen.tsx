@@ -23,6 +23,8 @@ export function ConnectionScreen({
   onConnected,
 }: ConnectionScreenProps) {
   const [token, setToken] = useState("")
+  const [username, setUsername] = useState("")
+  const [password, setPassword] = useState("")
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -39,6 +41,33 @@ export function ConnectionScreen({
         caught instanceof TideApiError
           ? caught.message
           : "The application connection failed.",
+      )
+    } finally {
+      setConnecting(false)
+    }
+  }
+
+  async function signIn(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (browserAuthentication === null) {
+      return
+    }
+    setConnecting(true)
+    setError(null)
+    try {
+      const api = await TideApi.loginWithPassword(
+        browserAuthentication,
+        username,
+        password,
+      )
+      const connection = await api.connect()
+      setPassword("")
+      onConnected(api, connection)
+    } catch (caught) {
+      setError(
+        caught instanceof TideApiError
+          ? caught.message
+          : "The application sign-in failed.",
       )
     } finally {
       setConnecting(false)
@@ -101,7 +130,12 @@ export function ConnectionScreen({
               : "Connect to an application"}
           </h2>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            {browserAuthentication?.enabled ? (
+            {browserAuthentication?.mode === "password" ? (
+              <>
+                Enter the username and password created by the application
+                administrator. TIDE verifies them on the application server.
+              </>
+            ) : browserAuthentication?.enabled ? (
               <>
                 Continue through your organization&apos;s identity provider. TIDE
                 keeps provider tokens behind the secured application server.
@@ -131,6 +165,53 @@ export function ConnectionScreen({
               <Button className="w-full" size="lg" disabled>
                 Checking secure session…
               </Button>
+            ) : browserAuthentication?.mode === "password" ? (
+              <form className="space-y-5" onSubmit={signIn}>
+                <div className="space-y-2">
+                  <label
+                    className="text-sm font-medium text-foreground"
+                    htmlFor="username"
+                  >
+                    Username
+                  </label>
+                  <Input
+                    id="username"
+                    name="username"
+                    autoComplete="username"
+                    autoFocus
+                    spellCheck={false}
+                    value={username}
+                    onChange={(event) => setUsername(event.target.value)}
+                    aria-describedby={error ? "connection-error" : undefined}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label
+                    className="text-sm font-medium text-foreground"
+                    htmlFor="password"
+                  >
+                    Password
+                  </label>
+                  <Input
+                    id="password"
+                    name="password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    aria-describedby={error ? "connection-error" : undefined}
+                  />
+                </div>
+                <Button
+                  className="w-full"
+                  size="lg"
+                  type="submit"
+                  disabled={connecting || !username.trim() || !password}
+                >
+                  {connecting ? "Signing in…" : "Sign in"}
+                  {!connecting ? <ArrowRight /> : null}
+                </Button>
+              </form>
             ) : browserAuthentication?.enabled &&
               browserAuthentication.login_path !== null ? (
               <Button className="w-full" size="lg" asChild>

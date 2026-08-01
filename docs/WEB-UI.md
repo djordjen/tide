@@ -18,14 +18,13 @@ Install Node.js 20 or later, then run from the repository root:
 
 The shortcut:
 
-1. creates and prints a loopback-only development bearer token;
+1. securely prompts for the first local `admin` password when needed;
 2. installs the locked Web dependencies when needed;
 3. starts the demo FastAPI application and Vite development server; and
-4. opens the Web connection screen.
+4. opens the username/password sign-in screen.
 
-Paste the printed token and choose **Connect**. The token remains only in the
-current JavaScript runtime; it is not written to browser storage. Stop both
-processes with `Ctrl+C`.
+Sign in as `admin` with the password you chose. The password and opaque session
+cookie are never written to browser storage. Stop both processes with `Ctrl+C`.
 
 To use the configured local SQL Server database instead:
 
@@ -174,14 +173,13 @@ remain local until Invoice **Save** sends one complete nested replacement with
 the observed ETag. FastAPI then reauthorizes, normalizes, validates, handles
 orphans, and recalculates stored line and Invoice totals transactionally.
 
-The development connection screen still accepts its loopback-only bearer token
-manually. When the server enables browser OIDC, the same screen instead offers
-**Sign in securely**, restores its opaque same-origin session automatically,
-adds per-session CSRF proof to mutations, refreshes provider tokens behind
-FastAPI when available, and performs local logout. React never receives the
-access token, refresh token, client secret, or external role claim. See
-[Web authentication](WEB-AUTHENTICATION.md) for configuration and the current
-single-process boundary.
+The normal Web shortcuts use TIDE's local username/password sign-in, restore
+its opaque same-origin session automatically, add per-session CSRF proof to
+mutations, and perform local logout. React never receives the password, its
+hash, database credentials, or role-selection authority. The optional OIDC
+adapter is retained only for deployments that may choose it later. See
+[Web authentication](WEB-AUTHENTICATION.md) for user management and the current
+single-process session boundary.
 
 ## Build and host
 
@@ -197,9 +195,9 @@ cd ..
 FastAPI can host that exact build at the same origin:
 
 ```powershell
-$env:TIDE_API_TOKEN = "replace-with-a-development-token"
 uv run --extra api --extra report tide serve applications/invoicing --demo `
-  --role sales_clerk --role auditor --web-root web/dist
+  --auth local --local-auth-store .tide/local-auth.sqlite3 `
+  --web-root web/dist
 ```
 
 Open <http://127.0.0.1:8000>. API routes are registered before the static
@@ -207,10 +205,9 @@ renderer, so Web hosting cannot shadow `/api`, `/docs`, OpenAPI, health, or MCP
 routes. Fingerprinted `/assets/` files receive immutable caching while the HTML
 entry point remains uncached.
 
-This command is a local development example. A reviewed OIDC Web host also
-configures the browser client and callback described in
-[Web authentication](WEB-AUTHENTICATION.md), plus TLS, process supervision,
-resource limits, and the controls in [Operational baseline](OPERATIONS.md).
+This command is a local development example. A non-loopback host also requires
+direct TLS, process supervision, resource limits, and the controls in
+[Operational baseline](OPERATIONS.md).
 
 ## Validate the renderer
 

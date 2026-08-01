@@ -232,15 +232,14 @@ an invoice entirely by keyboard or mouse.
   including responsive grouped navigation, TanStack virtualization, automatic
   incremental fetch, safe reference display, exact formatting, personal
   column order/widths, Best Fit/Fill/Reset, and same-origin static hosting**
-- optional production Web identity without provider tokens in React;
-  **implemented with OIDC Authorization Code/PKCE, single-use browser-bound
-  login state, server-held access/refresh tokens, opaque HTTP-only cookies,
-  per-session CSRF, restored sessions, local logout, fail-closed published
-  capability checks/warnings, a secret-free `tide auth check-oidc` text/JSON
-  preflight, and real-adapter FastAPI acceptance coverage; a reviewed sign-in
-  against each deployment's actual provider is still required, while shared
-  encrypted multi-worker storage, provider-wide logout, and trusted proxy
-  hosting remain**
+- production Web identity without credentials in React; **implemented first
+  with a framework-owned username/password store that is separate from the
+  application database, administrator-assigned application roles, versioned
+  salted password hashes, bounded opaque HTTP-only sessions, CSRF, restored
+  sessions, local logout, and simple CLI/bootstrap management. Provider-neutral
+  OIDC remains an isolated optional adapter for later deployments; it is not a
+  prerequisite for TIDE. Shared multi-worker sessions and trusted reverse-proxy
+  hosting remain later work.**
 - Web detail view using the shared form layout, read-only states, collections,
   and current-query Previous/Next navigation; **implemented**
 - Web editing parity in reviewed slices: CRUD, lookups and **Save & Select**,

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, waitFor } from "@testing-library/react"
+import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, expect, it, vi } from "vitest"
 
@@ -8,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { TideApi } from "@/lib/api"
 
 afterEach(() => {
+  cleanup()
   vi.unstubAllGlobals()
   window.localStorage.clear()
 })
@@ -21,6 +22,7 @@ it("connects through the safe manifest and renders capability navigation", async
       if (url.endsWith("/_tide/browser-auth")) {
         return jsonResponse({
           enabled: false,
+          mode: null,
           login_path: null,
           session_path: null,
           logout_path: null,
@@ -102,6 +104,7 @@ it("restores and ends a server-held browser session without exposing tokens", as
       if (url.endsWith("/_tide/browser-auth")) {
         return jsonResponse({
           enabled: true,
+          mode: "oidc",
           login_path: "/api/v1/_tide/browser-auth/login",
           session_path: "/api/v1/_tide/browser-auth/session",
           logout_path: "/api/v1/_tide/browser-auth/logout",
@@ -168,6 +171,7 @@ it("offers identity-provider sign-in when no browser session exists", async () =
       if (url.endsWith("/_tide/browser-auth")) {
         return jsonResponse({
           enabled: true,
+          mode: "oidc",
           login_path: "/api/v1/_tide/browser-auth/login",
           session_path: "/api/v1/_tide/browser-auth/session",
           logout_path: "/api/v1/_tide/browser-auth/logout",
@@ -195,6 +199,86 @@ it("offers identity-provider sign-in when no browser session exists", async () =
   expect(
     screen.getByRole("link", { name: "Sign in securely" }),
   ).toHaveAttribute("href", "/api/v1/_tide/browser-auth/login")
+})
+
+it("signs in with a local username and password without retaining credentials", async () => {
+  const requests: Array<{
+    url: string
+    method: string
+    loginProof: string | null
+    body: string | null
+  }> = []
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const headers = new Headers(init?.headers)
+      requests.push({
+        url,
+        method: init?.method ?? "GET",
+        loginProof: headers.get("X-TIDE-LOGIN"),
+        body: typeof init?.body === "string" ? init.body : null,
+      })
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: true,
+          mode: "password",
+          login_path: "/api/v1/_tide/browser-auth/login",
+          session_path: "/api/v1/_tide/browser-auth/session",
+          logout_path: "/api/v1/_tide/browser-auth/logout",
+        })
+      }
+      if (url.endsWith("/_tide/browser-auth/session")) {
+        return new Response(
+          JSON.stringify({
+            code: "unauthorized",
+            message: "authentication required",
+          }),
+          { status: 401, headers: { "Content-Type": "application/json" } },
+        )
+      }
+      if (url.endsWith("/_tide/browser-auth/login")) {
+        return jsonResponse({
+          csrf_token: "local-csrf-token-that-is-long-enough",
+        })
+      }
+      if (url.endsWith("/_tide/session")) {
+        return jsonResponse({
+          ...session,
+          authentication: "local-password",
+          principal: "local:alice",
+        })
+      }
+      if (url.endsWith("/_tide/presentation")) {
+        return jsonResponse({ ...presentation, principal: "local:alice" })
+      }
+      if (url.endsWith("/invoices/_query")) {
+        return jsonResponse({ records: [], next_cursor: null })
+      }
+      throw new Error(`Unexpected URL ${url}`)
+    }),
+  )
+
+  const user = userEvent.setup()
+  renderApp()
+  await user.type(await screen.findByLabelText("Username"), "alice")
+  await user.type(screen.getByLabelText("Password"), "secret passphrase")
+  await user.click(screen.getByRole("button", { name: "Sign in" }))
+
+  expect(
+    await screen.findByRole("heading", { name: "Invoices" }),
+  ).toBeInTheDocument()
+  const login = requests.find((request) =>
+    request.url.endsWith("/_tide/browser-auth/login"),
+  )
+  expect(login).toMatchObject({
+    method: "POST",
+    loginProof: "password",
+  })
+  expect(login?.body).toBe(
+    JSON.stringify({ username: "alice", password: "secret passphrase" }),
+  )
+  expect(window.localStorage.length).toBe(0)
 })
 
 function renderApp() {

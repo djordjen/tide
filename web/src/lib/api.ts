@@ -102,6 +102,8 @@ export class TideApi {
     const paths = [value.login_path, value.session_path, value.logout_path]
     if (
       typeof value.enabled !== "boolean" ||
+      (enabled && !["oidc", "password"].includes(value.mode ?? "")) ||
+      (!enabled && value.mode !== null) ||
       (enabled && paths.some((path) => typeof path !== "string")) ||
       (!enabled && paths.some((path) => path !== null))
     ) {
@@ -116,6 +118,52 @@ export class TideApi {
       }
     }
     return value as TideBrowserAuthenticationInfo
+  }
+
+  static async loginWithPassword(
+    authentication: TideBrowserAuthenticationInfo,
+    username: string,
+    password: string,
+    basePath = DEFAULT_BASE_PATH,
+    signal?: AbortSignal,
+  ): Promise<TideApi> {
+    if (
+      authentication.mode !== "password" ||
+      authentication.login_path === null
+    ) {
+      throw new TideApiError("Local password sign-in is unavailable.", {
+        code: "authentication_unavailable",
+      })
+    }
+    let response: Response
+    try {
+      response = await fetch(safeApiPath(authentication.login_path), {
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "X-TIDE-LOGIN": "password",
+        },
+        body: JSON.stringify({ username, password }),
+        redirect: "error",
+        signal,
+      })
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw error
+      }
+      throw new TideApiError("The TIDE application server could not be reached.")
+    }
+    if (!response.ok) {
+      await throwResponseError(response)
+    }
+    const csrfToken = browserCsrfToken(await safeJson(response))
+    return new TideApi("", basePath, {
+      authentication,
+      csrfToken,
+    })
   }
 
   static async restoreBrowserSession(
@@ -154,19 +202,10 @@ export class TideApi {
     if (!response.ok) {
       await throwResponseError(response)
     }
-    const value = (await safeJson(response)) as Partial<TideBrowserSessionInfo>
-    if (
-      typeof value.csrf_token !== "string" ||
-      value.csrf_token.length < 32
-    ) {
-      throw new TideApiError(
-        "The server returned an invalid browser session contract.",
-        { code: "contract_mismatch" },
-      )
-    }
+    const csrfToken = browserCsrfToken(await safeJson(response))
     return new TideApi("", basePath, {
       authentication,
-      csrfToken: value.csrf_token,
+      csrfToken,
     })
   }
 
@@ -550,6 +589,20 @@ export class TideApi {
     }
     return response
   }
+}
+
+function browserCsrfToken(value: unknown): string {
+  const session = value as Partial<TideBrowserSessionInfo>
+  if (
+    typeof session.csrf_token !== "string" ||
+    session.csrf_token.length < 32
+  ) {
+    throw new TideApiError(
+      "The server returned an invalid browser session contract.",
+      { code: "contract_mismatch" },
+    )
+  }
+  return session.csrf_token
 }
 
 async function publicResponse(

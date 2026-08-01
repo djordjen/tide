@@ -170,8 +170,24 @@ a principal and roles fixed at server startup, and binds only to a loopback
 interface. HTTP clients cannot select a role through headers or request data.
 Missing, incorrect, and short tokens fail closed.
 
-The production identity adapter validates access tokens issued by an OpenID
-Provider. Install it separately from the API host:
+The default Web identity adapter reads users from an explicitly initialized,
+application-bound TIDE SQLite file that is separate from the application
+database. It verifies salted password hashes, maps only stored roles that still
+exist in the compiled application, and issues an opaque HTTP-only session with
+per-session CSRF proof. Create the first user, then start the adapter:
+
+```bash
+tide auth create-user applications/invoicing \
+  --store .tide/local-auth.sqlite3 \
+  --username admin --role sales_clerk --role auditor
+
+tide serve applications/invoicing --database-env \
+  --auth local --local-auth-store .tide/local-auth.sqlite3 \
+  --web-root web/dist
+```
+
+The optional OIDC identity adapter validates access tokens issued by an OpenID
+Provider. Install it separately only when a deployment chooses that integration:
 
 ```bash
 uv sync --extra api --extra auth
@@ -207,9 +223,10 @@ malformed claim fails authentication. Repeat `--oidc-algorithm` or
 requires additional values. An encrypted key password is read without display
 through `--ssl-keyfile-password-env NAME`.
 
-Development authentication cannot bind outside loopback. OIDC may run over
-plain HTTP only on loopback; any non-loopback binding requires a certificate
-and key so Uvicorn terminates TLS directly. A reverse-proxy trust contract is
+Development authentication cannot bind outside loopback. Local password and
+OIDC authentication may run over plain HTTP only on loopback; any non-loopback
+binding requires a certificate and key so Uvicorn terminates TLS directly. A
+reverse-proxy trust contract is
 not implemented yet, so forwarding headers are not an alternative to these
 checks. TUI, Qt, automation, REST, and hosted MCP clients obtain an access
 token from the chosen provider and send it through the same bearer boundary.

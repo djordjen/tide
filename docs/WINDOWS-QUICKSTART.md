@@ -417,12 +417,13 @@ To run the first browser renderer and its API together:
 .\start.bat web-demo
 ```
 
-The shortcut requires Node.js 20 or later, installs the locked packages on the
-first run, prints a new development token, and opens the Web connection screen.
-Paste that token to browse the isolated sample. Use `start.bat web` for the
-configured SQL Server database. The browser receives neither the database URL
-nor application YAML; it calls the same secured FastAPI resources as Qt and
-remote Textual. See [Web UI](WEB-UI.md) for build and test commands.
+The shortcut requires Node.js 20 or later and installs the locked packages on
+the first run. If the local identity store is absent, it securely asks you to
+choose the initial `admin` password; then it opens the Web sign-in screen. Use
+`start.bat web` for the configured SQL Server database and `start.bat auth-user`
+to add another local user. The browser receives neither the password hash,
+database URL, nor application YAML; it calls the same secured FastAPI resources
+as Qt and remote Textual. See [Web UI](WEB-UI.md) for build and test commands.
 
 To test the first native desktop renderer, leave `start.bat api-demo` running
 and use another terminal:
@@ -518,7 +519,7 @@ Enter traverses the left field column before the right. Saving runs through
 FastAPI in the background and refreshes the secured list. Qt editors for
 reports that declare runtime parameters remain a later tranche.
 
-For a reviewed network test, first install the production identity adapter:
+For an optional reviewed OIDC network test, first install that adapter:
 
 ```powershell
 uv sync --extra api --extra auth --extra mcp --extra sqlserver

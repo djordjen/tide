@@ -170,11 +170,12 @@ and removes empty local groups without crossing collection sections. Every
 operation immediately recompiles and refreshes the diff and preview. On
 Windows, `start.bat studio` opens the bundled invoicing project directly.
 Closing Studio discards only an unsaved candidate.
-For reviewed network deployments, `uv sync --extra api --extra auth` adds OIDC
-discovery/JWKS access-token validation. `tide serve --auth oidc` requires an
-exact issuer and audience, maps external roles explicitly to application roles,
-and refuses a non-loopback bind unless a TLS certificate and key are supplied.
-See [REST API and MCP](docs/API-AND-MCP.md#current-application-server).
+The Web renderer uses TIDE-owned username/password sign-in by default, backed
+by a separate local identity file rather than application or legacy-database
+tables. The first `start.bat web` or `web-demo` run prompts for the local
+`admin` password. Optional provider-neutral OIDC remains isolated for future
+deployments, but no third-party login is required. See
+[Web authentication](docs/WEB-AUTHENTICATION.md).
 
 `tide run --database-env` selects a persistent SQLAlchemy repository using the
 `TIDE_DATABASE_URL` environment variable. The first managed-database run may

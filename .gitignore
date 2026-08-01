@@ -16,6 +16,7 @@ build/
 dist/
 output/
 tmp/
+.tide/local-auth.sqlite3*
 
 # Web renderer build and test artifacts
 web/node_modules/

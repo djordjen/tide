@@ -175,9 +175,10 @@ To see that contract rendered as the first responsive Web application slice:
 .\start.bat web-demo
 ```
 
-Paste the printed development token into the connection screen opened by the
-browser. Use `start.bat web` for the configured local SQL Server instead. The
-generic Web shell provides capability-filtered navigation, server-mode browse,
+On the first run, choose the password for the local `admin` user, then sign in
+as `admin` in the browser. Use `start.bat web` for the configured local SQL
+Server instead. The generic Web shell provides capability-filtered navigation,
+server-mode browse,
 search, filters, sorting, seamless cursor loading, and personal column
 layouts. Select a row and choose **Open**, press Enter, or double-click it to
 load the shared-YAML detail layout and inline collections. Previous/Next and
@@ -215,11 +216,9 @@ reauthorizes each export; the browser receives neither the report query nor a
 database connection.
 
 See [Web UI](WEB-UI.md) for its architecture, security boundary, production
-build, tests, and current limitations. A reviewed deployment can replace the
-development token screen with same-origin OIDC Authorization Code/PKCE login;
-[Web authentication](WEB-AUTHENTICATION.md) documents provider registration,
-hosting, server-held refresh, cookies, CSRF, and the current single-process
-session boundary.
+build, tests, and current limitations. [Web authentication](WEB-AUTHENTICATION.md)
+documents local user creation and password changes, the separate TIDE-owned
+identity store, cookies, CSRF, and the current single-process session boundary.
 
 The unauthenticated `GET /health/live` endpoint is process-only. The
 `GET /health/ready` endpoint checks runtime persistence dependencies and returns

@@ -33,6 +33,7 @@ it("creates and updates a flat metadata form through the secured API", async () 
       if (url.endsWith("/_tide/browser-auth")) {
         return jsonResponse({
           enabled: false,
+          mode: null,
           login_path: null,
           session_path: null,
           logout_path: null,
@@ -194,6 +195,7 @@ it("reviews a stale draft and rebases explicit choices onto the fresh ETag", asy
       if (url.endsWith("/_tide/browser-auth")) {
         return jsonResponse({
           enabled: false,
+          mode: null,
           login_path: null,
           session_path: null,
           logout_path: null,

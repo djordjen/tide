@@ -251,6 +251,7 @@ class TideBrowserAuthenticationInfo(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     enabled: bool
+    mode: Literal["oidc", "password"] | None = None
     login_path: str | None = Field(default=None, pattern=r"^/")
     session_path: str | None = Field(default=None, pattern=r"^/")
     logout_path: str | None = Field(default=None, pattern=r"^/")
@@ -262,6 +263,15 @@ class TideBrowserSessionInfo(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     csrf_token: str = Field(min_length=32, max_length=256)
+
+
+class TidePasswordLoginInput(BaseModel):
+    """Bounded credentials accepted only by the local password adapter."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=1024)
 
 
 class TidePresentationFormat(BaseModel):

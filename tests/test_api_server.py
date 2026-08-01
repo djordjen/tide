@@ -17,6 +17,7 @@ import tide.api.server as api_server
 from tide import compile_project
 from tide.api.auth import OidcJwtAuthenticator
 from tide.api.browser_auth import OidcBrowserAuth
+from tide.api.local_auth import LocalPasswordAuth, LocalUserStore
 from tide.api.config import (
     DEFAULT_MAX_REQUEST_BODY_BYTES,
     DEFAULT_REQUEST_BODY_TIMEOUT_SECONDS,
@@ -604,6 +605,7 @@ def test_server_rejects_incomplete_web_build(tmp_path: Path) -> None:
 
 def test_browser_oidc_session_authenticates_and_requires_csrf() -> None:
     class TestBrowserAuth:
+        authentication_mode = "oidc"
         secure_cookie = False
         transaction_cookie_name = "tide_oidc_transaction"
         session_cookie_name = "tide_session"
@@ -718,6 +720,7 @@ def test_browser_oidc_session_authenticates_and_requires_csrf() -> None:
 
         assert discovery.json() == {
             "enabled": True,
+            "mode": "oidc",
             "login_path": "/api/v1/_tide/browser-auth/login",
             "session_path": "/api/v1/_tide/browser-auth/session",
             "logout_path": "/api/v1/_tide/browser-auth/logout",
@@ -742,6 +745,105 @@ def test_browser_oidc_session_authenticates_and_requires_csrf() -> None:
 
     asyncio.run(exercise())
     assert app.openapi()["x-tide"]["browser_authentication"] is True
+
+
+def test_local_password_browser_login_uses_server_owned_roles_and_csrf(
+    tmp_path: Path,
+) -> None:
+    store = LocalUserStore(
+        tmp_path / "local-auth.sqlite3",
+        application="TIDE Invoicing",
+        password_iterations=1_000,
+    )
+    store.initialize()
+    store.create_user(
+        "alice",
+        "correct horse battery staple",
+        roles=("sales_clerk",),
+    )
+    authentication = LocalPasswordAuth(
+        store,
+        allowed_roles=("sales_clerk", "auditor"),
+        secure_cookie=False,
+    )
+    app = _app(
+        "sales_clerk",
+        authenticator=authentication,
+        browser_auth=authentication,
+    )
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            discovery = await client.get("/api/v1/_tide/browser-auth")
+            missing_proof = await client.post(
+                "/api/v1/_tide/browser-auth/login",
+                json={
+                    "username": "alice",
+                    "password": "correct horse battery staple",
+                },
+            )
+            incorrect = await client.post(
+                "/api/v1/_tide/browser-auth/login",
+                json={"username": "alice", "password": "not the password"},
+                headers={"X-TIDE-LOGIN": "password"},
+            )
+            login = await client.post(
+                "/api/v1/_tide/browser-auth/login",
+                json={
+                    "username": "alice",
+                    "password": "correct horse battery staple",
+                },
+                headers={"X-TIDE-LOGIN": "password"},
+            )
+            csrf_token = login.json()["csrf_token"]
+            session = await client.get("/api/v1/_tide/session")
+            denied = await client.post(
+                "/api/v1/products",
+                json={
+                    "code": "LOCAL-1",
+                    "name": "Local product",
+                    "unit_price": "12.00",
+                    "active": True,
+                },
+            )
+            created = await client.post(
+                "/api/v1/products",
+                json={
+                    "code": "LOCAL-1",
+                    "name": "Local product",
+                    "unit_price": "12.00",
+                    "active": True,
+                },
+                headers={"X-TIDE-CSRF": csrf_token},
+            )
+            logout = await client.post(
+                "/api/v1/_tide/browser-auth/logout",
+                headers={"X-TIDE-CSRF": csrf_token},
+            )
+            ended = await client.get("/api/v1/_tide/session")
+
+        assert discovery.json() == {
+            "enabled": True,
+            "mode": "password",
+            "login_path": "/api/v1/_tide/browser-auth/login",
+            "session_path": "/api/v1/_tide/browser-auth/session",
+            "logout_path": "/api/v1/_tide/browser-auth/logout",
+        }
+        assert missing_proof.status_code == 400
+        assert incorrect.status_code == 401
+        assert login.status_code == 200
+        assert "HttpOnly" in login.headers["set-cookie"]
+        assert "SameSite=strict" in login.headers["set-cookie"]
+        assert session.status_code == 200
+        assert session.json()["authentication"] == "local-password"
+        assert session.json()["principal"] == "local:alice"
+        assert session.json()["roles"] == ["sales_clerk"]
+        assert denied.status_code == 403
+        assert created.status_code == 201
+        assert logout.status_code == 204
+        assert ended.status_code == 401
+
+    asyncio.run(exercise())
 
 
 def test_real_browser_oidc_adapter_completes_fastapi_acceptance_flow() -> None:
@@ -1878,6 +1980,62 @@ def test_tide_serve_rejects_development_authentication_off_loopback(
     )
 
 
+def test_tide_serve_requires_initialized_local_identity_store(capsys) -> None:
+    result = main(
+        ["serve", str(INVOICING), "--demo", "--auth", "local"]
+    )
+
+    assert result == 1
+    assert capsys.readouterr().err == (
+        "API startup failed: local authentication requires --local-auth-store\n"
+    )
+
+
+def test_tide_serve_builds_local_password_browser_app(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    launched: dict[str, Any] = {}
+    store = LocalUserStore(
+        tmp_path / "local-auth.sqlite3",
+        application="TIDE Invoicing",
+        password_iterations=1_000,
+    )
+    store.initialize()
+    store.create_user(
+        "alice",
+        "correct horse battery staple",
+        roles=("sales_clerk",),
+    )
+
+    def fake_run(app: Any, **configuration: Any) -> None:
+        launched["app"] = app
+        launched["configuration"] = configuration
+
+    monkeypatch.setattr(uvicorn, "run", fake_run)
+    result = main(
+        [
+            "serve",
+            str(INVOICING),
+            "--demo",
+            "--auth",
+            "local",
+            "--local-auth-store",
+            str(store.path),
+        ]
+    )
+
+    assert result == 0
+    runtime = launched["app"].state.tide
+    assert runtime.authenticator.authentication_type == "local-password"
+    assert runtime.browser_auth is runtime.authenticator
+    assert launched["configuration"]["host"] == "127.0.0.1"
+    output = capsys.readouterr().out
+    assert "local username/password" in output
+    assert "browser login enabled" in output
+
+
 def test_tide_serve_rejects_invalid_operational_limits(capsys) -> None:
     result = main(
         [
@@ -1983,6 +2141,7 @@ def test_tide_serve_builds_non_loopback_oidc_app_with_direct_tls(
             return None
 
     class TestBrowserAuth:
+        authentication_mode = "oidc"
         secure_cookie = True
         transaction_cookie_name = "__Host-tide_oidc_transaction"
         session_cookie_name = "__Host-tide_session"

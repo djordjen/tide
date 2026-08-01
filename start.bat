@@ -23,6 +23,7 @@ if /I "%~1"=="api-check" goto api_check
 if /I "%~1"=="remote" goto remote
 if /I "%~1"=="web" goto web
 if /I "%~1"=="web-demo" goto web_demo
+if /I "%~1"=="auth-user" goto auth_user
 if /I "%~1"=="gui-products" goto gui_products
 if /I "%~1"=="gui-customers" goto gui_customers
 if /I "%~1"=="gui" goto gui
@@ -111,21 +112,27 @@ uv run --extra tui --extra client tide run applications/invoicing --api-url http
 goto finish
 
 :web
-call :prepare_api_token
+call :ensure_local_auth
+if errorlevel 1 goto finish
 call :prepare_web
 if errorlevel 1 goto finish
 echo Starting the TIDE Web renderer against SQL Server...
-echo Paste the token above into the connection screen opened by your browser.
+echo Sign in with your local TIDE username and password.
 call npm --prefix web run dev:sqlserver
 goto finish
 
 :web_demo
-call :prepare_api_token
+call :ensure_local_auth
+if errorlevel 1 goto finish
 call :prepare_web
 if errorlevel 1 goto finish
 echo Starting the TIDE Web renderer with isolated demo data...
-echo Paste the token above into the connection screen opened by your browser.
+echo Sign in with your local TIDE username and password.
 call npm --prefix web run dev:demo
+goto finish
+
+:auth_user
+uv run tide auth create-user applications/invoicing --store ".tide\local-auth.sqlite3" --role sales_clerk --role auditor
 goto finish
 
 :gui
@@ -168,6 +175,15 @@ if not exist "web\node_modules\" (
 )
 exit /b 0
 
+:ensure_local_auth
+if exist ".tide\local-auth.sqlite3" exit /b 0
+echo.
+echo First-time Web setup: create the local TIDE administrator.
+echo Username: admin
+echo The password is entered securely and is not saved in this batch file.
+uv run tide auth create-user applications/invoicing --store ".tide\local-auth.sqlite3" --username admin --display-name Administrator --role sales_clerk --role auditor
+exit /b %ERRORLEVEL%
+
 :prepare_api_token
 if not defined TIDE_API_TOKEN for /f "delims=" %%I in ('powershell -NoProfile -Command "[guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')"') do set "TIDE_API_TOKEN=%%I"
 echo.
@@ -198,6 +214,7 @@ echo   start.bat api-check Verify the running API and remote client contract
 echo   start.bat remote Start the TUI as an API client with no database access
 echo   start.bat web    Start the Web renderer and API against SQL Server
 echo   start.bat web-demo Start the Web renderer with isolated demo data
+echo   start.bat auth-user Add a local Web user with invoicing roles
 echo   start.bat gui    Start the Qt Invoice browser as an API client
 echo   start.bat gui-products Start the editable Qt Product browser
 echo   start.bat gui-customers Start the editable Qt Customer browser

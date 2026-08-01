@@ -12,6 +12,9 @@ __all__ = [
     "BrowserAuthenticationError",
     "DevelopmentTokenAuthenticator",
     "HttpServerLimits",
+    "LocalAuthenticationError",
+    "LocalPasswordAuth",
+    "LocalUserStore",
     "OidcDiscoveryError",
     "OidcBrowserAuth",
     "OidcBrowserProviderInfo",
@@ -35,6 +38,22 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
+    if name in {
+        "LocalAuthenticationError",
+        "LocalPasswordAuth",
+        "LocalUserStore",
+    }:
+        from tide.api.local_auth import (
+            LocalAuthenticationError,
+            LocalPasswordAuth,
+            LocalUserStore,
+        )
+
+        return {
+            "LocalAuthenticationError": LocalAuthenticationError,
+            "LocalPasswordAuth": LocalPasswordAuth,
+            "LocalUserStore": LocalUserStore,
+        }[name]
     if name in {
         "BrowserAuthenticationError",
         "OidcBrowserAuth",

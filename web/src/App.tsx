@@ -22,7 +22,7 @@ export default function App() {
   const [identityError, setIdentityError] = useState<string | null>(() => {
     const parameters = new URLSearchParams(window.location.search)
     return parameters.get("tide_auth_error") === "login_failed"
-      ? "The identity provider could not complete sign-in. Please try again."
+      ? "Sign-in could not be completed. Please try again."
       : null
   })
   const queryClient = useQueryClient()

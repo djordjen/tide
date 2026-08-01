@@ -571,6 +571,82 @@ def test_auth_check_oidc_requires_configured_client_secret(
     )
 
 
+def test_auth_create_user_and_set_password_use_separate_local_store(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    store = tmp_path / "local-auth.sqlite3"
+    monkeypatch.setenv("TEST_LOCAL_PASSWORD", "correct horse battery staple")
+
+    created = main(
+        [
+            "auth",
+            "create-user",
+            str(INVOICING),
+            "--store",
+            str(store),
+            "--username",
+            "Alice",
+            "--display-name",
+            "Alice Example",
+            "--role",
+            "sales_clerk",
+            "--password-env",
+            "TEST_LOCAL_PASSWORD",
+        ]
+    )
+    created_output = capsys.readouterr()
+    assert created == 0
+    assert "Created local user 'alice'" in created_output.out
+    assert "correct horse" not in created_output.out
+    assert store.is_file()
+
+    monkeypatch.setenv("TEST_LOCAL_PASSWORD", "replacement password value")
+    updated = main(
+        [
+            "auth",
+            "set-password",
+            str(INVOICING),
+            "--store",
+            str(store),
+            "--username",
+            "alice",
+            "--password-env",
+            "TEST_LOCAL_PASSWORD",
+        ]
+    )
+    assert updated == 0
+    assert "Updated the password" in capsys.readouterr().out
+
+
+def test_auth_create_user_rejects_unknown_application_role(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("TEST_LOCAL_PASSWORD", "correct horse battery staple")
+
+    result = main(
+        [
+            "auth",
+            "create-user",
+            str(INVOICING),
+            "--store",
+            str(tmp_path / "local-auth.sqlite3"),
+            "--username",
+            "alice",
+            "--role",
+            "not-a-role",
+            "--password-env",
+            "TEST_LOCAL_PASSWORD",
+        ]
+    )
+
+    assert result == 1
+    assert "unknown application role(s): not-a-role" in capsys.readouterr().err
+
+
 def test_tide_run_database_requires_configured_environment_variable(
     monkeypatch,
     capsys,

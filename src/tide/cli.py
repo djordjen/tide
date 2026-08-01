@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from getpass import getpass
 import ipaddress
 import json
 import os
@@ -302,9 +303,9 @@ def _create_parser() -> argparse.ArgumentParser:
     )
     serve.add_argument(
         "--auth",
-        choices=("development", "oidc"),
+        choices=("development", "local", "oidc"),
         default="development",
-        help="bearer identity adapter (default: development)",
+        help="identity adapter (default: development)",
     )
     serve.add_argument(
         "--host",
@@ -383,6 +384,13 @@ def _create_parser() -> argparse.ArgumentParser:
         default="TIDE_API_TOKEN",
         metavar="NAME",
         help="read the local-development bearer token from environment variable NAME",
+    )
+    serve.add_argument(
+        "--local-auth-store",
+        type=Path,
+        help=(
+            "TIDE-owned SQLite identity file created by 'tide auth create-user'"
+        ),
     )
     serve.add_argument(
         "--role",
@@ -939,7 +947,7 @@ def _create_parser() -> argparse.ArgumentParser:
 
     authentication = commands.add_parser(
         "auth",
-        help="inspect identity-provider compatibility",
+        help="manage local users or inspect optional provider compatibility",
     )
     authentication_commands = authentication.add_subparsers(
         dest="authentication_command"
@@ -1031,6 +1039,20 @@ def _create_parser() -> argparse.ArgumentParser:
         help="emit a machine-readable compatibility result",
     )
     check_oidc.set_defaults(handler=_auth_check_oidc)
+
+    create_user = authentication_commands.add_parser(
+        "create-user",
+        help="create a username/password identity in a TIDE-owned local store",
+    )
+    _add_local_user_arguments(create_user, require_roles=True)
+    create_user.set_defaults(handler=_auth_create_user)
+
+    set_password = authentication_commands.add_parser(
+        "set-password",
+        help="replace one local user's password",
+    )
+    _add_local_user_arguments(set_password, require_roles=False)
+    set_password.set_defaults(handler=_auth_set_password)
 
     mcp = commands.add_parser("mcp", help="run Model Context Protocol adapters")
     mcp_commands = mcp.add_subparsers(dest="mcp_command")
@@ -1208,6 +1230,19 @@ def _serve_api(arguments: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 1
+    if arguments.auth == "local" and arguments.local_auth_store is None:
+        print(
+            "API startup failed: local authentication requires "
+            "--local-auth-store",
+            file=sys.stderr,
+        )
+        return 1
+    if arguments.auth != "local" and arguments.local_auth_store is not None:
+        print(
+            "API startup failed: --local-auth-store requires --auth local",
+            file=sys.stderr,
+        )
+        return 1
     if arguments.web_session_lifetime <= 0:
         print(
             "API startup failed: browser session lifetime must be positive",
@@ -1222,7 +1257,7 @@ def _serve_api(arguments: argparse.Namespace) -> int:
             raise ValueError(
                 "development authentication may listen only on a loopback interface"
             )
-        if arguments.auth == "oidc" and not is_loopback and certfile is None:
+        if arguments.auth in {"local", "oidc"} and not is_loopback and certfile is None:
             raise ValueError(
                 "non-loopback serving requires --ssl-certfile and --ssl-keyfile"
             )
@@ -1282,6 +1317,34 @@ def _serve_api(arguments: argparse.Namespace) -> int:
         authenticator: Any = DevelopmentTokenAuthenticator(token, principal)
         identity_summary = (
             f"identity: {principal.identifier}; development auth only"
+        )
+    elif arguments.auth == "local":
+        if arguments.role or arguments.principal != "development:api":
+            print(
+                "API startup failed: --role and --principal apply only to "
+                "development authentication",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            from tide.api.local_auth import LocalPasswordAuth, LocalUserStore
+
+            store = LocalUserStore(
+                arguments.local_auth_store,
+                application=model.name,
+            )
+            authenticator = LocalPasswordAuth(
+                store,
+                allowed_roles=model.roles,
+                secure_cookie=certfile is not None,
+                session_lifetime_seconds=arguments.web_session_lifetime,
+            )
+        except ValueError as error:
+            print(f"API startup failed: {error}", file=sys.stderr)
+            return 1
+        browser_auth = authenticator
+        identity_summary = (
+            f"identity: local username/password ({store.path}); browser login enabled"
         )
     else:
         if arguments.role or arguments.principal != "development:api":
@@ -2555,6 +2618,147 @@ def _api_check_server(arguments: argparse.Namespace) -> int:
         f"{session.principal} ({operations} operation(s), {actions} action(s))."
     )
     return 0
+
+
+def _add_local_user_arguments(
+    parser: argparse.ArgumentParser,
+    *,
+    require_roles: bool,
+) -> None:
+    parser.add_argument(
+        "project",
+        nargs="?",
+        default=".",
+        metavar="APPLICATION",
+        help="application root or tide.yaml (default: current directory)",
+    )
+    parser.add_argument(
+        "--store",
+        type=Path,
+        required=True,
+        help="TIDE-owned local identity SQLite file",
+    )
+    parser.add_argument(
+        "--username",
+        help="local sign-in name (prompted when omitted)",
+    )
+    parser.add_argument(
+        "--password-env",
+        metavar="NAME",
+        help="read the password from environment variable NAME instead of prompting",
+    )
+    if require_roles:
+        parser.add_argument(
+            "--display-name",
+            help="optional display name (defaults to the username)",
+        )
+        parser.add_argument(
+            "--role",
+            action="append",
+            default=[],
+            required=True,
+            help="application role assigned by the server; repeat as needed",
+        )
+
+
+def _auth_create_user(arguments: argparse.Namespace) -> int:
+    model = compile_project(arguments.project)
+    unknown_roles = sorted(set(arguments.role).difference(model.roles))
+    if unknown_roles:
+        print(
+            "Local user creation failed: unknown application role(s): "
+            + ", ".join(unknown_roles),
+            file=sys.stderr,
+        )
+        return 1
+    username = _read_local_username(arguments.username)
+    if username is None:
+        return 1
+    password = _read_local_password(arguments.password_env)
+    if password is None:
+        return 1
+    try:
+        from tide.api.local_auth import (
+            LocalAuthenticationError,
+            LocalUserStore,
+            validate_password,
+        )
+
+        validate_password(password)
+        store = LocalUserStore(arguments.store, application=model.name)
+        store.initialize()
+        user = store.create_user(
+            username,
+            password,
+            roles=arguments.role,
+            display_name=arguments.display_name,
+        )
+    except (LocalAuthenticationError, ValueError) as error:
+        print(f"Local user creation failed: {error}", file=sys.stderr)
+        return 1
+    print(
+        f"Created local user {user.username!r} for {model.name} with role(s): "
+        + ", ".join(sorted(user.roles))
+    )
+    print(f"Identity store: {store.path}")
+    return 0
+
+
+def _auth_set_password(arguments: argparse.Namespace) -> int:
+    model = compile_project(arguments.project)
+    username = _read_local_username(arguments.username)
+    if username is None:
+        return 1
+    password = _read_local_password(arguments.password_env)
+    if password is None:
+        return 1
+    try:
+        from tide.api.local_auth import LocalAuthenticationError, LocalUserStore
+
+        store = LocalUserStore(arguments.store, application=model.name)
+        store.set_password(username, password)
+    except (LocalAuthenticationError, ValueError) as error:
+        print(f"Local password update failed: {error}", file=sys.stderr)
+        return 1
+    print(f"Updated the password for local user {username!r}.")
+    return 0
+
+
+def _read_local_username(configured: str | None) -> str | None:
+    if configured is not None:
+        return configured
+    try:
+        username = input("Username: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\nLocal authentication cancelled.", file=sys.stderr)
+        return None
+    if not username:
+        print("Local authentication failed: username is required", file=sys.stderr)
+        return None
+    return username
+
+
+def _read_local_password(environment_name: str | None) -> str | None:
+    if environment_name:
+        password = os.environ.get(environment_name)
+        if password is None:
+            print(
+                "Local authentication failed: password environment variable "
+                f"{environment_name!r} is not set",
+                file=sys.stderr,
+            )
+            return None
+        return password
+    try:
+        password = getpass("Password: ")
+        confirmation = getpass("Confirm password: ")
+    except (EOFError, KeyboardInterrupt):
+        print("\nLocal authentication cancelled.", file=sys.stderr)
+        return None
+    if password != confirmation:
+        print("Local authentication failed: passwords do not match", file=sys.stderr)
+        return None
+    return password
 
 
 def _auth_check_oidc(arguments: argparse.Namespace) -> int:

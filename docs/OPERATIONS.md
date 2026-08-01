@@ -1,9 +1,10 @@
 # Operational Baseline
 
-**Status: Runtime database selection, OIDC bearer validation with direct TLS,
-action audit, shared cursor persistence, dependency-aware HTTP health checks,
-correlated structured request logging, and bounded HTTP hosting are executable;
-the wider production contract remains proposed.**
+**Status: Runtime database selection, local password identity, optional OIDC
+bearer validation with direct TLS, action audit, shared cursor persistence,
+dependency-aware HTTP health checks, correlated structured request logging,
+and bounded HTTP hosting are executable; the wider production contract remains
+proposed.**
 These requirements should be built alongside persistence rather than added
 after machine mutations ship.
 
@@ -26,7 +27,9 @@ database and currently keep those three forms of runtime state in-process.
 
 `tide serve` follows the same database selection and explicit schema-creation
 rules. The development bearer adapter may bind only to loopback and is not a
-production authentication mechanism. The OIDC adapter validates an exact
+production authentication mechanism. The default Web adapter uses a separate,
+explicitly initialized TIDE-owned local identity file and never adds users or
+password hashes to the application database. The optional OIDC adapter validates an exact
 HTTPS issuer, audience, signature, expiry, subject, token type, and explicit
 external-role mappings. A non-loopback bind requires Uvicorn to terminate HTTPS
 from a supplied certificate and key. Private-key passwords may be read from a
@@ -45,8 +48,9 @@ build fails closed. FastAPI registers API, documentation, health, and optional
 MCP routes before the static mount. Fingerprinted `/assets/` responses use
 immutable one-year caching, while the HTML entry point and API responses remain
 uncached. Same-origin static hosting changes no authentication or service
-boundary: the browser still sends a bearer token on every protected request
-and receives no database configuration.
+boundary: the browser sends either the local opaque HTTP-only session cookie or
+the configured development/provider credential and receives no database
+configuration.
 
 ## HTTP resource limits
 

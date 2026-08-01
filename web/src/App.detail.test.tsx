@@ -28,6 +28,7 @@ it("opens a shared-layout detail and navigates without replacing the shell", asy
       if (url.endsWith("/_tide/browser-auth")) {
         return jsonResponse({
           enabled: false,
+          mode: null,
           login_path: null,
           session_path: null,
           logout_path: null,

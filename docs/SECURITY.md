@@ -169,7 +169,16 @@ configured on the server command line. It is restricted to loopback hosts.
 Role headers, query parameters, and request bodies are ignored; possession of a
 token cannot be used to request a more privileged role.
 
-The OIDC adapter discovers one exact HTTPS issuer and its HTTPS JWKS endpoint.
+The default Web identity adapter uses a TIDE-owned username/password store in a
+separate SQLite file. It never changes the managed or legacy application
+database. Passwords are stored only as uniquely salted, versioned
+PBKDF2-HMAC-SHA-256 hashes; usernames map to administrator-assigned roles that
+must exist in the compiled application model. Browser sessions are random,
+HTTP-only, time- and count-bounded, protected by per-session CSRF proof, and
+removed on process restart. Repeated failed login attempts are bounded in a
+short process-local window. The login payload cannot choose its roles.
+
+The optional OIDC adapter discovers one exact HTTPS issuer and its HTTPS JWKS endpoint.
 It accepts only explicitly configured asymmetric algorithms and token types,
 requires a key ID, verifies signature, issuer, audience, expiry and subject,
 and applies clock leeway owned by the deployment. External role claims must be
@@ -179,7 +188,7 @@ or signature failures deny authentication. Non-loopback serving additionally
 requires direct TLS certificate and key configuration; development identity is
 never permitted there.
 
-The optional same-origin Web adapter adds provider-neutral Authorization Code
+The optional same-origin OIDC Web adapter adds provider-neutral Authorization Code
 with PKCE login over that validator. FastAPI retains access and optional refresh
 tokens in a bounded process-local store; the browser receives only an opaque
 HTTP-only session cookie and a per-session CSRF value used on every mutation.
@@ -193,7 +202,7 @@ explicit acceptance warning, while TIDE still sends S256 and never downgrades.
 `tide auth check-oidc` applies the same compatibility contract before a server
 is started. See [Web authentication](WEB-AUTHENTICATION.md).
 
-The identity provider remains responsible for token issuance, user consent,
+When optional OIDC is configured, the identity provider remains responsible for token issuance, user consent,
 MFA, refresh/revocation policy, and provider configuration. The current local
 logout does not claim provider-wide single logout. Browser sessions are not yet
 shared across workers and disappear on restart. Trusted reverse-proxy handling,

@@ -114,6 +114,8 @@ class OidcBrowserAuth:
     reviewed shared session-store adapter is introduced.
     """
 
+    authentication_mode = "oidc"
+
     def __init__(
         self,
         *,

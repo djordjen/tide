@@ -36,6 +36,7 @@ it("searches a metadata lookup and creates a related record with Save & Select",
       if (url.endsWith("/_tide/browser-auth")) {
         return jsonResponse({
           enabled: false,
+          mode: null,
           login_path: null,
           session_path: null,
           logout_path: null,
@@ -239,6 +240,7 @@ it("saves Invoice line drafts and Product Save & Select as one parent update", a
       if (url.endsWith("/_tide/browser-auth")) {
         return jsonResponse({
           enabled: false,
+          mode: null,
           login_path: null,
           session_path: null,
           logout_path: null,
@@ -442,6 +444,7 @@ it("saves a dirty Invoice before posting it through the domain action", async ()
       if (url.endsWith("/_tide/browser-auth")) {
         return jsonResponse({
           enabled: false,
+          mode: null,
           login_path: null,
           session_path: null,
           logout_path: null,
@@ -607,6 +610,7 @@ it("previews secured record and summary reports and downloads controlled exports
       if (url.endsWith("/_tide/browser-auth")) {
         return jsonResponse({
           enabled: false,
+          mode: null,
           login_path: null,
           session_path: null,
           logout_path: null,
