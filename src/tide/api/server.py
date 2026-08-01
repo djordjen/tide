@@ -26,7 +26,7 @@ from fastapi import (
     Security,
 )
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict
 from starlette.staticfiles import StaticFiles
@@ -34,6 +34,8 @@ from starlette.staticfiles import StaticFiles
 from tide.api.contracts import (
     TIDE_WIRE_VERSION,
     TideAuditHistory,
+    TideBrowserAuthenticationInfo,
+    TideBrowserSessionInfo,
     TideEntityCapabilities,
     TidePresentationManifest,
     TideQueryInput,
@@ -104,6 +106,7 @@ from tide.services import ActionService, AuditHistoryReader, AuditHistoryService
 
 SERVER_OPERATIONS = REST_OPERATIONS
 _RUNTIME_LOGGER = logging.getLogger("tide.runtime")
+_BROWSER_CSRF_HEADER = "X-TIDE-CSRF"
 
 
 class TideEmptyActionPayload(BaseModel):
@@ -129,6 +132,30 @@ class BearerAuthenticator(Protocol):
     production: bool
 
     def authenticate(self, credential: str) -> Principal | None: ...
+
+
+class BrowserAuthenticator(Protocol):
+    """Keep OIDC provider tokens behind a same-origin opaque browser session."""
+
+    secure_cookie: bool
+    transaction_cookie_name: str
+    session_cookie_name: str
+    transaction_lifetime_seconds: int
+    session_lifetime_seconds: int
+
+    def begin_login(self, *, return_to: str = "/") -> Any: ...
+
+    def complete_login(
+        self,
+        *,
+        state: str,
+        transaction_binding: str,
+        code: str,
+    ) -> Any: ...
+
+    def authenticate_session(self, session_id: str | None) -> Any: ...
+
+    def end_session(self, session_id: str | None) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +188,7 @@ class TideApiRuntime:
     reports: ReportService
     audits: AuditHistoryReader
     authenticator: BearerAuthenticator
+    browser_auth: BrowserAuthenticator | None
     base_path: str
     readiness_probes: tuple[Callable[[], None], ...]
     max_request_body_bytes: int
@@ -180,6 +208,7 @@ def build_fastapi_app(
     max_request_body_bytes: int = DEFAULT_MAX_REQUEST_BODY_BYTES,
     request_body_timeout_seconds: int = DEFAULT_REQUEST_BODY_TIMEOUT_SECONDS,
     web_root: str | FileSystemPath | None = None,
+    browser_auth: BrowserAuthenticator | None = None,
 ) -> FastAPI:
     """Build an HTTP adapter over services without granting client database access."""
 
@@ -238,6 +267,7 @@ def build_fastapi_app(
         report_service,
         audit_service,
         authenticator,
+        browser_auth,
         base_path,
         _readiness_probes(records, action_service),
         max_request_body_bytes,
@@ -257,11 +287,22 @@ def build_fastapi_app(
         request: Request,
         credentials: HTTPAuthorizationCredentials | None = Security(bearer),
     ) -> RequestContext:
-        if credentials is None or credentials.scheme.casefold() != "bearer":
-            raise _unauthorized()
-        principal = authenticator.authenticate(credentials.credentials)
-        if principal is None:
-            raise _unauthorized()
+        if credentials is not None:
+            if credentials.scheme.casefold() != "bearer":
+                raise _unauthorized()
+            principal = authenticator.authenticate(credentials.credentials)
+            if principal is None:
+                raise _unauthorized()
+        else:
+            access = _browser_session_access(request, browser_auth)
+            principal = access.principal
+            if request.method not in {"GET", "HEAD", "OPTIONS"}:
+                supplied_csrf = request.headers.get(_BROWSER_CSRF_HEADER)
+                if (
+                    not isinstance(supplied_csrf, str)
+                    or not secrets.compare_digest(supplied_csrf, access.csrf_token)
+                ):
+                    raise _csrf_failed()
         return RequestContext(
             principal=principal,
             channel=Channel.REST,
@@ -315,6 +356,12 @@ def build_fastapi_app(
                 else "no-store"
             )
             response.headers["X-Content-Type-Options"] = "nosniff"
+            if browser_auth is not None:
+                response.headers["Referrer-Policy"] = "no-referrer"
+                response.headers["X-Frame-Options"] = "DENY"
+                response.headers["Content-Security-Policy"] = (
+                    "frame-ancestors 'none'; base-uri 'self'"
+                )
             response.headers[CORRELATION_HEADER] = correlation_id
             log_runtime_event(
                 runtime_logger,
@@ -454,6 +501,135 @@ def build_fastapi_app(
             application=model.name,
             version=model.version,
         )
+
+    browser_auth_path = f"{base_path.rstrip('/')}/_tide/browser-auth"
+    browser_login_path = f"{browser_auth_path}/login"
+    browser_callback_path = f"{browser_auth_path}/callback"
+    browser_session_path = f"{browser_auth_path}/session"
+    browser_logout_path = f"{browser_auth_path}/logout"
+
+    @app.get(
+        browser_auth_path,
+        tags=["TIDE"],
+        summary="Browser authentication discovery",
+        response_model=TideBrowserAuthenticationInfo,
+    )
+    def browser_authentication_info() -> TideBrowserAuthenticationInfo:
+        return TideBrowserAuthenticationInfo(
+            enabled=browser_auth is not None,
+            login_path=browser_login_path if browser_auth is not None else None,
+            session_path=(
+                browser_session_path if browser_auth is not None else None
+            ),
+            logout_path=browser_logout_path if browser_auth is not None else None,
+        )
+
+    if browser_auth is not None:
+
+        @app.get(
+            browser_login_path,
+            tags=["TIDE"],
+            summary="Start browser sign-in",
+            include_in_schema=False,
+        )
+        def browser_login(return_to: str = Query(default="/")) -> RedirectResponse:
+            try:
+                login = browser_auth.begin_login(return_to=return_to)
+            except ValueError as error:
+                raise _bad_request("browser login request is invalid") from error
+            response = RedirectResponse(login.authorization_url, status_code=302)
+            response.set_cookie(
+                browser_auth.transaction_cookie_name,
+                login.transaction_binding,
+                max_age=browser_auth.transaction_lifetime_seconds,
+                httponly=True,
+                secure=browser_auth.secure_cookie,
+                samesite="lax",
+                path="/",
+            )
+            return response
+
+        @app.get(
+            browser_callback_path,
+            tags=["TIDE"],
+            summary="Complete browser sign-in",
+            include_in_schema=False,
+        )
+        def browser_callback(
+            request: Request,
+            code: str | None = Query(default=None),
+            state: str | None = Query(default=None),
+            error: str | None = Query(default=None),
+        ) -> RedirectResponse:
+            transaction_binding = request.cookies.get(
+                browser_auth.transaction_cookie_name
+            )
+            if error is not None or code is None or state is None:
+                return _browser_login_error_redirect(browser_auth)
+            try:
+                result = browser_auth.complete_login(
+                    state=state,
+                    transaction_binding=transaction_binding or "",
+                    code=code,
+                )
+            except ValueError:
+                return _browser_login_error_redirect(browser_auth)
+            response = RedirectResponse(result.return_to, status_code=303)
+            response.delete_cookie(
+                browser_auth.transaction_cookie_name,
+                path="/",
+                secure=browser_auth.secure_cookie,
+                httponly=True,
+                samesite="lax",
+            )
+            response.set_cookie(
+                browser_auth.session_cookie_name,
+                result.session_id,
+                max_age=browser_auth.session_lifetime_seconds,
+                httponly=True,
+                secure=browser_auth.secure_cookie,
+                samesite="strict",
+                path="/",
+            )
+            return response
+
+        @app.get(
+            browser_session_path,
+            tags=["TIDE"],
+            summary="Current browser session",
+            response_model=TideBrowserSessionInfo,
+            responses=_documented_errors(401),
+        )
+        def browser_session(request: Request) -> TideBrowserSessionInfo:
+            access = _browser_session_access(request, browser_auth)
+            return TideBrowserSessionInfo(csrf_token=access.csrf_token)
+
+        @app.post(
+            browser_logout_path,
+            tags=["TIDE"],
+            summary="End current browser session",
+            status_code=204,
+            responses=_documented_errors(401, 403),
+        )
+        def browser_logout(request: Request) -> Response:
+            access = _browser_session_access(request, browser_auth)
+            supplied_csrf = request.headers.get(_BROWSER_CSRF_HEADER)
+            if (
+                not isinstance(supplied_csrf, str)
+                or not secrets.compare_digest(supplied_csrf, access.csrf_token)
+            ):
+                raise _csrf_failed()
+            session_id = request.cookies.get(browser_auth.session_cookie_name)
+            browser_auth.end_session(session_id)
+            response = Response(status_code=204)
+            response.delete_cookie(
+                browser_auth.session_cookie_name,
+                path="/",
+                secure=browser_auth.secure_cookie,
+                httponly=True,
+                samesite="strict",
+            )
+            return response
 
     @app.get(
         f"{base_path.rstrip('/')}/_tide/session",
@@ -890,6 +1066,7 @@ def build_fastapi_app(
             "wire_version": TIDE_WIRE_VERSION,
             "schema_version": model.schema_version,
             "authentication": authenticator.authentication_type,
+            "browser_authentication": browser_auth is not None,
             "max_request_body_bytes": max_request_body_bytes,
             "request_body_timeout_seconds": request_body_timeout_seconds,
         }
@@ -1538,6 +1715,43 @@ def _unauthorized() -> HTTPException:
         status_code=401,
         detail={"code": "unauthorized", "message": "authentication required"},
         headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _browser_session_access(
+    request: Request,
+    browser_auth: BrowserAuthenticator | None,
+) -> Any:
+    if browser_auth is None:
+        raise _unauthorized()
+    session_id = request.cookies.get(browser_auth.session_cookie_name)
+    access = browser_auth.authenticate_session(session_id)
+    if access is None:
+        raise _unauthorized()
+    return access
+
+
+def _browser_login_error_redirect(
+    browser_auth: BrowserAuthenticator,
+) -> RedirectResponse:
+    response = RedirectResponse("/?tide_auth_error=login_failed", status_code=303)
+    response.delete_cookie(
+        browser_auth.transaction_cookie_name,
+        path="/",
+        secure=browser_auth.secure_cookie,
+        httponly=True,
+        samesite="lax",
+    )
+    return response
+
+
+def _csrf_failed() -> HTTPException:
+    return HTTPException(
+        status_code=403,
+        detail={
+            "code": "csrf_failed",
+            "message": "browser request verification failed",
+        },
     )
 
 

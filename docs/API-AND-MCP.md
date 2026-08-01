@@ -211,10 +211,13 @@ Development authentication cannot bind outside loopback. OIDC may run over
 plain HTTP only on loopback; any non-loopback binding requires a certificate
 and key so Uvicorn terminates TLS directly. A reverse-proxy trust contract is
 not implemented yet, so forwarding headers are not an alternative to these
-checks. TIDE validates bearer tokens but does not implement an authorization
-code login, acquire tokens, or refresh them; TUI, Qt, web, and automation
-clients obtain an access token from the chosen provider and send it through the
-same API boundary.
+checks. TUI, Qt, automation, REST, and hosted MCP clients obtain an access
+token from the chosen provider and send it through the same bearer boundary.
+The optional same-origin Web adapter can instead perform Authorization Code
+with PKCE, retain access and refresh tokens behind FastAPI, and expose only an
+opaque HTTP-only session cookie plus CSRF proof to React. See
+[Web authentication](WEB-AUTHENTICATION.md); its cookie is not an MCP
+credential.
 
 Response schemas keep every model field present and nullable so a protected
 value can be represented as JSON null. Optional `_tide.protected_fields`
@@ -601,7 +604,17 @@ their service-layer security. A future server-rendered variant may call the
 same services in-process where appropriate; neither architecture receives raw
 SQL or a database connection string.
 
-See [Web UI](WEB-UI.md) for launch, build, hosting, and validation commands.
+For reviewed deployments, the connection screen can discover the optional
+same-origin OIDC Authorization Code/PKCE adapter. FastAPI validates the access
+token through the existing OIDC-to-`Principal` contract, retains provider
+tokens in a bounded process-local session, and gives React only an opaque
+HTTP-only cookie and per-session CSRF value. Bearer headers remain authoritative
+when supplied and an invalid bearer never falls back to cookie identity.
+Remote renderers and hosted MCP continue to use bearer tokens.
+
+See [Web UI](WEB-UI.md) for launch, build, hosting, and validation commands and
+[Web authentication](WEB-AUTHENTICATION.md) for provider registration and the
+current session boundary.
 
 ## Useful commands
 

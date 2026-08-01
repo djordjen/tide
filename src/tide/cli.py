@@ -442,6 +442,36 @@ def _create_parser() -> argparse.ArgumentParser:
         help="OIDC discovery and JWKS timeout in seconds (default: 5)",
     )
     serve.add_argument(
+        "--web-oidc-client-id",
+        help="enable same-origin browser login with this OIDC client ID",
+    )
+    serve.add_argument(
+        "--web-oidc-client-secret-env",
+        metavar="NAME",
+        help="read the optional confidential Web OIDC client secret from NAME",
+    )
+    serve.add_argument(
+        "--web-oidc-redirect-uri",
+        help=(
+            "registered browser callback URI ending in "
+            "/_tide/browser-auth/callback"
+        ),
+    )
+    serve.add_argument(
+        "--web-oidc-scope",
+        action="append",
+        default=[],
+        metavar="SCOPE",
+        help="browser OIDC scope; repeat (defaults: openid and profile)",
+    )
+    serve.add_argument(
+        "--web-session-lifetime",
+        type=int,
+        default=8 * 60 * 60,
+        metavar="SECONDS",
+        help="absolute process-local browser session lifetime (default: 28800)",
+    )
+    serve.add_argument(
         "--mcp",
         action="store_true",
         help="mount the opt-in read-only runtime MCP server",
@@ -1049,6 +1079,47 @@ def _serve_api(arguments: argparse.Namespace) -> int:
         print(f"API startup failed: {error}", file=sys.stderr)
         return 1
 
+    browser_oidc_requested = bool(
+        arguments.web_oidc_client_id
+        or arguments.web_oidc_client_secret_env
+        or arguments.web_oidc_redirect_uri
+        or arguments.web_oidc_scope
+    )
+    if browser_oidc_requested:
+        if arguments.auth != "oidc":
+            print(
+                "API startup failed: browser OIDC login requires --auth oidc",
+                file=sys.stderr,
+            )
+            return 1
+        if not arguments.web_oidc_client_id or not arguments.web_oidc_redirect_uri:
+            print(
+                "API startup failed: browser OIDC login requires "
+                "--web-oidc-client-id and --web-oidc-redirect-uri",
+                file=sys.stderr,
+            )
+            return 1
+        expected_callback_path = (
+            f"{arguments.base_path.rstrip('/')}/_tide/browser-auth/callback"
+        )
+        try:
+            callback_path = urlsplit(arguments.web_oidc_redirect_uri).path
+        except ValueError:
+            callback_path = ""
+        if callback_path != expected_callback_path:
+            print(
+                "API startup failed: browser OIDC redirect URI path must be "
+                f"{expected_callback_path!r}",
+                file=sys.stderr,
+            )
+            return 1
+    if arguments.web_session_lifetime <= 0:
+        print(
+            "API startup failed: browser session lifetime must be positive",
+            file=sys.stderr,
+        )
+        return 1
+
     try:
         certfile, keyfile, keyfile_password = _server_tls_configuration(arguments)
         is_loopback = _is_loopback_host(arguments.host)
@@ -1092,6 +1163,7 @@ def _serve_api(arguments: argparse.Namespace) -> int:
         raise
 
     identity_summary: str
+    browser_auth: Any = None
     if arguments.auth == "development":
         token = os.environ.get(arguments.dev_token_env)
         if not token:
@@ -1160,6 +1232,41 @@ def _serve_api(arguments: argparse.Namespace) -> int:
             print(f"API startup failed: {error}", file=sys.stderr)
             return 1
         identity_summary = f"identity: OIDC issuer {arguments.oidc_issuer}"
+        if browser_oidc_requested:
+            client_secret = None
+            if arguments.web_oidc_client_secret_env:
+                client_secret = os.environ.get(
+                    arguments.web_oidc_client_secret_env
+                )
+                if not client_secret:
+                    print(
+                        "API startup failed: browser OIDC client-secret environment "
+                        f"variable {arguments.web_oidc_client_secret_env!r} is not set",
+                        file=sys.stderr,
+                    )
+                    return 1
+            try:
+                from tide.api.browser_auth import OidcBrowserAuth
+
+                browser_configuration: dict[str, Any] = {}
+                if arguments.web_oidc_scope:
+                    browser_configuration["scopes"] = tuple(
+                        arguments.web_oidc_scope
+                    )
+                browser_auth = OidcBrowserAuth.from_discovery(
+                    issuer=arguments.oidc_issuer,
+                    authenticator=authenticator,
+                    client_id=arguments.web_oidc_client_id,
+                    client_secret=client_secret,
+                    redirect_uri=arguments.web_oidc_redirect_uri,
+                    session_lifetime_seconds=arguments.web_session_lifetime,
+                    timeout=arguments.oidc_timeout,
+                    **browser_configuration,
+                )
+            except ValueError as error:
+                print(f"API startup failed: {error}", file=sys.stderr)
+                return 1
+            identity_summary = f"{identity_summary}; browser login enabled"
 
     storage = _open_run_storage(arguments, model, purpose="API")
     if storage is None:
@@ -1197,6 +1304,7 @@ def _serve_api(arguments: argparse.Namespace) -> int:
                     limits.request_body_timeout_seconds
                 ),
                 web_root=arguments.web_root,
+                browser_auth=browser_auth,
             )
             if arguments.mcp:
                 try:

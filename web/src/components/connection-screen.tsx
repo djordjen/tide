@@ -4,13 +4,22 @@ import { ArrowRight, DatabaseZap, LockKeyhole, Waves } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { TideApi, TideApiError } from "@/lib/api"
-import type { TideConnection } from "@/lib/contracts"
+import type {
+  TideBrowserAuthenticationInfo,
+  TideConnection,
+} from "@/lib/contracts"
 
 interface ConnectionScreenProps {
+  browserAuthentication: TideBrowserAuthenticationInfo | null
+  checkingIdentity: boolean
+  identityError: string | null
   onConnected: (api: TideApi, connection: TideConnection) => void
 }
 
 export function ConnectionScreen({
+  browserAuthentication,
+  checkingIdentity,
+  identityError,
   onConnected,
 }: ConnectionScreenProps) {
   const [token, setToken] = useState("")
@@ -87,56 +96,83 @@ export function ConnectionScreen({
           </div>
           <p className="text-sm font-medium text-primary">Web renderer</p>
           <h2 className="mt-2 text-2xl font-semibold tracking-tight">
-            Connect to an application
+            {browserAuthentication?.enabled
+              ? "Sign in to your application"
+              : "Connect to an application"}
           </h2>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Paste the temporary token printed by{" "}
-            <code className="rounded bg-muted px-1.5 py-0.5 text-xs text-foreground">
-              start.bat web-demo
-            </code>
-            . It remains only in this browser tab&apos;s memory.
+            {browserAuthentication?.enabled ? (
+              <>
+                Continue through your organization&apos;s identity provider. TIDE
+                keeps provider tokens behind the secured application server.
+              </>
+            ) : (
+              <>
+                Paste the temporary token printed by{" "}
+                <code className="rounded bg-muted px-1.5 py-0.5 text-xs text-foreground">
+                  start.bat web-demo
+                </code>
+                . It remains only in this browser tab&apos;s memory.
+              </>
+            )}
           </p>
 
-          <form className="mt-7 space-y-5" onSubmit={connect}>
-            <div className="space-y-2">
-              <label
-                className="text-sm font-medium text-foreground"
-                htmlFor="api-token"
-              >
-                Application token
-              </label>
-              <Input
-                id="api-token"
-                name="api-token"
-                type="password"
-                autoComplete="off"
-                autoFocus
-                spellCheck={false}
-                value={token}
-                onChange={(event) => setToken(event.target.value)}
-                placeholder="Paste token"
-                aria-describedby={error ? "connection-error" : undefined}
-              />
-            </div>
-            {error ? (
+          <div className="mt-7 space-y-5">
+            {identityError || error ? (
               <div
                 id="connection-error"
                 role="alert"
                 className="rounded-xl border border-destructive/25 bg-destructive/8 px-3 py-2.5 text-sm text-destructive"
               >
-                {error}
+                {error ?? identityError}
               </div>
             ) : null}
-            <Button
-              className="w-full"
-              size="lg"
-              type="submit"
-              disabled={connecting || !token.trim()}
-            >
-              {connecting ? "Connecting…" : "Connect securely"}
-              {!connecting ? <ArrowRight /> : null}
-            </Button>
-          </form>
+            {checkingIdentity ? (
+              <Button className="w-full" size="lg" disabled>
+                Checking secure session…
+              </Button>
+            ) : browserAuthentication?.enabled &&
+              browserAuthentication.login_path !== null ? (
+              <Button className="w-full" size="lg" asChild>
+                <a href={browserAuthentication.login_path}>
+                  Sign in securely
+                  <ArrowRight />
+                </a>
+              </Button>
+            ) : (
+              <form className="space-y-5" onSubmit={connect}>
+                <div className="space-y-2">
+                  <label
+                    className="text-sm font-medium text-foreground"
+                    htmlFor="api-token"
+                  >
+                    Application token
+                  </label>
+                  <Input
+                    id="api-token"
+                    name="api-token"
+                    type="password"
+                    autoComplete="off"
+                    autoFocus
+                    spellCheck={false}
+                    value={token}
+                    onChange={(event) => setToken(event.target.value)}
+                    placeholder="Paste token"
+                    aria-describedby={error ? "connection-error" : undefined}
+                  />
+                </div>
+                <Button
+                  className="w-full"
+                  size="lg"
+                  type="submit"
+                  disabled={connecting || !token.trim()}
+                >
+                  {connecting ? "Connecting…" : "Connect securely"}
+                  {!connecting ? <ArrowRight /> : null}
+                </Button>
+              </form>
+            )}
+          </div>
 
           <p className="mt-6 flex items-start gap-2 text-xs leading-5 text-muted-foreground">
             <LockKeyhole className="mt-0.5 size-3.5 shrink-0" />

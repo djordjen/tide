@@ -217,7 +217,9 @@ an invoice entirely by keyboard or mouse.
   exact protected wire values, bounded pages, principal-bound cursors,
   optimistic concurrency, action idempotency, correlation, and audit history**
 - shared authentication-to-Principal adapters; **implemented for local
-  development tokens and provider-neutral OIDC/JWKS access tokens**
+  development tokens, provider-neutral OIDC/JWKS access tokens, and optional
+  same-origin Web Authorization Code/PKCE sessions with opaque cookies,
+  server-held refresh, and CSRF protection**
 - channel-aware audit events;
 - OpenAPI and MCP schema conformance tests; **implemented for the current REST
   and secured runtime MCP read/write/action surfaces**
@@ -230,6 +232,11 @@ an invoice entirely by keyboard or mouse.
   including responsive grouped navigation, TanStack virtualization, automatic
   incremental fetch, safe reference display, exact formatting, personal
   column order/widths, Best Fit/Fill/Reset, and same-origin static hosting**
+- optional production Web identity without provider tokens in React;
+  **implemented with OIDC Authorization Code/PKCE, single-use browser-bound
+  login state, server-held access/refresh tokens, opaque HTTP-only cookies,
+  per-session CSRF, restored sessions, and local logout; shared encrypted
+  multi-worker storage, provider-wide logout, and trusted proxy hosting remain**
 - Web detail view using the shared form layout, read-only states, collections,
   and current-query Previous/Next navigation; **implemented**
 - Web editing parity in reviewed slices: CRUD, lookups and **Save & Select**,
@@ -300,6 +307,10 @@ the same services.
   processing, and OpenAPI limit disclosure; **implemented**;
 - reviewed proxy allowlists, request-rate policy, and dialect-certified
   statement timeout/cancellation behavior;
+- encrypted shared browser-session storage, multi-worker/session-instance
+  coordination, provider-wide logout/revocation, and reviewed session-key
+  rotation; **the initial bounded process-local Web session contract is
+  implemented, while these production scale-out controls remain**;
 - verified, non-overwriting online backup plus manifest/integrity/application
   checks for path-based SQLite, and a native SQL Server isolated-restore and
   migration-recovery runbook; **implemented for this initial operator contract;

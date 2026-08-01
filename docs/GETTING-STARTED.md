@@ -215,7 +215,11 @@ reauthorizes each export; the browser receives neither the report query nor a
 database connection.
 
 See [Web UI](WEB-UI.md) for its architecture, security boundary, production
-build, tests, and current limitations.
+build, tests, and current limitations. A reviewed deployment can replace the
+development token screen with same-origin OIDC Authorization Code/PKCE login;
+[Web authentication](WEB-AUTHENTICATION.md) documents provider registration,
+hosting, server-held refresh, cookies, CSRF, and the current single-process
+session boundary.
 
 The unauthenticated `GET /health/live` endpoint is process-only. The
 `GET /health/ready` endpoint checks runtime persistence dependencies and returns
@@ -486,6 +490,8 @@ explicitly opt-in.
 - [Windows quick start](WINDOWS-QUICKSTART.md) — every `start.bat` mode and
   Windows troubleshooting.
 - [Web UI](WEB-UI.md) — run and build the generic React renderer.
+- [Web authentication](WEB-AUTHENTICATION.md) — configure production browser
+  OIDC login without exposing provider tokens to React.
 - [Architecture](ARCHITECTURE.md) — service, model, repository, and adapter
   boundaries.
 - [Security](SECURITY.md) — permissions, protected values, authentication, and

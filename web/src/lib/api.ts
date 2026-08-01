@@ -1,4 +1,6 @@
 import type {
+  TideBrowserAuthenticationInfo,
+  TideBrowserSessionInfo,
   TideBrowsePresentation,
   TideConnection,
   TidePresentationLookup,
@@ -64,15 +66,124 @@ export class TideApiError extends Error {
 
 export class TideApi {
   readonly basePath: string
-  readonly token: string
+  readonly token: string | null
+  readonly browserAuthentication: TideBrowserAuthenticationInfo | null
+  private readonly csrfToken: string | null
 
-  constructor(token: string, basePath = DEFAULT_BASE_PATH) {
+  constructor(
+    token: string,
+    basePath = DEFAULT_BASE_PATH,
+    browserSession: {
+      authentication: TideBrowserAuthenticationInfo
+      csrfToken: string
+    } | null = null,
+  ) {
     const normalized = token.trim()
-    if (!normalized) {
+    if (!normalized && browserSession === null) {
       throw new TideApiError("Enter the development API token.")
     }
-    this.token = normalized
+    this.token = browserSession === null ? normalized : null
+    this.browserAuthentication = browserSession?.authentication ?? null
+    this.csrfToken = browserSession?.csrfToken ?? null
     this.basePath = safeApiPath(basePath)
+  }
+
+  static async discoverBrowserAuthentication(
+    basePath = DEFAULT_BASE_PATH,
+    signal?: AbortSignal,
+  ): Promise<TideBrowserAuthenticationInfo> {
+    const normalizedBasePath = safeApiPath(basePath)
+    const response = await publicResponse(
+      `${normalizedBasePath}/_tide/browser-auth`,
+      signal,
+    )
+    const value = (await safeJson(response)) as Partial<TideBrowserAuthenticationInfo>
+    const enabled = value.enabled === true
+    const paths = [value.login_path, value.session_path, value.logout_path]
+    if (
+      typeof value.enabled !== "boolean" ||
+      (enabled && paths.some((path) => typeof path !== "string")) ||
+      (!enabled && paths.some((path) => path !== null))
+    ) {
+      throw new TideApiError(
+        "The server returned an invalid browser authentication contract.",
+        { code: "contract_mismatch" },
+      )
+    }
+    for (const path of paths) {
+      if (typeof path === "string") {
+        safeApiPath(path)
+      }
+    }
+    return value as TideBrowserAuthenticationInfo
+  }
+
+  static async restoreBrowserSession(
+    authentication: TideBrowserAuthenticationInfo,
+    basePath = DEFAULT_BASE_PATH,
+    signal?: AbortSignal,
+  ): Promise<TideApi | null> {
+    if (
+      !authentication.enabled ||
+      authentication.session_path === null ||
+      authentication.logout_path === null
+    ) {
+      return null
+    }
+    let response: Response
+    try {
+      response = await fetch(safeApiPath(authentication.session_path), {
+        method: "GET",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+        redirect: "error",
+        signal,
+      })
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw error
+      }
+      throw new TideApiError(
+        "The TIDE application server could not be reached.",
+      )
+    }
+    if (response.status === 401) {
+      return null
+    }
+    if (!response.ok) {
+      await throwResponseError(response)
+    }
+    const value = (await safeJson(response)) as Partial<TideBrowserSessionInfo>
+    if (
+      typeof value.csrf_token !== "string" ||
+      value.csrf_token.length < 32
+    ) {
+      throw new TideApiError(
+        "The server returned an invalid browser session contract.",
+        { code: "contract_mismatch" },
+      )
+    }
+    return new TideApi("", basePath, {
+      authentication,
+      csrfToken: value.csrf_token,
+    })
+  }
+
+  get usesBrowserSession(): boolean {
+    return this.browserAuthentication !== null
+  }
+
+  async logout(signal?: AbortSignal): Promise<void> {
+    const logoutPath = this.browserAuthentication?.logout_path
+    if (logoutPath === null || logoutPath === undefined) {
+      return
+    }
+    await this.authorizedResponse(
+      logoutPath,
+      { method: "POST" },
+      signal,
+    )
   }
 
   async connect(signal?: AbortSignal): Promise<TideConnection> {
@@ -410,10 +521,15 @@ export class TideApi {
       response = await fetch(safePath, {
         ...init,
         cache: "no-store",
-        credentials: "omit",
+        credentials: this.token === null ? "same-origin" : "omit",
         headers: {
           Accept: accept,
-          Authorization: `Bearer ${this.token}`,
+          ...(this.token !== null
+            ? { Authorization: `Bearer ${this.token}` }
+            : {}),
+          ...(this.token === null && !safeMethod(init.method)
+            ? { "X-TIDE-CSRF": this.csrfToken ?? "" }
+            : {}),
           ...(init.body ? { "Content-Type": "application/json" } : {}),
           ...init.headers,
         },
@@ -430,28 +546,74 @@ export class TideApi {
     }
 
     if (!response.ok) {
-      const correlationId = response.headers.get("X-Correlation-ID")
-      let envelope: TideErrorEnvelope = {}
-      try {
-        envelope = (await response.json()) as TideErrorEnvelope
-      } catch {
-        // The framework deliberately does not copy arbitrary response text.
-      }
-      const code =
-        typeof envelope.code === "string" ? envelope.code : "request_failed"
-      const message =
-        typeof envelope.message === "string"
-          ? envelope.message
-          : `The server rejected the request (HTTP ${response.status}).`
-      throw new TideApiError(message, {
-        status: response.status,
-        code,
-        correlationId,
-        issues: safeValidationIssues(envelope.issues),
-      })
+      await throwResponseError(response)
     }
     return response
   }
+}
+
+async function publicResponse(
+  path: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  let response: Response
+  try {
+    response = await fetch(safeApiPath(path), {
+      method: "GET",
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+      redirect: "error",
+      signal,
+    })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw error
+    }
+    throw new TideApiError("The TIDE application server could not be reached.")
+  }
+  if (!response.ok) {
+    await throwResponseError(response)
+  }
+  return response
+}
+
+async function safeJson(response: Response): Promise<unknown> {
+  try {
+    return await response.json()
+  } catch {
+    throw new TideApiError("The server returned an invalid JSON response.", {
+      status: response.status,
+      code: "invalid_response",
+      correlationId: response.headers.get("X-Correlation-ID"),
+    })
+  }
+}
+
+async function throwResponseError(response: Response): Promise<never> {
+  const correlationId = response.headers.get("X-Correlation-ID")
+  let envelope: TideErrorEnvelope = {}
+  try {
+    envelope = (await response.json()) as TideErrorEnvelope
+  } catch {
+    // The framework deliberately does not copy arbitrary response text.
+  }
+  const code =
+    typeof envelope.code === "string" ? envelope.code : "request_failed"
+  const message =
+    typeof envelope.message === "string"
+      ? envelope.message
+      : `The server rejected the request (HTTP ${response.status}).`
+  throw new TideApiError(message, {
+    status: response.status,
+    code,
+    correlationId,
+    issues: safeValidationIssues(envelope.issues),
+  })
+}
+
+function safeMethod(method: string | undefined): boolean {
+  return ["GET", "HEAD", "OPTIONS"].includes((method ?? "GET").toUpperCase())
 }
 
 function safeValidationIssues(value: unknown): TideValidationIssue[] {

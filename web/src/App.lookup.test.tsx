@@ -33,6 +33,14 @@ it("searches a metadata lookup and creates a related record with Save & Select",
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: false,
+          login_path: null,
+          session_path: null,
+          logout_path: null,
+        })
+      }
       if (url.endsWith("/_tide/session")) {
         return jsonResponse(session)
       }
@@ -121,7 +129,7 @@ it("searches a metadata lookup and creates a related record with Save & Select",
   const user = userEvent.setup()
   renderApp()
   await user.type(
-    screen.getByLabelText("Application token"),
+    await screen.findByLabelText("Application token"),
     "a-development-token-that-is-long-enough",
   )
   await user.click(
@@ -228,6 +236,14 @@ it("saves Invoice line drafts and Product Save & Select as one parent update", a
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: false,
+          login_path: null,
+          session_path: null,
+          logout_path: null,
+        })
+      }
       if (url.endsWith("/_tide/session")) {
         return jsonResponse(session)
       }
@@ -325,7 +341,7 @@ it("saves Invoice line drafts and Product Save & Select as one parent update", a
   const user = userEvent.setup()
   renderApp()
   await user.type(
-    screen.getByLabelText("Application token"),
+    await screen.findByLabelText("Application token"),
     "a-development-token-that-is-long-enough",
   )
   await user.click(
@@ -423,6 +439,14 @@ it("saves a dirty Invoice before posting it through the domain action", async ()
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: false,
+          login_path: null,
+          session_path: null,
+          logout_path: null,
+        })
+      }
       if (url.endsWith("/_tide/session")) {
         return jsonResponse(session)
       }
@@ -518,7 +542,7 @@ it("saves a dirty Invoice before posting it through the domain action", async ()
   const user = userEvent.setup()
   renderApp()
   await user.type(
-    screen.getByLabelText("Application token"),
+    await screen.findByLabelText("Application token"),
     "a-development-token-that-is-long-enough",
   )
   await user.click(
@@ -580,6 +604,14 @@ it("previews secured record and summary reports and downloads controlled exports
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: false,
+          login_path: null,
+          session_path: null,
+          logout_path: null,
+        })
+      }
       if (url.endsWith("/_tide/session")) {
         return jsonResponse(session)
       }
@@ -673,7 +705,7 @@ it("previews secured record and summary reports and downloads controlled exports
   const user = userEvent.setup()
   renderApp()
   await user.type(
-    screen.getByLabelText("Application token"),
+    await screen.findByLabelText("Application token"),
     "a-development-token-that-is-long-enough",
   )
   await user.click(

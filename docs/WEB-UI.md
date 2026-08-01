@@ -1,8 +1,8 @@
 # Web UI
 
 **Status: generic metadata-driven browse, secured detail/editing, lookup,
-master-detail, conflict-review, domain-action, and report slices are
-implemented.**
+master-detail, conflict-review, domain-action, report, and browser-identity
+slices are implemented.**
 
 TIDE Web is a reusable React renderer for compiled TIDE applications. The
 checked-in Invoicing application is the golden example, but the browser code
@@ -174,9 +174,14 @@ remain local until Invoice **Save** sends one complete nested replacement with
 the observed ETag. FastAPI then reauthorizes, normalizes, validates, handles
 orphans, and recalculates stored line and Invoice totals transactionally.
 
-The current development connection screen accepts a bearer token manually.
-Provider-specific interactive browser sign-in, token refresh, and logout are a
-later production identity slice.
+The development connection screen still accepts its loopback-only bearer token
+manually. When the server enables browser OIDC, the same screen instead offers
+**Sign in securely**, restores its opaque same-origin session automatically,
+adds per-session CSRF proof to mutations, refreshes provider tokens behind
+FastAPI when available, and performs local logout. React never receives the
+access token, refresh token, client secret, or external role claim. See
+[Web authentication](WEB-AUTHENTICATION.md) for configuration and the current
+single-process boundary.
 
 ## Build and host
 
@@ -202,9 +207,10 @@ renderer, so Web hosting cannot shadow `/api`, `/docs`, OpenAPI, health, or MCP
 routes. Fingerprinted `/assets/` files receive immutable caching while the HTML
 entry point remains uncached.
 
-This command is a local development example. A production deployment still
-requires reviewed OIDC, TLS, process supervision, resource limits, and the
-operational controls in [Operational baseline](OPERATIONS.md).
+This command is a local development example. A reviewed OIDC Web host also
+configures the browser client and callback described in
+[Web authentication](WEB-AUTHENTICATION.md), plus TLS, process supervision,
+resource limits, and the controls in [Operational baseline](OPERATIONS.md).
 
 ## Validate the renderer
 
@@ -232,6 +238,9 @@ Transactional Invoice master-detail drafts are also covered. Three-way
 conflict review now has the same loss-prevention semantics in Textual, Qt, and
 Web. Metadata-driven domain actions now have the same service-mediated,
 ETag/idempotency-protected semantics in all three renderers. Record and summary
-report preview plus controlled CSV/HTML/PDF export now close the recorded Web
-renderer-parity gaps. Production browser identity and broader report parameters
-remain later, separately reviewed concerns.
+report preview plus controlled CSV/HTML/PDF export close the recorded renderer
+parity gaps. The first production browser identity slice is now implemented
+with code/PKCE login, server-held token refresh, opaque cookies, CSRF, session
+restore, and local logout. Shared multi-worker sessions, provider-wide logout,
+trusted proxy deployment, and broader report parameters remain separately
+reviewed concerns.

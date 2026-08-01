@@ -26,8 +26,9 @@ decision log rather than being silently assumed in implementation code.
 7. [Web UI](WEB-UI.md) runs the generic React application shell, server-mode
    browse grid, shared-metadata record detail, Customer/Product editing,
    Invoice Customer/Product lookup with nested **Save & Select**, transactional
-   Invoice line drafts, personal column layouts, and same-origin production
-   build.
+   Invoice line drafts, personal column layouts, same-origin production build,
+   and optional [Web authentication](WEB-AUTHENTICATION.md) through OIDC
+   Authorization Code with PKCE and server-held sessions.
 8. [Renderer acceptance matrix](RENDERER-ACCEPTANCE.md) records and executes
    the shared Textual/Qt/Web baseline plus deliberate parity gaps.
 9. [Documentation plan](DOCUMENTATION-PLAN.md) records the small, testable

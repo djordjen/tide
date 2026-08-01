@@ -245,6 +245,25 @@ class TideSessionInfo(BaseModel):
     entities: dict[str, TideEntityCapabilities]
 
 
+class TideBrowserAuthenticationInfo(BaseModel):
+    """Public discovery for the optional same-origin browser login flow."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    enabled: bool
+    login_path: str | None = Field(default=None, pattern=r"^/")
+    session_path: str | None = Field(default=None, pattern=r"^/")
+    logout_path: str | None = Field(default=None, pattern=r"^/")
+
+
+class TideBrowserSessionInfo(BaseModel):
+    """Browser-only session material that never includes provider tokens."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    csrf_token: str = Field(min_length=32, max_length=256)
+
+
 class TidePresentationFormat(BaseModel):
     """Safe display-only options resolved from one named semantic format."""
 

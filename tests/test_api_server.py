@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import replace
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID
 
@@ -14,6 +15,7 @@ import uvicorn
 import tide.api.server as api_server
 from tide import compile_project
 from tide.api.auth import OidcJwtAuthenticator
+from tide.api.browser_auth import OidcBrowserAuth
 from tide.api.config import (
     DEFAULT_MAX_REQUEST_BODY_BYTES,
     DEFAULT_REQUEST_BODY_TIMEOUT_SECONDS,
@@ -406,6 +408,7 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
         "wire_version": "0.1",
         "schema_version": "0.1",
         "authentication": "development-bearer",
+        "browser_authentication": False,
         "max_request_body_bytes": DEFAULT_MAX_REQUEST_BODY_BYTES,
         "request_body_timeout_seconds": DEFAULT_REQUEST_BODY_TIMEOUT_SECONDS,
     }
@@ -596,6 +599,148 @@ def test_server_rejects_incomplete_web_build(tmp_path: Path) -> None:
             ),
             web_root=tmp_path,
         )
+
+
+def test_browser_oidc_session_authenticates_and_requires_csrf() -> None:
+    class TestBrowserAuth:
+        secure_cookie = False
+        transaction_cookie_name = "tide_oidc_transaction"
+        session_cookie_name = "tide_session"
+        transaction_lifetime_seconds = 300
+        session_lifetime_seconds = 3600
+
+        def __init__(self) -> None:
+            self.ended: list[str | None] = []
+
+        def begin_login(self, *, return_to: str = "/") -> Any:
+            assert return_to == "/invoices"
+            return SimpleNamespace(
+                authorization_url="https://identity.example.test/authorize",
+                transaction_binding="browser-binding",
+            )
+
+        def complete_login(
+            self,
+            *,
+            state: str,
+            transaction_binding: str,
+            code: str,
+        ) -> Any:
+            assert (state, transaction_binding, code) == (
+                "provider-state",
+                "browser-binding",
+                "provider-code",
+            )
+            return SimpleNamespace(
+                session_id="opaque-browser-session",
+                return_to="/invoices",
+            )
+
+        def authenticate_session(self, session_id: str | None) -> Any:
+            if session_id != "opaque-browser-session":
+                return None
+            return SimpleNamespace(
+                principal=Principal(
+                    "oidc:browser-user",
+                    roles=frozenset({"sales_clerk"}),
+                ),
+                csrf_token="browser-csrf-token-that-is-long-enough",
+            )
+
+        def end_session(self, session_id: str | None) -> None:
+            self.ended.append(session_id)
+
+    browser_auth = TestBrowserAuth()
+    app = _app("sales_clerk", browser_auth=browser_auth)
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            discovery = await client.get("/api/v1/_tide/browser-auth")
+            login = await client.get(
+                "/api/v1/_tide/browser-auth/login",
+                params={"return_to": "/invoices"},
+            )
+            assert login.status_code == 302
+            assert login.headers["location"] == (
+                "https://identity.example.test/authorize"
+            )
+            assert "HttpOnly" in login.headers["set-cookie"]
+
+            callback = await client.get(
+                "/api/v1/_tide/browser-auth/callback",
+                params={"state": "provider-state", "code": "provider-code"},
+            )
+            assert callback.status_code == 303
+            assert callback.headers["location"] == "/invoices"
+            assert "HttpOnly" in callback.headers["set-cookie"]
+            assert "SameSite=strict" in callback.headers["set-cookie"]
+
+            browser_session = await client.get(
+                "/api/v1/_tide/browser-auth/session"
+            )
+            app_session = await client.get("/api/v1/_tide/session")
+            invoices = await client.get("/api/v1/invoices")
+            confused = await client.get(
+                "/api/v1/invoices",
+                headers={"Authorization": "Bearer invalid-token"},
+            )
+            missing_mutation_csrf = await client.post(
+                "/api/v1/products",
+                json={
+                    "code": "BROWSER-1",
+                    "name": "Browser product",
+                    "unit_price": "10.00",
+                    "active": True,
+                },
+            )
+            created = await client.post(
+                "/api/v1/products",
+                json={
+                    "code": "BROWSER-1",
+                    "name": "Browser product",
+                    "unit_price": "10.00",
+                    "active": True,
+                },
+                headers={
+                    "X-TIDE-CSRF": "browser-csrf-token-that-is-long-enough"
+                },
+            )
+            missing_csrf = await client.post(
+                "/api/v1/_tide/browser-auth/logout"
+            )
+            logout = await client.post(
+                "/api/v1/_tide/browser-auth/logout",
+                headers={
+                    "X-TIDE-CSRF": "browser-csrf-token-that-is-long-enough"
+                },
+            )
+
+        assert discovery.json() == {
+            "enabled": True,
+            "login_path": "/api/v1/_tide/browser-auth/login",
+            "session_path": "/api/v1/_tide/browser-auth/session",
+            "logout_path": "/api/v1/_tide/browser-auth/logout",
+        }
+        assert browser_session.status_code == 200
+        assert browser_session.json() == {
+            "csrf_token": "browser-csrf-token-that-is-long-enough"
+        }
+        assert app_session.status_code == 200
+        assert app_session.json()["principal"] == "oidc:browser-user"
+        assert invoices.status_code == 200
+        assert invoices.headers["referrer-policy"] == "no-referrer"
+        assert invoices.headers["x-frame-options"] == "DENY"
+        assert confused.status_code == 401
+        assert missing_mutation_csrf.status_code == 403
+        assert created.status_code == 201
+        assert created.json()["code"] == "BROWSER-1"
+        assert missing_csrf.status_code == 403
+        assert missing_csrf.json()["code"] == "csrf_failed"
+        assert logout.status_code == 204
+        assert browser_auth.ended == ["opaque-browser-session"]
+
+    asyncio.run(exercise())
+    assert app.openapi()["x-tide"]["browser_authentication"] is True
 
 
 def test_presentation_manifest_filters_inaccessible_navigation_groups() -> None:
@@ -1674,6 +1819,25 @@ def test_tide_serve_rejects_unknown_oidc_role_mapping(capsys) -> None:
     )
 
 
+def test_tide_serve_rejects_browser_login_with_development_auth(capsys) -> None:
+    result = main(
+        [
+            "serve",
+            str(INVOICING),
+            "--demo",
+            "--web-oidc-client-id",
+            "tide-web",
+            "--web-oidc-redirect-uri",
+            "http://127.0.0.1:8000/api/v1/_tide/browser-auth/callback",
+        ]
+    )
+
+    assert result == 1
+    assert capsys.readouterr().err == (
+        "API startup failed: browser OIDC login requires --auth oidc\n"
+    )
+
+
 def test_tide_serve_builds_non_loopback_oidc_app_with_direct_tls(
     monkeypatch,
     capsys,
@@ -1681,6 +1845,7 @@ def test_tide_serve_builds_non_loopback_oidc_app_with_direct_tls(
 ) -> None:
     launched: dict[str, Any] = {}
     discovery: dict[str, Any] = {}
+    browser_discovery: dict[str, Any] = {}
     certfile = tmp_path / "server-cert.pem"
     keyfile = tmp_path / "server-key.pem"
     certfile.write_text("test certificate", encoding="utf-8")
@@ -1698,6 +1863,16 @@ def test_tide_serve_builds_non_loopback_oidc_app_with_direct_tls(
                 )
             return None
 
+    class TestBrowserAuth:
+        secure_cookie = True
+        transaction_cookie_name = "__Host-tide_oidc_transaction"
+        session_cookie_name = "__Host-tide_session"
+        transaction_lifetime_seconds = 300
+        session_lifetime_seconds = 3600
+
+        def authenticate_session(self, session_id: str | None) -> None:
+            return None
+
     def fake_discovery(cls: Any, **configuration: Any) -> Any:
         discovery.update(configuration)
         return TestOidcAuthenticator()
@@ -1706,12 +1881,22 @@ def test_tide_serve_builds_non_loopback_oidc_app_with_direct_tls(
         launched["app"] = app
         launched["configuration"] = configuration
 
+    def fake_browser_discovery(cls: Any, **configuration: Any) -> Any:
+        browser_discovery.update(configuration)
+        return TestBrowserAuth()
+
     monkeypatch.setattr(
         OidcJwtAuthenticator,
         "from_discovery",
         classmethod(fake_discovery),
     )
+    monkeypatch.setattr(
+        OidcBrowserAuth,
+        "from_discovery",
+        classmethod(fake_browser_discovery),
+    )
     monkeypatch.setattr(uvicorn, "run", fake_run)
+    monkeypatch.setenv("TIDE_WEB_CLIENT_SECRET", "browser-client-secret")
 
     result = main(
         [
@@ -1734,6 +1919,18 @@ def test_tide_serve_builds_non_loopback_oidc_app_with_direct_tls(
             "tide-api",
             "--oidc-role-map",
             "external-sales=sales_clerk",
+            "--web-oidc-client-id",
+            "tide-web",
+            "--web-oidc-client-secret-env",
+            "TIDE_WEB_CLIENT_SECRET",
+            "--web-oidc-redirect-uri",
+            "https://tide.example.test:8443/api/v1/_tide/browser-auth/callback",
+            "--web-oidc-scope",
+            "openid",
+            "--web-oidc-scope",
+            "offline_access",
+            "--web-session-lifetime",
+            "3600",
             "--mcp",
             "--mcp-resource-url",
             "https://tide.example.test:8443/mcp",
@@ -1743,6 +1940,10 @@ def test_tide_serve_builds_non_loopback_oidc_app_with_direct_tls(
     assert result == 0
     assert discovery["role_map"] == {"external-sales": "sales_clerk"}
     assert discovery["algorithms"] == ("RS256",)
+    assert browser_discovery["client_id"] == "tide-web"
+    assert browser_discovery["client_secret"] == "browser-client-secret"
+    assert browser_discovery["scopes"] == ("openid", "offline_access")
+    assert browser_discovery["session_lifetime_seconds"] == 3600
     assert launched["configuration"] == {
         "host": "0.0.0.0",
         "port": 8443,
@@ -1758,6 +1959,7 @@ def test_tide_serve_builds_non_loopback_oidc_app_with_direct_tls(
     }
     schema = launched["app"].openapi()
     assert schema["x-tide"]["authentication"] == "oidc-jwt"
+    assert schema["x-tide"]["browser_authentication"] is True
     assert schema["components"]["securitySchemes"]["bearerAuth"][
         "bearerFormat"
     ] == "JWT"
@@ -1767,6 +1969,7 @@ def test_tide_serve_builds_non_loopback_oidc_app_with_direct_tls(
     output = capsys.readouterr().out
     assert "https://0.0.0.0:8443" in output
     assert "OIDC issuer https://identity.example.test/tenant" in output
+    assert "browser login enabled" in output
     assert "MCP: https://tide.example.test:8443/mcp" in output
 
 
@@ -1882,6 +2085,7 @@ def _app(
     max_request_body_bytes: int = DEFAULT_MAX_REQUEST_BODY_BYTES,
     request_body_timeout_seconds: int = DEFAULT_REQUEST_BODY_TIMEOUT_SECONDS,
     web_root: Path | None = None,
+    browser_auth: Any = None,
 ) -> Any:
     model = model or compile_project(INVOICING)
     repository = InMemoryRepository()
@@ -1902,6 +2106,7 @@ def _app(
         max_request_body_bytes=max_request_body_bytes,
         request_body_timeout_seconds=request_body_timeout_seconds,
         web_root=web_root,
+        browser_auth=browser_auth,
     )
 
 

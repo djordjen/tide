@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, expect, it, vi } from "vitest"
 
 import App from "@/App"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { TideApi } from "@/lib/api"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -17,6 +18,14 @@ it("connects through the safe manifest and renders capability navigation", async
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: false,
+          login_path: null,
+          session_path: null,
+          logout_path: null,
+        })
+      }
       const headers = new Headers(init?.headers)
       requests.push({
         url,
@@ -38,7 +47,7 @@ it("connects through the safe manifest and renders capability navigation", async
   const user = userEvent.setup()
   renderApp()
   await user.type(
-    screen.getByLabelText("Application token"),
+    await screen.findByLabelText("Application token"),
     "a-development-token-that-is-long-enough",
   )
   await user.click(
@@ -68,6 +77,124 @@ it("connects through the safe manifest and renders capability navigation", async
         ?.includes("development-token"),
     ),
   ).toBe(false)
+})
+
+it("restores and ends a server-held browser session without exposing tokens", async () => {
+  const requests: Array<{
+    url: string
+    method: string
+    authorization: string | null
+    csrf: string | null
+    credentials: RequestCredentials | undefined
+  }> = []
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const headers = new Headers(init?.headers)
+      requests.push({
+        url,
+        method: init?.method ?? "GET",
+        authorization: headers.get("Authorization"),
+        csrf: headers.get("X-TIDE-CSRF"),
+        credentials: init?.credentials,
+      })
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: true,
+          login_path: "/api/v1/_tide/browser-auth/login",
+          session_path: "/api/v1/_tide/browser-auth/session",
+          logout_path: "/api/v1/_tide/browser-auth/logout",
+        })
+      }
+      if (url.endsWith("/_tide/browser-auth/session")) {
+        return jsonResponse({
+          csrf_token: "browser-csrf-token-that-is-long-enough",
+        })
+      }
+      if (url.endsWith("/_tide/browser-auth/logout")) {
+        return new Response(null, { status: 204 })
+      }
+      if (url.endsWith("/_tide/session")) {
+        return jsonResponse({
+          ...session,
+          authentication: "oidc-jwt",
+          principal: "oidc:user-123",
+        })
+      }
+      if (url.endsWith("/_tide/presentation")) {
+        return jsonResponse({ ...presentation, principal: "oidc:user-123" })
+      }
+      if (url.endsWith("/invoices/_query")) {
+        return jsonResponse({ records: [], next_cursor: null })
+      }
+      throw new Error(`Unexpected URL ${url}`)
+    }),
+  )
+
+  renderApp()
+  expect(
+    await screen.findByRole("heading", { name: "Invoices" }),
+  ).toBeInTheDocument()
+  const authentication = await TideApi.discoverBrowserAuthentication()
+  const restoredApi = await TideApi.restoreBrowserSession(authentication)
+  expect(restoredApi).not.toBeNull()
+  await restoredApi?.logout()
+  await waitFor(() => {
+    expect(
+      requests.find((request) => request.url.endsWith("/browser-auth/logout")),
+    ).toMatchObject({
+      method: "POST",
+      csrf: "browser-csrf-token-that-is-long-enough",
+    })
+  })
+
+  const protectedRequests = requests.filter(
+    (request) => !request.url.endsWith("/_tide/browser-auth"),
+  )
+  expect(
+    protectedRequests.every(
+      (request) =>
+        request.authorization === null && request.credentials === "same-origin",
+    ),
+  ).toBe(true)
+})
+
+it("offers identity-provider sign-in when no browser session exists", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: true,
+          login_path: "/api/v1/_tide/browser-auth/login",
+          session_path: "/api/v1/_tide/browser-auth/session",
+          logout_path: "/api/v1/_tide/browser-auth/logout",
+        })
+      }
+      if (url.endsWith("/_tide/browser-auth/session")) {
+        return new Response(
+          JSON.stringify({
+            code: "unauthorized",
+            message: "authentication required",
+          }),
+          { status: 401, headers: { "Content-Type": "application/json" } },
+        )
+      }
+      throw new Error(`Unexpected URL ${url}`)
+    }),
+  )
+
+  renderApp()
+  expect(
+    await screen.findByRole("heading", {
+      name: "Sign in to your application",
+    }),
+  ).toBeInTheDocument()
+  expect(
+    screen.getByRole("link", { name: "Sign in securely" }),
+  ).toHaveAttribute("href", "/api/v1/_tide/browser-auth/login")
 })
 
 function renderApp() {

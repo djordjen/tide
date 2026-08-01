@@ -36,6 +36,10 @@ authorization; application services are the enforcement boundary.
 | Forged, confused, or replayed bearer type | Exact OIDC issuer/audience, asymmetric algorithm allow-list, signature/expiry/subject validation, required `kid` and accepted `typ` |
 | External identity role escalation | Explicit external-to-application role mapping; ignore unmapped roles; reject malformed role claims |
 | Bearer interception on a network bind | Development auth is loopback-only; non-loopback OIDC serving requires direct TLS certificate and key |
+| Browser login CSRF, state replay, or session fixation | Authorization Code with PKCE S256; short-lived single-use state bound to an additional HTTP-only browser cookie; bounded transaction store; replace the login binding with a fresh opaque session after validated callback |
+| Cookie-authenticated cross-site mutation | Restrictive SameSite cookie plus unpredictable per-session CSRF value required in a dedicated header for every unsafe request; bearer-authenticated requests do not fall back to cookie identity |
+| Provider token theft through browser code or storage | FastAPI retains access, refresh, and optional client-secret material; React receives only an opaque HTTP-only same-origin cookie and never writes provider tokens to browser storage |
+| Refresh-token substitution or identity switch | Validate every replacement access token through the same exact issuer/audience/JWKS adapter, require the original subject, accept explicit refresh-token rotation, and terminate the local session on failure |
 | MCP capability discovery mistaken for permission | Metadata exposure is opt-in; every resource/tool call reauthorizes through services with `Channel.MCP` |
 | MCP DNS rebinding or resource confusion | Canonical resource URI, exact path, HTTPS off-loopback, and Host/Origin allow-list; token audience remains deployment-configured |
 | MCP query inference or cursor theft | Field/operator/type authorization, row policies, protected projections, bounded pages, and opaque principal-bound cursors |

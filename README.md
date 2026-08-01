@@ -310,6 +310,7 @@ Start with [the documentation index](docs/README.md). Important documents are:
 - [REST API client tutorial](docs/API-CLIENT-TUTORIAL.md)
 - [AI-assisted generation tutorial](docs/AI-GENERATION-TUTORIAL.md)
 - [Web UI](docs/WEB-UI.md)
+- [Web authentication](docs/WEB-AUTHENTICATION.md)
 - [Qt GUI prototype](docs/QT-GUI.md)
 - [Renderer acceptance matrix](docs/RENDERER-ACCEPTANCE.md)
 - [Documentation plan](docs/DOCUMENTATION-PLAN.md)
@@ -427,6 +428,11 @@ protected values, cursors, ETags, and stable errors while rejecting mismatched
 applications, principals, and unsafe unencrypted non-loopback URLs. Neither
 remote renderer receives YAML, permission expressions, handlers, or database
 configuration.
+For reviewed browser deployments, FastAPI now performs provider-neutral OIDC
+Authorization Code login with PKCE, retains access and optional refresh tokens
+in a bounded server session, and gives React only an opaque HTTP-only cookie
+plus per-session CSRF proof. Local development-token startup remains available
+and remote TUI, Qt, REST, and MCP clients keep using bearer tokens.
 Textual can now opt into this client through
 `tide run --api-url`, including structured browse/search/sort, edit sessions,
 lookups, nested lines, actions, and secured report preview/export without
@@ -464,10 +470,9 @@ The first Studio tranche is now hardened: hidden-field behavior matches the
 live browse/form runtime, compact terminals scroll instead of clipping tools,
 and invalid view candidates retain an explanation while designer actions fail
 closed.
-Interactive identity-provider login/refresh, trusted reverse proxies, MCP
-mutations/actions, developer-MCP designer/save tools, richer report
-parameters/group bands, and broader lookup-query capabilities remain roadmap
-work.
+Shared encrypted multi-worker browser sessions, provider-wide logout, trusted
+reverse proxies, richer report parameters/group bands, and broader
+lookup-query capabilities remain roadmap work.
 
 Metadata v0.1 is an executable experimental contract. Breaking authoring
 changes require a new `schema_version`; stable 1.0 compatibility is not yet

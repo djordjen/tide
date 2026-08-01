@@ -30,6 +30,14 @@ it("creates and updates a flat metadata form through the secured API", async () 
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: false,
+          login_path: null,
+          session_path: null,
+          logout_path: null,
+        })
+      }
       if (url.endsWith("/_tide/session")) {
         return jsonResponse(session)
       }
@@ -93,7 +101,7 @@ it("creates and updates a flat metadata form through the secured API", async () 
   const user = userEvent.setup()
   renderApp()
   await user.type(
-    screen.getByLabelText("Application token"),
+    await screen.findByLabelText("Application token"),
     "a-development-token-that-is-long-enough",
   )
   await user.click(
@@ -183,6 +191,14 @@ it("reviews a stale draft and rebases explicit choices onto the fresh ETag", asy
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: false,
+          login_path: null,
+          session_path: null,
+          logout_path: null,
+        })
+      }
       if (url.endsWith("/_tide/session")) {
         return jsonResponse(session)
       }
@@ -231,7 +247,7 @@ it("reviews a stale draft and rebases explicit choices onto the fresh ETag", asy
   const user = userEvent.setup()
   renderApp()
   await user.type(
-    screen.getByLabelText("Application token"),
+    await screen.findByLabelText("Application token"),
     "a-development-token-that-is-long-enough",
   )
   await user.click(

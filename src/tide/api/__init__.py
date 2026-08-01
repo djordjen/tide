@@ -9,9 +9,11 @@ from tide.api.openapi import OpenApiPreview, build_openapi_preview, generate_ope
 
 __all__ = [
     "BearerAuthenticator",
+    "BrowserAuthenticationError",
     "DevelopmentTokenAuthenticator",
     "HttpServerLimits",
     "OidcDiscoveryError",
+    "OidcBrowserAuth",
     "OidcJwtAuthenticator",
     "OpenApiPreview",
     "RemoteActionService",
@@ -32,6 +34,19 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
+    if name in {
+        "BrowserAuthenticationError",
+        "OidcBrowserAuth",
+    }:
+        from tide.api.browser_auth import (
+            BrowserAuthenticationError,
+            OidcBrowserAuth,
+        )
+
+        return {
+            "BrowserAuthenticationError": BrowserAuthenticationError,
+            "OidcBrowserAuth": OidcBrowserAuth,
+        }[name]
     if name in {
         "OidcDiscoveryError",
         "OidcJwtAuthenticator",

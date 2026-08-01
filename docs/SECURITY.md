@@ -179,11 +179,21 @@ or signature failures deny authentication. Non-loopback serving additionally
 requires direct TLS certificate and key configuration; development identity is
 never permitted there.
 
-This is bearer validation, not an interactive login implementation. Access
-token issuance, user consent, MFA, refresh, revocation policy, and provider
-configuration remain the identity provider's responsibility. Trusted reverse
-proxy handling, request limits, structured security logging, and production
-process supervision remain separate deployment work.
+The optional same-origin Web adapter adds provider-neutral Authorization Code
+with PKCE login over that validator. FastAPI retains access and optional refresh
+tokens in a bounded process-local store; the browser receives only an opaque
+HTTP-only session cookie and a per-session CSRF value used on every mutation.
+Login state is short-lived, single-use, browser-bound, and count-bounded.
+Refresh repeats token validation and requires the subject to remain unchanged;
+failures end the session. Development-token behavior remains separate and
+loopback-only. See [Web authentication](WEB-AUTHENTICATION.md).
+
+The identity provider remains responsible for token issuance, user consent,
+MFA, refresh/revocation policy, and provider configuration. The current local
+logout does not claim provider-wide single logout. Browser sessions are not yet
+shared across workers and disappear on restart. Trusted reverse-proxy handling,
+shared encrypted session storage, and production process supervision remain
+separate deployment work.
 
 HTTP mutation schemas contain only normal writable fields. Partial updates use
 field presence rather than full-object replacement, so absent and protected

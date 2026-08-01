@@ -25,6 +25,14 @@ it("opens a shared-layout detail and navigates without replacing the shell", asy
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: false,
+          login_path: null,
+          session_path: null,
+          logout_path: null,
+        })
+      }
       if (url.endsWith("/_tide/session")) {
         return jsonResponse(session)
       }
@@ -59,7 +67,7 @@ it("opens a shared-layout detail and navigates without replacing the shell", asy
   const user = userEvent.setup()
   renderApp()
   await user.type(
-    screen.getByLabelText("Application token"),
+    await screen.findByLabelText("Application token"),
     "a-development-token-that-is-long-enough",
   )
   await user.click(

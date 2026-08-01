@@ -540,13 +540,17 @@ uv run tide serve applications/invoicing --database-env `
   --mcp-resource-url https://tide.example.com:8443/mcp
 ```
 
-TIDE validates bearer tokens but does not perform the provider's interactive
-login or token refresh. Set `TIDE_API_TOKEN` to an access token obtained from
-that provider before running `tide api check-server` or `tide run --api-url`
-against the HTTPS origin. Do not put that token or private-key password in a
-batch file. A password-protected key can use
-`--ssl-keyfile-password-env NAME`. Reverse-proxy trust is not implemented yet;
-this command's non-loopback mode therefore requires direct TLS.
+Remote TUI, Qt, REST, and MCP clients continue to obtain a bearer access token
+from that provider. Set `TIDE_API_TOKEN` before running
+`tide api check-server` or `tide run --api-url` against the HTTPS origin. The
+Web renderer can instead use TIDE's optional same-origin Authorization Code
+with PKCE flow, which keeps provider tokens behind FastAPI. See
+[Web authentication](WEB-AUTHENTICATION.md) for the client registration,
+additional `--web-oidc-*` flags, session boundary, and exact hosting command.
+Do not put access tokens, client secrets, or private-key passwords in a batch
+file. A password-protected key can use `--ssl-keyfile-password-env NAME`.
+Reverse-proxy trust is not implemented yet; this command's non-loopback mode
+therefore requires direct TLS.
 
 ## Previewing and exporting an invoice
 

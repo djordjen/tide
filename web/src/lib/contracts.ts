@@ -44,6 +44,17 @@ export interface TideSessionInfo {
   entities: Record<string, TideEntityCapabilities>
 }
 
+export interface TideBrowserAuthenticationInfo {
+  enabled: boolean
+  login_path: string | null
+  session_path: string | null
+  logout_path: string | null
+}
+
+export interface TideBrowserSessionInfo {
+  csrf_token: string
+}
+
 export interface TidePresentationFormat {
   decimal_places: number | null
   thousands_separator: boolean
