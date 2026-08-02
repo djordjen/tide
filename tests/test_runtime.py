@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+from copy import deepcopy
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -431,6 +432,70 @@ def test_commit_rejects_wrong_scalar_types_instead_of_storing_them(runtime) -> N
     failed = {issue.fields for issue in caught.value.issues if issue.rule == "type"}
     assert ("invoice_date",) in failed
     assert ("line_number",) in failed
+
+
+def test_commit_rejects_unknown_fields_inside_a_collection_item(runtime) -> None:
+    """A child payload must be checked as strictly as the record that owns it.
+
+    The unknown-field guard only inspected top-level values, so anything extra
+    on a nested line travelled straight into storage on the document-shaped
+    repository and was silently dropped by the relational one.
+    """
+
+    _, _, records, _ = runtime
+    clerk = context("user:clerk", "sales_clerk")
+    values = invoice_values()
+    values["lines"][0]["bogus"] = "anything"
+
+    with pytest.raises(ValidationFailed) as caught:
+        records.commit(records.create("sales.Invoice", clerk, values), clerk)
+
+    assert any(issue.rule == "unknown_field" for issue in caught.value.issues)
+
+
+def test_commit_rejects_a_client_chosen_identity_for_a_new_collection_item(
+    runtime,
+) -> None:
+    """Child identity is system-owned, exactly like the parent primary key.
+
+    Accepting one lets a caller pick a new line's key, or claim a key that
+    belongs to another invoice's line.
+    """
+
+    _, _, records, _ = runtime
+    clerk = context("user:clerk", "sales_clerk")
+    values = invoice_values()
+    values["lines"][0]["id"] = 4242
+
+    with pytest.raises((ValidationFailed, ImmutableFieldError)):
+        records.commit(records.create("sales.Invoice", clerk, values), clerk)
+
+
+def test_commit_updates_a_collection_item_loaded_from_the_record(runtime) -> None:
+    """The identity rule must still let an ordinary line edit through.
+
+    Every renderer edits a collection by sending back what it loaded, so a rule
+    about identity has to accept exactly that. The two repositories disagree on
+    whether a child carries a key at all, which is why this asserts the visible
+    outcome rather than the key itself.
+    """
+
+    _, _, records, _ = runtime
+    clerk = context("user:clerk", "sales_clerk")
+    created = records.commit(
+        records.create("sales.Invoice", clerk, invoice_values()), clerk
+    )
+
+    edit = records.begin_edit("sales.Invoice", created["id"], clerk)
+    lines = deepcopy(list(edit.values["lines"]))
+    lines[0]["description"] = "Revised consulting"
+    edit.set("lines", lines)
+    updated = records.commit(edit, clerk)
+
+    assert [line["description"] for line in updated["lines"]] == [
+        "Revised consulting"
+    ]
+    assert updated["total"] == Decimal("10.50")
 
 
 def test_commit_rejects_non_boolean_flags(runtime) -> None:

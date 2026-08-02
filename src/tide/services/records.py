@@ -530,6 +530,7 @@ class RecordsService:
         values = deepcopy(session.values)
         input_issues = [
             *self._coerce_values(entity.name, values),
+            *self._collection_identity_issues(entity, session, values),
             *self._missing_required_inputs(entity, values),
         ]
         if input_issues:
@@ -683,11 +684,58 @@ class RecordsService:
             if immutable_when and bool(evaluate_expression(immutable_when, session.original)):
                 raise ImmutableFieldError(field_name, f"condition {immutable_when!r} is true")
 
+    def _collection_identity_issues(
+        self,
+        entity: NormalizedEntity,
+        session: RecordSession,
+        values: dict[str, Any],
+    ) -> list[ValidationIssue]:
+        """Reject a collection item claiming an identity this record does not own.
+
+        Returning the key of a row already under this parent is how an edit is
+        expressed. Inventing a key, or naming a row that belongs to a different
+        parent, is not: the first lets a caller choose storage identity, and the
+        second reassigns somebody else's row through this record.
+        """
+
+        issues: list[ValidationIssue] = []
+        for field_name, field in entity.fields.items():
+            if field.metadata.get("type") != "collection" or not field.target_entity:
+                continue
+            items = values.get(field_name)
+            if not isinstance(items, list):
+                continue
+            key = _primary_key(self.model.entity(field.target_entity))
+            owned = {
+                item[key]
+                for item in (session.original.get(field_name) or ())
+                if isinstance(item, Mapping) and item.get(key) is not None
+            }
+            for item in items:
+                if not isinstance(item, Mapping):
+                    continue
+                identity = item.get(key)
+                if identity is not None and identity not in owned:
+                    issues.append(
+                        ValidationIssue(
+                            "identity",
+                            f"{field_name} item {key} {identity!r} does not belong to this record",
+                            (field_name,),
+                        )
+                    )
+        return issues
+
     def _coerce_values(self, entity_name: str, values: dict[str, Any]) -> list[ValidationIssue]:
         """Coerce present values to their declared field types before any evaluation."""
 
         entity = self.model.entity(entity_name)
-        issues: list[ValidationIssue] = []
+        issues: list[ValidationIssue] = [
+            ValidationIssue("unknown_field", f"unknown field {name!r}", (name,))
+            # _enforce_changes rejects unknown values on the record being
+            # committed, but it never descends; a collection item has to be
+            # held to the same contract or it reaches storage unchecked.
+            for name in sorted(set(values) - set(entity.fields))
+        ]
         for field_name, field in entity.fields.items():
             value = values.get(field_name)
             if value is None:
