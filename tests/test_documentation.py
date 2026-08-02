@@ -89,7 +89,9 @@ def test_ci_uses_the_certified_python_baseline_without_duplicate_branch_runs() -
     ]
     assert job["name"] == "Python 3.11 / ${{ matrix.os }}"
     setup = next(
-        step for step in job["steps"] if step.get("uses") == "astral-sh/setup-uv@v9"
+        step
+        for step in job["steps"]
+        if str(step.get("uses", "")).startswith("astral-sh/setup-uv@")
     )
     assert setup["with"]["python-version"] == "3.11"
     # Installing from the lockfile is what keeps the tool versions CI runs the
