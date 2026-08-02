@@ -217,6 +217,12 @@ fields:
     orphan_delete: true
 ```
 
+`orphan_delete` also decides whether items may be removed at all. A collection
+that declares it deletes the rows a commit leaves out; one that does not
+rejects the removal, because the detached row would keep its foreign key and
+reappear on the next read. Leaving the collection out of a payload entirely
+still means "do not touch it".
+
 The child declares the other side:
 
 ```yaml

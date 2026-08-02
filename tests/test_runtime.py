@@ -255,6 +255,53 @@ def _model_granting_invoice_delete(model):
     return replace(model, entities=immutable_mapping(entities))
 
 
+def _model_without_orphan_delete(model):
+    """Return the compiled model with sales.Invoice.lines keeping its orphans.
+
+    The shipped collection declares `orphan_delete`, so removal semantics for a
+    collection that does not can only be exercised by taking it away.
+    """
+
+    invoice = model.entity("sales.Invoice")
+    lines = invoice.field("lines")
+    metadata = deep_thaw(lines.metadata)
+    metadata.pop("orphan_delete", None)
+    fields = dict(invoice.fields)
+    fields["lines"] = replace(lines, metadata=immutable_mapping(metadata))
+    entities = dict(model.entities)
+    entities[invoice.name] = replace(invoice, fields=immutable_mapping(fields))
+    return replace(model, entities=immutable_mapping(entities))
+
+
+def test_removing_an_item_needs_a_collection_that_deletes_orphans(runtime) -> None:
+    """Dropping a child from a collection that keeps orphans must not look saved.
+
+    Without `orphan_delete` the row keeps pointing at its parent, so the item
+    the caller removed reappears on the next read. Refusing the commit turns a
+    silent reversal into a visible authoring mistake.
+    """
+
+    model, repository, records, _ = runtime
+    clerk = context("user:clerk", "sales_clerk")
+    created = records.commit(
+        records.create(
+            "sales.Invoice",
+            clerk,
+            invoice_values(lines=True),
+        ),
+        clerk,
+    )
+    keeping = RecordsService(_model_without_orphan_delete(model), repository)
+
+    edit = keeping.begin_edit("sales.Invoice", created["id"], clerk)
+    edit.set("lines", [])
+
+    with pytest.raises(ValidationFailed) as caught:
+        keeping.commit(edit, clerk)
+
+    assert any(issue.rule == "orphan" for issue in caught.value.issues)
+
+
 def test_delete_audits_the_rows_a_cascade_removes(runtime) -> None:
     """A cascade deletes child rows, so the trail has to name them.
 

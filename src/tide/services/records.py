@@ -544,7 +544,7 @@ class RecordsService:
         values = deepcopy(session.values)
         input_issues = [
             *self._coerce_values(entity.name, values),
-            *self._collection_identity_issues(entity, session, values),
+            *self._collection_membership_issues(entity, session, values),
             *self._missing_required_inputs(entity, values),
         ]
         if input_issues:
@@ -699,18 +699,22 @@ class RecordsService:
             if immutable_when and bool(evaluate_expression(immutable_when, session.original)):
                 raise ImmutableFieldError(field_name, f"condition {immutable_when!r} is true")
 
-    def _collection_identity_issues(
+    def _collection_membership_issues(
         self,
         entity: NormalizedEntity,
         session: RecordSession,
         values: dict[str, Any],
     ) -> list[ValidationIssue]:
-        """Reject a collection item claiming an identity this record does not own.
+        """Check which rows a collection may claim, keep, and drop.
 
         Returning the key of a row already under this parent is how an edit is
         expressed. Inventing a key, or naming a row that belongs to a different
         parent, is not: the first lets a caller choose storage identity, and the
         second reassigns somebody else's row through this record.
+
+        Dropping a row only means something when the collection deletes its
+        orphans. Otherwise the row keeps pointing here, so the removal reverses
+        itself on the next read; refusing is the honest answer.
         """
 
         issues: list[ValidationIssue] = []
@@ -719,6 +723,7 @@ class RecordsService:
                 continue
             items = values.get(field_name)
             if not isinstance(items, list):
+                # An absent collection means "leave it alone", not "empty it".
                 continue
             key = _primary_key(self.model.entity(field.target_entity))
             owned = {
@@ -726,11 +731,16 @@ class RecordsService:
                 for item in (session.original.get(field_name) or ())
                 if isinstance(item, Mapping) and item.get(key) is not None
             }
+            retained: set[Any] = set()
             for item in items:
                 if not isinstance(item, Mapping):
                     continue
                 identity = item.get(key)
-                if identity is not None and identity not in owned:
+                if identity is None:
+                    continue
+                if identity in owned:
+                    retained.add(identity)
+                else:
                     issues.append(
                         ValidationIssue(
                             "identity",
@@ -738,6 +748,15 @@ class RecordsService:
                             (field_name,),
                         )
                     )
+            if owned - retained and not field.metadata.get("orphan_delete"):
+                issues.append(
+                    ValidationIssue(
+                        "orphan",
+                        f"{field_name} does not delete orphans, so its items "
+                        "cannot be removed through this record",
+                        (field_name,),
+                    )
+                )
         return issues
 
     def _coerce_values(self, entity_name: str, values: dict[str, Any]) -> list[ValidationIssue]:

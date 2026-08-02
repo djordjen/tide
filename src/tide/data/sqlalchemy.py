@@ -695,6 +695,12 @@ class SQLAlchemyRepository:
         if collection.metadata.get("orphan_delete"):
             orphaned = existing - retained
             if orphaned:
+                # A bulk delete, so it does not run the child's own reference
+                # behaviour: a restrict pointing at this row surfaces as the
+                # database's integrity error rather than DeleteRestricted, and a
+                # child of its own is not cascaded. No shipped model has either,
+                # so the path is unexercised; routing it through _delete_entity
+                # needs the reference set threaded into write.
                 connection.execute(
                     delete(target_table).where(target_table.c[target_key].in_(orphaned))
                 )
