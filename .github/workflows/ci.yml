@@ -36,8 +36,9 @@ jobs:
       # silently unrun -- which is exactly how it stopped running here before.
       - run: uv run python -c "import PySide6"
         if: matrix.os == 'windows-latest'
-      - run: uv run python -m pytest
+      - run: uv run python -m pytest --cov --cov-report=term-missing
       - run: uv run ruff check src tests applications/invoicing/actions.py
+      - run: uv run mypy
       - run: uv run tide model validate applications/invoicing
       - run: uv run python -m build
         if: matrix.os == 'ubuntu-latest'
@@ -58,6 +59,7 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
+      - run: npm run lint
       - run: npm run check
       - run: npm run build
       - run: npx playwright install --with-deps chromium

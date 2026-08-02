@@ -83,15 +83,23 @@ def test_ci_uses_the_certified_python_baseline_without_duplicate_branch_runs() -
         "pull_request": {"branches": ["main"]},
     }
     job = workflow["jobs"]["test"]
-    assert job["strategy"]["matrix"] == {
-        "os": ["ubuntu-latest", "windows-latest"]
-    }
+    assert [entry["os"] for entry in job["strategy"]["matrix"]["include"]] == [
+        "ubuntu-latest",
+        "windows-latest",
+    ]
     assert job["name"] == "Python 3.11 / ${{ matrix.os }}"
     setup = next(
-        step for step in job["steps"] if step.get("uses") == "actions/setup-python@v6"
+        step for step in job["steps"] if step.get("uses") == "astral-sh/setup-uv@v9"
     )
     assert setup["with"]["python-version"] == "3.11"
+    # Installing from the lockfile is what keeps the tool versions CI runs the
+    # same as the ones committed; resolving them fresh once turned an unrelated
+    # ruff release into a failure on unchanged code.
+    install = next(
+        step for step in job["steps"] if str(step.get("run", "")).startswith("uv sync")
+    )
+    assert "--locked" in install["run"]
     build = next(
-        step for step in job["steps"] if step.get("run") == "python -m build"
+        step for step in job["steps"] if step.get("run") == "uv run python -m build"
     )
     assert build["if"] == "matrix.os == 'ubuntu-latest'"

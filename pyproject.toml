@@ -61,11 +61,14 @@ dev = [
     "Faker>=37.4,<38",
     "httpx>=0.28,<1",
     "mcp>=1.28,<2",
+    "mypy>=1.18,<2",
     "PyJWT[crypto]>=2.10,<3",
     "pytest>=8.3,<10",
+    "pytest-cov>=6.0,<8",
     "reportlab>=4.4,<5",
     "ruff>=0.15,<1",
     "textual[syntax]>=8.2,<9",
+    "types-PyYAML>=6.0,<7",
     "uvicorn[standard]>=0.35,<1",
 ]
 
@@ -84,6 +87,53 @@ markers = [
 
 [tool.coverage.run]
 source = ["tide"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src/tide"]
+ignore_missing_imports = true
+
+# Modules that already type-check are gated, so new code and new modules cannot
+# regress. The list below predates type checking in CI and is a backlog, not a
+# policy: remove an entry once its module is clean, and never add one.
+[[tool.mypy.overrides]]
+module = [
+    "tide.api.browser_auth",
+    "tide.api.client",
+    "tide.api.contracts",
+    "tide.api.inputs",
+    "tide.api.openapi",
+    "tide.api.presentation",
+    "tide.api.server",
+    "tide.api.wire",
+    "tide.compiler.compiler",
+    "tide.data.memory",
+    "tide.data.migrations",
+    "tide.data.revisions",
+    "tide.data.sql_expressions",
+    "tide.data.sqlalchemy",
+    "tide.development.designer",
+    "tide.development.designer_transaction",
+    "tide.development.materialization",
+    "tide.development.studio",
+    "tide.mcp.contracts",
+    "tide.mcp.runtime",
+    "tide.qt.app",
+    "tide.qt.presenter",
+    "tide.reporting.service",
+    "tide.tui.app",
+    "tide.tui.audit",
+    "tide.tui.form",
+    "tide.tui.report",
+    "tide.tui.studio",
+    "tide.tui.table",
+]
+ignore_errors = true
 
 [tool.ruff]
 target-version = "py311"

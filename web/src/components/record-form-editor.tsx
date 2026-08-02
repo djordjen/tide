@@ -574,7 +574,11 @@ function ReferenceLookupDialog({
           event.stopPropagation()
           if (event.key === "Escape") {
             event.preventDefault()
-            creating ? setCreating(false) : onClose()
+            if (creating) {
+              setCreating(false)
+            } else {
+              onClose()
+            }
           } else if (event.key === "Tab") {
             trapDialogFocus(event, dialogRef.current)
           }
