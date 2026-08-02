@@ -11,6 +11,7 @@ import pytest
 from tide import compile_project
 from tide.compiler.normalized import deep_thaw, immutable_mapping
 from tide.data import InMemoryRepository
+from tide.data.sqlalchemy import SQLAlchemyRepository
 from tide.runtime import (
     ActionDisabled,
     AuthorizationError,
@@ -47,10 +48,15 @@ invoicing_actions = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(invoicing_actions)
 
 
-@pytest.fixture
-def runtime():
+@pytest.fixture(params=("memory", "sql"))
+def runtime(request: pytest.FixtureRequest):
     model = compile_project(INVOICING)
-    repository = InMemoryRepository()
+    repository: InMemoryRepository | SQLAlchemyRepository
+    if request.param == "memory":
+        repository = InMemoryRepository()
+    else:
+        repository = SQLAlchemyRepository(model, "sqlite+pysqlite:///:memory:")
+        repository.create_schema()
     repository.seed(
         "crm.Customer",
         [
@@ -79,7 +85,9 @@ def runtime():
             occurred_at=payload.get("occurred_at"),
         ),
     )
-    return model, repository, records, actions
+    yield model, repository, records, actions
+    if isinstance(repository, SQLAlchemyRepository):
+        repository.dispose()
 
 
 def context(identifier: str, *roles: str) -> RequestContext:
@@ -249,6 +257,12 @@ def test_versioned_delete_requires_and_checks_observed_version(runtime) -> None:
                 "id": 1,
                 "version": 1,
                 "customer": 1,
+                # Every non-null column has to be supplied: a real schema
+                # rejects the partial record the in-memory store would accept.
+                "number": "INV-2026-000001",
+                "invoice_date": date(2026, 7, 14),
+                "currency": "EUR",
+                "status": "draft",
                 "lines": [],
             }
         ],
