@@ -10,6 +10,12 @@ model-validated filter, an allow-listed sort, a bounded page size, and an
 optional continuation cursor. Arbitrary SQL and unrestricted expression text
 are never transport inputs.
 
+Filters follow SQL three-valued logic in every repository. A stored null
+satisfies no comparison, so a row whose value is null is absent from `eq`, `ne`,
+the ordering operators, and `contains`/`icontains` alike. A null *criterion*
+asks about presence instead: `eq` selects rows where the field is null, `ne`
+selects rows where it is set, and the remaining operators match nothing.
+
 Ordering must be deterministic. When the requested sort is not unique, the
 query service appends the entity primary key as a tie-breaker. Continuation
 cursors are opaque, versioned, and bound to the model, entity, normalized

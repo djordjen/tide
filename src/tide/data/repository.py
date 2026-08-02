@@ -101,8 +101,30 @@ class DeleteCollection:
     child_primary_key: str
 
 
+FILTER_OPERATORS = frozenset(
+    {"eq", "ne", "lt", "lte", "gt", "gte", "contains", "icontains"}
+)
+
+
 def matches_filter(record: Mapping[str, Any], condition: FilterCondition) -> bool:
+    """Apply one filter with the null semantics the SQL adapter produces.
+
+    SQL evaluates every comparison involving NULL as unknown and drops the row,
+    so a stored null matches nothing here either. Only a null *criterion* asks
+    about presence, which SQL spells `IS NULL` / `IS NOT NULL`.
+    """
+
+    if condition.operator not in FILTER_OPERATORS:
+        raise ValueError(f"unsupported filter operator {condition.operator!r}")
     value = record.get(condition.field)
+    if condition.value is None:
+        if condition.operator == "eq":
+            return value is None
+        if condition.operator == "ne":
+            return value is not None
+        return False
+    if value is None:
+        return False
     operations = {
         "eq": lambda: value == condition.value,
         "ne": lambda: value != condition.value,
@@ -110,12 +132,9 @@ def matches_filter(record: Mapping[str, Any], condition: FilterCondition) -> boo
         "lte": lambda: value <= condition.value,
         "gt": lambda: value > condition.value,
         "gte": lambda: value >= condition.value,
-        "contains": lambda: value is not None and condition.value in value,
-        "icontains": lambda: value is not None
-        and condition.value.casefold() in value.casefold(),
+        "contains": lambda: condition.value in value,
+        "icontains": lambda: condition.value.casefold() in value.casefold(),
     }
-    if condition.operator not in operations:
-        raise ValueError(f"unsupported filter operator {condition.operator!r}")
     return bool(operations[condition.operator]())
 
 

@@ -628,6 +628,56 @@ def test_query_rejects_unstored_fields_and_invalid_filter_types(runtime) -> None
         )
 
 
+@pytest.mark.parametrize(
+    "operator, value, expected",
+    [
+        ("gt", "a", ["KNOWN"]),
+        ("gte", "a", ["KNOWN"]),
+        ("lt", "a", []),
+        ("lte", "a", []),
+        ("ne", "a", ["KNOWN"]),
+        ("contains", "known", ["KNOWN"]),
+        ("icontains", "KNOWN", ["KNOWN"]),
+    ],
+)
+def test_filters_treat_a_stored_null_as_no_match(
+    runtime,
+    operator: str,
+    value: str,
+    expected: list[str],
+) -> None:
+    """A null column must drop out of a comparison rather than crash or match.
+
+    SQL evaluates any comparison with NULL as unknown and excludes the row, so
+    the in-memory store has to reach the same answer; otherwise the identical
+    query returns different records depending on the configured repository.
+    """
+
+    _, repository, records, _ = runtime
+    repository.seed(
+        "crm.Customer",
+        [
+            {
+                "id": 3,
+                "code": "KNOWN",
+                "name": "Known contact",
+                "email": "known@example.test",
+                "active": True,
+                "invoices": [],
+            }
+        ],
+    )
+    clerk = context("user:clerk", "sales_clerk")
+
+    matched = records.query(
+        "crm.Customer",
+        QuerySpec(filters=(FilterCondition("email", operator, value),)),
+        clerk,
+    )
+
+    assert [customer["code"] for customer in matched] == expected
+
+
 def test_post_requires_lines(runtime) -> None:
     _, _, records, actions = runtime
     clerk = context("user:clerk", "sales_clerk")
