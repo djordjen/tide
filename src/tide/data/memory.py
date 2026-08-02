@@ -141,10 +141,12 @@ class InMemoryRepository:
         expected_version: int | None,
         is_new: bool,
         row_criteria: tuple[str, ...] = (),
+        collections: tuple[DeleteCollection, ...] = (),
     ) -> dict[str, Any]:
         with self._lock:
             bucket = self._records.setdefault(entity, {})
             record = deepcopy(values)
+            self._assign_collection_identities(entity, record, collections)
             identity = record.get(primary_key)
             if is_new:
                 if identity is None:
@@ -283,6 +285,34 @@ class InMemoryRepository:
                         child for child in children if isinstance(child, dict)
                     )
         return records
+
+    def _assign_collection_identities(
+        self,
+        entity: str,
+        record: dict[str, Any],
+        collections: tuple[DeleteCollection, ...],
+    ) -> None:
+        """Give every embedded collection item its own durable key.
+
+        Children live inside the parent record here, so nothing else would ever
+        allocate one. Without a key a commit cannot distinguish an edited row
+        from a replacement, and the relational adapter -- where children are
+        real rows -- would model the same data differently.
+        """
+
+        for collection in collections:
+            if collection.parent_entity != entity:
+                continue
+            children = record.get(collection.parent_field)
+            if not isinstance(children, list):
+                continue
+            key = collection.child_primary_key
+            for child in children:
+                if not isinstance(child, dict) or child.get(key) is not None:
+                    continue
+                child_identity = self._next_identity.get(collection.child_entity, 1)
+                self._next_identity[collection.child_entity] = child_identity + 1
+                child[key] = child_identity
 
     def _remove_entity(
         self,

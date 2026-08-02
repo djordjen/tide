@@ -37,6 +37,7 @@ from tide.services import (
     ActionService,
     FilterCondition,
     QuerySpec,
+    RecordAuditOperation,
     RecordsService,
     SortField,
 )
@@ -237,6 +238,59 @@ def test_delete_row_policy_fails_closed(runtime) -> None:
         )
 
     assert repository.exists("catalog.Product", 2)
+
+
+def _model_granting_invoice_delete(model):
+    """Return the compiled model with delete allowed on sales.Invoice.
+
+    The shipped invoicing metadata never grants it, so any test that has to
+    actually remove an invoice has to add the permission first.
+    """
+
+    invoice = model.entity("sales.Invoice")
+    metadata = deep_thaw(invoice.metadata)
+    metadata["permissions"]["delete"] = "sales.invoice.write"
+    entities = dict(model.entities)
+    entities[invoice.name] = replace(invoice, metadata=immutable_mapping(metadata))
+    return replace(model, entities=immutable_mapping(entities))
+
+
+def test_delete_audits_the_rows_a_cascade_removes(runtime) -> None:
+    """A cascade deletes child rows, so the trail has to name them.
+
+    Invoice lines are removed under the invoice's own authority, which is what
+    `on_delete: cascade` asks for. Recording only the invoice leaves no evidence
+    that the lines existed, let alone what they held.
+    """
+
+    model, repository, records, _ = runtime
+    clerk = context("user:clerk", "sales_clerk")
+    created = records.commit(
+        records.create("sales.Invoice", clerk, invoice_values()), clerk
+    )
+    deleting = RecordsService(
+        _model_granting_invoice_delete(model),
+        repository,
+        audit_store=records.audit_store,
+    )
+
+    deleting.delete(
+        "sales.Invoice",
+        created["id"],
+        clerk,
+        expected_version=created["version"],
+    )
+
+    line_events = records.audit_store.record_audit_events(
+        entity="sales.InvoiceLine"
+    )
+    assert [event.operation for event in line_events] == [
+        RecordAuditOperation.DELETE
+    ]
+    assert all(
+        change.before_present and not change.after_present
+        for change in line_events[0].changes
+    )
 
 
 def test_versioned_delete_requires_and_checks_observed_version(runtime) -> None:
@@ -469,6 +523,31 @@ def test_commit_rejects_a_client_chosen_identity_for_a_new_collection_item(
 
     with pytest.raises((ValidationFailed, ImmutableFieldError)):
         records.commit(records.create("sales.Invoice", clerk, values), clerk)
+
+
+def test_collection_items_receive_a_stable_identity(runtime) -> None:
+    """A child row needs its own key in every repository.
+
+    Without one a commit cannot tell an edited line from a replaced one, and
+    per-child concurrency, audit and orphan handling have nothing to key on.
+    """
+
+    _, _, records, _ = runtime
+    clerk = context("user:clerk", "sales_clerk")
+    created = records.commit(
+        records.create("sales.Invoice", clerk, invoice_values()), clerk
+    )
+
+    edit = records.begin_edit("sales.Invoice", created["id"], clerk)
+    identities = [line.get("id") for line in edit.values["lines"]]
+    assert identities and all(identity is not None for identity in identities)
+
+    lines = deepcopy(list(edit.values["lines"]))
+    lines[0]["description"] = "Revised consulting"
+    edit.set("lines", lines)
+    updated = records.commit(edit, clerk)
+
+    assert [line["id"] for line in updated["lines"]] == identities
 
 
 def test_commit_updates_a_collection_item_loaded_from_the_record(runtime) -> None:

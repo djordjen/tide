@@ -194,6 +194,7 @@ class Repository(Protocol):
         expected_version: int | None,
         is_new: bool,
         row_criteria: tuple[str, ...] = (),
+        collections: tuple[DeleteCollection, ...] = (),
     ) -> dict[str, Any]: ...
 
     def delete(

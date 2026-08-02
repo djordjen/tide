@@ -384,7 +384,11 @@ class SQLAlchemyRepository:
         expected_version: int | None,
         is_new: bool,
         row_criteria: tuple[str, ...] = (),
+        collections: tuple[DeleteCollection, ...] = (),
     ) -> dict[str, Any]:
+        # Children are rows in their own table, so the database allocates their
+        # keys; only the document-shaped adapter has to assign them itself.
+        del collections
         expected_key = _primary_key(self.model.entity(entity))
         expected_version_field = _version_field(self.model.entity(entity))
         if primary_key != expected_key or version_field != expected_version_field:

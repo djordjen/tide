@@ -566,6 +566,7 @@ class RecordsService:
                     if session.is_new
                     else self.security.row_criteria(entity.name, write_operation)
                 ),
+                collections=_delete_collections(self.model),
             )
         except RowPolicyMismatch as error:
             raise AuthorizationError(
