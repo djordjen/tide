@@ -8,13 +8,15 @@ from decimal import Decimal
 from pathlib import Path
 import re
 from threading import Lock
-from typing import Any, Mapping
+from typing import Any, Mapping, TypeVar
 
 from textual import events, work
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
 from textual.containers import Horizontal
+from textual.css.query import NoMatches
 from textual.message import Message
+from textual.widget import Widget
 from textual.widgets import Button, DataTable, Footer, Header, Input, Select, Static
 
 from tide.compiler.normalized import (
@@ -47,6 +49,8 @@ from tide.tui.report import ReportPreviewScreen
 
 
 _CACHE_MISS = object()
+
+_WidgetT = TypeVar("_WidgetT", bound=Widget)
 
 
 class BrowseDataTable(DataTable[Any]):
@@ -849,8 +853,12 @@ class TideApp(App[None]):
                 ValueError("server returned an empty continuation batch")
             )
             return
+        table = self._browse_widget("#records", DataTable)
+        if table is None:
+            # The browse screen went away while this batch was in flight; that
+            # is not a load failure and must not leave an error on the status.
+            return
         try:
-            table = self.query_one("#records", DataTable)
             for row_key, cells in rendered_rows:
                 table.add_row(*cells, key=row_key)
         except Exception as error:
@@ -899,20 +907,40 @@ class TideApp(App[None]):
         self._update_record_controls()
         self._update_browse_status()
 
+    def _browse_widget(
+        self,
+        selector: str,
+        widget_type: type[_WidgetT],
+    ) -> _WidgetT | None:
+        """Return a browse widget, or ``None`` while the screen has none.
+
+        Browse batches are delivered from a worker thread, so an update can run
+        before compose mounts these widgets and after teardown removes them.
+        ``App.is_mounted`` takes a widget argument rather than answering that
+        question, so ask the DOM and accept absence as an ordinary outcome.
+        """
+
+        try:
+            return self.query_one(selector, widget_type)
+        except (NoMatches, ScreenStackError):
+            return None
+
     def _update_record_controls(self) -> None:
+        edit = self._browse_widget("#edit-record", Button)
+        delete = self._browse_widget("#delete-record", Button)
+        audit = self._browse_widget("#audit-history", Button)
+        if edit is None or delete is None or audit is None:
+            return
         has_records = bool(self._current_records)
-        self.query_one("#edit-record", Button).disabled = not (
-            has_records and self._edit_allowed
-        )
-        self.query_one("#delete-record", Button).disabled = not (
-            has_records and self._delete_allowed
-        )
-        self.query_one("#audit-history", Button).disabled = not (
-            has_records and self._audit_allowed
-        )
+        edit.disabled = not (has_records and self._edit_allowed)
+        delete.disabled = not (has_records and self._delete_allowed)
+        audit.disabled = not (has_records and self._audit_allowed)
         self._update_report_control(has_records)
 
     def _update_browse_status(self) -> None:
+        status = self._browse_widget("#browse-status", Static)
+        if status is None:
+            return
         count = len(self._current_records)
         noun = "record" if count == 1 else "records"
         if self._query_loading:
@@ -923,7 +951,7 @@ class TideApp(App[None]):
             state = "Scroll for more"
         else:
             state = "All available records loaded"
-        self.query_one("#browse-status", Static).update(
+        status.update(
             f"{count} {noun} loaded  ·  {state}  ·  "
             f"{self.source_label}{self._query_summary()}  ·  "
             "C create  E edit  V preview  R refresh"
@@ -937,9 +965,9 @@ class TideApp(App[None]):
         )
 
     def _prefetch_if_near_end(self) -> None:
-        if not self.is_mounted:
+        table = self._browse_widget("#records", DataTable)
+        if table is None:
             return
-        table = self.query_one("#records", DataTable)
         if table.max_scroll_y - table.scroll_y <= 2:
             self._request_next_batch()
 

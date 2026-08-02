@@ -169,6 +169,23 @@ def test_textual_invoice_browse_incrementally_loads_on_scroll(monkeypatch) -> No
     asyncio.run(exercise())
 
 
+def test_browse_updates_tolerate_a_screen_that_is_not_composed() -> None:
+    """Browse workers may deliver results when the browse widgets are absent.
+
+    ``_load_batch`` hops to a worker thread, so it can resume before compose
+    finishes or while the screen is being torn down. ``App.is_mounted`` takes a
+    widget argument and is not a boolean property, so testing it for truth never
+    skips anything; the browse updates have to tolerate a missing widget.
+    """
+
+    app = _demo_app(page_size=3)
+
+    app._apply_load_error(ValueError("connection reset"))
+    app._update_record_controls()
+    app._update_browse_status()
+    app._prefetch_if_near_end()
+
+
 def test_textual_browse_and_form_keep_actions_reachable_at_supported_sizes() -> None:
     for width, height in ((80, 24), (100, 30), (140, 40)):
         app = _demo_app(page_size=3)
@@ -1213,7 +1230,10 @@ def test_textual_stale_edit_reports_concurrency_conflict() -> None:
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             app.open_record(2)
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, RecordEditScreen),
+            )
             screen = app.screen
             assert isinstance(screen, RecordEditScreen)
 
@@ -1223,7 +1243,10 @@ def test_textual_stale_edit_reports_concurrency_conflict() -> None:
 
             screen.query_one("#field-currency", Input).value = "GBP"
             screen.action_save()
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, ConflictReviewScreen),
+            )
 
             review = app.screen
             assert isinstance(review, ConflictReviewScreen)
@@ -1242,15 +1265,21 @@ def test_textual_stale_edit_reports_concurrency_conflict() -> None:
             assert not review.query_one("#use-draft-conflict", Button).disabled
 
             await pilot.click("#keep-conflict-draft")
-            await pilot.pause()
-            assert app.screen is screen
+            await _wait_until(pilot, lambda: app.screen is screen)
             message = str(screen.query_one("#form-message", Static).content)
             assert "draft remains open and unsaved" in message
 
             screen.action_save()
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, ConflictReviewScreen),
+            )
             await pilot.click("#reload-conflict-record")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, RecordEditScreen)
+                and app.screen is not screen,
+            )
 
             reloaded = app.screen
             assert isinstance(reloaded, RecordEditScreen)
@@ -1382,7 +1411,10 @@ def test_textual_stale_edit_does_not_rebase_fields_locked_by_new_workflow_state(
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             app.open_record(2)
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, RecordEditScreen),
+            )
             screen = app.screen
             assert isinstance(screen, RecordEditScreen)
 
@@ -1399,13 +1431,19 @@ def test_textual_stale_edit_does_not_rebase_fields_locked_by_new_workflow_state(
 
             screen.query_one("#field-currency", Input).value = "GBP"
             screen.action_save()
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, ConflictReviewScreen),
+            )
             review = app.screen
             assert isinstance(review, ConflictReviewScreen)
             assert review.conflict.rebase_fields == ("currency",)
 
             await pilot.click("#apply-conflict-resolution")
-            await pilot.pause()
+            await _wait_until(
+                pilot,
+                lambda: isinstance(app.screen, RecordEditScreen),
+            )
             reloaded = app.screen
             assert isinstance(reloaded, RecordEditScreen)
             assert not reloaded.query("#field-currency")

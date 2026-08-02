@@ -260,15 +260,18 @@ def test_remote_textual_delete_uses_the_secured_http_facade() -> None:
                 tide_app.query_one("#browse-view", Select).value = (
                     "catalog.Product.browse"
                 )
-                await pilot.pause()
                 table = tide_app.query_one("#records", DataTable)
+                # The cursor must land on a loaded row, so wait for the browse
+                # query to deliver every product before selecting one.
+                await _wait_until(pilot, lambda: table.row_count == 4)
                 table.move_cursor(row=3)
                 await pilot.click("#delete-record")
-                await pilot.pause()
-                assert isinstance(tide_app.screen, DeleteConfirmationScreen)
+                await _wait_until(
+                    pilot,
+                    lambda: isinstance(tide_app.screen, DeleteConfirmationScreen),
+                )
                 await pilot.click("#confirm-delete")
-                await pilot.pause()
-                assert table.row_count == 3
+                await _wait_until(pilot, lambda: table.row_count == 3)
 
             with pytest.raises(TideApiClientError) as missing:
                 client.get_record("catalog.Product", created.values["id"])
