@@ -88,8 +88,14 @@ identity, operation, mutation source (`user`, `action`, or `system`), principal,
 channel, correlation identifier, timestamp, and changed fields. An update made
 inside a domain action therefore shares that action's correlation identifier.
 Failed validation, authorization, concurrency, and repository operations do not
-write success events. Cascade child-row details are not yet expanded into
-separate events.
+write success events.
+
+A delete also writes one event per row removed by a cascade. The repository
+reports what it actually touched rather than the service inferring it from the
+copy it loaded, because that copy is depth- and policy-bounded and would
+under-report. Cascaded rows are audited under the deleting principal, whose
+authority over the target record is what permitted their removal; rows a
+`set_null` reference merely rewrites are not yet recorded.
 
 Field metadata controls detail capture:
 

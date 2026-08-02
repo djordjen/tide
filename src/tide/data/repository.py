@@ -101,6 +101,20 @@ class DeleteCollection:
     child_primary_key: str
 
 
+@dataclass(frozen=True, slots=True)
+class DeletedRecord:
+    """One row a delete removed, including rows it reached through a cascade.
+
+    Only the repository knows what a delete actually touched: the caller's
+    loaded copy is bounded and policy-filtered, so auditing from it would
+    under-report. Reporting removals keeps the trail complete.
+    """
+
+    entity: str
+    identity: Any
+    values: Mapping[str, Any]
+
+
 FILTER_OPERATORS = frozenset(
     {"eq", "ne", "lt", "lte", "gt", "gte", "contains", "icontains"}
 )
@@ -208,4 +222,4 @@ class Repository(Protocol):
         row_criteria: tuple[str, ...] = (),
         references: tuple[DeleteReference, ...] = (),
         collections: tuple[DeleteCollection, ...] = (),
-    ) -> None: ...
+    ) -> tuple[DeletedRecord, ...]: ...

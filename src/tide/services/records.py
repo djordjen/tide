@@ -192,7 +192,7 @@ class RecordsService:
             operations=("delete",),
         )
         try:
-            self.repository.delete(
+            removed = self.repository.delete(
                 entity_name,
                 identity,
                 primary_key=_primary_key(entity),
@@ -207,6 +207,20 @@ class RecordsService:
                 f"{context.principal.identifier!r} may not delete this "
                 f"{entity_name} record"
             ) from error
+        for record in removed:
+            if record.entity == entity_name and record.identity == identity:
+                # Prefer the authorized copy already loaded for the target: it
+                # carries the hydrated relationships the repository row lacks.
+                continue
+            self._record_audit(
+                self.model.entity(record.entity),
+                RecordAuditOperation.DELETE,
+                record.identity,
+                record.values,
+                {},
+                context,
+                MutationSource.USER,
+            )
         self._record_audit(
             entity,
             RecordAuditOperation.DELETE,

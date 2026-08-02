@@ -10,6 +10,7 @@ from tide.compiler.expressions import evaluate_expression
 from tide.data.repository import (
     DeleteCollection,
     DeleteReference,
+    DeletedRecord,
     QuerySpec,
     RelationshipLoadPlan,
     RowPolicyMismatch,
@@ -185,7 +186,7 @@ class InMemoryRepository:
         row_criteria: tuple[str, ...] = (),
         references: tuple[DeleteReference, ...] = (),
         collections: tuple[DeleteCollection, ...] = (),
-    ) -> None:
+    ) -> tuple[DeletedRecord, ...]:
         with self._lock:
             current = next(
                 (
@@ -206,6 +207,7 @@ class InMemoryRepository:
             if version_field and expected_version != actual_version:
                 raise ConcurrencyError(expected_version, actual_version)
 
+            removed = self._removed_records(entity, identity, current, collections)
             snapshot = deepcopy(self._records)
             try:
                 self._delete_entity(
@@ -218,6 +220,7 @@ class InMemoryRepository:
             except Exception:
                 self._records = snapshot
                 raise
+            return removed
 
     def _delete_entity(
         self,
@@ -285,6 +288,48 @@ class InMemoryRepository:
                         child for child in children if isinstance(child, dict)
                     )
         return records
+
+    def _removed_records(
+        self,
+        entity: str,
+        identity: Any,
+        record: Mapping[str, Any],
+        collections: tuple[DeleteCollection, ...],
+    ) -> tuple[DeletedRecord, ...]:
+        """Report a record and every embedded child that dies with it.
+
+        Children live inside the parent here, so removing the parent destroys
+        them without the reference cascade ever running. They still have to be
+        reported, or the same delete would leave a different trail than it does
+        against a relational schema.
+        """
+
+        removed: list[DeletedRecord] = []
+        for collection in collections:
+            if collection.parent_entity != entity:
+                continue
+            children = record.get(collection.parent_field)
+            if not isinstance(children, list):
+                continue
+            for child in children:
+                if not isinstance(child, Mapping):
+                    continue
+                removed.extend(
+                    self._removed_records(
+                        collection.child_entity,
+                        child.get(collection.child_primary_key),
+                        child,
+                        collections,
+                    )
+                )
+        removed.append(
+            DeletedRecord(
+                entity=entity,
+                identity=identity,
+                values=deepcopy(dict(record)),
+            )
+        )
+        return tuple(removed)
 
     def _assign_collection_identities(
         self,

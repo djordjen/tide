@@ -43,6 +43,7 @@ from tide.compiler.normalized import ApplicationModel, NormalizedEntity, Normali
 from tide.data.repository import (
     DeleteCollection,
     DeleteReference,
+    DeletedRecord,
     FilterCondition,
     QuerySpec,
     RelationshipLoadPlan,
@@ -414,8 +415,9 @@ class SQLAlchemyRepository:
         row_criteria: tuple[str, ...] = (),
         references: tuple[DeleteReference, ...] = (),
         collections: tuple[DeleteCollection, ...] = (),
-    ) -> None:
+    ) -> tuple[DeletedRecord, ...]:
         del collections
+        removed: list[DeletedRecord] = []
         normalized = self.model.entity(entity)
         expected_key = _primary_key(normalized)
         expected_version_field = _version_field(normalized)
@@ -469,6 +471,7 @@ class SQLAlchemyRepository:
                     identity,
                     references=references,
                     visited=set(),
+                    removed=removed,
                     root_criteria=root_criteria,
                     expected_version=expected_version,
                 )
@@ -476,6 +479,7 @@ class SQLAlchemyRepository:
             raise
         except IntegrityError as error:
             raise DeleteRestricted(entity, identity) from error
+        return tuple(removed)
 
     def dispose(self) -> None:
         self.engine.dispose()
@@ -488,6 +492,7 @@ class SQLAlchemyRepository:
         *,
         references: tuple[DeleteReference, ...],
         visited: set[tuple[str, Any]],
+        removed: list[DeletedRecord],
         root_criteria: ColumnElement[bool] | None = None,
         expected_version: int | None = None,
     ) -> None:
@@ -525,6 +530,7 @@ class SQLAlchemyRepository:
                     related_identity,
                     references=references,
                     visited=visited,
+                    removed=removed,
                 )
 
         normalized = self.model.entity(entity)
@@ -535,7 +541,17 @@ class SQLAlchemyRepository:
             if root_criteria is not None
             else table.c[primary_key] == identity
         )
+        # Read the row before it goes, so the caller can audit what was lost.
+        doomed = connection.execute(select(table).where(criteria)).mappings().first()
         result = connection.execute(delete(table).where(criteria))
+        if result.rowcount == 1:
+            removed.append(
+                DeletedRecord(
+                    entity=entity,
+                    identity=identity,
+                    values=dict(doomed) if doomed is not None else {},
+                )
+            )
         if result.rowcount == 1 or root_criteria is None:
             return
         version_field = _version_field(normalized)
