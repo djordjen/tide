@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 from decimal import Decimal
-import os
 from pathlib import Path
 import threading
 import time
@@ -12,7 +11,6 @@ from typing import Any
 import pytest
 
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QPoint, QSettings, Qt
