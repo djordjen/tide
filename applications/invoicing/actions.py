@@ -6,8 +6,9 @@ mutable mapping makes its transaction-independent business behavior testable now
 
 from __future__ import annotations
 
+from collections.abc import MutableMapping
 from datetime import datetime, timezone
-from typing import Any, MutableMapping
+from typing import Any
 
 
 class PostingError(ValueError):
