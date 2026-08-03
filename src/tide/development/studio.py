@@ -270,9 +270,9 @@ class StudioViewPreview(StudioModel):
     effective_permissions: tuple[str, ...]
     width: int
     height: int
-    minimum_width: int
-    minimum_height: int
-    content_width: int
+    minimum_width: int | None = None
+    minimum_height: int | None = None
+    content_width: int | None = None
     fit: Literal["fits", "constrained", "blocked"]
     access: tuple[StudioPreviewAccess, ...]
     fields: tuple[StudioPreviewField, ...]
@@ -629,18 +629,18 @@ class StudioService:
             warnings.append(
                 f"Role {role or '(no role)'} cannot open this {structure.kind} view."
             )
-        if width < minimum_width:
+        if minimum_width is not None and width < minimum_width:
             warnings.append(
                 f"Width {width} is below the declared minimum of {minimum_width}."
             )
-        elif content_width > width:
+        elif content_width is not None and content_width > width:
             warnings.append(
-                f"Content is approximately {content_width} columns wide; horizontal "
+                f"Content is {content_width} columns wide; horizontal "
                 "scrolling or compression is required."
             )
-        if height < minimum_height:
+        if minimum_height is not None and height < minimum_height:
             warnings.append(
-                f"Height {height} is below the estimated minimum of {minimum_height}."
+                f"Height {height} is below the declared minimum of {minimum_height}."
             )
         row_policy_count = sum(
             policy.get("entity") == entity.name for policy in model.row_policies
@@ -659,7 +659,9 @@ class StudioService:
             )
         if not exposed or not required_access:
             fit: Literal["fits", "constrained", "blocked"] = "blocked"
-        elif width < minimum_width or height < minimum_height:
+        elif (minimum_width is not None and width < minimum_width) or (
+            minimum_height is not None and height < minimum_height
+        ):
             fit = "constrained"
         else:
             fit = "fits"
@@ -2080,66 +2082,58 @@ def _preview_actions(
 def _preview_widths(
     view: ResolvedView,
     structure: StudioViewStructure,
-) -> tuple[int, int]:
+) -> tuple[int | None, int | None]:
+    """Return the declared minimum width and content width, or ``None``.
+
+    Nothing outside Studio reads ``surfaces.tui``, so these are the author's own
+    assertions rather than anything the runtime enforces -- which is exactly why
+    Studio must not invent them. It previously fell back to 80 or 60 columns and
+    assumed 14 for every unconfigured column, then reported both as fact. The
+    terminal auto-sizes a column with no declared width, so a content estimate is
+    only meaningful when every displayed column declares one.
+    """
+
     surfaces = view.data.get("surfaces", {})
     tui = surfaces.get("tui", {}) if isinstance(surfaces, Mapping) else {}
     declared = tui.get("minimum_width") if isinstance(tui, Mapping) else None
-    minimum = int(declared) if isinstance(declared, int) else (
-        80 if structure.kind in {"form", "inline_edit"} else 60
-    )
-    if structure.kind in {"browse", "lookup"}:
-        field_settings = view.data.get("fields", {})
-        widths = []
-        for name in view.data.get("columns", ()):
-            configuration = (
-                field_settings.get(name, {})
-                if isinstance(field_settings, Mapping)
-                else {}
-            )
-            configured = (
-                configuration.get("width")
-                if isinstance(configuration, Mapping)
-                else None
-            )
-            widths.append(int(configured) if isinstance(configured, int) else 14)
-        content = max(minimum, sum(widths) + max(0, len(widths) - 1) * 3 + 4)
-    else:
-        content = minimum
-    return minimum, content
+    minimum = int(declared) if isinstance(declared, int) else None
+    if structure.kind not in {"browse", "lookup"}:
+        return minimum, None
+
+    field_settings = view.data.get("fields", {})
+    widths: list[int] = []
+    for name in view.data.get("columns", ()):
+        configuration = (
+            field_settings.get(name, {})
+            if isinstance(field_settings, Mapping)
+            else {}
+        )
+        configured = (
+            configuration.get("width") if isinstance(configuration, Mapping) else None
+        )
+        if not isinstance(configured, int):
+            return minimum, None
+        widths.append(configured)
+    if not widths:
+        return minimum, None
+    return minimum, sum(widths) + max(0, len(widths) - 1) * 3 + 4
 
 
 def _preview_minimum_height(
     view: ResolvedView,
     structure: StudioViewStructure,
-) -> int:
+) -> int | None:
+    """Return the declared minimum height, or ``None``.
+
+    The previous estimate summed invented per-section costs onto an invented
+    floor and called the total an estimated minimum. No renderer refuses to draw
+    at any height, so there was nothing for it to be an estimate of.
+    """
+
     surfaces = view.data.get("surfaces", {})
     tui = surfaces.get("tui", {}) if isinstance(surfaces, Mapping) else {}
     declared = tui.get("minimum_height") if isinstance(tui, Mapping) else None
-    if isinstance(declared, int):
-        return declared
-    if structure.kind in {"browse", "lookup"}:
-        return 16
-    if structure.kind == "inline_edit":
-        return 12
-    collection_height = (
-        int(tui.get("collection_height", 10))
-        if isinstance(tui, Mapping)
-        else 10
-    )
-    section_costs: dict[str, int] = {}
-    tabbed = any(section.tab for section in structure.sections)
-    for section in view.data.get("layout", ()):
-        if not isinstance(section, Mapping):
-            continue
-        tab = str(section.get("tab") or "General") if tabbed else "all"
-        if "collection" in section:
-            cost = collection_height
-        else:
-            rows = section.get("rows", ())
-            cost = len(rows) if isinstance(rows, (list, tuple)) else 0
-        section_costs[tab] = section_costs.get(tab, 0) + cost
-    content_height = max(section_costs.values(), default=4)
-    return max(16, 8 + content_height + (1 if tabbed else 0))
+    return int(declared) if isinstance(declared, int) else None
 
 
 def _preview_required_access(

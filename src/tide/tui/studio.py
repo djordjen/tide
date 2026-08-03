@@ -2375,11 +2375,22 @@ def _action_label(name: str) -> str:
     return name.replace("_", " ").title()
 
 
+def _studio_preview_minimum(preview: StudioViewPreview) -> str:
+    """Describe declared minimums, or say plainly that none were declared."""
+
+    parts = []
+    if preview.minimum_width is not None:
+        parts.append(f"width {preview.minimum_width}")
+    if preview.minimum_height is not None:
+        parts.append(f"height {preview.minimum_height}")
+    return "minimum " + " × ".join(parts) if parts else "no declared minimum"
+
+
 def _studio_preview_summary(preview: StudioViewPreview) -> str:
     role = preview.role or "(no role)"
     return (
         f"{role} · {preview.width} × {preview.height} · {preview.fit.upper()} · "
-        f"minimum {preview.minimum_width} × {preview.minimum_height} · "
+        f"{_studio_preview_minimum(preview)} · "
         f"{len(preview.effective_permissions)} effective permission(s)\n"
         "Static metadata/security preview only · no records, database, or application code"
     )

@@ -3,7 +3,14 @@
 ## Principle
 
 Designers edit metadata and overlays, not generated source code. A preview uses
-the same compiler and renderer as the deployed application.
+the same compiler and the same layout resolution as the deployed renderers --
+`presentation.py` decides its sections, columns and labels, so a preview cannot
+show an arrangement no renderer produces. It draws that arrangement on its own
+text canvas rather than through Textual or Qt, so it is not a claim about pixels.
+
+Studio reports a size warning only where the view declares one. `surfaces.tui`
+is read by Studio alone; no renderer enforces it, so a minimum width, height, or
+column width that nobody declared is not something Studio may invent.
 
 Generated browses, forms, lookups, and basic reports must work before visual
 designers exist. Building designers after metadata contracts stabilize avoids

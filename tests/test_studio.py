@@ -623,8 +623,11 @@ def test_studio_service_previews_roles_and_terminal_constraints_without_data() -
     )
 
     assert clerk.fit == "fits"
+    # The view declares minimum_width; it declares no minimum_height, and Studio
+    # no longer invents one -- nothing outside Studio reads surfaces.tui, and no
+    # renderer refuses to draw at any height.
     assert clerk.minimum_width == 100
-    assert clerk.minimum_height == 26
+    assert clerk.minimum_height is None
     assert clerk.available_roles == (
         "auditor",
         "invoice_poster",
@@ -676,8 +679,9 @@ def test_studio_service_previews_roles_and_terminal_constraints_without_data() -
     assert summary.fit == "constrained"
     assert summary_fields["lines"].status == "protected"
     assert summary_fields["posted_by"].status == "protected"
-    assert any("declared minimum" in warning for warning in summary.warnings)
-    assert any("estimated minimum" in warning for warning in summary.warnings)
+    assert any("declared minimum of 100" in warning for warning in summary.warnings)
+    assert not any("minimum" in warning.lower() and "height" in warning.lower()
+                   for warning in summary.warnings)
 
     blocked = service.preview_view(form, role=None, width=100, height=30)
     assert blocked.fit == "blocked"
@@ -693,8 +697,10 @@ def test_studio_service_previews_roles_and_terminal_constraints_without_data() -
         height=24,
     )
     assert customer.fit == "fits"
-    assert customer.content_width > customer.width
-    assert any("horizontal scrolling" in warning for warning in customer.warnings)
+    # `active` declares no width, so the terminal auto-sizes it and there is no
+    # honest total to compare against. Studio used to assume 14 and warn anyway.
+    assert customer.content_width is None
+    assert not any("horizontal scrolling" in warning for warning in customer.warnings)
     assert any("row policy" in warning for warning in customer.warnings)
     assert all(field.status == "read_only" for field in customer.fields)
     denied_customer = service.preview_view(
@@ -1775,3 +1781,22 @@ def test_the_studio_preview_shows_the_sections_a_renderer_shows() -> None:
     ]
 
     assert [(section.kind, section.label) for section in preview.sections] == expected
+
+
+def test_the_studio_preview_measures_content_only_when_every_width_is_declared() -> None:
+    """`catalog.Product.lookup` declares a width for all three columns.
+
+    That total is real, so the warning is too. `crm.Customer.browse` leaves one
+    column to the terminal, and Studio no longer fills the gap with a guess.
+    """
+
+    service = StudioService(INVOICING)
+    lookup = service.preview_view(
+        DesignerDocumentReference(kind="view", name="catalog.Product.lookup"),
+        role="sales_clerk",
+        width=50,
+        height=24,
+    )
+
+    assert lookup.content_width == 12 + 36 + 14 + 2 * 3 + 4
+    assert any("horizontal scrolling" in warning for warning in lookup.warnings)
