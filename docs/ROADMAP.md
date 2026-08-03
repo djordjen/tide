@@ -261,10 +261,12 @@ an invoice entirely by keyboard or mouse.
   CSV/HTML/PDF export are implemented** through the server-built
   renderer-neutral document and authorized export routes
 - executable renderer acceptance matrix for shared TUI/Qt/Web semantics;
-  **implemented** with a versioned YAML matrix, compiled Invoicing golden
-  contract, safe Web-projection comparison, and CI-verified evidence links;
+  **implemented** with a versioned YAML matrix, a compiled Invoicing golden
+  contract resolved through each renderer's own entry point, and evidence links
+  resolved by importing the named test rather than matching its source text;
   the matrix records the closed Web scalar-lookup, master-detail, conflict,
-  action, and report gaps explicitly
+  action, and report gaps explicitly, and its own checks are exercised against
+  deliberately broken input
 
 Exit condition: TUI, REST, and MCP produce equivalent secured outcomes through
 the same services.

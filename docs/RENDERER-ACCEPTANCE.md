@@ -12,11 +12,18 @@ The versioned source is
 
 - every capability has an explicit Textual, Qt, and Web status;
 - every **covered** cell points to a real automated test;
-- all **parity** capabilities are covered by all three renderers;
-- the golden Invoicing navigation, browse columns/alignment, and form
-  sections still match the compiled `ApplicationModel`; and
-- the authenticated Web presentation projection preserves that golden
-  renderer-neutral contract.
+- all **parity** capabilities are covered by all three renderers; and
+- each renderer, asked through **its own** entry point, resolves the golden
+  Invoicing navigation, browse columns/alignment, and form sections recorded in
+  the matrix.
+
+That last check is the one that catches drift. It does not read the shared
+`tide.presentation` helpers and call the answer parity: it builds a `TideApp`
+and a `RecordEditScreen` for the TUI, a `QtBrowseController` for Qt, and a
+presentation manifest for the Web, then compares what each one resolved. A
+renderer that quietly forks its own layout resolution stops matching, which is
+how three separate label helpers and two computed-field previews were able to
+diverge unnoticed before.
 
 Run the executable matrix checks with:
 
@@ -24,9 +31,31 @@ Run the executable matrix checks with:
 .\.venv\Scripts\python.exe -m pytest tests/test_renderer_acceptance.py -q
 ```
 
-The referenced evidence then runs through the normal Python and Web CI jobs.
-Tests marked `python-gui` require the optional PySide6 GUI dependency; the same
-semantic presenter behavior also has headless Qt coverage where practical.
+### What the checks can and cannot see
+
+Evidence for a `python` or `python-gui` runner is resolved by **importing** the
+module and looking the test function up on it. A regex over the source proves
+only that the characters are present: a module that no longer imports, a test
+that moved inside a class, and a `def` sitting in a docstring all read the same
+to a text search, and none of them can be run.
+
+Three limits are deliberate and recorded rather than hidden:
+
+- Evidence for the `web` runner stays a source match. Vitest owns those tests
+  and the Python suite cannot ask it what ran, so this is the one evidence class
+  the matrix still takes on trust.
+- `python-gui` evidence skips where the optional PySide6 extra is absent. The
+  Windows CI job installs it and asserts the import separately, so the matrix is
+  verified on every push; the Linux job cannot and does not pretend to.
+- Qt resolves its navigation inside the widget layer, which needs a live
+  `QApplication`, so the golden contract compares Qt's browse and form
+  resolution only. `test_qt_application_navigation_preserves_visited_workspace_state`
+  covers navigation there.
+
+Every check above is itself exercised with deliberately broken input — a cell
+claiming coverage without evidence, a regressed parity status, a renamed
+selector, a renderer whose columns drift — because a guarantee nobody has
+watched fail is not a guarantee.
 
 ## Current parity baseline
 
