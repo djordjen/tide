@@ -457,6 +457,7 @@ class SQLAlchemyRepository:
         is_new: bool,
         row_criteria: tuple[str, ...] = (),
         criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
+        references: tuple[DeleteReference, ...] = (),
         collections: tuple[DeleteCollection, ...] = (),
     ) -> dict[str, Any]:
         # Children are rows in their own table, so the database allocates their
@@ -475,6 +476,7 @@ class SQLAlchemyRepository:
                 is_new=is_new,
                 row_criteria=row_criteria,
                 criteria_parameters=criteria_parameters,
+                references=references,
             )
 
     def delete(
@@ -653,6 +655,7 @@ class SQLAlchemyRepository:
         is_new: bool,
         row_criteria: tuple[str, ...] = (),
         criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
+        references: tuple[DeleteReference, ...] = (),
     ) -> dict[str, Any]:
         entity = self.model.entity(entity_name)
         table = self.table(entity_name)
@@ -723,6 +726,7 @@ class SQLAlchemyRepository:
                 field,
                 identity,
                 values.get(field_name) or [],
+                references=references,
             )
         return self._get(connection, entity_name, identity)
 
@@ -733,6 +737,8 @@ class SQLAlchemyRepository:
         collection: NormalizedField,
         parent_identity: Any,
         items: Iterable[Mapping[str, Any]],
+        *,
+        references: tuple[DeleteReference, ...] = (),
     ) -> None:
         if collection.target_entity is None:
             return
@@ -770,16 +776,18 @@ class SQLAlchemyRepository:
             retained.add(stored[target_key])
 
         if collection.metadata.get("orphan_delete"):
-            orphaned = existing - retained
-            if orphaned:
-                # A bulk delete, so it does not run the child's own reference
-                # behaviour: a restrict pointing at this row surfaces as the
-                # database's integrity error rather than DeleteRestricted, and a
-                # child of its own is not cascaded. No shipped model has either,
-                # so the path is unexercised; routing it through _delete_entity
-                # needs the reference set threaded into write.
-                connection.execute(
-                    delete(target_table).where(target_table.c[target_key].in_(orphaned))
+            # Removing an orphan is a delete, so it runs the child's own
+            # reference contract. A bulk statement would let a `restrict`
+            # pointing at the row surface as the database's integrity error
+            # instead of DeleteRestricted.
+            for orphan in existing - retained:
+                self._delete_entity(
+                    connection,
+                    target.name,
+                    orphan,
+                    references=references,
+                    visited=set(),
+                    removed=[],
                 )
 
     def _get(

@@ -544,6 +544,7 @@ class RecordsService:
                 context,
             )
         self._enforce_changes(entity, session, context, source)
+        self._enforce_collection_changes(entity, session, context, source)
         values = deepcopy(session.values)
         input_issues = [
             *self._coerce_values(entity.name, values),
@@ -584,6 +585,7 @@ class RecordsService:
                     else self.security.row_criteria(entity.name, write_operation)
                 ),
                 criteria_parameters=self.security.policy_parameters(context),
+                references=_delete_references(self.model),
                 collections=_delete_collections(self.model),
             )
         except RowPolicyMismatch as error:
@@ -681,27 +683,88 @@ class RecordsService:
                 [ValidationIssue("unknown_field", f"unknown field {name!r}", (name,)) for name in sorted(unknown)]
             )
         for field_name in session.changed_fields:
-            field = entity.fields[field_name]
-            metadata = field.metadata
-            write_mode = metadata.get("write", "normal")
-            if source is not MutationSource.SYSTEM and metadata.get("primary_key"):
-                raise ImmutableFieldError(field_name, "primary keys are system-owned")
-            if source is MutationSource.USER and (metadata.get("readonly") or write_mode != "normal"):
-                raise ImmutableFieldError(field_name, f"write mode is {write_mode}")
-            if source is MutationSource.ACTION and write_mode == "system":
-                raise ImmutableFieldError(field_name, "field is system-owned")
-            if (
-                source is MutationSource.ACTION
-                and metadata.get("readonly")
-                and write_mode == "normal"
-                and not metadata.get("computed")
-            ):
-                raise ImmutableFieldError(field_name, "readonly field is not action-owned")
-            if source is not MutationSource.SYSTEM and not self.security.can_write_field(entity.name, field_name, context):
-                raise AuthorizationError(f"field {field_name!r} is not writable")
-            immutable_when = metadata.get("immutable_when")
+            self._enforce_field_write(entity, field_name, context, source)
+            immutable_when = entity.fields[field_name].metadata.get("immutable_when")
             if immutable_when and bool(evaluate_expression(immutable_when, session.original)):
                 raise ImmutableFieldError(field_name, f"condition {immutable_when!r} is true")
+
+    def _enforce_field_write(
+        self,
+        entity: NormalizedEntity,
+        field_name: str,
+        context: RequestContext,
+        source: MutationSource,
+    ) -> None:
+        """Check that this mutation source may write this field at all."""
+
+        metadata = entity.fields[field_name].metadata
+        write_mode = metadata.get("write", "normal")
+        if source is not MutationSource.SYSTEM and metadata.get("primary_key"):
+            raise ImmutableFieldError(field_name, "primary keys are system-owned")
+        if source is MutationSource.USER and (metadata.get("readonly") or write_mode != "normal"):
+            raise ImmutableFieldError(field_name, f"write mode is {write_mode}")
+        if source is MutationSource.ACTION and write_mode == "system":
+            raise ImmutableFieldError(field_name, "field is system-owned")
+        if (
+            source is MutationSource.ACTION
+            and metadata.get("readonly")
+            and write_mode == "normal"
+            and not metadata.get("computed")
+        ):
+            raise ImmutableFieldError(field_name, "readonly field is not action-owned")
+        if source is not MutationSource.SYSTEM and not self.security.can_write_field(entity.name, field_name, context):
+            raise AuthorizationError(f"field {field_name!r} is not writable")
+
+    def _enforce_collection_changes(
+        self,
+        entity: NormalizedEntity,
+        session: RecordSession,
+        context: RequestContext,
+        source: MutationSource,
+    ) -> None:
+        """Apply the same write rules to the items inside a collection.
+
+        A child declares its own readonly, write-mode and field-policy rules,
+        and nothing evaluated them: enforcement read only the owning record's
+        changed fields. Comparison is against the child as loaded, because every
+        renderer sends a collection back whole -- echoing a value the caller may
+        not write is not an attempt to write it.
+
+        `immutable_when` is deliberately not evaluated here. A child rule
+        routinely addresses its parent (`invoice.status != 'draft'`), which is a
+        scalar foreign key in this context rather than a record, so evaluating
+        it would raise. The owning record's own rule already covers that case.
+        """
+
+        for field_name, field in entity.fields.items():
+            if field.metadata.get("type") != "collection" or not field.target_entity:
+                continue
+            items = session.values.get(field_name)
+            if not isinstance(items, list):
+                continue
+            target = self.model.entity(field.target_entity)
+            key = _primary_key(target)
+            loaded = {
+                item[key]: item
+                for item in (session.original.get(field_name) or ())
+                if isinstance(item, Mapping) and item.get(key) is not None
+            }
+            for item in items:
+                if not isinstance(item, Mapping):
+                    continue
+                original = loaded.get(item.get(key), {})
+                for child_field, value in item.items():
+                    if child_field == key or child_field not in target.fields:
+                        continue
+                    if child_field in original and original[child_field] == value:
+                        continue
+                    if target.fields[child_field].metadata.get("computed"):
+                        # Recomputed on the way in, so a supplied value cannot
+                        # take effect. Renderers preview these totals in the
+                        # inline editor and send them back; refusing would
+                        # reject a value that was never going to be stored.
+                        continue
+                    self._enforce_field_write(target, child_field, context, source)
 
     def _collection_membership_issues(
         self,

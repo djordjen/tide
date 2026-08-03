@@ -1,0 +1,10 @@
+# Contract fixture: the master-detail shapes the invoicing application lacks.
+#
+# Invoicing has one writable collection whose child owns no field policy, no
+# system-written field, no collection of its own, and nothing referencing it.
+# Those four gaps are exactly where nested-write and orphan-delete behaviour
+# could not be tested, so this application supplies each of them.
+schema_version: "0.1"
+application: {name: Inspection, version: 0.1.0}
+model: {paths: [models]}
+security: {paths: [security]}

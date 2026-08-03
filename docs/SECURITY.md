@@ -81,6 +81,13 @@ sends it as a bound parameter, and the criteria string in the compiled model
 stays exactly what the author wrote. A caller cannot influence the binding —
 it comes from the authenticated `RequestContext`, not from request input.
 
+A collection item is subject to its own field rules. `readonly`, `write` mode,
+and field policies declared on the child entity are enforced when that child is
+committed through its parent, so a caller cannot reach a guarded or
+system-written child field by nesting it. Enforcement compares against the child
+as loaded: sending an unchanged value back is not a write, which is what every
+renderer does when it returns a collection whole.
+
 Collection relationships require source-field read access and target-entity
 read access. Target row criteria are part of the child database statement and
 supported root aggregate/reference predicates. The service rechecks returned

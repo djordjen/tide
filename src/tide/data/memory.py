@@ -146,6 +146,7 @@ class InMemoryRepository:
         is_new: bool,
         row_criteria: tuple[str, ...] = (),
         criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
+        references: tuple[DeleteReference, ...] = (),
         collections: tuple[DeleteCollection, ...] = (),
     ) -> dict[str, Any]:
         with self._lock:

@@ -1,0 +1,22 @@
+entity: inspect.Reading
+label: Readings
+display: label
+
+permissions:
+  list: inspect.read
+  read: inspect.read
+  create: inspect.write
+  update: inspect.write
+
+fields:
+  id:    {type: integer, primary_key: true}
+  label: {type: string, length: 40, required: true}
+  value: {type: decimal, precision: 10, scale: 2, required: true}
+
+  step:
+    type: reference
+    target: inspect.Step
+    storage: step_id
+    inverse: readings
+    required: true
+    on_delete: cascade

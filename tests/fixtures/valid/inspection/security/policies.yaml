@@ -1,0 +1,21 @@
+permissions:
+  - inspect.read
+  - inspect.write
+  - inspect.note.write
+
+roles:
+  inspector:
+    grants:
+      - inspect.read
+      - inspect.write
+
+  lead:
+    grants:
+      - inspect.read
+      - inspect.write
+      - inspect.note.write
+
+field_policies:
+  - entity: inspect.Step
+    field: note
+    write: inspect.note.write
