@@ -29,7 +29,6 @@ from textual.widgets import (
     TabPane,
 )
 
-from tide.compiler.expressions import evaluate_expression
 from tide.compiler.normalized import (
     ApplicationModel,
     NormalizedEntity,
@@ -39,6 +38,9 @@ from tide.compiler.normalized import (
 from tide.data import QuerySpec
 from tide.presentation import (
     preview_computed_fields,
+    action_label,
+    action_state,
+    field_is_immutable,
     browse_columns,
     field_label,
     FormLayoutSection,
@@ -556,7 +558,7 @@ class RecordEditScreen(Screen[Any]):
             )
         action = self.entity.actions[action_name]
         return Button(
-            str(action.get("label") or action_name.replace("_", " ").title()),
+            action_label(action_name, action),
             id=_record_action_button_id(action_name),
             variant="success" if action_name == "post" else "default",
         )
@@ -1094,10 +1096,7 @@ class RecordEditScreen(Screen[Any]):
             self.context,
         ):
             return False
-        immutable_when = metadata.get("immutable_when")
-        return not (
-            immutable_when and bool(evaluate_expression(str(immutable_when), original))
-        )
+        return not _field_is_immutable(field, original)
 
     def _collection_is_editable(self) -> bool:
         if self.collection_name is None or self._collection_protected:
@@ -1132,6 +1131,14 @@ class RecordEditScreen(Screen[Any]):
             return str(value).replace("_", " ").title()
         return str(value)
 
+    def _action_values(self) -> dict[str, Any]:
+        """Return the draft an action condition is evaluated against."""
+
+        values = deepcopy(self.session.values)
+        if self.collection_name is not None:
+            values[self.collection_name] = deepcopy(self.lines)
+        return values
+
     def _update_actions(self) -> None:
         editable = bool(self._editors) or self._collection_is_editable()
         save_buttons = list(self.query("#save-form"))
@@ -1147,23 +1154,9 @@ class RecordEditScreen(Screen[Any]):
                 action,
                 self.context,
             )
-            condition = action.get("enabled_when")
-            if condition:
-                values = deepcopy(self.session.values)
-                if self.collection_name is not None:
-                    values[self.collection_name] = deepcopy(self.lines)
-                can_execute = can_execute and bool(
-                    evaluate_expression(condition, values)
-                )
-            action_buttons[0].disabled = not can_execute
-            visible_when = action.get("visible_when")
-            if visible_when:
-                values = deepcopy(self.session.values)
-                if self.collection_name is not None:
-                    values[self.collection_name] = deepcopy(self.lines)
-                action_buttons[0].display = bool(
-                    evaluate_expression(visible_when, values)
-                )
+            state = _action_state(action, self._action_values())
+            action_buttons[0].disabled = not (can_execute and state.enabled)
+            action_buttons[0].display = state.visible
         if self.collection_name is not None:
             collection_editable = self._collection_is_editable()
             for action_name in self.collection_action_order:
@@ -1292,6 +1285,10 @@ class RecordEditScreen(Screen[Any]):
         except TideRuntimeError:
             return
 
+
+
+_action_state = action_state
+_field_is_immutable = field_is_immutable
 
 def _field_is_hidden(view: ResolvedView, name: str) -> bool:
     return view_field_hidden(view, name)

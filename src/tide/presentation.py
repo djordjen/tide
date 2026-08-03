@@ -287,6 +287,72 @@ def field_label(field: NormalizedField) -> str:
     return str(field.metadata.get("label") or _humanize(field.name))
 
 
+def action_label(name: str, action: Mapping[str, Any]) -> str:
+    """Return the portable label for one metadata action."""
+
+    return str(action.get("label") or _humanize(name))
+
+
+@dataclass(frozen=True, slots=True)
+class ActionState:
+    """Whether a renderer may show one metadata action, and offer it."""
+
+    visible: bool
+    enabled: bool
+
+
+def action_state(
+    action: Mapping[str, Any],
+    values: Mapping[str, Any],
+) -> ActionState:
+    """Resolve one action's visibility and enablement against a record.
+
+    An action is enabled only while it is visible. The two conditions routinely
+    disagree -- ``visible_when: status == 'draft'`` beside ``enabled_when:
+    total > 0`` -- and the Textual adapter evaluated them independently, so a
+    posted invoice's hidden Post button still counted as enabled.
+
+    A condition that cannot be evaluated hides the action. This is presentation
+    predicting what the service will allow: predicting "yes" offers a button the
+    commit refuses, while predicting "no" merely withholds one it would have
+    accepted. Nothing here authorizes anything -- the service re-checks
+    ``enabled_when`` when the action runs.
+    """
+
+    try:
+        visible_when = action.get("visible_when")
+        visible = not visible_when or bool(
+            evaluate_expression(str(visible_when), values)
+        )
+        enabled_when = action.get("enabled_when")
+        enabled = visible and (
+            not enabled_when or bool(evaluate_expression(str(enabled_when), values))
+        )
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return ActionState(visible=False, enabled=False)
+    return ActionState(visible=visible, enabled=enabled)
+
+
+def field_is_immutable(
+    field: NormalizedField,
+    values: Mapping[str, Any],
+) -> bool:
+    """Return whether ``immutable_when`` currently locks this field.
+
+    A condition that cannot be evaluated locks the field, for the reason
+    ``action_state`` hides an action: the service decides, and withholding an
+    allowed edit is better than offering one the commit rejects.
+    """
+
+    condition = field.metadata.get("immutable_when")
+    if not condition:
+        return False
+    try:
+        return bool(evaluate_expression(str(condition), values))
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return True
+
+
 def field_alignment(
     field: NormalizedField,
     formats: Mapping[str, Mapping[str, Any]],

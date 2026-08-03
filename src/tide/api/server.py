@@ -68,7 +68,6 @@ from tide.api.wire import (
     wire_record as _wire_record,
 )
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
-from tide.compiler.expressions import evaluate_expression
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.observability import (
     CORRELATION_HEADER,
@@ -77,6 +76,7 @@ from tide.observability import (
     reset_correlation_id,
     resolve_correlation_id,
 )
+from tide.presentation import action_state, field_is_immutable
 from tide.runtime import (
     AuthorizationError,
     ActionDisabled,
@@ -1613,16 +1613,15 @@ def _record_writable_fields(
             or not records.security.can_write_field(entity.name, name, context)
         ):
             continue
-        immutable_when = field.metadata.get("immutable_when")
-        if immutable_when:
-            try:
-                if bool(evaluate_expression(str(immutable_when), values)):
-                    continue
-            except (AttributeError, KeyError, TypeError, ValueError):
-                continue
+        if _field_is_immutable(field, values):
+            continue
         result.append(name)
     return tuple(result)
 
+
+
+_action_state = action_state
+_field_is_immutable = field_is_immutable
 
 def _record_action_states(
     records: RecordsService,
@@ -1639,22 +1638,10 @@ def _record_action_states(
             or not records.security.can_execute_action(action, context)
         ):
             continue
-        try:
-            visible_when = action.get("visible_when")
-            visible = not visible_when or bool(
-                evaluate_expression(str(visible_when), values)
-            )
-            enabled_when = action.get("enabled_when")
-            enabled = visible and (
-                not enabled_when
-                or bool(evaluate_expression(str(enabled_when), values))
-            )
-        except (AttributeError, KeyError, TypeError, ValueError):
-            visible = False
-            enabled = False
+        state = _action_state(action, values)
         result[action_name] = {
-            "visible": visible,
-            "enabled": enabled,
+            "visible": state.visible,
+            "enabled": state.enabled,
         }
     return result
 

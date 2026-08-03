@@ -16,10 +16,12 @@ from tide.compiler.normalized import (
     NormalizedField,
     ResolvedView,
 )
-from tide.compiler.expressions import evaluate_expression
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.presentation import (
     preview_computed_fields,
+    action_label,
+    action_state,
+    field_is_immutable,
     browse_columns,
     BrowseNamedFilter,
     browse_named_filters,
@@ -1430,24 +1432,13 @@ class QtBrowseController:
         result: list[QtEditAction] = []
         for name in self._configured_form_action_names:
             metadata = self.entity.actions[name]
-            visible_when = metadata.get("visible_when")
-            visible = not visible_when or bool(
-                evaluate_expression(str(visible_when), values)
-            )
-            enabled_when = metadata.get("enabled_when")
-            enabled = visible and (
-                not enabled_when
-                or bool(evaluate_expression(str(enabled_when), values))
-            )
+            state = _action_state(metadata, values)
             result.append(
                 QtEditAction(
                     name=name,
-                    label=str(
-                        metadata.get("label")
-                        or name.replace("_", " ").title()
-                    ),
-                    enabled=enabled,
-                    visible=visible,
+                    label=action_label(name, metadata),
+                    enabled=state.enabled,
+                    visible=state.visible,
                 )
             )
         return tuple(result)
@@ -1507,16 +1498,12 @@ class QtBrowseController:
         allowed_operations = set(capabilities.operations) | set(
             capabilities.draft_operations
         )
-        immutable_when = field.metadata.get("immutable_when")
         editable = bool(
             name in self._entity_capabilities.writable_fields
             and operation in allowed_operations
             and not field.metadata.get("readonly")
             and field.metadata.get("write", "normal") == "normal"
-            and not (
-                immutable_when
-                and bool(evaluate_expression(str(immutable_when), values))
-            )
+            and not _field_is_immutable(field, values)
         )
         defaults = _entity_defaults(target)
         inverse = field.metadata.get("inverse")
@@ -1826,7 +1813,6 @@ class QtBrowseController:
         configuration = configuration or {}
         edit_mask = metadata.get("edit_mask")
         value = values.get(field.name)
-        immutable_when = metadata.get("immutable_when")
         editable = bool(
             field.name in self._entity_capabilities.writable_fields
             and value is not PROTECTED
@@ -1834,10 +1820,7 @@ class QtBrowseController:
             and not metadata.get("computed")
             and not metadata.get("readonly")
             and metadata.get("write", "normal") == "normal"
-            and not (
-                immutable_when
-                and bool(evaluate_expression(str(immutable_when), values))
-            )
+            and not _field_is_immutable(field, values)
         )
         return QtEditField(
             name=field.name,
@@ -2104,6 +2087,10 @@ class _EmptyCapabilities:
 _EMPTY_CAPABILITIES = _EmptyCapabilities()
 _CACHE_MISS = object()
 
+
+
+_action_state = action_state
+_field_is_immutable = field_is_immutable
 
 _browse_columns = browse_columns
 
