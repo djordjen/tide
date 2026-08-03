@@ -1745,3 +1745,33 @@ def _view_field_key(app: StudioApp, field_key: str) -> str:
     return next(
         key for key, item in app._view_field_rows.items() if item.key == field_key
     )
+
+
+def test_the_studio_preview_shows_the_sections_a_renderer_shows() -> None:
+    """`sales.Invoice.edit` sets `compact_groups`, so every renderer merges its
+    three scalar groups into one two-column header.
+
+    Studio previewed the three groups as authored -- which is the source
+    document, not the screen. A preview that shows a layout no renderer
+    produces is worse than no preview, because it is believed.
+    """
+
+    from tide import compile_project
+    from tide.presentation import form_layout_sections
+
+    service = StudioService(INVOICING)
+    preview = service.preview_view(
+        DesignerDocumentReference(kind="view", name="sales.Invoice.edit"),
+        role="sales_clerk",
+        width=100,
+        height=30,
+    )
+
+    model = compile_project(INVOICING)
+    view = model.views["sales.Invoice.edit"]
+    expected = [
+        (section.kind, section.label)
+        for section in form_layout_sections(view, model.entity(view.entity))
+    ]
+
+    assert [(section.kind, section.label) for section in preview.sections] == expected

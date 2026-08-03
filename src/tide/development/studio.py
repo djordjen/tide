@@ -14,7 +14,7 @@ from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
 from tide.labels import humanize
-from tide.presentation import action_label
+from tide.presentation import action_label, browse_columns, form_layout_sections
 from tide.compiler.normalized import NormalizedEntity, ResolvedView
 from tide.development.designer import (
     DesignerCommandBatch,
@@ -565,14 +565,19 @@ class StudioService:
         may_write_record = bool(
             access_by_operation["create"] or access_by_operation["update"]
         )
+        try:
+            sections = _preview_sections(view, entity)
+            placements = _preview_placements(view, entity, structure.kind)
+        except ValueError as error:
+            raise StudioError(str(error)) from error
         preview_fields = [
             _preview_field(
-                placement.key,
-                placement.name,
-                placement.label,
-                placement.track,
-                placement.track_label,
-                placement.field_type,
+                key,
+                name,
+                _view_field_label(name, entity.field(name)),
+                track,
+                track_label,
+                _view_field_type(entity.field(name)),
                 entity,
                 view,
                 security,
@@ -580,9 +585,9 @@ class StudioService:
                 may_write_record=may_write_record,
                 view_kind=structure.kind,
             )
-            for placement in structure.fields
+            for name, key, track, track_label in placements
         ]
-        for section in structure.sections:
+        for section in sections:
             if section.kind != "collection" or section.collection is None:
                 continue
             field = entity.field(section.collection)
@@ -676,7 +681,7 @@ class StudioService:
             fit=fit,
             access=access,
             fields=tuple(preview_fields),
-            sections=structure.sections,
+            sections=sections,
             actions=actions,
             warnings=tuple(warnings),
             candidate_fingerprint=self._state.workspace.candidate_fingerprint,
@@ -1453,6 +1458,67 @@ def _same_track_group(
     ):
         return left_path[:2] == right_path[:2]
     return True
+
+
+
+def _preview_sections(
+    view: ResolvedView,
+    entity: NormalizedEntity,
+) -> tuple[StudioViewSection, ...]:
+    """Resolve the sections a renderer will actually draw.
+
+    The editor's structure is source-shaped: it lists what the document says, so
+    a designer can move and remove it. A preview answers a different question --
+    what appears on screen -- and the two are not the same document.
+    ``settings.compact_groups`` merges every scalar group into one, so the
+    invoicing form authors three groups and every renderer draws one.
+    """
+
+    return tuple(
+        StudioViewSection(
+            key=f"preview-section:{section.index}",
+            kind=section.kind,
+            label=section.label,
+            position=position,
+            tab=section.tab,
+            collection=section.collection,
+            inline_view=section.inline_view,
+            actions=section.actions,
+            available_actions=(),
+            source_path=None,
+            editable=False,
+            can_move_up=False,
+            can_move_down=False,
+            can_remove=False,
+        )
+        for position, section in enumerate(form_layout_sections(view, entity))
+    )
+
+
+def _preview_placements(
+    view: ResolvedView,
+    entity: NormalizedEntity,
+    kind: str,
+) -> tuple[tuple[str, str, str, str], ...]:
+    """Return ``(name, key, track, track label)`` for what a renderer will draw."""
+
+    if kind in {"browse", "lookup"}:
+        label = "Lookup columns" if kind == "lookup" else "Table columns"
+        return tuple(
+            (name, f"preview-columns:{name}", "columns", label)
+            for name in browse_columns(view, entity)
+        )
+    return tuple(
+        (
+            name,
+            f"preview-section:{section.index}:{name}",
+            f"preview-section:{section.index}",
+            section.label,
+        )
+        for section in form_layout_sections(view, entity)
+        if section.kind == "group"
+        for name in section.fields
+    )
 
 
 def _view_layout_groups(
