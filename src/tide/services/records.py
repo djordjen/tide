@@ -100,6 +100,12 @@ class RecordsService:
     def register_generator(self, reference: str, generator: Generator) -> None:
         self._generators[reference] = generator
 
+    @property
+    def registered_generators(self) -> frozenset[str]:
+        """Return the references an application runtime hook has registered."""
+
+        return frozenset(self._generators)
+
     def create(
         self,
         entity_name: str,

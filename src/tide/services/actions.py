@@ -55,6 +55,12 @@ class ActionService:
     def register(self, reference: str, handler: ActionHandler) -> None:
         self._handlers[reference] = handler
 
+    @property
+    def registered_handlers(self) -> frozenset[str]:
+        """Return the references an application runtime hook has registered."""
+
+        return frozenset(self._handlers)
+
     def execute(
         self,
         entity_name: str,
