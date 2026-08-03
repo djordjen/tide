@@ -20,6 +20,7 @@ from tide.compiler.normalized import (
 from tide.compiler.expressions import evaluate_expression
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.presentation import (
+    browse_columns,
     BrowseNamedFilter,
     browse_named_filters,
     browse_search_field,
@@ -2102,26 +2103,7 @@ _EMPTY_CAPABILITIES = _EmptyCapabilities()
 _CACHE_MISS = object()
 
 
-def _browse_columns(
-    view: ResolvedView,
-    entity: NormalizedEntity,
-) -> tuple[str, ...]:
-    configured = tuple(str(name) for name in view.data.get("columns", ()))
-    columns = configured or tuple(
-        name
-        for name, field in entity.fields.items()
-        if field.metadata["type"] != "collection"
-    )
-    field_configuration = view.data.get("fields", {})
-    return tuple(
-        name
-        for name in columns
-        if not (
-            isinstance(field_configuration, Mapping)
-            and isinstance(field_configuration.get(name), Mapping)
-            and field_configuration[name].get("hidden", False)
-        )
-    )
+_browse_columns = browse_columns
 
 
 def _field_is_hidden(view: ResolvedView, field_name: str) -> bool:

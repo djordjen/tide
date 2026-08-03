@@ -48,3 +48,33 @@ def test_every_layer_labels_a_field_the_same_way() -> None:
     labelled = {module.__name__: module._humanize("customerName") for module in modules}
 
     assert set(labelled.values()) == {"Customer Name"}, labelled
+
+
+def test_every_renderer_resolves_browse_columns_the_same_way() -> None:
+    """A browse view has one column order, whichever renderer draws it.
+
+    Qt kept a private copy that had lost the unknown-column guard, so a view
+    naming a field that does not exist rendered a broken grid there while the
+    other renderers refused it.
+    """
+
+    from dataclasses import replace as replace_dataclass
+
+    from tide import compile_project
+    from tide.presentation import browse_columns
+    from tide.qt import presenter
+    from tide.tui import app
+
+    from pathlib import Path
+
+    model = compile_project(Path(__file__).parents[1] / "applications" / "invoicing")
+    view = model.views["sales.Invoice.browse"]
+    entity = model.entity("sales.Invoice")
+
+    resolvers = (browse_columns, presenter._browse_columns, app._browse_columns)
+    assert len({resolver(view, entity) for resolver in resolvers}) == 1
+
+    broken = replace_dataclass(view, data={**dict(view.data), "columns": ["nonexistent"]})
+    for resolver in resolvers:
+        with pytest.raises(ValueError, match="unknown columns"):
+            resolver(broken, entity)

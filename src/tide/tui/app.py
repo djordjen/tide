@@ -27,6 +27,7 @@ from tide.compiler.normalized import (
 )
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.presentation import (
+    browse_columns,
     application_navigation,
     browse_named_filters,
     browse_search_field,
@@ -1140,29 +1141,7 @@ def _select_browse_view(
     return view
 
 
-def _browse_columns(
-    view: ResolvedView,
-    entity: NormalizedEntity,
-) -> tuple[str, ...]:
-    configured = tuple(str(name) for name in view.data.get("columns", ()))
-    columns = configured or tuple(
-        name
-        for name, field in entity.fields.items()
-        if field.metadata["type"] != "collection"
-    )
-    unknown = [name for name in columns if name not in entity.fields]
-    if unknown:
-        raise ValueError(f"browse view contains unknown columns: {', '.join(unknown)}")
-    field_configuration = view.data.get("fields", {})
-    return tuple(
-        name
-        for name in columns
-        if not (
-            isinstance(field_configuration, Mapping)
-            and isinstance(field_configuration.get(name), Mapping)
-            and field_configuration[name].get("hidden", False)
-        )
-    )
+_browse_columns = browse_columns
 
 
 def _primary_key(entity: NormalizedEntity) -> str:
