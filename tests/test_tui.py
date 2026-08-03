@@ -631,7 +631,14 @@ def test_textual_workspace_switches_to_customer_management() -> None:
             }
 
             workspace.value = "crm.Customer.browse"
-            await pilot.pause()
+            # Switching the workspace re-queries on a worker thread, so a single
+            # pause only drains the message queue and can return before any row
+            # arrives. Every other row assertion in this file waits.
+            await _wait_until(
+                pilot,
+                lambda: app.view.name == "crm.Customer.browse"
+                and app.query_one("#records", DataTable).row_count == 3,
+            )
             assert app.entity.name == "crm.Customer"
             assert app.view.name == "crm.Customer.browse"
             customer_table = app.query_one("#records", DataTable)
