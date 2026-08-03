@@ -155,3 +155,95 @@ def test_the_studio_humanizes_a_view_field_like_every_other_layer() -> None:
     from tide.development import studio
 
     assert studio._view_field_label("customerName", None) == "Customer Name"
+
+
+def test_the_terminal_aligns_a_column_on_its_format_not_only_its_type() -> None:
+    """The terminal justified by field type and never read the format.
+
+    Qt and the Web honour an explicit `align`, so a format that centred a
+    number centred it everywhere except the terminal, and one that
+    left-aligned it was ignored there entirely.
+    """
+
+    from tide.tui.table import table_cell, table_label
+
+    formats = {"plain": {"align": "center"}}
+    field = _field("total", type="decimal", format="plain")
+
+    assert table_label(field, "Total", formats).justify == "center"
+    assert table_cell(field, "10.50", formats).justify == "center"
+
+
+def test_the_terminal_still_leaves_ordinary_text_alone() -> None:
+    """A left-aligned cell stays a plain string rather than becoming a Text."""
+
+    from tide.tui.table import table_cell
+
+    assert table_cell(_field("name", type="string"), "ACME", {}) == "ACME"
+
+
+def test_the_terminal_inline_editor_hides_what_the_inline_view_hides() -> None:
+    """`line_fields` read the raw `columns` list and filtered nothing.
+
+    Every other renderer resolves inline collection columns through
+    `browse_columns`, which drops hidden fields and refuses unknown ones, so a
+    column hidden in the inline view stayed visible in the terminal alone.
+    """
+
+    from dataclasses import replace as replace_dataclass
+    from pathlib import Path
+
+    from tide import compile_project
+    from tide.compiler.normalized import immutable_mapping
+    from tide.data import InMemoryRepository
+    from tide.runtime import Channel, Principal, RequestContext
+    from tide.services import ActionService, RecordsService
+    from tide.sessions import RecordSession
+    from tide.tui.form import RecordEditScreen
+
+    model = compile_project(
+        Path(__file__).parents[1] / "applications" / "invoicing"
+    )
+    inline = model.views["sales.InvoiceLine.inline_edit"]
+    model = replace_dataclass(
+        model,
+        views=immutable_mapping(
+            {
+                **dict(model.views),
+                inline.name: replace_dataclass(
+                    inline,
+                    data=immutable_mapping(
+                        {
+                            **dict(inline.data),
+                            "fields": {
+                                **dict(inline.data["fields"]),
+                                "description": {"hidden": True},
+                            },
+                        }
+                    ),
+                ),
+            }
+        ),
+    )
+    records = RecordsService(model, InMemoryRepository())
+    screen = RecordEditScreen(
+        model,
+        records,
+        ActionService(model, records),
+        RequestContext(
+            principal=Principal("labels:tui", roles=frozenset({"sales_clerk"})),
+            channel=Channel.TUI,
+        ),
+        model.views["sales.Invoice.edit"],
+        RecordSession(
+            entity="sales.Invoice",
+            identity=None,
+            original={},
+            values={},
+            expected_version=None,
+            is_new=True,
+        ),
+    )
+
+    assert "description" not in screen.line_fields
+    assert "total" in screen.line_fields

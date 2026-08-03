@@ -772,7 +772,7 @@ class TideApp(App[None]):
             configuration = self.view.data.get("fields", {}).get(field_name, {})
             configured_width = configuration.get("width")
             table.add_column(
-                table_label(field, _field_label(field)),
+                table_label(field, _field_label(field), self.model.formats),
                 key=field_name,
                 width=(
                     int(configured_width)
@@ -894,6 +894,7 @@ class TideApp(App[None]):
                     table_cell(
                         entity.field(field_name),
                         self._format_value(entity.field(field_name), record),
+                        self.model.formats,
                     )
                     for field_name in columns
                 ),
@@ -1051,6 +1052,7 @@ class TideApp(App[None]):
             table.ordered_columns[index].label = table_label(
                 field,
                 f"{_field_label(field)}{indicator}",
+                self.model.formats,
             )
             table.refresh_column(index)
         table.refresh(layout=True)

@@ -426,7 +426,9 @@ def _tui_resolution(model: Any, contract: dict[str, Any]) -> dict[str, Any]:
         browse[view_name] = {
             "columns": list(app.columns),
             "alignments": {
-                name: table_label(app.entity.field(name), "").justify
+                name: table_label(
+                    app.entity.field(name), "", model.formats
+                ).justify
                 for name in app.columns
             },
         }

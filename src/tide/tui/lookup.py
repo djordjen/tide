@@ -206,7 +206,10 @@ class LookupScreen(ModalScreen[dict[str, Any] | None]):
         table = self.query_one("#lookup-results", DataTable)
         for field_name in self.columns:
             field = self.entity.field(field_name)
-            table.add_column(table_label(field, _field_label(field)), key=field_name)
+            table.add_column(
+                table_label(field, _field_label(field), self.model.formats),
+                key=field_name,
+            )
         table.cursor_type = "row"
         table.zebra_stripes = True
         self._reload()
@@ -303,6 +306,7 @@ class LookupScreen(ModalScreen[dict[str, Any] | None]):
                         _format_value(
                             self.entity.field(field_name), record.get(field_name)
                         ),
+                        self.model.formats,
                     )
                     for field_name in self.columns
                 ),

@@ -39,6 +39,7 @@ from tide.compiler.normalized import (
 from tide.data import QuerySpec
 from tide.presentation import (
     preview_computed_fields,
+    browse_columns,
     field_label,
     FormLayoutSection,
     form_layout_sections,
@@ -379,8 +380,8 @@ class RecordEditScreen(Screen[Any]):
             else None
         )
         self.line_fields = (
-            tuple(str(name) for name in self.inline_view.data.get("columns", ()))
-            if self.inline_view is not None
+            browse_columns(self.inline_view, self.collection_entity)
+            if self.inline_view is not None and self.collection_entity is not None
             else ()
         )
         self.line_editor_columns = (
@@ -567,7 +568,7 @@ class RecordEditScreen(Screen[Any]):
             for field_name in self.line_fields:
                 field = self.collection_entity.field(field_name)
                 table.add_column(
-                    table_label(field, _field_label(field)),
+                    table_label(field, _field_label(field), self.model.formats),
                     key=field_name,
                 )
             table.cursor_type = "row"
@@ -880,6 +881,7 @@ class RecordEditScreen(Screen[Any]):
                             self.collection_entity.field(field_name),
                             line.get(field_name),
                         ),
+                        self.model.formats,
                     )
                     for field_name in self.line_fields
                 ),
