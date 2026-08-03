@@ -215,6 +215,7 @@ class EntityStorageSource(SourceModel):
 class EntitySource(SourceModel):
     entity: str
     label: str | None = None
+    record_label: str | None = None
     display: str | None = None
     storage: EntityStorageSource | None = None
     search_fields: tuple[str, ...] = ()

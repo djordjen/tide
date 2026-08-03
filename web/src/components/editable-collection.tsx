@@ -164,7 +164,7 @@ export function EditableCollection({
           <h2 className="text-sm font-semibold">{section.label}</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
             Select a row to edit its details. Calculated values are finalized
-            by the server when the invoice is saved.
+            by the server when the record is saved.
           </p>
         </div>
         <Badge variant="outline">{rows.length} draft rows</Badge>
@@ -174,7 +174,7 @@ export function EditableCollection({
         {rows.length === 0 ? (
           <div className="flex min-h-44 flex-col items-center justify-center text-sm text-muted-foreground">
             <ListChecks className="mb-2 size-5" />
-            No line items
+            No {section.label}
           </div>
         ) : (
           <table className="w-full min-w-max border-collapse text-sm">
@@ -277,7 +277,7 @@ export function EditableCollection({
               onClick={addLine}
             >
               <CirclePlus />
-              Add line
+              Add {section.record_label}
             </Button>
           ) : null}
           {actions.has("apply") ? (
@@ -288,7 +288,7 @@ export function EditableCollection({
               onClick={applyLine}
             >
               <ListChecks />
-              Apply line
+              Apply {section.record_label}
             </Button>
           ) : null}
           {actions.has("remove") ? (
@@ -299,7 +299,7 @@ export function EditableCollection({
               onClick={removeLine}
             >
               <Trash2 />
-              Remove line
+              Remove {section.record_label}
             </Button>
           ) : null}
         </div>

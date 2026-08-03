@@ -46,6 +46,7 @@ from tide.presentation import (
     FormLayoutSection,
     form_layout_sections,
     form_layout_tabs,
+    record_label,
     view_field_hidden,
 )
 from tide.runtime import RequestContext, TideRuntimeError, ValidationFailed
@@ -418,7 +419,7 @@ class RecordEditScreen(Screen[Any]):
         self._pending_conflict_draft: dict[str, Any] | None = None
         self._load_reference_options()
         self.title = model.name
-        entity_label = self.entity.label.removesuffix("s") or self.entity.label
+        entity_label = _record_label(self.entity)
         self.sub_title = (
             f"New {entity_label}" if session.is_new else f"Edit {entity_label}"
         )
@@ -1502,6 +1503,7 @@ def _primary_key(entity: NormalizedEntity) -> str:
 
 
 _field_label = field_label
+_record_label = record_label
 
 
 def _record_title(entity: NormalizedEntity, record: Mapping[str, Any]) -> str:

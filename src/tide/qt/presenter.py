@@ -30,6 +30,7 @@ from tide.presentation import (
     field_alignment,
     field_label,
     form_layout_sections,
+    record_label,
     view_field_hidden,
 )
 from tide.reporting import ReportDocument
@@ -1156,7 +1157,7 @@ class QtBrowseController:
         return QtLookupSpec(
             owner_entity=owner.name,
             field_name=field_name,
-            title=f"Select {target.label.removesuffix('s') or target.label}",
+            title=f"Select {_record_label(target)}",
             target_entity=target.name,
             collection_name=collection_name,
             columns=tuple(
@@ -1406,7 +1407,7 @@ class QtBrowseController:
                 for name in _form_field_names(self.detail_view, self.entity)
             )
             groups.append(QtEditGroup(self.entity.label, rows))
-        singular = self.entity.label.removesuffix("s") or self.entity.label
+        singular = _record_label(self.entity)
         return QtEditForm(
             entity=self.entity.name,
             title=(
@@ -2175,6 +2176,7 @@ _preview_computed_fields = preview_computed_fields
 
 _field_label = field_label
 _field_alignment = field_alignment
+_record_label = record_label
 
 
 def _display_record(entity: NormalizedEntity, values: Mapping[str, Any]) -> str:

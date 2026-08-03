@@ -14,7 +14,7 @@ from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Input, Label, Static
 
-from tide.presentation import field_label
+from tide.presentation import field_label, record_label
 from tide.compiler.normalized import (
     ApplicationModel,
     NormalizedEntity,
@@ -374,9 +374,9 @@ def _row_index(value: Any) -> int | None:
 
 
 _field_label = field_label
+_record_label = record_label
 
 
-def _entity_label(entity: NormalizedEntity) -> str:
-    return entity.label.removesuffix("s") or entity.label
+_entity_label = _record_label
 
 

@@ -54,6 +54,10 @@ database.
 - stable in-place record detail without closing or repositioning the shell;
 - renderer-neutral form rows, groups, tabs, and inline collections projected
   from the same compiled YAML layout used by Textual and Qt;
+- inline collection wording and row numbering taken from the manifest —
+  `record_label` names the rows and `sequence_field` names the field a new row
+  is numbered by, so the widget carries no application's field names or
+  vocabulary;
 - clearly distinguished workflow-locked and writable fields, based on safe
   per-record state evaluated by the server;
 - Previous/Next navigation in the current secured browse order, including

@@ -150,9 +150,11 @@ export interface TidePresentationFormCollection {
   kind: "collection"
   name: string
   label: string
+  record_label: string
   entity: string
   view?: string
   identity_field?: string | null
+  sequence_field?: string | null
   columns: TidePresentationColumn[]
   fields?: Record<string, TidePresentationFormField>
   groups?: TidePresentationFormGroup[]

@@ -401,11 +401,11 @@ it("saves Invoice line drafts and Product Save & Select as one parent update", a
   const quantity = screen.getByLabelText(/^Quantity/)
   await user.clear(quantity)
   await user.type(quantity, "2.000")
-  await user.click(screen.getByRole("button", { name: "Apply line" }))
+  await user.click(screen.getByRole("button", { name: "Apply Line" }))
 
-  await user.click(screen.getByRole("button", { name: "Add line" }))
+  await user.click(screen.getByRole("button", { name: "Add Line" }))
   expect(screen.getByText("2 draft rows")).toBeInTheDocument()
-  await user.click(screen.getByRole("button", { name: "Remove line" }))
+  await user.click(screen.getByRole("button", { name: "Remove Line" }))
   expect(screen.getByText("1 draft rows")).toBeInTheDocument()
 
   await user.click(screen.getByRole("button", { name: "Save" }))
@@ -1141,9 +1141,11 @@ const invoiceForm = {
       kind: "collection",
       name: "lines",
       label: "Lines",
+      record_label: "Line",
       entity: "sales.InvoiceLine",
       view: "sales.InvoiceLine.inline_edit",
       identity_field: "id",
+      sequence_field: "line_number",
       columns: [
         {
           ...plainColumn,

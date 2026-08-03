@@ -177,7 +177,7 @@ export function collectionEditorForm(
   return {
     view: collection.view,
     entity: collection.entity,
-    label: collection.label.replace(/s$/, "") || collection.label,
+    label: collection.record_label,
     display_template: null,
     fields,
     sections: groups,
@@ -210,14 +210,13 @@ export function newCollectionDraft(
     return {}
   }
   const draft = formDraft(form)
-  const lineNumber = form.fields.line_number
-  if (lineNumber?.field_type === "integer") {
-    draft.line_number = String(
+  const sequence = collection.sequence_field
+  const field = sequence ? form.fields[sequence] : undefined
+  if (sequence && field?.field_type === "integer") {
+    draft[sequence] = String(
       Math.max(
         0,
-        ...records.map((record) =>
-          Number(record.line_number ?? 0),
-        ),
+        ...records.map((record) => Number(record[sequence] ?? 0)),
       ) + 1,
     )
   }

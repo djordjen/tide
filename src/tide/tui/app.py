@@ -32,6 +32,7 @@ from tide.presentation import (
     browse_named_filters,
     browse_search_field,
     browse_sortable_fields,
+    record_label,
 )
 from tide.runtime import DeleteRestricted, RequestContext, TideRuntimeError
 from tide.reporting import ReportService
@@ -464,7 +465,9 @@ class TideApp(App[None]):
         record_title = _display_record(self.entity, record)
         if self._confirm_delete:
             self.push_screen(
-                DeleteConfirmationScreen(self.entity.label, record_title),
+                DeleteConfirmationScreen(
+                    _record_label(self.entity), record_title
+                ),
                 lambda confirmed: self._delete_record(record) if confirmed else None,
             )
             return
@@ -1156,6 +1159,7 @@ def _version_field(entity: NormalizedEntity) -> str | None:
 
 
 _field_label = field_label
+_record_label = record_label
 
 
 def _display_record(entity: NormalizedEntity, record: Mapping[str, Any]) -> str:

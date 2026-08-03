@@ -55,8 +55,7 @@ class DeleteConfirmationScreen(ModalScreen[bool]):
 
     def __init__(self, entity_label: str, record_title: str) -> None:
         super().__init__()
-        singular = entity_label.removesuffix("s") or entity_label
-        self.entity_label = singular
+        self.entity_label = entity_label
         self.record_title = record_title
 
     def compose(self) -> ComposeResult:

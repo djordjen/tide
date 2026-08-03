@@ -4,12 +4,30 @@ from __future__ import annotations
 
 import pytest
 
-from tide.compiler.normalized import NormalizedField, immutable_mapping
+from pathlib import Path
+
+from tide.compiler.normalized import (
+    NormalizedEntity,
+    NormalizedField,
+    immutable_mapping,
+)
 from tide.labels import humanize
 
 
 def _field(name: str, **metadata: object) -> NormalizedField:
     return NormalizedField(name=name, metadata=immutable_mapping(dict(metadata)))
+
+
+def _entity(label: str, **metadata: object) -> NormalizedEntity:
+    return NormalizedEntity(
+        name="test.Entity",
+        label=label,
+        display=None,
+        source_file=Path("test.yaml"),
+        metadata=immutable_mapping(dict(metadata)),
+        fields=immutable_mapping({}),
+        actions=immutable_mapping({}),
+    )
 
 
 @pytest.mark.parametrize(
@@ -105,6 +123,79 @@ def test_every_layer_labels_a_field_through_one_implementation() -> None:
     forks = {module.__name__: module._field_label for module in modules}
 
     assert set(forks.values()) == {presentation.field_label}, forks
+
+
+def test_every_layer_names_one_record_through_one_implementation() -> None:
+    """Seven copies stripped a trailing "s" to name a single record.
+
+    Every one of them was a separate guess at English pluralisation, so an
+    entity labelled "Entries" was offered as an "Entrie" everywhere at once,
+    and a non-English label was left plural.
+    """
+
+    from tide import presentation
+    from tide.api import presentation as api_presentation
+    from tide.qt import presenter
+    from tide.tui import app, form, lookup
+
+    modules = (api_presentation, presenter, app, form, lookup)
+    forks = {module.__name__: module._record_label for module in modules}
+
+    assert set(forks.values()) == {presentation.record_label}, forks
+
+
+def test_the_delete_dialog_is_told_the_label_rather_than_guessing_it() -> None:
+    """The confirmation screen took a plural label and singularised it itself.
+
+    It is the one copy that never saw the entity, so it could not read a
+    declared `record_label`; the caller that does see the entity resolves it.
+    """
+
+    import inspect
+
+    from tide.tui import confirm
+
+    assert "removesuffix" not in inspect.getsource(confirm)
+
+
+def test_a_record_label_the_model_declares_wins_over_the_guess() -> None:
+    """`removesuffix("s")` cannot name one of "Entries" or "Positionen"."""
+
+    from tide import presentation
+
+    guessed = _entity("Entries")
+    declared = _entity("Positionen", record_label="Position")
+
+    assert presentation.record_label(guessed) == "Entry"
+    assert presentation.record_label(declared) == "Position"
+
+
+def test_an_undeclared_record_label_still_reads_as_it_always_did() -> None:
+    """The guess stays the default, so existing models keep their wording."""
+
+    from tide import presentation
+
+    assert presentation.record_label(_entity("Invoices")) == "Invoice"
+    assert presentation.record_label(_entity("Invoice Lines")) == "Invoice Line"
+    # A label that is already singular must survive untouched
+    assert presentation.record_label(_entity("Address")) == "Address"
+
+
+def test_a_collection_names_its_rows_after_what_the_form_calls_them() -> None:
+    """The header says "Lines", so the button under it must not say "Add
+    Invoice Line". A declared record label still overrides both.
+    """
+
+    from tide import presentation
+
+    lines = _entity("Invoice Lines")
+
+    assert presentation.record_label(lines, "Lines") == "Line"
+    assert presentation.record_label(lines) == "Invoice Line"
+    assert (
+        presentation.record_label(_entity("Positionen", record_label="Position"), "Lines")
+        == "Position"
+    )
 
 
 def test_the_form_labels_a_camel_case_field_like_the_grid_does() -> None:

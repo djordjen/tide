@@ -43,7 +43,10 @@ from tide.presentation import (
     field_alignment,
     field_label,
     form_layout_sections,
+    record_label,
 )
+
+_record_label = record_label
 
 
 def build_presentation_manifest(
@@ -430,6 +433,7 @@ def _form_contract(
             TidePresentationFormCollection(
                 name=collection_name,
                 label=field_label(field),
+                record_label=_record_label(target, field_label(field)),
                 entity=target.name,
                 view=inline.name,
                 identity_field=(
@@ -437,6 +441,7 @@ def _form_contract(
                     if _primary_key(target) in target_readable
                     else None
                 ),
+                sequence_field=_sequence_field(field, target, editor_fields),
                 columns=tuple(
                     _column_contract(
                         target,
@@ -462,7 +467,7 @@ def _form_contract(
     return TideFormPresentation(
         view=view.name,
         entity=entity.name,
-        label=entity.label.removesuffix("s") or entity.label,
+        label=_record_label(entity),
         display_template=_safe_display_template(entity, readable),
         fields=fields,
         sections=tuple(sections),
@@ -487,6 +492,34 @@ def _form_contract(
             and entity.actions[action_name].get("expose", {}).get("rest")
             is True
         ),
+    )
+
+
+def _sequence_field(
+    field: NormalizedField,
+    target: NormalizedEntity,
+    editor_fields: Mapping[str, TidePresentationFormField],
+) -> str | None:
+    """Return the field a new row of this collection should be numbered by.
+
+    A renderer that adds a row has to seed whatever field puts the rows in
+    order, and the web client hardcoded `line_number` -- one sample
+    application's field name, in the generic widget. The collection already
+    declares its ordering in `order_by`, so the manifest can say it.
+
+    Only an editable whole number qualifies: ordering by a name or a date is
+    a display choice the renderer must not invent a value for.
+    """
+
+    ordering = field.metadata.get("order_by")
+    if not ordering or ordering not in editor_fields:
+        return None
+    name = str(ordering)
+    return (
+        name
+        if target.field(name).metadata["type"] == "integer"
+        and editor_fields[name].writable
+        else None
     )
 
 
@@ -701,7 +734,7 @@ def _lookup_contract(
     )
     return TidePresentationLookup(
         view=lookup.name,
-        title=f"Select {target.label.removesuffix('s') or target.label}",
+        title=f"Select {_record_label(target)}",
         owner_entity=owner.name,
         field=field.name,
         target_entity=target.name,

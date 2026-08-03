@@ -2,13 +2,16 @@ import { describe, expect, it } from "vitest"
 
 import type {
   TideFormPresentation,
+  TidePresentationFormCollection,
   TidePresentationFormField,
 } from "@/lib/contracts"
 import {
   acceptsNumericDraft,
   changedMutationPayload,
+  collectionEditorForm,
   formDraft,
   mutationPayload,
+  newCollectionDraft,
   normalizeNumericDraft,
   shiftIsoDate,
   validateFormDraft,
@@ -141,6 +144,65 @@ const productForm: TideFormPresentation = {
       tab: null,
     },
   ],
+}
+
+describe("collections the renderer knows nothing about", () => {
+  it("numbers a new row through the field the manifest orders by", () => {
+    const draft = newCollectionDraft(shipmentStops, [
+      { position: "1" },
+      { position: "2" },
+    ])
+
+    expect(draft.position).toBe("3")
+  })
+
+  it("leaves numbering alone when the manifest names no ordering field", () => {
+    const draft = newCollectionDraft(
+      { ...shipmentStops, sequence_field: null },
+      [{ position: "1" }],
+    )
+
+    expect(draft.position).toBe("")
+  })
+
+  it("labels one row with the label the manifest sends", () => {
+    const form = collectionEditorForm(shipmentStops)
+
+    expect(form?.label).toBe("Entry")
+  })
+
+  it("keeps a record label no English pluralisation rule would produce", () => {
+    const form = collectionEditorForm({
+      ...shipmentStops,
+      label: "Positionen",
+      record_label: "Position",
+    })
+
+    expect(form?.label).toBe("Position")
+  })
+})
+
+const shipmentStops: TidePresentationFormCollection = {
+  kind: "collection",
+  name: "stops",
+  label: "Entries",
+  record_label: "Entry",
+  entity: "logistics.ShipmentStop",
+  view: "logistics.ShipmentStop.inline",
+  identity_field: "id",
+  sequence_field: "position",
+  columns: [],
+  fields: {
+    position: field({
+      name: "position",
+      label: "Position",
+      field_type: "integer",
+    }),
+  },
+  groups: [
+    { kind: "group", label: "Stop", rows: [["position"]], tab: null },
+  ],
+  tab: null,
 }
 
 function field(

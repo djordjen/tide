@@ -293,6 +293,36 @@ def action_label(name: str, action: Mapping[str, Any]) -> str:
     return str(action.get("label") or _humanize(name))
 
 
+def record_label(entity: NormalizedEntity, plural: str | None = None) -> str:
+    """Return the label that names a single record of ``entity``.
+
+    Entity labels are plural because they name a list, and every screen that
+    names one record -- a lookup title, a delete confirmation, an inline row
+    editor -- needs the singular. Seven layers each guessed it by stripping a
+    trailing "s", which reads "Addres" for an entity labelled "Address" and
+    leaves a non-English label plural.
+
+    ``record_label`` in the entity metadata is the answer for any model whose
+    wording the fallback below cannot reach. The fallback stays a guess, and
+    is deliberately limited to the English endings it can get right.
+
+    ``plural`` names the wording to singularise when a screen already calls
+    the collection something of its own: an invoice form labels its lines
+    "Lines", so its rows are a "Line" and not an "Invoice Line". A declared
+    ``record_label`` still wins -- it is the one wording the author stated.
+    """
+
+    declared = entity.metadata.get("record_label")
+    if declared:
+        return str(declared)
+    label = plural or entity.label
+    if label.endswith("ies"):
+        return f"{label[:-3]}y"
+    if label.endswith("ss") or not label.endswith("s"):
+        return label
+    return label.removesuffix("s") or label
+
+
 @dataclass(frozen=True, slots=True)
 class ActionState:
     """Whether a renderer may show one metadata action, and offer it."""

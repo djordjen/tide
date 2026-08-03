@@ -20,6 +20,28 @@ Framework defaults
 
 Security is never weakened by an overlay or preference.
 
+## Naming one record
+
+An entity `label` names a list, so it is plural. Screens that name a single
+record — a lookup title, a delete confirmation, the row editor under an inline
+collection — need the singular, and `record_label` states it:
+
+```yaml
+entity: sales.InvoiceLine
+label: Invoice Lines
+record_label: Invoice Line
+```
+
+`presentation.record_label` is the one implementation. Undeclared, it guesses
+from the plural using the few English endings it can get right (`Entries` →
+`Entry`, `Invoices` → `Invoice`, `Address` unchanged) and otherwise leaves the
+label alone. Declare `record_label` for any wording that guess cannot reach —
+every non-English label, and English plurals that are not formed by suffix.
+
+A collection is named after what its own form calls it rather than after the
+target entity: a form labelling the section **Lines** offers an **Add Line**,
+not an **Add Invoice Line**. A declared `record_label` still wins over both.
+
 ## Shared defaults
 
 Application-wide behavior belongs in `presentation/defaults.yaml`:

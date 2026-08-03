@@ -257,6 +257,10 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
         assert line_section["kind"] == "collection"
         assert line_section["name"] == "lines"
         assert line_section["label"] == "Lines"
+        # the form calls the collection "Lines", so one row is a "Line" --
+        # not an "Invoice Line", which is what the entity label would give
+        assert line_section["record_label"] == "Line"
+        assert line_section["sequence_field"] == "line_number"
         assert line_section["entity"] == "sales.InvoiceLine"
         assert [column["name"] for column in line_section["columns"]] == [
             "line_number",

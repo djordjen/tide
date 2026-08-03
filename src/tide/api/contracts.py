@@ -400,9 +400,11 @@ class TidePresentationFormCollection(BaseModel):
     kind: Literal["collection"] = "collection"
     name: str = Field(min_length=1)
     label: str = Field(min_length=1)
+    record_label: str = Field(min_length=1)
     entity: str = Field(min_length=1)
     view: str = Field(min_length=1)
     identity_field: str | None = Field(default=None, min_length=1)
+    sequence_field: str | None = Field(default=None, min_length=1)
     columns: tuple[TidePresentationColumn, ...] = Field(min_length=1)
     fields: dict[str, TidePresentationFormField] = Field(default_factory=dict)
     groups: tuple[TidePresentationFormGroup, ...] = ()
