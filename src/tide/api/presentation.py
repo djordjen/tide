@@ -35,6 +35,7 @@ from tide.compiler.normalized import (
 )
 from tide.presentation import (
     application_navigation,
+    action_label,
     browse_columns,
     browse_named_filters,
     browse_search_field,
@@ -468,10 +469,7 @@ def _form_contract(
         actions=tuple(
             TidePresentationFormAction(
                 name=action_name,
-                label=str(
-                    entity.actions[action_name].get("label")
-                    or action_name.replace("_", " ").title()
-                ),
+                label=action_label(action_name, entity.actions[action_name]),
                 idempotent=bool(
                     entity.actions[action_name].get("idempotent")
                 ),

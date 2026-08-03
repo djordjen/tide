@@ -67,7 +67,7 @@ from PySide6.QtWidgets import (
 
 from tide.api.contracts import TideSessionInfo
 from tide.compiler.normalized import ApplicationModel
-from tide.presentation import application_navigation
+from tide.presentation import action_label, application_navigation
 from tide.reporting import (
     ReportDocument,
     write_csv,
@@ -1627,10 +1627,7 @@ class TideQtEditDialog(QDialog):
         self._set_saving(False)
         action_name = attempt[2] if attempt is not None else "action"
         action = self.controller.entity.actions.get(action_name, {})
-        label = str(
-            action.get("label")
-            or action_name.replace("_", " ").title()
-        )
+        label = action_label(action_name, action)
         self.recordActionCompleted.emit(label, dict(stored))
         super().accept()
 
@@ -1656,9 +1653,9 @@ class TideQtEditDialog(QDialog):
             self._start_conflict_review(form, draft)
             return
         self._set_saving(False)
-        label = str(
-            self.controller.entity.actions.get(action_name, {}).get("label")
-            or action_name.replace("_", " ").title()
+        label = action_label(
+            action_name,
+            self.controller.entity.actions.get(action_name, {}),
         )
         if isinstance(error, QtEditActionError) and error.saved_before_action:
             self.reopenRequested.emit(

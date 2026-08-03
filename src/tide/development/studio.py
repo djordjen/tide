@@ -14,6 +14,7 @@ from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
 from tide.labels import humanize
+from tide.presentation import action_label
 from tide.compiler.normalized import NormalizedEntity, ResolvedView
 from tide.development.designer import (
     DesignerCommandBatch,
@@ -1962,7 +1963,7 @@ def _preview_actions(
         actions.append(
             StudioPreviewAction(
                 name=name,
-                label=str(action.get("label") or name.replace("_", " ").title()),
+                label=action_label(name, action),
                 bar="record",
                 enabled=permitted,
                 runtime_condition=conditional,
