@@ -8,7 +8,6 @@ from decimal import Decimal
 from difflib import unified_diff
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
-import re
 from tempfile import TemporaryDirectory
 from typing import Any, Literal
 
@@ -17,6 +16,7 @@ from pydantic_core import to_jsonable_python
 import yaml
 
 from tide.compiler.compiler import compile_project
+from tide.labels import humanize_qualified
 from tide.compiler.normalized import ApplicationModel
 from tide.data import InMemoryRepository, QuerySpec
 from tide.development.generation import (
@@ -695,11 +695,7 @@ def _view_path(entity_name: str, suffix: str) -> str:
     ).as_posix()
 
 
-def _humanize_name(entity_name: str) -> str:
-    leaf = entity_name.rsplit(".", 1)[-1]
-    return " ".join(
-        part.capitalize() for part in re.sub(r"(?<!^)(?=[A-Z])", " ", leaf).split()
-    )
+_humanize_name = humanize_qualified
 
 
 def _action_document(transition: DefineStateTransitionOperation) -> dict[str, Any]:

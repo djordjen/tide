@@ -9,6 +9,7 @@ from typing import Any, Mapping
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from tide.api.openapi import writable_scalar_annotation
+from tide.labels import humanize as _humanize
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 
 
@@ -206,5 +207,3 @@ def _pascal_case(value: str) -> str:
     return "".join(part[:1].upper() + part[1:] for part in parts)
 
 
-def _humanize(value: str) -> str:
-    return re.sub(r"(?<!^)(?=[A-Z])", " ", value).replace("_", " ").title()

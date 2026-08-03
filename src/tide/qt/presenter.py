@@ -6,11 +6,11 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 from decimal import Decimal
-import re
 from threading import Lock
 from typing import Any, Literal, Mapping, Protocol
 
 from tide.api.contracts import TideEntityCapabilities, TideSessionInfo
+from tide.labels import humanize as _humanize
 from tide.compiler.normalized import (
     ApplicationModel,
     NormalizedEntity,
@@ -2271,5 +2271,3 @@ def _safe_display_value(value: Any) -> str:
     return "" if value is None else str(value)
 
 
-def _humanize(value: str) -> str:
-    return re.sub(r"(?<!^)(?=[A-Z])", " ", value).replace("_", " ").title()

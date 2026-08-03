@@ -6,6 +6,7 @@ import ast
 from dataclasses import dataclass
 from typing import Any, Iterable, Literal, Mapping
 
+from tide.labels import humanize as _humanize
 from tide.compiler.normalized import (
     ApplicationModel,
     NavigationGroup,
@@ -348,10 +349,6 @@ def _comparison_condition(expression: ast.expr) -> FilterCondition:
     except (ValueError, TypeError) as error:
         raise ValueError("named filter value must be a literal") from error
     return FilterCondition(expression.left.id, operator, value)
-
-
-def _humanize(value: str) -> str:
-    return value.replace("_", " ").replace("-", " ").title()
 
 
 def _compact_form_groups(

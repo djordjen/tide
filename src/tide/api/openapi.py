@@ -18,6 +18,7 @@ from typing import Annotated, Any, ForwardRef, Literal, Mapping
 from pydantic import BaseModel, ConfigDict, Field, create_model
 from pydantic.json_schema import models_json_schema
 
+from tide.labels import humanize as _humanize
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 
 OPENAPI_VERSION = "3.1.0"
@@ -597,10 +598,6 @@ def _pascal_case(value: str) -> str:
 def _kebab_case(value: str) -> str:
     separated = re.sub(r"(?<!^)(?=[A-Z])", "-", value).replace("_", "-")
     return separated.lower()
-
-
-def _humanize(value: str) -> str:
-    return re.sub(r"(?<!^)(?=[A-Z])", " ", value).replace("_", " ").title()
 
 
 def _field_description(field: NormalizedField) -> str | None:

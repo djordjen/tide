@@ -14,6 +14,7 @@ from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Input, Label, Static
 
+from tide.labels import humanize as _humanize
 from tide.compiler.normalized import (
     ApplicationModel,
     NormalizedEntity,
@@ -376,5 +377,3 @@ def _entity_label(entity: NormalizedEntity) -> str:
     return entity.label.removesuffix("s") or entity.label
 
 
-def _humanize(value: str) -> str:
-    return value.replace("_", " ").strip().title()

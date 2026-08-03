@@ -9,6 +9,7 @@ from typing import Any, Iterable, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
+from tide.labels import humanize as _humanize
 from tide.compiler.expressions import (
     POLICY_PARAMETERS,
     ExpressionResult,
@@ -420,10 +421,6 @@ def _is_within(path: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
-
-
-def _humanize(value: str) -> str:
-    return re.sub(r"(?<!^)(?=[A-Z])", " ", value).replace("_", " ").title()
 
 
 def _validate_migration_metadata(

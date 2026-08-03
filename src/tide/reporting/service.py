@@ -10,6 +10,7 @@ import re
 from typing import Any, Mapping
 
 from tide.compiler.expressions import evaluate_expression
+from tide.labels import humanize as _humanize
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.runtime import Channel, RequestContext, TideRuntimeError
@@ -599,10 +600,6 @@ def _primary_key(entity: NormalizedEntity) -> str:
 
 def _field_label(field: NormalizedField) -> str:
     return str(field.metadata.get("label") or _humanize(field.name))
-
-
-def _humanize(value: str) -> str:
-    return value.replace("_", " ").strip().title()
 
 
 def _alignment(

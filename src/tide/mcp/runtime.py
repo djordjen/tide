@@ -15,6 +15,7 @@ from tide.api.wire import (
     wire_audit_event,
     wire_record,
 )
+from tide.labels import humanize as _humanize
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.mcp.contracts import (
@@ -545,5 +546,3 @@ def _identifier(value: str) -> str:
     return normalized
 
 
-def _humanize(value: str) -> str:
-    return re.sub(r"(?<!^)(?=[A-Z])", " ", value).replace("_", " ").title()

@@ -6,7 +6,6 @@ import asyncio
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-import re
 from threading import Lock
 from typing import Any, Mapping, TypeVar
 
@@ -19,6 +18,7 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Button, DataTable, Footer, Header, Input, Select, Static
 
+from tide.labels import humanize as _humanize
 from tide.compiler.normalized import (
     ApplicationModel,
     NormalizedEntity,
@@ -1207,5 +1207,3 @@ def _safe_display_value(value: Any) -> str:
     return "" if value is None else str(value)
 
 
-def _humanize(value: str) -> str:
-    return re.sub(r"(?<!^)(?=[A-Z])", " ", value).replace("_", " ").title()
