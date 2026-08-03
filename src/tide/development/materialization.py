@@ -1839,11 +1839,7 @@ def _verify_reports(
 
 
 def _primary_key_name(entity: Any) -> str:
-    return next(
-        name
-        for name, field in entity.fields.items()
-        if field.metadata.get("primary_key")
-    )
+    return entity.primary_key.name
 
 
 def _skipped_runtime_after_registration() -> list[CandidateCheck]:

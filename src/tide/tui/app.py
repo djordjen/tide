@@ -1145,22 +1145,12 @@ _browse_columns = browse_columns
 
 
 def _primary_key(entity: NormalizedEntity) -> str:
-    return next(
-        name
-        for name, field in entity.fields.items()
-        if field.metadata.get("primary_key")
-    )
+    return entity.primary_key.name
 
 
 def _version_field(entity: NormalizedEntity) -> str | None:
-    return next(
-        (
-            name
-            for name, field in entity.fields.items()
-            if field.metadata.get("concurrency_token")
-        ),
-        None,
-    )
+    field = entity.version_field
+    return None if field is None else field.name
 
 
 def _field_label(field: NormalizedField) -> str:

@@ -40,6 +40,33 @@ class NormalizedEntity:
     def field(self, name: str) -> NormalizedField:
         return self.fields[name]
 
+    @property
+    def primary_key(self) -> NormalizedField:
+        """Return the field that identifies a record of this entity.
+
+        Schema v0.1 requires exactly one, so this is a question the model can
+        answer; every module used to rescan the fields for it, in two different
+        return shapes, which is how the answer drifted.
+        """
+
+        for field in self.fields.values():
+            if field.metadata.get("primary_key"):
+                return field
+        raise ValueError(f"entity {self.name!r} declares no primary key")
+
+    @property
+    def version_field(self) -> NormalizedField | None:
+        """Return the concurrency token, when this entity declares one."""
+
+        return next(
+            (
+                field
+                for field in self.fields.values()
+                if field.metadata.get("concurrency_token")
+            ),
+            None,
+        )
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,

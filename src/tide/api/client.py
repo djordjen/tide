@@ -942,9 +942,7 @@ def _encode_generic(value: Any) -> Any:
 
 
 def _primary_key(entity: NormalizedEntity) -> NormalizedField:
-    return next(
-        field for field in entity.fields.values() if field.metadata.get("primary_key")
-    )
+    return entity.primary_key
 
 
 def _validate_report_filename(value: str) -> None:

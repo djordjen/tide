@@ -516,20 +516,11 @@ def _nested_payload(
 
 
 def _primary_key(entity: NormalizedEntity) -> NormalizedField:
-    return next(
-        field for field in entity.fields.values() if field.metadata.get("primary_key")
-    )
+    return entity.primary_key
 
 
 def _version_field(entity: NormalizedEntity) -> NormalizedField | None:
-    return next(
-        (
-            field
-            for field in entity.fields.values()
-            if field.metadata.get("concurrency_token")
-        ),
-        None,
-    )
+    return entity.version_field
 
 
 def _etag_version(

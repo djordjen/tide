@@ -533,9 +533,7 @@ def _error_response(description: str) -> dict[str, Any]:
 
 
 def _primary_key(entity: NormalizedEntity) -> NormalizedField:
-    return next(
-        field for field in entity.fields.values() if field.metadata.get("primary_key")
-    )
+    return entity.primary_key
 
 
 def _normalize_base_path(value: str) -> str:

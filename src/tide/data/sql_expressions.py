@@ -527,7 +527,4 @@ def _attribute_parts(node: ast.Attribute) -> tuple[str, ...]:
 
 
 def _primary_key(entity: NormalizedEntity) -> str:
-    for name, field in entity.fields.items():
-        if field.metadata.get("primary_key"):
-            return name
-    raise QueryTranslationError(f"entity {entity.name} has no primary key")
+    return entity.primary_key.name

@@ -484,14 +484,7 @@ def _bind_expected_version(
 
 
 def _version_field(entity: NormalizedEntity) -> NormalizedField | None:
-    return next(
-        (
-            field
-            for field in entity.fields.values()
-            if field.metadata.get("concurrency_token")
-        ),
-        None,
-    )
+    return entity.version_field
 
 
 def _field_schema(field: NormalizedField) -> TideMcpFieldSchema:

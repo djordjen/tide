@@ -1525,11 +1525,7 @@ def _format_date(value: date) -> str:
 
 
 def _primary_key(entity: NormalizedEntity) -> str:
-    return next(
-        name
-        for name, field in entity.fields.items()
-        if field.metadata.get("primary_key")
-    )
+    return entity.primary_key.name
 
 
 def _field_label(field: NormalizedField) -> str:

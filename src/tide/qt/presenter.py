@@ -2242,9 +2242,7 @@ def _display_record(entity: NormalizedEntity, values: Mapping[str, Any]) -> str:
 
 
 def _primary_key_name(entity: NormalizedEntity) -> str:
-    return next(
-        name for name, field in entity.fields.items() if field.metadata.get("primary_key")
-    )
+    return entity.primary_key.name
 
 
 def _safe_display_value(value: Any) -> str:

@@ -1909,14 +1909,7 @@ def _set_etag(
 
 
 def _version_field(entity: NormalizedEntity) -> NormalizedField | None:
-    return next(
-        (
-            field
-            for field in entity.fields.values()
-            if field.metadata.get("concurrency_token")
-        ),
-        None,
-    )
+    return entity.version_field
 
 
 def _operation_allowed(

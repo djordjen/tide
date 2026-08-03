@@ -81,9 +81,7 @@ def wire_audit_event(event: ActionAuditEvent | RecordAuditEvent) -> TideAuditEve
 
 
 def primary_key(entity: NormalizedEntity) -> NormalizedField:
-    return next(
-        field for field in entity.fields.values() if field.metadata.get("primary_key")
-    )
+    return entity.primary_key
 
 
 def coerce_identity(
