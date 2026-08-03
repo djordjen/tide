@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
+from tide.labels import humanize
 from tide.compiler.normalized import NormalizedEntity, ResolvedView
 from tide.development.designer import (
     DesignerCommandBatch,
@@ -1843,7 +1844,7 @@ def _available_view_fields(
 def _view_field_label(name: str, field: Any) -> str:
     if field is not None and field.metadata.get("label"):
         return str(field.metadata["label"])
-    return name.replace("_", " ").title()
+    return humanize(name)
 
 
 def _view_field_type(field: Any) -> str:

@@ -9,7 +9,7 @@ from typing import Any, Mapping
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from tide.api.openapi import writable_scalar_annotation
-from tide.labels import humanize as _humanize
+from tide.presentation import field_label
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 
 
@@ -136,7 +136,7 @@ def _writable_fields(
             Field(
                 default,
                 alias=field_name,
-                title=str(metadata.get("label") or _humanize(field_name)),
+                title=field_label(field),
                 description=_input_field_description(field, mode),
             ),
         )

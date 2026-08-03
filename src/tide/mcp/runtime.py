@@ -16,6 +16,7 @@ from tide.api.wire import (
     wire_record,
 )
 from tide.labels import humanize as _humanize
+from tide.presentation import field_label
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.mcp.contracts import (
@@ -517,7 +518,7 @@ def _field_schema(field: NormalizedField) -> TideMcpFieldSchema:
         operators = ("eq", "ne", "lt", "lte", "gt", "gte")
     return TideMcpFieldSchema(
         name=field.name,
-        label=str(metadata.get("label") or _humanize(field.name)),
+        label=field_label(field),
         type=field_type,
         required=bool(metadata.get("required")),
         read_only=bool(

@@ -290,10 +290,20 @@ def field_label(field: NormalizedField) -> str:
 def field_alignment(
     field: NormalizedField,
     formats: Mapping[str, Mapping[str, Any]],
+    format_name: Any = None,
 ) -> Literal["left", "center", "right"]:
-    """Return explicit format alignment or the shared type-based default."""
+    """Return explicit format alignment or the shared type-based default.
 
-    configured = formats.get(str(field.metadata.get("format")), {}).get("align")
+    ``format_name`` overrides the field's own format, which reports need when a
+    column names one. An explicitly configured ``left`` is a decision and wins
+    over the numeric default: the reporting fork could not express that, because
+    it defaulted an absent ``align`` to ``left`` and then treated ``left`` as
+    absent, so a deliberately left-aligned number was silently pushed right.
+    """
+
+    configured = formats.get(str(format_name or field.metadata.get("format")), {}).get(
+        "align"
+    )
     if configured in {"left", "center", "right"}:
         return configured
     return "right" if field.metadata["type"] in {"integer", "decimal"} else "left"

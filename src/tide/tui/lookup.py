@@ -14,7 +14,7 @@ from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Input, Label, Static
 
-from tide.labels import humanize as _humanize
+from tide.presentation import field_label
 from tide.compiler.normalized import (
     ApplicationModel,
     NormalizedEntity,
@@ -369,8 +369,7 @@ def _row_index(value: Any) -> int | None:
         return None
 
 
-def _field_label(field: NormalizedField) -> str:
-    return str(field.metadata.get("label") or _humanize(field.name))
+_field_label = field_label
 
 
 def _entity_label(entity: NormalizedEntity) -> str:

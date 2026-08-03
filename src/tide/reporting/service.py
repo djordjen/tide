@@ -13,6 +13,7 @@ from tide.compiler.expressions import evaluate_expression
 from tide.labels import humanize as _humanize
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 from tide.data import FilterCondition, QuerySpec, SortField
+from tide.presentation import field_alignment, field_label
 from tide.runtime import Channel, RequestContext, TideRuntimeError
 from tide.runtime.errors import AuthorizationError, ValidationFailed, ValidationIssue
 from tide.security import PROTECTED
@@ -596,19 +597,8 @@ def _primary_key(entity: NormalizedEntity) -> str:
     return entity.primary_key.name
 
 
-def _field_label(field: NormalizedField) -> str:
-    return str(field.metadata.get("label") or _humanize(field.name))
-
-
-def _alignment(
-    field: NormalizedField,
-    formats: Mapping[str, Mapping[str, Any]],
-    format_name: Any,
-) -> str:
-    configured = _format_alignment(formats, format_name or field.metadata.get("format"))
-    if configured != "left":
-        return configured
-    return "right" if field.metadata["type"] in {"integer", "decimal"} else "left"
+_field_label = field_label
+_alignment = field_alignment
 
 
 def _format_alignment(

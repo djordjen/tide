@@ -18,7 +18,6 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Button, DataTable, Footer, Header, Input, Select, Static
 
-from tide.labels import humanize as _humanize
 from tide.compiler.normalized import (
     ApplicationModel,
     NormalizedEntity,
@@ -29,6 +28,7 @@ from tide.data import FilterCondition, QuerySpec, SortField
 from tide.presentation import (
     browse_columns,
     application_navigation,
+    field_label,
     browse_named_filters,
     browse_search_field,
     browse_sortable_fields,
@@ -1153,8 +1153,7 @@ def _version_field(entity: NormalizedEntity) -> str | None:
     return None if field is None else field.name
 
 
-def _field_label(field: NormalizedField) -> str:
-    return str(field.metadata.get("label") or _humanize(field.name))
+_field_label = field_label
 
 
 def _display_record(entity: NormalizedEntity, record: Mapping[str, Any]) -> str:

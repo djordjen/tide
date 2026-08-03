@@ -39,6 +39,7 @@ from tide.compiler.normalized import (
 from tide.data import QuerySpec
 from tide.presentation import (
     preview_computed_fields,
+    field_label,
     FormLayoutSection,
     form_layout_sections,
     form_layout_tabs,
@@ -1501,8 +1502,7 @@ def _primary_key(entity: NormalizedEntity) -> str:
     return entity.primary_key.name
 
 
-def _field_label(field: NormalizedField) -> str:
-    return str(field.metadata.get("label") or field.name.replace("_", " ").title())
+_field_label = field_label
 
 
 def _record_title(entity: NormalizedEntity, record: Mapping[str, Any]) -> str:

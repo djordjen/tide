@@ -10,7 +10,6 @@ from threading import Lock
 from typing import Any, Literal, Mapping, Protocol
 
 from tide.api.contracts import TideEntityCapabilities, TideSessionInfo
-from tide.labels import humanize as _humanize
 from tide.compiler.normalized import (
     ApplicationModel,
     NormalizedEntity,
@@ -26,6 +25,8 @@ from tide.presentation import (
     browse_named_filters,
     browse_search_field,
     browse_sortable_fields,
+    field_alignment,
+    field_label,
     form_layout_sections,
     view_field_hidden,
 )
@@ -2185,18 +2186,8 @@ def _entity_defaults(entity: NormalizedEntity) -> dict[str, Any]:
 _preview_computed_fields = preview_computed_fields
 
 
-def _field_label(field: NormalizedField) -> str:
-    return str(field.metadata.get("label") or _humanize(field.name))
-
-
-def _field_alignment(
-    field: NormalizedField,
-    formats: Mapping[str, Mapping[str, Any]],
-) -> Alignment:
-    configured = formats.get(str(field.metadata.get("format")), {}).get("align")
-    if configured in {"left", "center", "right"}:
-        return configured
-    return "right" if field.metadata["type"] in {"integer", "decimal"} else "left"
+_field_label = field_label
+_field_alignment = field_alignment
 
 
 def _display_record(entity: NormalizedEntity, values: Mapping[str, Any]) -> str:
