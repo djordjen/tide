@@ -38,6 +38,7 @@ from tide.compiler.normalized import (
 )
 from tide.data import QuerySpec
 from tide.presentation import (
+    preview_computed_fields,
     FormLayoutSection,
     form_layout_sections,
     form_layout_tabs,
@@ -1461,35 +1462,7 @@ def _editor_value(field: NormalizedField, editor: Editor) -> Any:
     return raw
 
 
-def _preview_computed_fields(
-    entity: NormalizedEntity,
-    values: dict[str, Any],
-) -> None:
-    remaining = {
-        name
-        for name, field in entity.fields.items()
-        if field.metadata.get("computed", {}).get("materialization") == "stored"
-    }
-    while remaining:
-        progressed = False
-        for field_name in tuple(remaining):
-            field = entity.field(field_name)
-            local_dependencies = {
-                dependency.split(".", 1)[0] for dependency in field.dependencies
-            }
-            if local_dependencies & remaining:
-                continue
-            try:
-                values[field_name] = evaluate_expression(
-                    field.metadata["computed"]["expression"],
-                    values,
-                )
-            except (ArithmeticError, TypeError, ValueError):
-                values[field_name] = None
-            remaining.remove(field_name)
-            progressed = True
-        if not progressed:
-            break
+_preview_computed_fields = preview_computed_fields
 
 
 def _input_text(field: NormalizedField, value: Any) -> str:

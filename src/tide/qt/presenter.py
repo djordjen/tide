@@ -20,6 +20,7 @@ from tide.compiler.normalized import (
 from tide.compiler.expressions import evaluate_expression
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.presentation import (
+    preview_computed_fields,
     browse_columns,
     BrowseNamedFilter,
     browse_named_filters,
@@ -2181,36 +2182,7 @@ def _entity_defaults(entity: NormalizedEntity) -> dict[str, Any]:
     return defaults
 
 
-def _preview_computed_fields(
-    entity: NormalizedEntity,
-    values: dict[str, Any],
-) -> None:
-    remaining = {
-        name
-        for name, field in entity.fields.items()
-        if field.metadata.get("computed", {}).get("materialization") == "stored"
-    }
-    while remaining:
-        progressed = False
-        for field_name in tuple(remaining):
-            field = entity.field(field_name)
-            local_dependencies = {
-                dependency.split(".", 1)[0]
-                for dependency in field.dependencies
-            }
-            if local_dependencies & remaining:
-                continue
-            try:
-                values[field_name] = evaluate_expression(
-                    field.metadata["computed"]["expression"],
-                    values,
-                )
-            except (ArithmeticError, TypeError, ValueError):
-                values[field_name] = None
-            remaining.remove(field_name)
-            progressed = True
-        if not progressed:
-            break
+_preview_computed_fields = preview_computed_fields
 
 
 def _field_label(field: NormalizedField) -> str:

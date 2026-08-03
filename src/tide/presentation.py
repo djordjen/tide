@@ -6,6 +6,7 @@ import ast
 from dataclasses import dataclass
 from typing import Any, Iterable, Literal, Mapping
 
+from tide.compiler.expressions import evaluate_expression
 from tide.labels import humanize as _humanize
 from tide.compiler.normalized import (
     ApplicationModel,
@@ -232,6 +233,52 @@ def browse_columns(
     return tuple(
         name for name in columns if not view_field_hidden(view, name)
     )
+
+
+def preview_computed_fields(
+    entity: NormalizedEntity,
+    values: dict[str, Any],
+) -> None:
+    """Fill in stored computed fields so an editor can show them live.
+
+    This mirrors what the service does on commit, with one deliberate
+    difference: a value it cannot evaluate becomes ``None`` rather than an
+    error. A preview runs while the user is still typing, so a half-entered row
+    is ordinary; the commit remains the authority that rejects it.
+
+    A dependency cycle is not tolerated. The compiler rejects those, so meeting
+    one means the model is not what it claims to be, and quietly stopping would
+    present a partly computed row as a finished one.
+    """
+
+    remaining = {
+        name
+        for name, field in entity.fields.items()
+        if field.metadata.get("computed", {}).get("materialization") == "stored"
+    }
+    while remaining:
+        progressed = False
+        for field_name in tuple(remaining):
+            field = entity.field(field_name)
+            local_dependencies = {
+                dependency.split(".", 1)[0] for dependency in field.dependencies
+            }
+            if local_dependencies & remaining:
+                continue
+            try:
+                values[field_name] = evaluate_expression(
+                    field.metadata["computed"]["expression"],
+                    values,
+                )
+            except (ArithmeticError, TypeError, ValueError):
+                values[field_name] = None
+            remaining.remove(field_name)
+            progressed = True
+        if not progressed:
+            raise RuntimeError(
+                f"computed dependency cycle in {entity.name}: "
+                + ", ".join(sorted(remaining))
+            )
 
 
 def field_label(field: NormalizedField) -> str:
