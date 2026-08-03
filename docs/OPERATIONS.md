@@ -149,6 +149,12 @@ exceptions, URLs, credentials, schema object names, and repair advice are not
 returned. A process that needs migration is not ready and never attempts an
 automatic destructive migration from the probe.
 
+Readiness also refuses a deployment whose driver cannot store a declared
+decimal precision exactly. SQLite binds `Decimal` values through a float and
+holds 15 significant digits; a wider field would be rounded on the way in with
+nothing raised, so the process reports not ready instead. `mssql+pyodbc` and
+`postgresql+psycopg2` bind decimals directly and are unaffected.
+
 For `database.mode: legacy`, readiness uses reflection-based compatibility
 inspection rather than a TIDE schema revision. Mismatched mapped tables,
 columns, keys, or types make the service not ready, but their details are never

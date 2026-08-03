@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
+from decimal import Decimal
 import re
 from typing import Any
 
@@ -60,6 +61,24 @@ from tide.runtime.errors import (
     RelationshipExpansionLimit,
     TideRuntimeError,
 )
+
+
+_EXACT_DOUBLE_DIGITS = 15
+"""Significant decimal digits an IEEE 754 double represents without loss."""
+
+
+def _binds_decimal_natively(dialect: Any) -> bool:
+    """Report whether this dialect sends a Decimal without a float hop.
+
+    ``supports_native_decimal`` is not sufficient on its own: the psycopg2
+    dialect reports ``False`` yet still binds Decimal values, so ask the type's
+    bind processor what it actually produces.
+    """
+
+    processor = Numeric(38, 18).dialect_impl(dialect).bind_processor(dialect)
+    if processor is None:
+        return True
+    return isinstance(processor(Decimal("0.1")), Decimal)
 
 
 class SchemaManagementError(TideRuntimeError):
@@ -122,7 +141,50 @@ class SQLAlchemyRepository:
         with self.engine.connect() as connection:
             connection.execute(select(1)).scalar_one()
         self.validate_schema()
+        self.validate_decimal_support()
         self.validate_query_support()
+
+    def decimal_issues(self) -> tuple[SchemaIssue, ...]:
+        """Report decimal fields this dialect cannot store at their declared size.
+
+        Exact decimal storage is a property of the driver, not of TIDE. SQLite
+        binds a `Decimal` through a C double, so a value wider than a double
+        represents loses digits on the way in with nothing raised. Dialects that
+        bind decimals natively, such as `mssql+pyodbc` and `postgresql+psycopg2`,
+        keep the declared precision.
+        """
+
+        if self.engine.dialect.supports_native_decimal:
+            return ()
+        if _binds_decimal_natively(self.engine.dialect):
+            return ()
+        issues: list[SchemaIssue] = []
+        for entity in self.model.entities.values():
+            table = self._tables.get(entity.name)
+            if table is None:
+                continue
+            for field in entity.fields.values():
+                if field.metadata.get("type") != "decimal":
+                    continue
+                precision = field.metadata.get("precision")
+                if precision is None or int(precision) <= _EXACT_DOUBLE_DIGITS:
+                    continue
+                issues.append(
+                    SchemaIssue(
+                        entity.name,
+                        f"{_qualified_name(table.schema, table.name)}.{field.name}",
+                        f"declared precision {precision} exceeds the "
+                        f"{_EXACT_DOUBLE_DIGITS} digits the "
+                        f"{self.engine.dialect.name} driver stores exactly; "
+                        "values would be rounded through a float",
+                    )
+                )
+        return tuple(issues)
+
+    def validate_decimal_support(self) -> None:
+        issues = self.decimal_issues()
+        if issues:
+            raise SchemaCompatibilityError(issues)
 
     def schema_issues(self) -> tuple[SchemaIssue, ...]:
         inspector = inspect(self.engine)

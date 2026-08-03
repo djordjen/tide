@@ -132,6 +132,50 @@ def test_sqlalchemy_readiness_requires_a_compatible_schema() -> None:
         repository.dispose()
 
 
+def _model_with_decimal_precision(model, precision: int, scale: int):
+    """Return the compiled model with catalog.Product.unit_price rescaled."""
+
+    product = model.entity("catalog.Product")
+    price = product.field("unit_price")
+    metadata = deep_thaw(price.metadata)
+    metadata["precision"] = precision
+    metadata["scale"] = scale
+    fields = dict(product.fields)
+    fields["unit_price"] = replace(price, metadata=immutable_mapping(metadata))
+    entities = dict(model.entities)
+    entities[product.name] = replace(product, fields=immutable_mapping(fields))
+    return replace(model, entities=immutable_mapping(entities))
+
+
+def test_readiness_rejects_decimals_a_dialect_cannot_hold_exactly() -> None:
+    """SQLite binds decimals through a float, so wide ones lose digits silently.
+
+    The declared precision is a business contract; a deployment that cannot
+    honour it has to say so rather than round money on the way in.
+    """
+
+    model = _model_with_decimal_precision(compile_project(INVOICING), 38, 18)
+    repository = SQLAlchemyRepository(model, "sqlite+pysqlite:///:memory:")
+    try:
+        repository.create_schema()
+        with pytest.raises(SchemaCompatibilityError, match="unit_price"):
+            repository.check_readiness()
+    finally:
+        repository.dispose()
+
+
+def test_readiness_accepts_decimals_that_fit_a_float_backed_dialect() -> None:
+    """The invoicing scales are well inside what a double represents exactly."""
+
+    model = _model_with_decimal_precision(compile_project(INVOICING), 15, 2)
+    repository = SQLAlchemyRepository(model, "sqlite+pysqlite:///:memory:")
+    try:
+        repository.create_schema()
+        repository.check_readiness()
+    finally:
+        repository.dispose()
+
+
 @pytest.fixture
 def sql_runtime():
     model = compile_project(INVOICING)

@@ -71,7 +71,11 @@ The initial SQLAlchemy repository additionally provides:
 - explicit managed-schema creation for SQLite;
 - deterministic table, scalar-column, and reference-column mapping;
 - transactional master-detail inserts, updates, and orphan deletion;
-- database-backed reference checks and exact decimal round trips;
+- database-backed reference checks;
+- exact decimal round trips on dialects whose driver binds `Decimal` directly
+  (`mssql+pyodbc`, `postgresql+psycopg2`). SQLite binds through a float, so it
+  holds 15 significant digits exactly and readiness refuses any field declaring
+  more rather than rounding it silently;
 - atomic integer optimistic-concurrency updates;
 - legacy table/schema/column mappings with compatibility inspection;
 - an executable no-DDL guard for legacy mode.
