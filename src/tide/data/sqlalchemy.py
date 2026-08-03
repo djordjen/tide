@@ -39,11 +39,13 @@ from sqlalchemy.pool import StaticPool
 from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.type_api import TypeEngine
 
+from tide.compiler.expressions import POLICY_PARAMETERS
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 from tide.data.repository import (
     DeleteCollection,
     DeleteReference,
     DeletedRecord,
+    NO_PARAMETERS,
     FilterCondition,
     QuerySpec,
     RelationshipLoadPlan,
@@ -222,6 +224,7 @@ class SQLAlchemyRepository:
                     columns=table.c,
                     tables=self._tables,
                     relationship_criteria=relationship_criteria,
+                    parameters=dict.fromkeys(POLICY_PARAMETERS, ""),
                 )
             except QueryTranslationError as error:
                 raise QueryTranslationError(
@@ -267,12 +270,14 @@ class SQLAlchemyRepository:
         query: QuerySpec,
         *,
         row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         relationships: RelationshipLoadPlan | None = None,
     ) -> list[dict[str, Any]]:
         statement = self._query_statement(
             entity,
             query,
             row_criteria=row_criteria,
+            criteria_parameters=criteria_parameters,
             relationships=relationships,
         )
         with self.engine.connect() as connection:
@@ -294,6 +299,7 @@ class SQLAlchemyRepository:
         query: QuerySpec,
         *,
         row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         relationships: RelationshipLoadPlan | None = None,
     ) -> Any:
         if query.cursor is not None:
@@ -314,6 +320,7 @@ class SQLAlchemyRepository:
                 columns=table.c,
                 tables=self._tables,
                 relationship_criteria=_plan_relationship_criteria(relationships),
+                parameters=criteria_parameters,
             )
             for criteria in row_criteria
         ]
@@ -347,6 +354,7 @@ class SQLAlchemyRepository:
         identity: Any,
         *,
         row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         relationships: RelationshipLoadPlan | None = None,
     ) -> dict[str, Any]:
         with self.engine.connect() as connection:
@@ -355,6 +363,7 @@ class SQLAlchemyRepository:
                 entity,
                 identity,
                 row_criteria=row_criteria,
+                criteria_parameters=criteria_parameters,
                 relationships=relationships,
             )
 
@@ -385,6 +394,7 @@ class SQLAlchemyRepository:
         expected_version: int | None,
         is_new: bool,
         row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         collections: tuple[DeleteCollection, ...] = (),
     ) -> dict[str, Any]:
         # Children are rows in their own table, so the database allocates their
@@ -402,6 +412,7 @@ class SQLAlchemyRepository:
                 expected_version=expected_version,
                 is_new=is_new,
                 row_criteria=row_criteria,
+                criteria_parameters=criteria_parameters,
             )
 
     def delete(
@@ -413,6 +424,7 @@ class SQLAlchemyRepository:
         version_field: str | None,
         expected_version: int | None,
         row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         references: tuple[DeleteReference, ...] = (),
         collections: tuple[DeleteCollection, ...] = (),
     ) -> tuple[DeletedRecord, ...]:
@@ -432,6 +444,7 @@ class SQLAlchemyRepository:
                 columns=table.c,
                 tables=self._tables,
                 relationship_criteria=_model_read_criteria(self.model),
+                parameters=criteria_parameters,
             )
             for policy in row_criteria
         )
@@ -577,6 +590,7 @@ class SQLAlchemyRepository:
         expected_version: int | None,
         is_new: bool,
         row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
     ) -> dict[str, Any]:
         entity = self.model.entity(entity_name)
         table = self.table(entity_name)
@@ -608,6 +622,7 @@ class SQLAlchemyRepository:
                     columns=table.c,
                     tables=self._tables,
                     relationship_criteria=_model_read_criteria(self.model),
+                    parameters=criteria_parameters,
                 )
                 for policy in row_criteria
             ]
@@ -712,6 +727,7 @@ class SQLAlchemyRepository:
         identity: Any,
         *,
         row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         relationships: RelationshipLoadPlan | None = None,
     ) -> dict[str, Any]:
         entity = self.model.entity(entity_name)
@@ -726,6 +742,7 @@ class SQLAlchemyRepository:
                 columns=table.c,
                 tables=self._tables,
                 relationship_criteria=_plan_relationship_criteria(relationships),
+                parameters=criteria_parameters,
             )
             for criteria in row_criteria
         )
@@ -798,6 +815,7 @@ class SQLAlchemyRepository:
                         relationship_criteria=_plan_relationship_criteria(
                             relationships
                         ),
+                        parameters=relationships.criteria_parameters,
                     )
                     for criteria in relationships.criteria_for_entity(
                         load.target_entity

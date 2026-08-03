@@ -11,6 +11,7 @@ from tide.data.repository import (
     DeleteCollection,
     DeleteReference,
     DeletedRecord,
+    NO_PARAMETERS,
     QuerySpec,
     RelationshipLoadPlan,
     RowPolicyMismatch,
@@ -59,6 +60,7 @@ class InMemoryRepository:
         query: QuerySpec,
         *,
         row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         relationships: RelationshipLoadPlan | None = None,
     ) -> list[dict[str, Any]]:
         if query.cursor is not None:
@@ -78,7 +80,7 @@ class InMemoryRepository:
         records = [
             record
             for record in records
-            if all(bool(evaluate_expression(criteria, record)) for criteria in row_criteria)
+            if all(bool(evaluate_expression(criteria, record, parameters=criteria_parameters)) for criteria in row_criteria)
         ]
         for condition in query.filters:
             records = [
@@ -103,6 +105,7 @@ class InMemoryRepository:
         identity: Any,
         *,
         row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         relationships: RelationshipLoadPlan | None = None,
     ) -> dict[str, Any]:
         with self._lock:
@@ -118,7 +121,7 @@ class InMemoryRepository:
                     depth=0,
                 )
             if not all(
-                bool(evaluate_expression(criteria, result))
+                bool(evaluate_expression(criteria, result, parameters=criteria_parameters))
                 for criteria in row_criteria
             ):
                 raise RowPolicyMismatch
@@ -142,6 +145,7 @@ class InMemoryRepository:
         expected_version: int | None,
         is_new: bool,
         row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         collections: tuple[DeleteCollection, ...] = (),
     ) -> dict[str, Any]:
         with self._lock:
@@ -163,7 +167,7 @@ class InMemoryRepository:
                 if current is None:
                     raise NotFoundError(f"{entity} {identity!r} was not found")
                 if not all(
-                    bool(evaluate_expression(criteria, current))
+                    bool(evaluate_expression(criteria, current, parameters=criteria_parameters))
                     for criteria in row_criteria
                 ):
                     raise RowPolicyMismatch
@@ -184,6 +188,7 @@ class InMemoryRepository:
         version_field: str | None,
         expected_version: int | None,
         row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         references: tuple[DeleteReference, ...] = (),
         collections: tuple[DeleteCollection, ...] = (),
     ) -> tuple[DeletedRecord, ...]:
@@ -199,7 +204,7 @@ class InMemoryRepository:
             if current is None:
                 raise NotFoundError(f"{entity} {identity!r} was not found")
             if not all(
-                bool(evaluate_expression(criteria, current))
+                bool(evaluate_expression(criteria, current, parameters=criteria_parameters))
                 for criteria in row_criteria
             ):
                 raise RowPolicyMismatch
@@ -423,7 +428,11 @@ def _apply_relationship_plan(
             deepcopy(dict(item))
             for item in source_items
             if all(
-                bool(evaluate_expression(criteria, item))
+                bool(
+                    evaluate_expression(
+                        criteria, item, parameters=plan.criteria_parameters
+                    )
+                )
                 for criteria in plan.criteria_for_entity(load.target_entity)
             )
         ]

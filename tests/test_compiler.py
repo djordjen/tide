@@ -236,6 +236,38 @@ def test_explicitly_unrestricted_action_compiles_without_a_warning() -> None:
     assert model.diagnostics == ()
 
 
+def test_row_policy_may_name_the_current_principal() -> None:
+    """`$principal` is part of the policy vocabulary, not an unknown field."""
+
+    project = ROOT / "tests" / "fixtures" / "valid" / "principal-policy"
+
+    model = compile_project(project)
+
+    assert model.diagnostics == ()
+    assert [policy["criteria"] for policy in model.row_policies] == [
+        "owner == $principal"
+    ]
+
+
+def test_row_policy_rejects_a_parameter_the_runtime_does_not_bind(tmp_path) -> None:
+    """Only the declared bindings are accepted; a typo must not reach runtime."""
+
+    project = tmp_path / "unknown-parameter"
+    shutil.copytree(ROOT / "tests" / "fixtures" / "valid" / "principal-policy", project)
+    policies = project / "security" / "policies.yaml"
+    policies.write_text(
+        policies.read_text(encoding="utf-8").replace("$principal", "$prinicpal"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(project)
+
+    assert any(
+        diagnostic.code == "TIDE304" for diagnostic in caught.value.diagnostics
+    )
+
+
 def test_legacy_database_mapping_is_explicit_and_normalized() -> None:
     project = ROOT / "tests" / "fixtures" / "valid" / "legacy-database"
 

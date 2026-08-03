@@ -8,6 +8,7 @@ import re
 from dataclasses import dataclass
 from datetime import date
 from decimal import Context, Decimal, InvalidOperation, ROUND_HALF_EVEN, localcontext
+from types import MappingProxyType
 from typing import Any, Mapping
 
 from tide.model.source import EntitySource
@@ -17,6 +18,12 @@ ALLOWED_FUNCTIONS = frozenset(
 )
 ALLOWED_COMPARISONS = (ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE)
 PARAMETER_PATTERN = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
+POLICY_PARAMETERS: Mapping[str, str] = MappingProxyType({"principal": "string"})
+"""Values a row policy may name with ``$``, and the type each carries.
+
+One declaration so the compiler validates exactly what the security engine
+binds and what the SQL preflight can stand in for.
+"""
 NUMERIC_TYPES = frozenset({"integer", "decimal"})
 _TIDE_DECIMAL_CONTEXT = Context(prec=38, rounding=ROUND_HALF_EVEN)
 

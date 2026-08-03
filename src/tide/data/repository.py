@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any, Iterable, Mapping, Protocol, runtime_checkable
+
+
+NO_PARAMETERS: Mapping[str, Any] = MappingProxyType({})
+"""Empty binding set for row criteria that name no ``$`` parameter."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +45,11 @@ class RelationshipLoad:
 class RelationshipLoadPlan:
     loads: tuple[RelationshipLoad, ...] = ()
     entity_criteria: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    # Bindings for any ``$`` parameter the entity criteria name, carried with
+    # them so hydration evaluates the same predicate the root query did.
+    criteria_parameters: Mapping[str, Any] = field(
+        default_factory=lambda: NO_PARAMETERS
+    )
     max_depth: int = 3
     max_items: int = 1_000
 
@@ -182,6 +192,7 @@ class Repository(Protocol):
         query: QuerySpec,
         *,
         row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         relationships: RelationshipLoadPlan | None = None,
     ) -> list[dict[str, Any]]: ...
 
@@ -191,6 +202,7 @@ class Repository(Protocol):
         identity: Any,
         *,
         row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         relationships: RelationshipLoadPlan | None = None,
     ) -> dict[str, Any]: ...
 
@@ -208,6 +220,7 @@ class Repository(Protocol):
         expected_version: int | None,
         is_new: bool,
         row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         collections: tuple[DeleteCollection, ...] = (),
     ) -> dict[str, Any]: ...
 
@@ -220,6 +233,7 @@ class Repository(Protocol):
         version_field: str | None,
         expected_version: int | None,
         row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         references: tuple[DeleteReference, ...] = (),
         collections: tuple[DeleteCollection, ...] = (),
     ) -> tuple[DeletedRecord, ...]: ...

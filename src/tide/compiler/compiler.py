@@ -9,7 +9,11 @@ from typing import Any, Iterable, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from tide.compiler.expressions import ExpressionResult, validate_expression
+from tide.compiler.expressions import (
+    POLICY_PARAMETERS,
+    ExpressionResult,
+    validate_expression,
+)
 from tide.compiler.normalized import (
     ApplicationModel,
     NavigationGroup,
@@ -2422,6 +2426,9 @@ def _validate_security(
                     document,
                     (*path, "criteria"),
                     diagnostics,
+                    # A row policy may name the caller; the runtime binds these
+                    # as query parameters rather than expanding them into text.
+                    parameters=dict(POLICY_PARAMETERS),
                     expected_type="boolean",
                 )
 

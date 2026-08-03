@@ -53,6 +53,15 @@ relationships but cannot call arbitrary Python methods. Comparison operators
 outside the vocabulary, such as membership `in` and identity `is`, are
 rejected at compile time with `TIDE308`.
 
+Some contexts also supply values the record does not contain, written `$name`.
+Row policies receive `$principal`, the authenticated principal's identifier,
+which is what makes ownership scoping expressible. The accepted names are fixed
+per context, so an unknown one fails compilation with `TIDE304` rather than
+evaluating to nothing at runtime. A parameter is bound at evaluation, never
+spliced into the expression text: the Python evaluator receives it as a value
+and the SQLAlchemy translator emits a bound parameter, so no caller-derived
+string ever reaches a parsed expression or generated SQL.
+
 ## Numeric semantics
 
 Fractional literals are constructed from their original source token rather

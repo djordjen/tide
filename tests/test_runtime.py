@@ -255,6 +255,75 @@ def _model_granting_invoice_delete(model):
     return replace(model, entities=immutable_mapping(entities))
 
 
+def _model_with_owner_policy(model):
+    """Return the compiled model with a customer policy bound to the principal."""
+
+    policy = immutable_mapping(
+        {
+            "id": "own_customer",
+            "entity": "crm.Customer",
+            "operations": ("list", "read"),
+            "criteria": "code == $principal",
+        }
+    )
+    return replace(model, row_policies=tuple(model.row_policies) + (policy,))
+
+
+def test_row_policies_can_scope_records_to_the_current_principal(runtime) -> None:
+    """A policy has to be able to name who is asking.
+
+    Ownership is the common case for row security, and it cannot be written at
+    all while criteria see only the record.
+    """
+
+    model, repository, _, _ = runtime
+    repository.seed(
+        "crm.Customer",
+        [
+            {
+                "id": 3,
+                "code": "OTHER",
+                "name": "Other active customer",
+                "email": "other@example.test",
+                "active": True,
+                "invoices": [],
+            }
+        ],
+    )
+    records = RecordsService(_model_with_owner_policy(model), repository)
+
+    visible = records.query("crm.Customer", QuerySpec(), context("ACME", "sales_clerk"))
+
+    assert [customer["code"] for customer in visible] == ["ACME"]
+
+
+def test_row_policies_scoped_to_the_principal_also_guard_a_single_record(
+    runtime,
+) -> None:
+    """The same binding must apply when a record is fetched by identity."""
+
+    model, repository, _, _ = runtime
+    repository.seed(
+        "crm.Customer",
+        [
+            {
+                "id": 3,
+                "code": "OTHER",
+                "name": "Other active customer",
+                "email": "other@example.test",
+                "active": True,
+                "invoices": [],
+            }
+        ],
+    )
+    records = RecordsService(_model_with_owner_policy(model), repository)
+    acme = context("ACME", "sales_clerk")
+
+    assert records.get("crm.Customer", 1, acme)["code"] == "ACME"
+    with pytest.raises(AuthorizationError):
+        records.get("crm.Customer", 3, acme)
+
+
 def _model_without_orphan_delete(model):
     """Return the compiled model with sales.Invoice.lines keeping its orphans.
 

@@ -92,6 +92,17 @@ class SecurityEngine:
         permission = self._field_permission(entity, field, "write")
         return permission is None or self.has_permission(context, permission)
 
+    def policy_parameters(self, context: RequestContext) -> Mapping[str, Any]:
+        """Return the values a row policy may name with ``$``.
+
+        Criteria that can only see the record cannot express ownership, which
+        is the common case for row security. These bind as parameters rather
+        than being substituted into the expression text, so the SQL adapter
+        sends them as bound values and never builds a predicate from a string.
+        """
+
+        return {"principal": context.principal.identifier}
+
     def row_allowed(
         self,
         entity: str,
@@ -99,8 +110,9 @@ class SecurityEngine:
         record: Mapping[str, Any],
         context: RequestContext,
     ) -> bool:
+        parameters = self.policy_parameters(context)
         return all(
-            bool(evaluate_expression(criteria, record))
+            bool(evaluate_expression(criteria, record, parameters=parameters))
             for criteria in self.row_criteria(entity, operation)
         )
 

@@ -11,7 +11,7 @@ import re
 from typing import Any, Callable, Mapping
 from uuid import uuid4
 
-from tide.compiler.expressions import evaluate_expression
+from tide.compiler.expressions import PARAMETER_PATTERN, evaluate_expression
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity
 from tide.data.repository import (
     DeleteCollection,
@@ -199,6 +199,7 @@ class RecordsService:
                 version_field=version_field,
                 expected_version=expected_version,
                 row_criteria=self.security.row_criteria(entity_name, "delete"),
+                criteria_parameters=self.security.policy_parameters(context),
                 references=_delete_references(self.model),
                 collections=_delete_collections(self.model),
             )
@@ -355,6 +356,7 @@ class RecordsService:
                 entity_name,
                 identity,
                 row_criteria=criteria,
+                criteria_parameters=self.security.policy_parameters(context),
                 relationships=self._relationship_plan(
                     entity_name,
                     context,
@@ -456,6 +458,7 @@ class RecordsService:
             entity_name,
             repository_query,
             row_criteria=self.security.row_criteria(entity_name, "list"),
+            criteria_parameters=self.security.policy_parameters(context),
             relationships=self._relationship_plan(
                 entity_name,
                 context,
@@ -580,6 +583,7 @@ class RecordsService:
                     if session.is_new
                     else self.security.row_criteria(entity.name, write_operation)
                 ),
+                criteria_parameters=self.security.policy_parameters(context),
                 collections=_delete_collections(self.model),
             )
         except RowPolicyMismatch as error:
@@ -1003,6 +1007,7 @@ class RecordsService:
         return RelationshipLoadPlan(
             loads=tuple(loads.values()),
             entity_criteria=entity_criteria,
+            criteria_parameters=self.security.policy_parameters(context),
             max_depth=self.relationship_max_depth,
             max_items=self.relationship_max_items,
         )
@@ -1145,6 +1150,7 @@ class RecordsService:
                         target.name,
                         value,
                         row_criteria=self.security.row_criteria(target.name, "read"),
+                        criteria_parameters=self.security.policy_parameters(context),
                         relationships=self._relationship_plan(
                             target.name,
                             context,
@@ -1310,10 +1316,23 @@ class _ExpressionPathCollector(ast.NodeVisitor):
 
 
 def _expression_paths(expression: str) -> tuple[tuple[str, ...], ...]:
-    tree = ast.parse(expression, mode="eval")
+    """Return the record paths an expression reads.
+
+    Policy criteria may name a ``$`` parameter, which is not valid Python, so
+    apply the same rewrite the evaluators use and drop the results: a parameter
+    is supplied by the caller, not read from the record.
+    """
+
+    rewritten = PARAMETER_PATTERN.sub(r"__tide_parameter_\1", expression)
     collector = _ExpressionPathCollector()
-    collector.visit(tree)
-    return tuple(sorted(collector.paths))
+    collector.visit(ast.parse(rewritten, mode="eval"))
+    return tuple(
+        sorted(
+            path
+            for path in collector.paths
+            if not path[0].startswith("__tide_parameter_")
+        )
+    )
 
 
 def _policy_collection_edges(

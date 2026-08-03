@@ -1,0 +1,14 @@
+# A row policy scoped to whoever is asking.
+permissions:
+  - notes.read
+
+roles:
+  reader:
+    grants:
+      - notes.read
+
+row_policies:
+  - id: own_notes
+    entity: notes.Note
+    operations: [list, read]
+    criteria: "owner == $principal"

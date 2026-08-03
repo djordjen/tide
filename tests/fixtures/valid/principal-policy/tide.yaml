@@ -1,0 +1,4 @@
+schema_version: "0.1"
+application: {name: Principal Policy, version: 0.1.0}
+model: {paths: [models]}
+security: {paths: [security]}

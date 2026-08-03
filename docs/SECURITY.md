@@ -63,6 +63,24 @@ be loaded and then filtered by a TUI widget or serializer. Query services apply
 row policies to lists, lookups, reports, relationships, aggregates, REST, and
 MCP consistently.
 
+A policy may name the caller. `$principal` resolves to the authenticated
+principal's identifier, so ownership scoping is expressible:
+
+```yaml
+row_policies:
+  - id: own_notes
+    entity: notes.Note
+    operations: [list, read]
+    criteria: "owner == $principal"
+```
+
+The compiler validates these names against a fixed vocabulary, so a misspelled
+one fails at authoring time rather than silently matching nothing. At runtime
+the value is bound, never substituted into the expression text: the SQL adapter
+sends it as a bound parameter, and the criteria string in the compiled model
+stays exactly what the author wrote. A caller cannot influence the binding —
+it comes from the authenticated `RequestContext`, not from request input.
+
 Collection relationships require source-field read access and target-entity
 read access. Target row criteria are part of the child database statement and
 supported root aggregate/reference predicates. The service rechecks returned
