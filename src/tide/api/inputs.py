@@ -57,6 +57,21 @@ def build_writable_models(
         nested_cache[cache_key] = generated
         return generated
 
+    def factory_for(owner: NormalizedEntity) -> Any:
+        """Return the nested-model factory an entity's own fields should use.
+
+        A parameter, not a closure over the loop variable: a lambda written in
+        the loop reads whichever entity the loop reached last, so every model
+        would be built with the wrong cycle-detection stack the moment the
+        factory outlived its iteration.
+        """
+
+        return lambda target, inverse: nested_model(
+            target,
+            excluded_field=inverse,
+            stack=frozenset({owner.name}),
+        )
+
     for entity_name, operations in operations_by_entity.items():
         entity = model.entity(entity_name)
         if "create" in operations:
@@ -68,11 +83,7 @@ def build_writable_models(
                     model,
                     entity,
                     mode="create",
-                    nested_factory=lambda target, inverse: nested_model(
-                        target,
-                        excluded_field=inverse,
-                        stack=frozenset({entity.name}),
-                    ),
+                    nested_factory=factory_for(entity),
                 ),
             )
         if "update" in operations:
@@ -84,11 +95,7 @@ def build_writable_models(
                     model,
                     entity,
                     mode="update",
-                    nested_factory=lambda target, inverse: nested_model(
-                        target,
-                        excluded_field=inverse,
-                        stack=frozenset({entity.name}),
-                    ),
+                    nested_factory=factory_for(entity),
                 ),
             )
     return create_models, update_models

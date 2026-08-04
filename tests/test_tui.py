@@ -147,7 +147,10 @@ def test_textual_invoice_browse_incrementally_loads_on_scroll(monkeypatch) -> No
                 table.scroll_end(animate=False)
                 await _wait_until(
                     pilot,
-                    lambda: table.row_count > previous_count
+                    # bound as an argument: `previous_count` is rebound every
+                    # pass, and a closure over it would compare against the
+                    # count from whichever pass ran last
+                    lambda before=previous_count: table.row_count > before
                     or app._next_cursor is None,
                 )
             assert table.row_count == 40
@@ -188,61 +191,73 @@ def test_browse_updates_tolerate_a_screen_that_is_not_composed() -> None:
 
 def test_textual_browse_and_form_keep_actions_reachable_at_supported_sizes() -> None:
     for width, height in ((80, 24), (100, 30), (140, 40)):
-        app = _demo_app(page_size=3)
+        _assert_actions_stay_reachable(width, height)
 
-        async def exercise() -> None:
-            async with app.run_test(size=(width, height)) as pilot:
-                await pilot.pause()
-                compact = width < 100
-                assert ("compact-terminal" in app.screen.classes) is compact
-                for button_id in (
-                    "create-record",
-                    "edit-record",
-                    "preview-report",
-                    "summary-report",
-                    "refresh-page",
-                    "quit-app",
-                ):
-                    button = app.query_one(f"#{button_id}", Button)
-                    assert button.region.right <= width
-                    assert button.region.bottom <= height
-                assert app.query_one("#named-filter", Select).display is not compact
-                assert app.query_one("#sort-field", Select).display is not compact
 
-                app.open_record(2)
-                await pilot.pause()
-                screen = app.screen
-                assert isinstance(screen, RecordEditScreen)
-                assert ("compact-terminal" in screen.classes) is compact
-                for button_id in ("cancel-form", "save-form", "post-record"):
-                    button = screen.query_one(f"#{button_id}", Button)
-                    assert button.region.right <= width
-                    assert button.region.bottom <= height
+def _assert_actions_stay_reachable(width: int, height: int) -> None:
+    """Check one terminal size.
 
-                body = screen.query_one("#form-body")
-                if compact:
-                    assert body.show_vertical_scrollbar
-                    assert body.max_scroll_y > 0
-                    body.scroll_end(animate=False)
-                    line_fields = screen.query_one("#line-fields")
-                    await _wait_until(
-                        pilot,
-                        lambda: (
-                            body.scroll_offset.y == body.max_scroll_y
-                            and body.scrollable_content_region.contains_region(
-                                line_fields.region
-                            )
-                        ),
-                    )
-                    assert body.scrollable_content_region.contains_region(
-                        line_fields.region
-                    )
+    Its own function rather than a body inside the loop: the coroutine below
+    closes over the size, and a closure written in the loop reads whichever
+    size the loop reached last -- so a regression at 80x24 could pass while
+    silently measuring 140x40.
+    """
 
-                await pilot.press("escape")
-                await pilot.pause()
-                assert not isinstance(app.screen, RecordEditScreen)
+    app = _demo_app(page_size=3)
 
-        asyncio.run(exercise())
+    async def exercise() -> None:
+        async with app.run_test(size=(width, height)) as pilot:
+            await pilot.pause()
+            compact = width < 100
+            assert ("compact-terminal" in app.screen.classes) is compact
+            for button_id in (
+                "create-record",
+                "edit-record",
+                "preview-report",
+                "summary-report",
+                "refresh-page",
+                "quit-app",
+            ):
+                button = app.query_one(f"#{button_id}", Button)
+                assert button.region.right <= width
+                assert button.region.bottom <= height
+            assert app.query_one("#named-filter", Select).display is not compact
+            assert app.query_one("#sort-field", Select).display is not compact
+
+            app.open_record(2)
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, RecordEditScreen)
+            assert ("compact-terminal" in screen.classes) is compact
+            for button_id in ("cancel-form", "save-form", "post-record"):
+                button = screen.query_one(f"#{button_id}", Button)
+                assert button.region.right <= width
+                assert button.region.bottom <= height
+
+            body = screen.query_one("#form-body")
+            if compact:
+                assert body.show_vertical_scrollbar
+                assert body.max_scroll_y > 0
+                body.scroll_end(animate=False)
+                line_fields = screen.query_one("#line-fields")
+                await _wait_until(
+                    pilot,
+                    lambda: (
+                        body.scroll_offset.y == body.max_scroll_y
+                        and body.scrollable_content_region.contains_region(
+                            line_fields.region
+                        )
+                    ),
+                )
+                assert body.scrollable_content_region.contains_region(
+                    line_fields.region
+                )
+
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, RecordEditScreen)
+
+    asyncio.run(exercise())
 
 
 def test_textual_compact_browse_preserves_wide_combining_and_rtl_text() -> None:

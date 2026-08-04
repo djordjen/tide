@@ -143,4 +143,10 @@ target-version = "py311"
 # rule set changes between ruff releases, which turns a routine tool upgrade
 # into a CI outage on unchanged code. Adopting further rules is a deliberate
 # edit here.
-select = ["E4", "E7", "E9", "F"]
+select = ["E4", "E7", "E9", "F", "B023"]
+# B023 is here because a closure that reads a loop variable reads whichever
+# value the loop reached last, and this runtime builds per-entity and per-field
+# callables in loops -- a miscapture would silently bind the wrong entity and
+# raise nothing. All 29 findings at adoption were within-iteration and safe;
+# they were restructured rather than suppressed, so the rule is now free to
+# mean what it says.

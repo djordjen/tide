@@ -1144,34 +1144,50 @@ def _validate_computed_cycles(
             }
             for name in computed
         }
-        visiting: list[str] = []
-        visited: set[str] = set()
-        reported: set[frozenset[str]] = set()
+        _report_computed_cycles(graph, documents[entity_name], diagnostics)
 
-        def visit(name: str) -> None:
-            if name in visiting:
-                cycle = visiting[visiting.index(name) :] + [name]
-                identity = frozenset(cycle)
-                if identity not in reported:
-                    reported.add(identity)
-                    _add(
-                        diagnostics,
-                        "TIDE214",
-                        "computed-field cycle: " + " -> ".join(cycle),
-                        documents[entity_name],
-                        ("fields", name, "computed", "expression"),
-                    )
-                return
-            if name in visited:
-                return
-            visiting.append(name)
-            for dependency in graph[name]:
-                visit(dependency)
-            visiting.pop()
-            visited.add(name)
 
-        for field_name in graph:
-            visit(field_name)
+def _report_computed_cycles(
+    graph: dict[str, set[str]],
+    document: SourceDocument,
+    diagnostics: list[Diagnostic],
+) -> None:
+    """Walk one entity's computed-field dependencies and report every cycle.
+
+    Its own function rather than a closure in the caller's loop: the traversal
+    state is per-entity, and a helper defined inside a loop reads whichever
+    entity the loop reached last if it is ever called after the iteration that
+    made it. Nothing calls this one late today, but the shape is the hazard.
+    """
+
+    visiting: list[str] = []
+    visited: set[str] = set()
+    reported: set[frozenset[str]] = set()
+
+    def visit(name: str) -> None:
+        if name in visiting:
+            cycle = visiting[visiting.index(name) :] + [name]
+            identity = frozenset(cycle)
+            if identity not in reported:
+                reported.add(identity)
+                _add(
+                    diagnostics,
+                    "TIDE214",
+                    "computed-field cycle: " + " -> ".join(cycle),
+                    document,
+                    ("fields", name, "computed", "expression"),
+                )
+            return
+        if name in visited:
+            return
+        visiting.append(name)
+        for dependency in graph[name]:
+            visit(dependency)
+        visiting.pop()
+        visited.add(name)
+
+    for field_name in graph:
+        visit(field_name)
 
 
 def _validate_selection_assignments(
