@@ -144,12 +144,18 @@ commit but before the reservation is completed therefore leaves an
 compare the audit correlation, target state, and application-specific side
 effects before reconciling it.
 
-CRUD events are written **inside** the record's own write transaction. The
-repository invokes a callback on its connection before committing, and the
+CRUD events are written **inside** the record's own transaction — a create or
+update inside its write, a deletion inside its delete, including every row a
+cascade takes. The repository invokes a callback on its connection before
+committing, and the
 audit store enlists in that connection when it belongs to the same engine, so
 a change and the record of it commit together or not at all. An audit write
 that fails takes the change down with it: an unaccountable change is the one
-outcome an audit trail exists to prevent. A store configured against a
+outcome an audit trail exists to prevent. That matters most for a deletion,
+because a create that goes unaudited can still be inspected afterwards and a
+delete that goes unaudited leaves nothing to inspect. A cascade's removals are
+audited together for the same reason: some rows accounted for and others not
+reads as though the rest were never removed. A store configured against a
 different database cannot enlist and opens its own transaction, which restores
 the older gap — deployments that separate the two should expect it.
 

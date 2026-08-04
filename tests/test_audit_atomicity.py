@@ -135,3 +135,71 @@ def _services(
         )
         repository.create_schema()
     return RecordsService(model, repository, audit_store=audit_store)
+
+
+@pytest.mark.parametrize("kind", ["memory", "sql"])
+def test_a_removal_that_cannot_be_audited_is_not_kept(
+    kind: str, tmp_path: Path
+) -> None:
+    """The half #18 left behind, and the half that matters more.
+
+    A create that goes unaudited can still be inspected afterwards. A delete
+    that goes unaudited leaves nothing to inspect, so the record is simply
+    gone with nothing accounting for it.
+    """
+
+    records = _services(kind, tmp_path)
+    _write_customer(records, code="GONE")
+    identity = _stored(records)[0]["id"]
+    records.audit_store = _FailingAuditStore()
+
+    with pytest.raises(ActionStoreError):
+        records.delete("crm.Customer", identity, _context(), expected_version=None)
+
+    assert [row["code"] for row in _stored(records)] == ["GONE"]
+
+
+@pytest.mark.parametrize("kind", ["memory", "sql"])
+def test_a_removal_is_audited_when_it_succeeds(kind: str, tmp_path: Path) -> None:
+    records = _services(kind, tmp_path)
+    _write_customer(records, code="GONE")
+    identity = _stored(records)[0]["id"]
+
+    records.delete("crm.Customer", identity, _context(), expected_version=None)
+
+    assert _stored(records) == []
+    events = records.audit_store.record_audit_events(entity="crm.Customer")
+    assert [event.operation.value for event in events] == ["create", "delete"]
+
+
+def test_a_removal_is_audited_on_the_delete_s_own_connection(
+    tmp_path: Path,
+) -> None:
+    """Rolling back is not proof of enlisting, here either."""
+
+    from tide.data.sqlalchemy_actions import SQLAlchemyActionExecutionStore
+
+    model = compile_project(INVOICING)
+    repository = SQLAlchemyRepository(
+        model, f"sqlite+pysqlite:///{(tmp_path / 'removal.db').as_posix()}"
+    )
+    repository.create_schema()
+    store = SQLAlchemyActionExecutionStore(repository.engine, mode="managed")
+    store.create_schema()
+    records = RecordsService(model, repository, audit_store=store)
+    _write_customer(records, code="GONE")
+    identity = _stored(records)[0]["id"]
+
+    seen: list[Any] = []
+    original = store.record_audit
+
+    def watching(event: RecordAuditEvent, *, connection: Any = None) -> None:
+        seen.append(connection)
+        original(event, connection=connection)
+
+    store.record_audit = watching  # type: ignore[method-assign]
+    records.delete("crm.Customer", identity, _context(), expected_version=None)
+
+    assert seen
+    assert all(observed is not None for observed in seen)
+    assert all(observed.engine is repository.engine for observed in seen)

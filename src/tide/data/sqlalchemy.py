@@ -51,6 +51,7 @@ from tide.data.repository import (
     FilterCondition,
     QuerySpec,
     RelationshipLoadPlan,
+    OnDeleted,
     OnWritten,
     RowPolicyMismatch,
     DuplicateIdentityError,
@@ -614,6 +615,7 @@ class SQLAlchemyRepository:
         criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         references: tuple[DeleteReference, ...] = (),
         collections: tuple[DeleteCollection, ...] = (),
+        on_deleted: OnDeleted | None = None,
     ) -> tuple[DeletedRecord, ...]:
         del collections
         removed: list[DeletedRecord] = []
@@ -675,6 +677,10 @@ class SQLAlchemyRepository:
                     root_criteria=root_criteria,
                     expected_version=expected_version,
                 )
+                if on_deleted is not None:
+                    # Before the commit, so whatever it writes goes with the
+                    # rows that went -- and takes them back if it cannot.
+                    on_deleted(connection, tuple(removed))
         except DeleteRestricted:
             raise
         except IntegrityError as error:

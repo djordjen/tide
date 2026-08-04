@@ -176,6 +176,18 @@ which adapter it is talking to.
 """
 
 
+OnDeleted = Callable[[Any, tuple["DeletedRecord", ...]], None]
+"""Called inside a delete's transaction, with its connection and what it removed.
+
+The counterpart of `OnWritten`, and needed for the same reason: a record that
+is gone and a record of its going have to land together. It matters more here,
+because a create that is not audited can still be inspected afterwards and a
+delete that is not audited leaves nothing to inspect. A cascade removes several
+rows in one call, so the callback is handed all of them at once rather than
+one at a time.
+"""
+
+
 def sequence_name(entity: str, field: str) -> str:
     """Name the sequence a generated field allocates from.
 
@@ -312,4 +324,5 @@ class Repository(Protocol):
         criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         references: tuple[DeleteReference, ...] = (),
         collections: tuple[DeleteCollection, ...] = (),
+        on_deleted: OnDeleted | None = None,
     ) -> tuple[DeletedRecord, ...]: ...

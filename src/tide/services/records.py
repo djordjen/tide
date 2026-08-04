@@ -15,6 +15,7 @@ from tide.compiler.expressions import PARAMETER_PATTERN, evaluate_expression
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity
 from tide.data.repository import (
     DeleteCollection,
+    DeletedRecord,
     DeleteReference,
     FilterCondition as FilterCondition,
     QuerySpec,
@@ -210,14 +211,44 @@ class RecordsService:
                 criteria_parameters=self.security.policy_parameters(context),
                 references=_delete_references(self.model),
                 collections=_delete_collections(self.model),
+                on_deleted=lambda connection, removed: self._audit_removals(
+                    entity,
+                    identity,
+                    original,
+                    removed,
+                    context,
+                    connection=connection,
+                ),
             )
         except RowPolicyMismatch as error:
             raise AuthorizationError(
                 f"{context.principal.identifier!r} may not delete this "
                 f"{entity_name} record"
             ) from error
+        del removed  # every removal was audited inside the delete
+
+    def _audit_removals(
+        self,
+        entity: NormalizedEntity,
+        identity: Any,
+        original: Mapping[str, Any],
+        removed: tuple[DeletedRecord, ...],
+        context: RequestContext,
+        *,
+        connection: Any,
+    ) -> None:
+        """Record every row a delete took, on the delete's own connection.
+
+        A create that goes unaudited can still be inspected afterwards; a
+        delete that goes unaudited leaves nothing to inspect, so the gap
+        between removing the rows and accounting for them is the one least
+        affordable. A cascade removes several at once and they are audited
+        together: some rows accounted for and others not is worse than
+        neither, because it reads as if the rest were never removed.
+        """
+
         for record in removed:
-            if record.entity == entity_name and record.identity == identity:
+            if record.entity == entity.name and record.identity == identity:
                 # Prefer the authorized copy already loaded for the target: it
                 # carries the hydrated relationships the repository row lacks.
                 continue
@@ -229,6 +260,7 @@ class RecordsService:
                 {},
                 context,
                 MutationSource.USER,
+                connection=connection,
             )
         self._record_audit(
             entity,
@@ -238,6 +270,7 @@ class RecordsService:
             {},
             context,
             MutationSource.USER,
+            connection=connection,
         )
 
     def lookup_records(

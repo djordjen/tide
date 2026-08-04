@@ -13,6 +13,7 @@ from tide.data.repository import (
     DeletedRecord,
     DuplicateIdentityError,
     NO_PARAMETERS,
+    OnDeleted,
     OnWritten,
     QuerySpec,
     RelationshipLoadPlan,
@@ -256,6 +257,7 @@ class InMemoryRepository:
         criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         references: tuple[DeleteReference, ...] = (),
         collections: tuple[DeleteCollection, ...] = (),
+        on_deleted: OnDeleted | None = None,
     ) -> tuple[DeletedRecord, ...]:
         with self._lock:
             current = next(
@@ -287,6 +289,8 @@ class InMemoryRepository:
                     collections=collections,
                     visited=set(),
                 )
+                if on_deleted is not None:
+                    on_deleted(None, removed)
             except Exception:
                 self._records = snapshot
                 raise
