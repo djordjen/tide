@@ -23,6 +23,7 @@ import {
 import { cn } from "@/lib/utils"
 import type { TideApi } from "@/lib/api"
 import type { TideConnection } from "@/lib/contracts"
+import { useUrlParameter } from "@/lib/url-state"
 
 interface AppShellProps {
   api: TideApi
@@ -36,7 +37,17 @@ export function AppShell({
   onDisconnect,
 }: AppShellProps) {
   const firstView = connection.presentation.navigation[0]?.items[0]?.view
-  const [selectedView, setSelectedView] = useState(firstView ?? "")
+  const [requestedView, setSelectedView] = useUrlParameter(
+    "view",
+    firstView ?? "",
+  )
+  // The address bar is a caller like any other, so a view it names is checked
+  // against the manifest rather than trusted. A principal who cannot see the
+  // view in a link they were sent gets their own default, not an empty shell.
+  const selectedView =
+    connection.presentation.views[requestedView] !== undefined
+      ? requestedView
+      : (firstView ?? "")
   const [theme, setTheme] = useState<"light" | "dark">(() =>
     document.documentElement.classList.contains("dark") ? "dark" : "light",
   )
