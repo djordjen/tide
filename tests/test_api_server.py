@@ -1440,7 +1440,7 @@ def test_server_creates_and_patches_through_records_service() -> None:
         assert rejected_system_field.status_code == 422
         assert rejected_system_field.json()["issues"][0]["fields"] == ["id"]
         assert created_invoice.status_code == 201
-        assert created_invoice.json()["number"] == "INV-2026-000009"
+        assert created_invoice.json()["number"] == "INV-2026-000001"
         assert created_invoice.json()["total"] == "170.00"
         assert created_invoice.headers["etag"] == '"1"'
         assert created_invoice.headers["location"] == "/api/v1/invoices/9"

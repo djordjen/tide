@@ -296,6 +296,7 @@ def test_sql_store_persists_replay_and_audit_across_restart(tmp_path: Path) -> N
         "crm_customer",
         "sales_invoice",
         "sales_invoice_line",
+        "tide_sequence",
     ]
     store.create_schema()
     store.validate_schema()

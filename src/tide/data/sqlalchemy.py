@@ -10,6 +10,7 @@ import re
 from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Column,
     Date,
@@ -125,6 +126,12 @@ class SQLAlchemyRepository:
             model,
             self.metadata,
             dialect_name=self.engine.dialect.name,
+        )
+        self._sequence_table = Table(
+            "tide_sequence",
+            self.metadata,
+            Column("name", Unicode(255), primary_key=True),
+            Column("value", BigInteger().with_variant(Integer(), "sqlite"), nullable=False),
         )
 
     def table(self, entity: str) -> Table:
@@ -470,6 +477,41 @@ class SQLAlchemyRepository:
         with self.engine.connect() as connection:
             current = connection.execute(statement).scalar_one_or_none()
         return int(current or 0) + 1
+
+    def next_sequence_value(self, name: str) -> int:
+        """Claim the next value of a named sequence, once.
+
+        The increment and the read happen in one transaction, so the row lock
+        the update takes is what serialises concurrent callers: each leaves
+        with a different number. Committing immediately -- rather than holding
+        the claim until the caller's own write lands -- means an abandoned
+        write leaves a gap. That is the accepted trade: a gap is a number
+        nobody used, while a shared lock held across an unrelated write would
+        serialise every create in the application.
+        """
+
+        table = self._sequence_table
+        for _ in range(2):
+            with self.engine.begin() as connection:
+                claimed = connection.execute(
+                    update(table)
+                    .where(table.c.name == name)
+                    .values(value=table.c.value + 1)
+                )
+                if claimed.rowcount:
+                    return int(
+                        connection.execute(
+                            select(table.c.value).where(table.c.name == name)
+                        ).scalar_one()
+                    )
+            try:
+                with self.engine.begin() as connection:
+                    connection.execute(insert(table).values(name=name, value=1))
+                return 1
+            except IntegrityError:
+                # Another caller created the row first; take the update path.
+                continue
+        raise WriteIntegrityError("tide_sequence")
 
     def write(
         self,

@@ -233,6 +233,8 @@ class Repository(Protocol):
 
     def peek_next_identity(self, entity: str) -> int: ...
 
+    def next_sequence_value(self, name: str) -> int: ...
+
     def write(
         self,
         entity: str,

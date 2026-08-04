@@ -13,7 +13,7 @@ def configure_runtime(records: RecordsService, actions: ActionService) -> None:
     records.register_generator(
         "actions.allocate_invoice_number",
         lambda values, _context, repository: invoicing_actions.allocate_invoice_number(
-            repository.peek_next_identity("sales.Invoice"),
+            repository.next_sequence_value("sales.Invoice.number"),
             values["invoice_date"],
         ),
     )

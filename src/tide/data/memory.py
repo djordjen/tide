@@ -31,6 +31,7 @@ class InMemoryRepository:
     def __init__(self) -> None:
         self._records: dict[str, dict[Any, dict[str, Any]]] = {}
         self._next_identity: dict[str, int] = {}
+        self._sequences: dict[str, int] = {}
         self._lock = RLock()
 
     def check_readiness(self) -> None:
@@ -155,6 +156,19 @@ class InMemoryRepository:
     def peek_next_identity(self, entity: str) -> int:
         with self._lock:
             return self._next_identity.get(entity, 1)
+
+    def next_sequence_value(self, name: str) -> int:
+        """Claim the next value of a named sequence, once.
+
+        The lock is what makes it a claim rather than a reading: two callers
+        that overlap leave with different numbers, which is the whole point of
+        allocating from a sequence instead of from what is currently stored.
+        """
+
+        with self._lock:
+            value = self._sequences.get(name, 0) + 1
+            self._sequences[name] = value
+            return value
 
     def write(
         self,

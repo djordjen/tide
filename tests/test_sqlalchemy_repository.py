@@ -523,6 +523,7 @@ def test_managed_schema_and_master_detail_round_trip(sql_runtime) -> None:
         "crm_customer",
         "sales_invoice",
         "sales_invoice_line",
+        "tide_sequence",
     ]
 
     created = records.commit(

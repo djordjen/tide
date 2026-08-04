@@ -606,6 +606,7 @@ def test_tide_run_database_constructs_durable_runtime(
             "tide_action_idempotency",
             "tide_query_cursor",
             "tide_record_audit",
+            "tide_sequence",
         }
     finally:
         engine.dispose()
@@ -1197,7 +1198,7 @@ def test_textual_invoice_create_uses_generator_and_inline_line_editor() -> None:
             await pilot.pause()
 
             stored = app.records.repository.get("sales.Invoice", 9)
-            assert stored["number"] == "INV-2026-000009"
+            assert stored["number"] == "INV-2026-000001"
             assert stored["invoice_date"] == date(2026, 7, 20)
             assert stored["status"] == "draft"
             assert stored["customer"] == 1

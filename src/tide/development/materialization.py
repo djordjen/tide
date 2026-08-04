@@ -793,7 +793,10 @@ def _actions_module(
                 "    repository: Any,",
                 ") -> str:",
                 "    del context",
-                f"    sequence = repository.peek_next_identity({entity.entity!r})",
+                "    # A sequence is claimed once; deriving it from stored rows"
+                "    # would hand the same number to two concurrent creates.",
+                f"    sequence = repository.next_sequence_value("
+                f"{entity.entity + '.' + field.name!r})",
                 "    parts: list[str] = []",
             ]
         )

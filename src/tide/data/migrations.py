@@ -509,6 +509,9 @@ def _managed_changes(
     return changes
 
 
+FRAMEWORK_TABLE_PREFIX = "tide_"
+
+
 def _actual_table_keys(
     inspector: Any,
     desired: Mapping[tuple[str | None, str], _DesiredTable],
@@ -520,6 +523,14 @@ def _actual_table_keys(
         names = set(inspector.get_table_names(schema=schema))
         tables_by_schema[schema] = names
         actual_tables.update((schema, name) for name in names)
+    # TIDE owns the `tide_` prefix for its own bookkeeping -- sequences, action
+    # idempotency, audit. The application model never declares those, so without
+    # this the proposer offers to drop the framework's own tables.
+    actual_tables = {
+        key
+        for key in actual_tables
+        if key in desired or not key[1].casefold().startswith(FRAMEWORK_TABLE_PREFIX)
+    }
     for table_spec in desired.values():
         previous = table_spec.renamed_from
         if previous is None or previous[0] in schemas:

@@ -178,6 +178,37 @@ Write a pattern both engines accept: the server matches it with Python
 alternation, anchoring by the surrounding contract — covers field masks.
 Named groups and other engine-specific syntax do not belong here.
 
+## Allocated numbers
+
+A field with `generated_by:` gets its value from a project handler before the
+record is written. When that value has to be unique -- an invoice number, an
+order reference -- claim it from a named sequence rather than deriving it from
+what is currently stored:
+
+```python
+records.register_generator(
+    "actions.allocate_invoice_number",
+    lambda values, _context, repository: allocate_invoice_number(
+        repository.next_sequence_value("sales.Invoice.number"),
+        values["invoice_date"],
+    ),
+)
+```
+
+`next_sequence_value` increments and reads in one transaction, so two creates
+in flight leave with different numbers. Deriving the value from `MAX(id) + 1`
+or a row count cannot promise that: both callers read the same answer, and
+whichever writes second is refused.
+
+A sequence only ever climbs. A write that is abandoned after claiming a value
+leaves a gap -- a number nobody used -- which is the accepted trade for not
+holding a lock across an unrelated write. Sequences are not gap-free, and a
+jurisdiction that requires gap-free numbering needs a different mechanism.
+
+Sequences start at 1 and know nothing about rows already in the table. An
+application adopting one over existing data must raise its floor first, or the
+numbers it issues will repeat ones already in use.
+
 ## Uniqueness
 
 `unique: true` is enforced by a database unique index. Before writing, the
