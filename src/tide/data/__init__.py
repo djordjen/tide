@@ -16,6 +16,7 @@ from tide.data.migrations import (
 from tide.data.repository import (
     DeleteCollection,
     DeleteReference,
+    DuplicateIdentityError,
     FilterCondition,
     QuerySpec,
     RelationshipLoad,
@@ -53,6 +54,7 @@ __all__ = [
     "DatabaseDriverError",
     "DeleteCollection",
     "DeleteReference",
+    "DuplicateIdentityError",
     "InMemoryRepository",
     "MigrationChange",
     "MigrationPlanningError",

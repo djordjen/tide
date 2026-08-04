@@ -53,6 +53,7 @@ from tide.data.repository import (
     RelationshipLoadPlan,
     OnWritten,
     RowPolicyMismatch,
+    DuplicateIdentityError,
     WriteIntegrityError,
     SortField,
 )
@@ -555,6 +556,15 @@ class SQLAlchemyRepository:
                     on_written(connection, stored)
                 return stored
         except IntegrityError as error:
+            # Which constraint failed is asked, not parsed: the driver's message
+            # is dialect-specific, but "is that identity taken now?" is a plain
+            # query every backend answers the same way. The transaction has
+            # rolled back, so this runs on a fresh connection and could in
+            # principle miss a row deleted in between -- in which case the write
+            # keeps the general error rather than claiming the wrong cause.
+            identity = values.get(primary_key)
+            if is_new and identity is not None and self.exists(entity, identity):
+                raise DuplicateIdentityError(entity, identity) from error
             raise WriteIntegrityError(entity) from error
 
     def delete(

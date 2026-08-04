@@ -189,9 +189,28 @@ class WriteIntegrityError(Exception):
     error stays attached as the cause.
     """
 
-    def __init__(self, entity: str) -> None:
-        super().__init__(f"{entity} write violated a database constraint")
+    def __init__(self, entity: str, message: str | None = None) -> None:
+        super().__init__(message or f"{entity} write violated a database constraint")
         self.entity = entity
+
+
+class DuplicateIdentityError(WriteIntegrityError):
+    """A new record was written under an identity another record already holds.
+
+    A `WriteIntegrityError` because that is what it is -- a constraint the
+    store refused -- but the one constraint worth naming, because it says
+    which record and which number rather than that something went wrong.
+
+    Nothing a client sends can cause this: the service refuses a caller-supplied
+    primary key before any repository sees it. So reaching here means identity
+    allocation issued a number twice, which is the server's fault and stays a
+    server error; it was previously reported as a stale version, which told the
+    caller to refresh and retry a write that can only fail again.
+    """
+
+    def __init__(self, entity: str, identity: Any) -> None:
+        super().__init__(entity, f"{entity} {identity!r} already exists")
+        self.identity = identity
 
 
 @runtime_checkable

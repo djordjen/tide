@@ -139,3 +139,17 @@ Transport errors map from stable application errors: invalid query, validation
 failure, forbidden, not found, precondition required, stale version, and action
 conflict. Public errors include a correlation identifier and safe field paths;
 they never echo protected values or internal SQL details.
+
+A stale version means someone else changed the record, and the client's answer
+is to reload and retry. That makes it the wrong error for anything a retry
+cannot fix, so a write refused for an integrity constraint keeps its own:
+`WriteIntegrityError`, or `DuplicateIdentityError` when a new record was
+written under an identity another record already holds. Both repositories
+report a taken identity the same way, and neither infers it from the driver's
+message — the store is asked whether that identity now exists, which every
+backend answers alike.
+
+Nothing a client sends reaches that error: primary keys are system-owned and
+the service refuses a caller-supplied one before any repository sees it. So it
+means identity allocation issued a number twice, which is a fault in the
+server, reported as one and named well enough to find.

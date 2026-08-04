@@ -11,6 +11,7 @@ from tide.data.repository import (
     DeleteCollection,
     DeleteReference,
     DeletedRecord,
+    DuplicateIdentityError,
     NO_PARAMETERS,
     OnWritten,
     QuerySpec,
@@ -197,7 +198,7 @@ class InMemoryRepository:
                     self._next_identity[entity] = identity + 1
                     record[primary_key] = identity
                 if identity in bucket:
-                    raise ConcurrencyError(None, None)
+                    raise DuplicateIdentityError(entity, identity)
                 if version_field:
                     record[version_field] = 1
             else:
