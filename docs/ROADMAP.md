@@ -262,8 +262,10 @@ an invoice entirely by keyboard or mouse.
   renderer-neutral document and authorized export routes
 - executable renderer acceptance matrix for shared TUI/Qt/Web semantics;
   **implemented** with a versioned YAML matrix, a compiled Invoicing golden
-  contract resolved through each renderer's own entry point, and evidence links
-  resolved by importing the named test rather than matching its source text;
+  contract resolved through each renderer's own entry point, and Python
+  evidence links resolved by importing the named test rather than matching its
+  source text; web evidence remains a source match, because the Python suite
+  cannot ask vitest what ran;
   the matrix records the closed Web scalar-lookup, master-detail, conflict,
   action, and report gaps explicitly, and its own checks are exercised against
   deliberately broken input
