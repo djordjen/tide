@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from typing import Literal
+from typing import Literal, TypeVar
 
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
@@ -21,6 +22,7 @@ from textual.widgets import (
     TextArea,
     Tree,
 )
+from textual.widget import Widget
 from textual.widgets.tree import TreeNode
 
 from tide.labels import humanize, value_label
@@ -69,6 +71,8 @@ class StudioLayoutEdit:
     bar_key: str | None = None
     actions: tuple[str, ...] = ()
 
+
+_WidgetT = TypeVar("_WidgetT", bound=Widget)
 
 class StudioSaveScreen(ModalScreen[str | None]):
     """Review and explicitly approve one exact Studio candidate save."""
@@ -1776,14 +1780,39 @@ class StudioApp(App[None]):
             self._select_view_field(f"view-field-{selected_row}")
         self._sync_view_field_controls()
 
+    def _panel_widget(
+        self,
+        selector: str,
+        widget_type: type[_WidgetT],
+    ) -> _WidgetT | None:
+        """Return a composed panel widget, or ``None`` while the screen has none.
+
+        These panels are composed whole and only ever hidden, so a query that
+        finds nothing is not a missing widget -- it is a query running against
+        a DOM the tree is not in, either before compose mounts it or after
+        teardown removes it. Messages already in the queue are delivered in
+        both windows, so absence is an ordinary outcome here rather than a
+        fault.
+
+        Guarding the panel rather than each widget inside it is what keeps this
+        from moving the crash: every control the synchronising methods touch
+        arrives and leaves with its container, so one question answers for all
+        of them.
+        """
+
+        try:
+            return self.query_one(selector, widget_type)
+        except (NoMatches, ScreenStackError):
+            return None
+
     def _select_view_field(self, row_key: str) -> None:
         selected = self._view_field_rows.get(row_key)
         if selected is None:
             return
         self.selected_view_field = selected
         self._selected_view_field_key = selected.key
-        group_selector = self.query_one("#view-field-group-choice", Select)
-        if selected.source_group_key is not None and any(
+        group_selector = self._panel_widget("#view-field-group-choice", Select)
+        if group_selector is not None and selected.source_group_key is not None and any(
             group.key == selected.source_group_key
             for group in (self.view_structure.groups if self.view_structure else ())
         ):
@@ -1792,6 +1821,8 @@ class StudioApp(App[None]):
         self._sync_view_field_controls()
 
     def _sync_view_field_controls(self) -> None:
+        if self._panel_widget("#view-structure-side", Vertical) is None:
+            return
         selected = self.selected_view_field
         disabled = self._source_editing or selected is None
         self.query_one("#move-view-field-up", Button).disabled = disabled or not bool(
@@ -2101,6 +2132,8 @@ class StudioApp(App[None]):
                 self.query_one("#view-field-group-choice", Select).value = preferred.key
 
     def _sync_property_editor(self) -> None:
+        if self._panel_widget("#property-editor", Horizontal) is None:
+            return
         editor = self.query_one("#property-value", Input)
         selector = self.query_one("#property-choice", Select)
         apply_button = self.query_one("#apply-property", Button)

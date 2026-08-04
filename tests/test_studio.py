@@ -1800,3 +1800,42 @@ def test_the_studio_preview_measures_content_only_when_every_width_is_declared()
 
     assert lookup.content_width == 12 + 36 + 14 + 2 * 3 + 4
     assert any("horizontal scrolling" in warning for warning in lookup.warnings)
+
+
+def test_a_row_highlight_after_teardown_does_not_crash_the_studio() -> None:
+    """A queued message must survive the DOM it was queued against.
+
+    `#view-field-group-choice` is composed statically and only ever hidden, so
+    `NoMatches` on it can mean one thing: the query ran while the composed tree
+    was not in the DOM. Moving the cursor posts `RowHighlighted`, and the
+    handler that answers it queries widgets that teardown has already removed.
+
+    Reproducing the timing that caught this on CI is not something a test can
+    promise; reproducing the *state* is, and the state is what the handler has
+    to tolerate.
+    """
+
+    app = StudioApp(StudioService(INVOICING))
+    captured: dict[str, Any] = {}
+
+    async def exercise() -> None:
+        async with app.run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            await _select_view(pilot, app, "sales.InvoiceLine.inline_edit")
+            table = app.query_one("#view-field-table", DataTable)
+            key = _view_field_key(app, "layout-left:description")
+            table.move_cursor(row=list(app._view_field_rows).index(key))
+            await pilot.pause()
+            captured["view_field_table"] = table
+            captured["property_table"] = app.query_one("#property-table", DataTable)
+
+    asyncio.run(exercise())
+
+    for table in (captured["view_field_table"], captured["property_table"]):
+        app.on_data_table_row_highlighted(
+            DataTable.RowHighlighted(
+                table,
+                cursor_row=0,
+                row_key=table.coordinate_to_cell_key((0, 0)).row_key,
+            )
+        )
