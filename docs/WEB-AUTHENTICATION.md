@@ -56,6 +56,28 @@ failed-login window slows repeated guessing, and every accepted identity is
 still reauthorized by the ordinary service layer. A server restart logs browser
 users out but does not remove users or password hashes.
 
+A live session is re-checked against the user store, by default every 30
+seconds rather than on every request: re-reading costs a fresh SQLite
+connection, a schema check and two queries — about 1.6ms, which is not a price
+to pay per authenticated request. Within that interval the session keeps the
+principal it was issued. At the next check, an account that has been deleted,
+disabled, left with no permitted role, or given a different password loses its
+sessions; a role merely added or removed reaches the principal without signing
+the user out of work in progress.
+
+That makes `tide auth set-password` the operator's sign-out-everywhere: the
+store is a file both the CLI and the server read, so changing a password ends
+that user's sessions at the next check without touching the running process.
+`LocalPasswordAuth.revoke_user` and `revoke_all` end them immediately, but
+sessions live in the serving process's memory, so those are for embedded hosts
+and a future authenticated admin route — not something a separate CLI process
+can reach.
+
+The session identifier and CSRF token do not rotate during a session. A fresh
+pair is minted at every sign-in, which is where session fixation is prevented;
+rotating mid-session would have to reach the response and the browser to be
+useful, and that is a larger change than this one.
+
 For a built same-origin Web renderer, start the local adapter explicitly:
 
 ```powershell

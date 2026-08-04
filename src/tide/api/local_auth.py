@@ -7,7 +7,7 @@ from collections import OrderedDict, deque
 from collections.abc import Iterable
 from contextlib import contextmanager
 from dataclasses import dataclass
-from hashlib import pbkdf2_hmac
+from hashlib import pbkdf2_hmac, sha256
 import os
 from pathlib import Path
 import re
@@ -62,6 +62,16 @@ class _LocalSession:
     principal: Principal
     csrf_token: str
     expires_at: float
+    username: str
+    credential_stamp: str
+    """Digest of the password hash this session was issued against.
+
+    Not the hash itself, and never compared against anything a caller sends:
+    it exists only so a changed password can be recognised as a different
+    credential, which is what makes resetting one end the sessions it opened.
+    """
+
+    revalidate_at: float
 
 
 class LocalUserStore:
@@ -320,6 +330,7 @@ class LocalPasswordAuth:
         allowed_roles: Iterable[str],
         secure_cookie: bool,
         session_lifetime_seconds: int = 8 * 60 * 60,
+        revalidate_interval_seconds: int = 30,
         max_sessions: int = 4096,
         max_failures: int = 5,
         max_failure_subjects: int = 4096,
@@ -329,6 +340,7 @@ class LocalPasswordAuth:
     ) -> None:
         for label, value in (
             ("session lifetime", session_lifetime_seconds),
+            ("revalidation interval", revalidate_interval_seconds),
             ("maximum sessions", max_sessions),
             ("maximum failures", max_failures),
             ("maximum failure subjects", max_failure_subjects),
@@ -342,6 +354,7 @@ class LocalPasswordAuth:
         self.allowed_roles = frozenset(allowed_roles)
         self.secure_cookie = secure_cookie
         self.session_lifetime_seconds = session_lifetime_seconds
+        self.revalidate_interval_seconds = revalidate_interval_seconds
         self.max_sessions = max_sessions
         self.max_failures = max_failures
         self.max_failure_subjects = max_failure_subjects
@@ -440,6 +453,9 @@ class LocalPasswordAuth:
                 principal=principal,
                 csrf_token=csrf_token,
                 expires_at=now + self.session_lifetime_seconds,
+                username=user.username,
+                credential_stamp=_credential_stamp(user.password_hash),
+                revalidate_at=now + self.revalidate_interval_seconds,
             )
             while len(self._sessions) > self.max_sessions:
                 self._sessions.popitem(last=False)
@@ -459,7 +475,86 @@ class LocalPasswordAuth:
             if session is None:
                 return None
             self._sessions.move_to_end(session_id)
-            return BrowserSessionAccess(session.principal, session.csrf_token)
+            if now < session.revalidate_at:
+                return BrowserSessionAccess(session.principal, session.csrf_token)
+
+        # Re-reading opens a connection to the store, so it is bounded by an
+        # interval rather than done per request. Between checks a session is
+        # trusted; without them it was trusted for eight hours, which meant a
+        # disabled account, a reset password and a withdrawn role all kept
+        # working until the browser was closed.
+        refreshed = self._revalidated(session, now=now)
+        with self._lock:
+            if self._sessions.get(session_id) is not session:
+                return None
+            if refreshed is None:
+                self._sessions.pop(session_id, None)
+                return None
+            self._sessions[session_id] = refreshed
+            self._sessions.move_to_end(session_id)
+        return BrowserSessionAccess(refreshed.principal, refreshed.csrf_token)
+
+    def _revalidated(
+        self, session: _LocalSession, *, now: float
+    ) -> _LocalSession | None:
+        """Return this session carried forward, or ``None`` if it may not be.
+
+        The session keeps its identifier and CSRF token; what it picks up is
+        the account's current roles, so withdrawing one takes effect without
+        signing the user out of work they are in the middle of. Losing the
+        account, being disabled, having the password changed, or being left
+        with no allowed role at all are the four ways it ends.
+        """
+
+        user = self.store.get_user(session.username)
+        if user is None or not user.enabled:
+            return None
+        if _credential_stamp(user.password_hash) != session.credential_stamp:
+            return None
+        roles = user.roles.intersection(self.allowed_roles)
+        if not roles:
+            return None
+        principal = session.principal
+        if principal.roles != roles:
+            principal = Principal(principal.identifier, roles=frozenset(roles))
+        return _LocalSession(
+            principal=principal,
+            csrf_token=session.csrf_token,
+            expires_at=session.expires_at,
+            username=session.username,
+            credential_stamp=session.credential_stamp,
+            revalidate_at=now + self.revalidate_interval_seconds,
+        )
+
+    def revoke_user(self, username: str) -> int:
+        """End every session held by one account, now rather than on interval.
+
+        Returns how many were ended, so an operator gets an answer rather than
+        silence. A changed password already ends them at the next check; this
+        is for when waiting is not acceptable.
+        """
+
+        try:
+            normalized = normalize_username(username)
+        except ValueError:
+            return 0
+        with self._lock:
+            doomed = [
+                session_id
+                for session_id, session in self._sessions.items()
+                if session.username == normalized
+            ]
+            for session_id in doomed:
+                self._sessions.pop(session_id, None)
+        return len(doomed)
+
+    def revoke_all(self) -> int:
+        """End every local-password session in this process."""
+
+        with self._lock:
+            count = len(self._sessions)
+            self._sessions.clear()
+        return count
 
     def end_session(self, session_id: str | None) -> None:
         if not isinstance(session_id, str) or not session_id:
@@ -509,6 +604,12 @@ def normalize_username(username: str) -> str:
             "underscores, or hyphens"
         )
     return normalized
+
+
+def _credential_stamp(password_hash: str) -> str:
+    """Digest a stored password hash so a change to it is recognisable."""
+
+    return sha256(password_hash.encode("utf-8")).hexdigest()
 
 
 def hash_password(
