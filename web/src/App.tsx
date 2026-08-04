@@ -78,6 +78,21 @@ export default function App() {
     return () => controller.abort()
   }, [])
 
+  useEffect(() => {
+    if (connected === null) {
+      return
+    }
+    // A session can end while someone is working -- the cookie expires, an
+    // administrator disables the account, a password is reset. Without this
+    // the next request fails wherever it happened to be made and the shell
+    // stays up around it, showing an application the server no longer serves.
+    return connected.api.onSessionExpired(() => {
+      queryClient.clear()
+      setConnected(null)
+      setIdentityError("Your session has ended. Please sign in again.")
+    })
+  }, [connected, queryClient])
+
   if (!connected) {
     return (
       <ConnectionScreen

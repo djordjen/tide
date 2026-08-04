@@ -42,5 +42,13 @@ export default defineConfig({
     // finishing with a couple of hundred milliseconds to spare and failing
     // outright whenever it did not.
     testTimeout: 15_000,
+    // Five of these files drive whole applications through jsdom, and each one
+    // is CPU-bound while it does. Letting vitest use every core runs them all
+    // at once on a machine that cannot, so each takes several times longer in
+    // wall-clock and the marginal ones start missing their waits -- adding a
+    // single test file was enough to make the suite fail most runs. Capping
+    // the pool costs a little total time and buys back the headroom.
+    maxWorkers: 4,
+    minWorkers: 1,
   },
 })

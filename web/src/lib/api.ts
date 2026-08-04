@@ -69,6 +69,7 @@ export class TideApi {
   readonly token: string | null
   readonly browserAuthentication: TideBrowserAuthenticationInfo | null
   private readonly csrfToken: string | null
+  private readonly expiryHandlers = new Set<() => void>()
 
   constructor(
     token: string,
@@ -86,6 +87,23 @@ export class TideApi {
     this.browserAuthentication = browserSession?.authentication ?? null
     this.csrfToken = browserSession?.csrfToken ?? null
     this.basePath = safeApiPath(basePath)
+  }
+
+  /** Be told when the server stops accepting this session, from anywhere.
+   *
+   * A session used to be checked once, when the application mounted, so a
+   * cookie that expired while someone was working surfaced as whatever error
+   * box the screen they happened to be on shows. Every authenticated request
+   * goes through one method, which makes that the only place worth watching.
+   *
+   * Returns a function that stops listening, so a component can subscribe for
+   * as long as it is mounted and no longer.
+   */
+  onSessionExpired(handler: () => void): () => void {
+    this.expiryHandlers.add(handler)
+    return () => {
+      this.expiryHandlers.delete(handler)
+    }
   }
 
   static async discoverBrowserAuthentication(
@@ -584,6 +602,15 @@ export class TideApi {
       )
     }
 
+    if (response.status === 401) {
+      // Announced before it is thrown, so the shell can ask for a sign-in
+      // rather than leaving whichever screen raised it to explain a session
+      // that no longer exists. The throw still happens: the caller that asked
+      // for this did not get its answer.
+      for (const handler of [...this.expiryHandlers]) {
+        handler()
+      }
+    }
     if (!response.ok) {
       await throwResponseError(response)
     }
