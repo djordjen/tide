@@ -241,6 +241,17 @@ for this initial contract. A reviewed encrypted shared-session adapter is
 required before multiple workers or multiple application instances can share
 browser sessions.
 
+Because there is one process, the store's own locking decides how well it
+serves concurrent users. The store-wide lock covers only the mapping — looking
+a session up, evicting an expired one, ending one. Anything that can reach the
+identity provider, which is a token refresh always and access-token
+verification whenever signing keys must be fetched, runs under that session's
+own lock instead. So a provider that is slow rather than broken delays the
+sessions actually waiting on it, not every authenticated request in the
+process. A sign-out that lands while the provider is answering still wins: the
+store is asked again afterwards, and a session removed in the meantime is not
+revived by the reply.
+
 Disconnect currently ends the local TIDE session. Provider-wide single logout,
 revocation calls, provider-specific consent behavior, shared session storage,
 and trusted reverse-proxy deployment remain separate reviewed work. Direct TLS

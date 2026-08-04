@@ -5,11 +5,11 @@ from __future__ import annotations
 from base64 import urlsafe_b64encode
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import sha256
 import math
 import secrets
-from threading import RLock
+from threading import Lock, RLock
 import time
 from typing import Any, Callable, Protocol
 from urllib.parse import urlencode, urlsplit
@@ -103,6 +103,8 @@ class _BrowserSession:
     absolute_expires_at: float
     principal_identifier: str
     csrf_token: str
+    lock: Lock = field(default_factory=Lock)
+    """Held across this session's provider calls, so they serialize alone."""
 
 
 class OidcBrowserAuth:
@@ -357,18 +359,41 @@ class OidcBrowserAuth:
             if now >= session.absolute_expires_at:
                 self._sessions.pop(session_id, None)
                 return None
+            self._sessions.move_to_end(session_id)
+
+        # Everything below can reach the identity provider -- a refresh always
+        # does, and verifying an access token may fetch signing keys -- so it
+        # runs under this session's own lock and not the store's. Holding the
+        # store-wide lock across a provider call made one slow response stall
+        # every authenticated request in the process, including sessions
+        # nowhere near needing a refresh.
+        with session.lock:
             if now + self.refresh_leeway_seconds >= session.access_expires_at:
-                if not self._refresh_locked(session, now=now):
-                    self._sessions.pop(session_id, None)
+                if not self._refresh_session(session, now=now):
+                    self._discard(session_id, session)
                     return None
             principal = self.authenticator.authenticate(session.access_token)
-            if principal is None and self._refresh_locked(session, now=now):
+            if principal is None and self._refresh_session(session, now=now):
                 principal = self.authenticator.authenticate(session.access_token)
             if principal is None or principal.identifier != session.principal_identifier:
-                self._sessions.pop(session_id, None)
+                self._discard(session_id, session)
                 return None
-            self._sessions.move_to_end(session_id)
-            return BrowserSessionAccess(principal, session.csrf_token)
+            csrf_token = session.csrf_token
+
+        # A sign-out or an eviction may have landed while the provider was
+        # answering. Asking again is what makes a logout win the race rather
+        # than letting one in-flight request outlive it.
+        with self._lock:
+            if self._sessions.get(session_id) is not session:
+                return None
+        return BrowserSessionAccess(principal, csrf_token)
+
+    def _discard(self, session_id: str, session: _BrowserSession) -> None:
+        """Forget this session, unless the store already holds a different one."""
+
+        with self._lock:
+            if self._sessions.get(session_id) is session:
+                self._sessions.pop(session_id, None)
 
     def end_session(self, session_id: str | None) -> None:
         if not isinstance(session_id, str) or not session_id:
@@ -376,7 +401,7 @@ class OidcBrowserAuth:
         with self._lock:
             self._sessions.pop(session_id, None)
 
-    def _refresh_locked(self, session: _BrowserSession, *, now: float) -> bool:
+    def _refresh_session(self, session: _BrowserSession, *, now: float) -> bool:
         if not session.refresh_token:
             return False
         try:
