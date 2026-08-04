@@ -54,10 +54,38 @@ def test_the_identity_store_is_restricted_on_every_platform(
         assert store.path.stat().st_mode & 0o077 == 0
 
 
-def test_restricting_the_store_never_stops_it_being_created(
+def test_restricting_the_store_is_best_effort_on_either_platform(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Hardening that fails must not become an outage."""
+    """Hardening that fails must not become an outage -- on both branches.
+
+    Both are called directly rather than through whichever one this host
+    takes. The first version of this test ran only the host's branch, so it
+    passed on Windows and failed on Linux, where `os.chmod` was in fact
+    outside the suppression its own docstring promised.
+    """
+
+    import subprocess
+
+    from tide.api.local_auth import _restrict_with_chmod, _restrict_with_icacls
+
+    def refuse(*args: Any, **kwargs: Any) -> Any:
+        raise OSError("permission tooling is unavailable")
+
+    target = tmp_path / "auth.sqlite3"
+    target.write_bytes(b"")
+    monkeypatch.setenv("USERNAME", "tester")
+    monkeypatch.setattr(os, "chmod", refuse)
+    monkeypatch.setattr(subprocess, "run", refuse)
+
+    _restrict_with_chmod(target)
+    _restrict_with_icacls(target)
+
+
+def test_a_store_whose_permissions_cannot_be_set_is_still_usable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same property, end to end, on whichever branch this host takes."""
 
     import subprocess
 

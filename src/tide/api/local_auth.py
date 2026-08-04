@@ -766,36 +766,49 @@ def _decode(value: str) -> bytes:
 def _restrict_to_owner(path: Path) -> None:
     """Keep the identity store readable only by the account that owns it.
 
-    `chmod` is meaningless on Windows -- it moves the read-only flag and
-    nothing else -- and Windows is this project's documented primary platform,
-    so leaving it at "POSIX only" left the store world-readable exactly where
-    it is most used. `icacls` is the tool that does apply there: inheritance is
-    dropped so the parent directory's permissions cannot grant anyone else in,
-    and the owning account is granted full control.
-
-    Best effort by design. A failure here means the file is less protected than
-    intended, not that it is unusable, and refusing to start would turn a
-    hardening step into an outage on machines with unusual account setups.
-    Operators who need certainty should confirm the ACL; see the operational
-    notes. SQLite writes journal side-files next to this one and those inherit
-    the *directory*, which is why the directory is worth restricting too.
+    Split by platform because the two mechanisms have nothing in common, and
+    kept as separate functions so each can be exercised wherever the tests run
+    -- the first version of this could only ever be tested on the branch the
+    host happened to take, and the untested branch was the broken one.
     """
 
-    if os.name != "nt":
+    if os.name == "nt":
+        _restrict_with_icacls(path)
+    else:
+        _restrict_with_chmod(path)
+
+
+def _restrict_with_chmod(path: Path) -> None:
+    """Restrict on POSIX, tolerating a filesystem that cannot express it.
+
+    A mounted share or a container volume may refuse the mode. That leaves the
+    file less protected than intended, which is not a reason to refuse to run.
+    """
+
+    with suppress(OSError):
         os.chmod(path, 0o600)
-        return
+
+
+def _restrict_with_icacls(path: Path) -> None:
+    """Restrict on Windows, where `chmod` moves the read-only flag and no more.
+
+    Windows is this project's documented primary platform, so leaving the store
+    at "POSIX only" left it least protected exactly where it is most used.
+    Inheritance is dropped so the parent directory cannot grant anyone else in,
+    and the owning account is granted full control.
+
+    Best effort, like its counterpart: a machine with an unusual account setup
+    should still be able to create a store. SQLite writes journal side-files
+    beside this one and those inherit the *directory*, which is why the
+    directory is worth restricting too.
+    """
+
     account = os.environ.get("USERNAME")
     if not account:
         return
     with suppress(OSError, subprocess.SubprocessError):
         subprocess.run(
-            [
-                "icacls",
-                str(path),
-                "/inheritance:r",
-                "/grant:r",
-                f"{account}:F",
-            ],
+            ["icacls", str(path), "/inheritance:r", "/grant:r", f"{account}:F"],
             check=False,
             capture_output=True,
             timeout=15,
