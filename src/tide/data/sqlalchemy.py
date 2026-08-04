@@ -515,6 +515,41 @@ class SQLAlchemyRepository:
                 continue
         raise WriteIntegrityError("tide_sequence")
 
+    def reserve_sequence_value(self, name: str, value: int) -> int:
+        """Raise this sequence's floor to ``value``, never lower it.
+
+        `GREATEST` is not portable, so the raise is expressed as a `WHERE
+        value < ?` on the update: a floor already past the requested one simply
+        matches no rows. That matters because adoption code runs more than once
+        -- a re-import, a retried migration step -- and lowering a floor would
+        reissue numbers already handed out.
+        """
+
+        floor = int(value)
+        table = self._sequence_table
+        for _ in range(2):
+            with self.engine.begin() as connection:
+                connection.execute(
+                    update(table)
+                    .where(table.c.name == name, table.c.value < floor)
+                    .values(value=floor)
+                )
+                current = connection.execute(
+                    select(table.c.value).where(table.c.name == name)
+                ).scalar_one_or_none()
+                if current is not None:
+                    return int(current)
+            try:
+                with self.engine.begin() as connection:
+                    connection.execute(
+                        insert(table).values(name=name, value=floor)
+                    )
+                return floor
+            except IntegrityError:
+                # Another caller created the row first; take the update path.
+                continue
+        raise WriteIntegrityError("tide_sequence")
+
     def write(
         self,
         entity: str,

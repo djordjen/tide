@@ -176,6 +176,24 @@ which adapter it is talking to.
 """
 
 
+def sequence_name(entity: str, field: str) -> str:
+    """Name the sequence a generated field allocates from.
+
+    The name is a plain string the repository knows nothing about, and three
+    different places have to arrive at the same one: the generator that hands
+    out values, the seeding or import that puts existing rows in, and whatever
+    raises the floor when TIDE is adopted over a database that already has
+    them. Deriving it from the entity and field is what stops those three
+    remembering a string separately.
+
+    A field that wants a sequence of its own name -- two fields sharing one, or
+    a name that should outlive a rename -- would declare it, and this becomes
+    the default rather than the rule. Nothing needs that yet.
+    """
+
+    return f"{entity}.{field}"
+
+
 class RowPolicyMismatch(Exception):
     """A row exists, but it does not satisfy repository-supplied criteria."""
 
@@ -263,6 +281,8 @@ class Repository(Protocol):
     def peek_next_identity(self, entity: str) -> int: ...
 
     def next_sequence_value(self, name: str) -> int: ...
+
+    def reserve_sequence_value(self, name: str, value: int) -> int: ...
 
     def write(
         self,

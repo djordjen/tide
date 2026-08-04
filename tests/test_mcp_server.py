@@ -171,7 +171,7 @@ def test_streamable_http_mcp_executes_secured_runtime_workflow() -> None:
         assert invoice_result.isError is False
         assert invoice_result.structuredContent is not None
         assert invoice_result.structuredContent["record"]["number"] == (
-            "INV-2026-000001"
+            "INV-2026-000009"
         )
         assert invoice_result.structuredContent["record"]["total"] == "39.90"
         assert post_result.isError is False

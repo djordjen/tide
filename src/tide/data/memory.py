@@ -172,6 +172,19 @@ class InMemoryRepository:
             self._sequences[name] = value
             return value
 
+    def reserve_sequence_value(self, name: str, value: int) -> int:
+        """Raise this sequence's floor to ``value``, never lower it.
+
+        Adoption code runs more than once -- a re-import, a retried migration
+        step -- and lowering a floor would reissue numbers already handed out,
+        which is the defect this exists to prevent.
+        """
+
+        with self._lock:
+            floor = max(self._sequences.get(name, 0), int(value))
+            self._sequences[name] = floor
+            return floor
+
     def write(
         self,
         entity: str,

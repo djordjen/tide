@@ -6,6 +6,8 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 
+from tide.data import sequence_name
+
 
 def load_demo_data() -> dict[str, tuple[dict[str, Any], ...]]:
     customers = (
@@ -36,6 +38,23 @@ def load_demo_data() -> dict[str, tuple[dict[str, Any], ...]]:
         "sales.Invoice": invoices,
     }
 
+
+
+def load_sequence_floors() -> dict[str, int]:
+    """Say how far the seeded invoice numbers already reach.
+
+    Seeding puts rows in without allocating, so without this the sequence
+    would start at 1 and hand out numbers these records already show. Only
+    this module can answer: `allocate_invoice_number` renders a number into
+    `INV-{year}-{sequence:06d}`, and nothing outside here can read that back.
+    """
+
+    invoices = load_demo_data()["sales.Invoice"]
+    return {
+        sequence_name("sales.Invoice", "number"): max(
+            int(str(invoice["number"]).rsplit("-", 1)[-1]) for invoice in invoices
+        )
+    }
 
 def _customer(
     identity: int,

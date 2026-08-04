@@ -205,9 +205,30 @@ leaves a gap -- a number nobody used -- which is the accepted trade for not
 holding a lock across an unrelated write. Sequences are not gap-free, and a
 jurisdiction that requires gap-free numbering needs a different mechanism.
 
-Sequences start at 1 and know nothing about rows already in the table. An
-application adopting one over existing data must raise its floor first, or the
-numbers it issues will repeat ones already in use.
+Sequences start at 1 and know nothing about rows already in the table, so an
+application adopting one over existing data has to raise its floor first --
+otherwise the numbers it issues repeat ones already in use.
+`reserve_sequence_value` does that, and only ever raises: adoption code runs
+more than once, and lowering a floor would reissue numbers already handed out.
+
+```python
+repository.reserve_sequence_value(sequence_name("sales.Invoice", "number"), 812)
+```
+
+Raising it is the application's job, not the framework's, and not an oversight.
+What is stored is whatever the generator rendered -- `INV-2026-000812` here --
+and no framework can invert an arbitrary formatter to recover the number behind
+it. Only the code that wrote the format can read it back.
+
+Use `sequence_name(entity, field)` for the name rather than repeating a string.
+The generator, whatever imports or seeds existing rows, and any adoption step
+all have to mean the same sequence, and three separate memories of one string
+is how they stop meaning it.
+
+The bundled demo does this in `demo_data.py`: `load_sequence_floors()` reports
+how far its seeded invoice numbers reach, and `tide run --demo` reserves that
+before serving. An application whose demo data contains nothing generated can
+leave the hook out.
 
 ## Uniqueness
 

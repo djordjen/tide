@@ -52,7 +52,38 @@ def seed_demo_data(
             records.append(dict(raw_record))
         repository.seed(entity_name, records)
         seeded += len(records)
+    _reserve_sequence_floors(module, repository)
     return seeded
+
+
+def _reserve_sequence_floors(module: ModuleType, repository: Repository) -> None:
+    """Raise sequence floors past whatever the demo data already occupies.
+
+    Seeding puts rows in without allocating, so a sequence that starts at 1
+    would reissue numbers the seeded rows are already showing. Only the
+    application can say how far they reach: the stored value is whatever its
+    generator rendered -- `INV-2026-0001` here -- and no framework can invert
+    an arbitrary formatter to recover the number behind it.
+
+    Optional, because plenty of demo data has nothing generated in it.
+    """
+
+    floors = getattr(module, "load_sequence_floors", None)
+    if floors is None:
+        return
+    if not callable(floors):
+        raise DemoDataError("load_sequence_floors must be callable")
+    reserved = floors()
+    if not isinstance(reserved, Mapping):
+        raise DemoDataError("load_sequence_floors() must return a name mapping")
+    for name, value in reserved.items():
+        if not isinstance(name, str) or not name:
+            raise DemoDataError("demo sequence names must be non-empty strings")
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise DemoDataError(
+                f"demo sequence floor for {name!r} must be a non-negative integer"
+            )
+        repository.reserve_sequence_value(name, value)
 
 
 def _load_provider(provider_file: Path) -> ModuleType:

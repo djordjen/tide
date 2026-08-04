@@ -23,6 +23,7 @@ from tide.data.repository import (
     RelationshipLoadPlan,
     Repository,
     SortField,
+    sequence_name,
     WriteIntegrityError,
 )
 from tide.data.revision_sql import (
@@ -77,6 +78,7 @@ __all__ = [
     "SchemaIssue",
     "SchemaManagementError",
     "SortField",
+    "sequence_name",
     "create_sqlite_backup",
     "generate_revision",
     "propose_migration",
