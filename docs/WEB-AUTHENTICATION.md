@@ -50,6 +50,28 @@ uv run tide auth set-password applications/invoicing `
   --username djordje
 ```
 
+Refuse an account's sign-ins without deleting it, and put it back:
+
+```powershell
+uv run tide auth disable-user applications/invoicing `
+  --store .tide/local-auth.sqlite3 --username djordje
+uv run tide auth enable-user applications/invoicing `
+  --store .tide/local-auth.sqlite3 --username djordje
+```
+
+Replace the roles an account holds. The list replaces rather than adds, so a
+role can be withdrawn, and every name must be one the application compiled:
+
+```powershell
+uv run tide auth set-roles applications/invoicing `
+  --store .tide/local-auth.sqlite3 --username djordje `
+  --role sales_clerk
+```
+
+Disabling refuses new sign-ins immediately. A session already open ends at its
+next revalidation, because the command runs in its own process and cannot reach
+the server's memory; see below.
+
 Local browser sessions are opaque, HTTP-only, time-bounded and process-local.
 React receives only the cookie and a per-session CSRF proof. A small bounded
 failed-login window slows repeated guessing, and every accepted identity is

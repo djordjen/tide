@@ -249,6 +249,66 @@ class LocalUserStore:
                 f"local user {normalized_username!r} does not exist"
             )
 
+    def set_enabled(self, username: str, enabled: bool) -> None:
+        """Allow or refuse this account's sign-ins.
+
+        A disabled account keeps its password and roles; nothing is deleted, so
+        the decision is reversible. `login` refuses it outright, and a session
+        already open ends at its next revalidation.
+        """
+
+        self.validate()
+        normalized_username = normalize_username(username)
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE tide_local_users
+                SET enabled = ?
+                WHERE username = ?
+                """,
+                (1 if enabled else 0, normalized_username),
+            )
+        if cursor.rowcount != 1:
+            raise LocalAuthenticationError(
+                f"local user {normalized_username!r} does not exist"
+            )
+
+    def set_roles(self, username: str, roles: Iterable[str]) -> frozenset[str]:
+        """Replace this account's roles, returning what it now holds.
+
+        Replaces rather than merges, so withdrawing a role is expressible --
+        an add-only interface can only ever grant. The caller is responsible
+        for the roles naming something the application compiled; the store
+        does not know the model.
+        """
+
+        self.validate()
+        normalized_username = normalize_username(username)
+        normalized_roles = frozenset(_normalize_role(role) for role in roles)
+        if not normalized_roles:
+            raise ValueError("a local user must keep at least one role")
+        with self._connect() as connection:
+            exists = connection.execute(
+                "SELECT 1 FROM tide_local_users WHERE username = ?",
+                (normalized_username,),
+            ).fetchone()
+            if exists is None:
+                raise LocalAuthenticationError(
+                    f"local user {normalized_username!r} does not exist"
+                )
+            connection.execute(
+                "DELETE FROM tide_local_user_roles WHERE username = ?",
+                (normalized_username,),
+            )
+            connection.executemany(
+                """
+                INSERT INTO tide_local_user_roles (username, role)
+                VALUES (?, ?)
+                """,
+                ((normalized_username, role) for role in sorted(normalized_roles)),
+            )
+        return normalized_roles
+
     def upgrade_password_hash(self, username: str, password_hash: str) -> None:
         """Replace a stored hash with a stronger one for the same password.
 

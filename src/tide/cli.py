@@ -1070,6 +1070,27 @@ def _create_parser() -> argparse.ArgumentParser:
     _add_local_user_arguments(set_password, require_roles=False)
     set_password.set_defaults(handler=_auth_set_password)
 
+    disable_user = authentication_commands.add_parser(
+        "disable-user",
+        help="refuse further sign-ins for one local user without deleting it",
+    )
+    _add_local_user_arguments(disable_user, require_roles=False, password=False)
+    disable_user.set_defaults(handler=_auth_disable_user, enabled=False)
+
+    enable_user = authentication_commands.add_parser(
+        "enable-user",
+        help="allow sign-ins again for a disabled local user",
+    )
+    _add_local_user_arguments(enable_user, require_roles=False, password=False)
+    enable_user.set_defaults(handler=_auth_disable_user, enabled=True)
+
+    set_roles = authentication_commands.add_parser(
+        "set-roles",
+        help="replace one local user's application roles",
+    )
+    _add_local_user_arguments(set_roles, require_roles=True, password=False)
+    set_roles.set_defaults(handler=_auth_set_roles)
+
     mcp = commands.add_parser("mcp", help="run Model Context Protocol adapters")
     mcp_commands = mcp.add_subparsers(dest="mcp_command")
     mcp_dev = mcp_commands.add_parser(
@@ -2645,6 +2666,7 @@ def _add_local_user_arguments(
     parser: argparse.ArgumentParser,
     *,
     require_roles: bool,
+    password: bool = True,
 ) -> None:
     parser.add_argument(
         "project",
@@ -2663,16 +2685,21 @@ def _add_local_user_arguments(
         "--username",
         help="local sign-in name (prompted when omitted)",
     )
-    parser.add_argument(
-        "--password-env",
-        metavar="NAME",
-        help="read the password from environment variable NAME instead of prompting",
-    )
-    if require_roles:
+    if password:
         parser.add_argument(
-            "--display-name",
-            help="optional display name (defaults to the username)",
+            "--password-env",
+            metavar="NAME",
+            help=(
+                "read the password from environment variable NAME instead of "
+                "prompting"
+            ),
         )
+    if require_roles:
+        if password:
+            parser.add_argument(
+                "--display-name",
+                help="optional display name (defaults to the username)",
+            )
         parser.add_argument(
             "--role",
             action="append",
@@ -2742,6 +2769,56 @@ def _auth_set_password(arguments: argparse.Namespace) -> int:
         print(f"Local password update failed: {error}", file=sys.stderr)
         return 1
     print(f"Updated the password for local user {username!r}.")
+    return 0
+
+
+def _auth_disable_user(arguments: argparse.Namespace) -> int:
+    model = compile_project(arguments.project)
+    username = _read_local_username(arguments.username)
+    if username is None:
+        return 1
+    try:
+        from tide.api.local_auth import LocalAuthenticationError, LocalUserStore
+
+        store = LocalUserStore(arguments.store, application=model.name)
+        store.set_enabled(username, arguments.enabled)
+    except (LocalAuthenticationError, ValueError) as error:
+        print(f"Local user update failed: {error}", file=sys.stderr)
+        return 1
+    if arguments.enabled:
+        print(f"Enabled local user {username!r}.")
+    else:
+        # Sessions live in the serving process, which this one is not, so say
+        # what actually happens rather than implying an instant cut-off.
+        print(
+            f"Disabled local user {username!r}. Sign-ins are refused now; any "
+            "open session ends at its next revalidation."
+        )
+    return 0
+
+
+def _auth_set_roles(arguments: argparse.Namespace) -> int:
+    model = compile_project(arguments.project)
+    unknown_roles = sorted(set(arguments.role).difference(model.roles))
+    if unknown_roles:
+        print(
+            "Local role update failed: unknown application role(s): "
+            + ", ".join(unknown_roles),
+            file=sys.stderr,
+        )
+        return 1
+    username = _read_local_username(arguments.username)
+    if username is None:
+        return 1
+    try:
+        from tide.api.local_auth import LocalAuthenticationError, LocalUserStore
+
+        store = LocalUserStore(arguments.store, application=model.name)
+        roles = store.set_roles(username, arguments.role)
+    except (LocalAuthenticationError, ValueError) as error:
+        print(f"Local role update failed: {error}", file=sys.stderr)
+        return 1
+    print(f"Local user {username!r} now holds: {', '.join(sorted(roles))}.")
     return 0
 
 
