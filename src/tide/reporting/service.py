@@ -10,7 +10,7 @@ import re
 from typing import Any, Mapping
 
 from tide.compiler.expressions import evaluate_expression
-from tide.labels import humanize as _humanize
+from tide.labels import humanize as _humanize, value_label
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.presentation import field_alignment, field_label
@@ -406,7 +406,7 @@ class ReportService:
                 return str(value)
             return _display_record(self.model.entity(field.target_entity), related)
         if field.metadata["type"] == "choice":
-            return str(value).replace("_", " ").title()
+            return value_label(value)
         return self._format_scalar(value, format_name or field.metadata.get("format"))
 
     def _format_scalar(self, value: Any, format_name: Any = None) -> str:

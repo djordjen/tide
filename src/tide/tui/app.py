@@ -18,6 +18,7 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Button, DataTable, Footer, Header, Input, Select, Static
 
+from tide.labels import value_label
 from tide.compiler.normalized import (
     ApplicationModel,
     NormalizedEntity,
@@ -1083,7 +1084,7 @@ class TideApp(App[None]):
         if isinstance(value, bool):
             return "Yes" if value else "No"
         if field.metadata["type"] == "choice":
-            return str(value).replace("_", " ").title()
+            return value_label(value)
         return str(value)
 
     def _reference_display(self, target_entity: str, identity: Any) -> str:

@@ -65,9 +65,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from tide.labels import value_label
 from tide.api.contracts import TideSessionInfo
 from tide.compiler.normalized import ApplicationModel
-from tide.presentation import action_label, application_navigation
+from tide.presentation import action_label, application_navigation, field_label
 from tide.reporting import (
     ReportDocument,
     write_csv,
@@ -198,9 +199,9 @@ class TideQtLookupDialog(QDialog):
         self.search.setPlaceholderText(
             "Search "
             + ", ".join(
-                controller.model.entity(spec.target_entity)
-                .field(name)
-                .metadata.get("label", name.replace("_", " ").title())
+                field_label(
+                    controller.model.entity(spec.target_entity).field(name)
+                )
                 for name in spec.search_fields
             )
             + "…"
@@ -888,10 +889,7 @@ class TideQtEditDialog(QDialog):
         layout.addWidget(self.heading)
         if form.omitted_collections:
             collection_labels = ", ".join(
-                controller.entity.field(name).metadata.get(
-                    "label",
-                    name.replace("_", " ").title(),
-                )
+                field_label(controller.entity.field(name))
                 for name in form.omitted_collections
                 if name in controller.entity.fields
             )
@@ -1211,7 +1209,7 @@ class TideQtEditDialog(QDialog):
                 editor.addItem("", None)
             for choice in field.choices:
                 editor.addItem(
-                    str(choice).replace("_", " ").title(),
+                    value_label(choice),
                     choice,
                 )
             current = editor.findData(field.value)

@@ -23,6 +23,7 @@ from textual.widgets import (
 )
 from textual.widgets.tree import TreeNode
 
+from tide.labels import humanize, value_label
 from tide.development.designer import DesignerDocumentReference
 from tide.development.studio import (
     StudioDocumentDetails,
@@ -931,7 +932,7 @@ class StudioPreviewScreen(ModalScreen[None]):
             with Horizontal(id="studio-preview-controls"):
                 yield Select[str](
                     (("(No role)", "__none__"),)
-                    + tuple((role.replace("_", " ").title(), role) for role in self.preview.available_roles),
+                    + tuple((value_label(role), role) for role in self.preview.available_roles),
                     value=self.role or "__none__",
                     allow_blank=False,
                     id="studio-preview-role",
@@ -2372,7 +2373,9 @@ def _view_structure_preview(structure: StudioViewStructure) -> str:
 
 
 def _action_label(name: str) -> str:
-    return name.replace("_", " ").title()
+    """Label a bare action name, with no metadata entry to consult."""
+
+    return humanize(name)
 
 
 def _studio_preview_minimum(preview: StudioViewPreview) -> str:

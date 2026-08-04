@@ -2063,7 +2063,7 @@ def _preview_actions(
                         "add": "Add line",
                         "apply": "Apply line",
                         "remove": "Remove line",
-                    }.get(name, name.replace("_", " ").title()),
+                    }.get(name, humanize(name)),
                     bar=section.key,
                     enabled=enabled,
                     runtime_condition=bool(

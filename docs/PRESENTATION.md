@@ -42,6 +42,19 @@ A collection is named after what its own form calls it rather than after the
 target entity: a form labelling the section **Lines** offers an **Add Line**,
 not an **Add Invoice Line**. A declared `record_label` still wins over both.
 
+## Naming a stored value
+
+A `choice` field stores what the model author wrote — `in_progress`, `posted` —
+and every renderer shows it as words. `labels.value_label` is the one
+implementation: underscores become spaces, and the result is title-cased.
+
+It is deliberately not `humanize`. `humanize` names identifiers TIDE exposes,
+where splitting `customerName` into "Customer Name" is the whole point;
+`value_label` names the application's own data. The consequence is that a
+choice written `inProgress` reads "Inprogress" rather than "In Progress", so
+write choice values in `snake_case`. There is no per-choice label to declare
+instead; whether there should be is open.
+
 ## Shared defaults
 
 Application-wide behavior belongs in `presentation/defaults.yaml`:

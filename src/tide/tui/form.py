@@ -29,6 +29,7 @@ from textual.widgets import (
     TabPane,
 )
 
+from tide.labels import value_label
 from tide.compiler.normalized import (
     ApplicationModel,
     NormalizedEntity,
@@ -795,7 +796,7 @@ class RecordEditScreen(Screen[Any]):
             )
         if field_type == "choice":
             options = tuple(
-                (str(choice).replace("_", " ").title(), choice)
+                (value_label(choice), choice)
                 for choice in field.metadata.get("choices", ())
             )
             return FormSelect(
@@ -1129,7 +1130,7 @@ class RecordEditScreen(Screen[Any]):
         if isinstance(value, Decimal) and field.metadata.get("format") == "money":
             return f"{value:,.2f}"
         if field.metadata["type"] == "choice":
-            return str(value).replace("_", " ").title()
+            return value_label(value)
         return str(value)
 
     def _action_values(self) -> dict[str, Any]:

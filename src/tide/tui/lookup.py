@@ -14,6 +14,7 @@ from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Input, Label, Static
 
+from tide.labels import value_label
 from tide.presentation import field_label, record_label
 from tide.compiler.normalized import (
     ApplicationModel,
@@ -359,7 +360,7 @@ def _format_value(field: NormalizedField, value: Any) -> str:
     if isinstance(value, Decimal) and field.metadata.get("format") == "money":
         return f"{value:,.2f}"
     if field.metadata["type"] == "choice":
-        return str(value).replace("_", " ").title()
+        return value_label(value)
     return str(value)
 
 

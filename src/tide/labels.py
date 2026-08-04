@@ -29,3 +29,24 @@ def humanize_qualified(name: str) -> str:
     """Label a dotted model name, ignoring its namespace."""
 
     return humanize(name.rsplit(".", 1)[-1])
+
+
+def value_label(value: object) -> str:
+    """Label a value an application author wrote, such as a choice literal.
+
+    Kept separate from `humanize` deliberately. `humanize` names identifiers
+    TIDE exposes, where splitting `customerName` into "Customer Name" is the
+    whole point; a stored `in_progress` is the application's own data, and how
+    it reads should not depend on which renderer is asking. Eight copies of
+    this expression lived across Qt, Textual and reporting and agreed entirely
+    by coincidence -- exactly as the field-label transform beside them did,
+    right up until one of them met a camelCase field name.
+
+    The rule is narrow: underscores become spaces and `title()` capitalises.
+    It does not split camel case, so a literal written `inProgress` reads
+    "Inprogress". That is carried over from the copies rather than endorsed --
+    changing it changes what deployed applications display, which is a
+    decision for a model author and not a side effect of removing duplication.
+    """
+
+    return str(value).replace("_", " ").title()

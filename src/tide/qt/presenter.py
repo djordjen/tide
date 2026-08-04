@@ -9,6 +9,7 @@ from decimal import Decimal
 from threading import Lock
 from typing import Any, Literal, Mapping, Protocol
 
+from tide.labels import value_label
 from tide.api.contracts import TideEntityCapabilities, TideSessionInfo
 from tide.compiler.normalized import (
     ApplicationModel,
@@ -1984,7 +1985,7 @@ class QtBrowseController:
         if field.metadata["type"] == "reference" and field.target_entity:
             return self._reference_display(field.target_entity, value)
         if field.metadata["type"] == "choice":
-            return str(value).replace("_", " ").title()
+            return value_label(value)
         configuration = self.model.formats.get(
             str(field.metadata.get("format")),
             {},
