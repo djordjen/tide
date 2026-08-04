@@ -53,7 +53,8 @@ DELETE /api/v1/people/{id}
 GET    /api/v1/people/{id}/_audit
 ```
 
-The adapter also publishes OpenAPI and interactive documentation. Input models
+The adapter can also publish OpenAPI and interactive documentation; see
+below for when it does. Input models
 exclude computed and non-writable fields; output serialization understands
 protected values.
 
@@ -89,8 +90,18 @@ The runtime additionally publishes typed read-only `POST .../_query` routes for
 structured filtering and sorting; the standalone preview remains intentionally
 limited to its dependency-free list/get contract.
 
-`tide serve` exposes `/docs`, `/openapi.json`, `/health/live`, and
-`/health/ready`. Liveness is process-only. Readiness checks persistence
+`tide serve` exposes `/health/live` and `/health/ready` always, and `/docs`,
+`/redoc` and `/openapi.json` when the API description is enabled — on by
+default for a loopback bind, off otherwise, and set either way with `--docs` or
+`--no-docs`. The description names every exposed entity, field and action along
+with the `x-tide` runtime configuration, so it follows the same rule as
+development authentication: useful on the machine you are building on, not
+something a networked deployment publishes because nobody said otherwise. It is
+withheld rather than gated behind a token, since a credential is not what makes
+publishing the model surface acceptable. `build_fastapi_app` defaults `docs` to
+off, so an embedder that never considers the question does not publish one.
+
+Liveness is process-only. Readiness checks persistence
 connectivity, mapped-schema and SQL-policy compatibility, plus configured
 durable cursor/action state; it returns a bounded HTTP 503 `not_ready` response
 without exposing dependency errors. Both operational probes are deliberately
@@ -111,7 +122,7 @@ principal-bound contract:
 resource/query paths, identity fields, visible readable columns, labels, types,
 alignment and formats, reference targets, search, structured named filters,
 sortable fields, fetch size, currently available REST operations, required
-state, choices, masks, numeric constraints, validation names, and resolved
+state, choices, masks, numeric constraints, and resolved
 defaults. Whole views, empty navigation groups, protected fields, and controls
 that depend on a protected field are omitted. The projection never returns raw
 YAML, database configuration, permission/workflow expressions, or application
@@ -567,7 +578,7 @@ A hosted application may present:
 ```text
 /api/v1/...    REST
 /mcp           MCP Streamable HTTP
-/docs          OpenAPI documentation
+/docs          OpenAPI documentation (when enabled)
 ```
 
 An HTTP MCP server should use standards-compatible authorization and map the

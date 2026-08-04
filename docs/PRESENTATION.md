@@ -257,7 +257,7 @@ Remote Web clients receive a capability-filtered form projection rather than
 raw layout YAML. It includes only readable scalar fields, authorized inline
 collection columns, and safe editor facts: field type, principal-level
 writable hint, required/help state, choices, bounded masks, numeric
-constraints, validation names, and resolved defaults. The record resource may
+constraints, and resolved defaults. The record resource may
 add a safe, server-evaluated list of fields currently writable for
 presentation; an absent or empty list renders an existing record read-only.
 This state and client-side validation are advisory and never replace

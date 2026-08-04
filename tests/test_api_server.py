@@ -37,7 +37,13 @@ INVOICING = ROOT / "applications" / "invoicing"
 TOKEN = "tide-development-token-that-is-long-enough"
 
 
-def test_server_requires_bearer_auth_and_exposes_docs() -> None:
+def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
+    """The API description is not served unless a deployment asks for it.
+
+    This used to assert an anonymous 200, which pinned the leak in place.
+    See tests/test_api_docs_exposure.py for the whole contract.
+    """
+
     app = _app("sales_clerk")
 
     async def exercise() -> None:
@@ -70,7 +76,7 @@ def test_server_requires_bearer_auth_and_exposes_docs() -> None:
             "application": "TIDE Invoicing",
             "version": "0.1.0",
         }
-        assert docs.status_code == 200
+        assert docs.status_code == 404
         assert session.status_code == 200
         assert session.json()["authentication"] == "development-bearer"
         assert session.json()["reports"] == ["sales.invoice", "sales.summary"]

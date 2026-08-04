@@ -220,8 +220,21 @@ def build_fastapi_app(
     request_body_timeout_seconds: int = DEFAULT_REQUEST_BODY_TIMEOUT_SECONDS,
     web_root: str | FileSystemPath | None = None,
     browser_auth: BrowserAuthenticator | None = None,
+    docs: bool = False,
 ) -> FastAPI:
-    """Build an HTTP adapter over services without granting client database access."""
+    """Build an HTTP adapter over services without granting client database access.
+
+    ``docs`` serves `/docs`, `/redoc` and `/openapi.json`. It is off unless
+    asked for, because that document is not a courtesy -- it is every exposed
+    entity, field and action plus the `x-tide` runtime configuration, which is
+    a map of the application handed out before anyone authenticates. Defaulting
+    it off means a caller that never considers the question is not publishing
+    one, and `tide serve` turns it on for a loopback bind where it is useful.
+
+    Withheld rather than gated: a bearer token is not what makes publishing the
+    model surface acceptable, and Swagger UI is a browser page that would have
+    to carry credentials of its own to fetch a protected schema.
+    """
 
     if (
         isinstance(max_request_body_bytes, bool)
@@ -275,6 +288,9 @@ def build_fastapi_app(
             "TIDE application server. Every request is authenticated and "
             "reauthorized through the application service layer."
         ),
+        docs_url="/docs" if docs else None,
+        redoc_url="/redoc" if docs else None,
+        openapi_url="/openapi.json" if docs else None,
     )
     app.state.tide = TideApiRuntime(
         model,

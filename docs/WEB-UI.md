@@ -105,7 +105,7 @@ the same YAML meaningful to Textual, Qt, Web, and later renderers.
 The detail manifest is also a safe projection. It contains resolved semantic
 layout plus the editor facts needed to render a useful form: type, writable
 hint, required state, help, choices, bounded masks, numeric constraints,
-validation names, and already-resolved defaults. It contains no YAML
+and already-resolved defaults. It contains no YAML
 expressions, permission/workflow rules, handlers, or database configuration.
 For an authorized reference field configured with `editor: lookup`, the same
 manifest adds only the compiler-approved lookup view, readable columns,

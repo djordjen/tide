@@ -314,6 +314,22 @@ def _create_parser() -> argparse.ArgumentParser:
     )
     serve.add_argument("--port", type=int, default=8000)
     serve.add_argument(
+        "--docs",
+        dest="docs",
+        action="store_true",
+        default=None,
+        help=(
+            "serve /docs, /redoc and /openapi.json "
+            "(default: on for a loopback bind, off otherwise)"
+        ),
+    )
+    serve.add_argument(
+        "--no-docs",
+        dest="docs",
+        action="store_false",
+        help="never serve the API description, even on loopback",
+    )
+    serve.add_argument(
         "--log-level",
         choices=("debug", "info", "warning", "error", "critical"),
         default="info",
@@ -1463,6 +1479,11 @@ def _serve_api(arguments: argparse.Namespace) -> int:
                 ),
                 web_root=arguments.web_root,
                 browser_auth=browser_auth,
+                # The description maps every entity, field and action, so it
+                # follows the same rule as development authentication: fine on
+                # the machine you are building on, not something a networked
+                # deployment publishes because nobody said otherwise.
+                docs=is_loopback if arguments.docs is None else arguments.docs,
             )
             if arguments.mcp:
                 try:
