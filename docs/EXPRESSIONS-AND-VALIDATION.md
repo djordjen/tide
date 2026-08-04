@@ -161,6 +161,23 @@ code:
 This rule is enforced at commit for TUI, API, and future GUI callers, and is
 also exposed as an OpenAPI `pattern` where applicable.
 
+`edit_mask` is the only per-field pattern contract. There is no library of
+named field rules to reference by id — a semantic constraint such as an email
+address is written as the mask it is:
+
+```yaml
+email:
+  type: string
+  length: 254
+  edit_mask: {regex: '[^\s@]+@[^\s@]+\.[^\s@]+'}
+```
+
+Write a pattern both engines accept: the server matches it with Python
+`re.fullmatch` and the web client compiles the same text as a JavaScript
+`RegExp`. The common subset — character classes, quantifiers, groups,
+alternation, anchoring by the surrounding contract — covers field masks.
+Named groups and other engine-specific syntax do not belong here.
+
 Cross-field and conditional rules are explicit:
 
 ```yaml

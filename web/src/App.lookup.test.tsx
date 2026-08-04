@@ -1038,7 +1038,6 @@ const baseField = {
   scale: null,
   minimum: null,
   maximum: null,
-  validations: [],
   has_default: false,
   default_value: null,
 }
@@ -1291,7 +1290,6 @@ const customerForm = {
       name: "email",
       label: "Email",
       writable: true,
-      validations: ["email"],
     },
     name: {
       ...baseField,

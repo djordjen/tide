@@ -1020,9 +1020,6 @@ function inputType(field: TidePresentationFormField): string {
   if (field.field_type === "datetime") {
     return "datetime-local"
   }
-  if (field.validations.includes("email")) {
-    return "email"
-  }
   return "text"
 }
 

@@ -232,7 +232,6 @@ function field(
     scale: null,
     minimum: null,
     maximum: null,
-    validations: [],
     has_default: false,
     default_value: null,
     ...fieldOverrides,

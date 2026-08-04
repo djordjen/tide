@@ -49,7 +49,7 @@ sections have distinct responsibilities:
 - `permissions` gives every operation an explicit security requirement;
 - `display` and `search_fields` provide shared presentation defaults.
 
-The `email` validation, required `name`, string lengths, and permissions are
+The `email` edit mask, required `name`, string lengths, and permissions are
 enforced below the renderer, so TUI, REST, and MCP cannot disagree about them.
 
 ## 3. Define browse and edit views

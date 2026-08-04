@@ -111,7 +111,6 @@ export interface TidePresentationFormField
   scale: number | null
   minimum: string | number | null
   maximum: string | number | null
-  validations: string[]
   has_default: boolean
   default_value: unknown
 }

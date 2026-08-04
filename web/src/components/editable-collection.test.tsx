@@ -71,7 +71,6 @@ const positionField: TidePresentationFormField = {
   scale: null,
   minimum: null,
   maximum: null,
-  validations: [],
   has_default: false,
   default_value: null,
 }

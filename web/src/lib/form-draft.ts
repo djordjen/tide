@@ -80,14 +80,6 @@ export function validateFormDraft(
       errors[field.name] = `${field.label} has an invalid format.`
       continue
     }
-    if (
-      field.validations.includes("email") &&
-      typeof raw === "string" &&
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)
-    ) {
-      errors[field.name] = `${field.label} must be a valid email address.`
-      continue
-    }
     if (field.field_type === "integer" && !/^-?\d+$/.test(String(raw))) {
       errors[field.name] = `${field.label} must be a whole number.`
       continue

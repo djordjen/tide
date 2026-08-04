@@ -356,7 +356,6 @@ class TidePresentationFormField(TidePresentationColumn):
     scale: int | None = Field(default=None, ge=0)
     minimum: Decimal | None = None
     maximum: Decimal | None = None
-    validations: tuple[str, ...] = ()
     has_default: bool = False
     default_value: str | int | Decimal | bool | date | datetime | None = None
 

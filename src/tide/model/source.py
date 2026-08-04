@@ -132,7 +132,6 @@ class FieldSource(SourceModel):
     server_default: Any = None
     format: str | None = None
     edit_mask: str | EditMaskSource | None = None
-    validation: str | tuple[str, ...] | None = None
     choices: tuple[str, ...] = ()
     target: str | None = None
     column: str | None = Field(default=None, min_length=1)

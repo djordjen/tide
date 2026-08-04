@@ -137,7 +137,8 @@ fields:
   first_name: {type: string, length: 80, required: true}
   last_name:  {type: string, length: 80, required: true}
   birth_date: {type: date}
-  email:      {type: string, length: 254, validation: email}
+  email:      {type: string, length: 254,
+               edit_mask: {regex: '[^\s@]+@[^\s@]+\.[^\s@]+'}}
   active:     {type: boolean, default: true}
 ```
 
@@ -173,8 +174,7 @@ A field may contribute to several projections without mixing their concerns:
 
 - storage: type, length, precision, nullability, indexes, and uniqueness;
 - semantics: label, help, display format, and reference meaning;
-- validation: local constraints, edit-mask contracts, and named validation
-  rules;
+- validation: local constraints and edit-mask contracts;
 - presentation: preferred editor, width, alignment, input feedback, and view
   defaults;
 - API: read/write representation and exposure policy;

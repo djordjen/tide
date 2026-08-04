@@ -563,12 +563,6 @@ def _form_field_contract(
         base_path=base_path,
     )
     edit_mask = metadata.get("edit_mask")
-    validation = metadata.get("validation")
-    validations = (
-        (str(validation),)
-        if isinstance(validation, str)
-        else tuple(str(item) for item in (validation or ()))
-    )
     has_default = (
         "default" in metadata or metadata.get("default_factory") == "today"
     )
@@ -617,7 +611,6 @@ def _form_field_contract(
         ),
         minimum=metadata.get("minimum"),
         maximum=metadata.get("maximum"),
-        validations=validations,
         has_default=has_default,
         default_value=default_value if has_default else None,
     )
