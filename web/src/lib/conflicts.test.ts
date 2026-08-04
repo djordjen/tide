@@ -66,3 +66,72 @@ describe("record conflict review", () => {
     ).toThrow(/non-conflicting fields/i)
   })
 })
+
+describe("comparing values that are not scalars", () => {
+  it("does not invent a conflict when a server reorders keys", () => {
+    // The comparison used `JSON.stringify`, which is key-order sensitive. A
+    // server that serialises the same collection row with its keys in another
+    // order -- a different ORM, a changed column order, a dict rebuilt -- made
+    // every such row read as edited by both sides, and asked the person to
+    // resolve a difference that does not exist.
+    const conflict = compareRecordConflict(
+      { lines: [{ line_number: 1, quantity: "1.00" }] },
+      { lines: [{ quantity: "1.00", line_number: 1 }] },
+      { lines: [{ line_number: 1, quantity: "1.00" }] },
+      ["lines"],
+    )
+
+    expect(conflict.conflictingFields).toEqual([])
+    expect(conflict.rebaseFields).toEqual([])
+    // Nothing changed on either side, so there is nothing to review at all --
+    // the reordered row is the same row.
+    expect(conflict.fields).toEqual([])
+  })
+
+  it("does not invent a conflict against a reordered edit either", () => {
+    const conflict = compareRecordConflict(
+      { lines: [{ line_number: 1, quantity: "1.00" }] },
+      { lines: [{ quantity: "2.00", line_number: 1 }] },
+      { lines: [{ line_number: 1, quantity: "2.00" }] },
+      ["lines"],
+    )
+
+    expect(conflict.conflictingFields).toEqual([])
+    expect(conflict.fields[0].disposition).toBe("same_change")
+  })
+
+  it("still sees a genuine difference inside a collection", () => {
+    const conflict = compareRecordConflict(
+      { lines: [{ line_number: 1, quantity: "1.00" }] },
+      { lines: [{ quantity: "2.00", line_number: 1 }] },
+      { lines: [{ line_number: 1, quantity: "3.00" }] },
+      ["lines"],
+    )
+
+    expect(conflict.conflictingFields).toEqual(["lines"])
+  })
+
+  it("tells a missing key from one that is present and null", () => {
+    // `JSON.stringify` drops `undefined` in an object, so `{a: undefined}` and
+    // `{}` compared equal. They are different records.
+    const conflict = compareRecordConflict(
+      { detail: {} },
+      { detail: { note: null } },
+      { detail: {} },
+      ["detail"],
+    )
+
+    expect(conflict.fields[0].disposition).toBe("current_change")
+  })
+
+  it("compares arrays by order, because a collection has one", () => {
+    const conflict = compareRecordConflict(
+      { lines: [{ line_number: 1 }, { line_number: 2 }] },
+      { lines: [{ line_number: 2 }, { line_number: 1 }] },
+      { lines: [{ line_number: 1 }, { line_number: 2 }] },
+      ["lines"],
+    )
+
+    expect(conflict.fields[0].disposition).toBe("current_change")
+  })
+})

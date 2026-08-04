@@ -301,6 +301,86 @@ it("reviews a stale draft and rebases explicit choices onto the fresh ETag", asy
   ).toBeInTheDocument()
 })
 
+it("will not discard an unsaved edit to a keystroke", async () => {
+  // Escape sits one key away from every field in the form, and closing the
+  // editor throws the edit away with nothing to undo it. Previous and Next
+  // already refuse while there are unsaved changes; this is the same rule.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: false,
+          mode: null,
+          login_path: null,
+          session_path: null,
+          logout_path: null,
+        })
+      }
+      if (url.endsWith("/_tide/session")) {
+        return jsonResponse(session)
+      }
+      if (url.endsWith("/_tide/presentation")) {
+        return jsonResponse(presentation)
+      }
+      if (url.endsWith("/products/_query")) {
+        return jsonResponse({
+          records: [product(1, "P00001", "Support", "10.00")],
+          next_cursor: null,
+        })
+      }
+      if (url.endsWith("/products/1") && init?.method === "GET") {
+        return jsonResponse(product(1, "P00001", "Support", "10.00"), {
+          headers: { ETag: '"7"' },
+        })
+      }
+      throw new Error(`Unexpected URL ${url}`)
+    }),
+  )
+
+  const user = userEvent.setup()
+  renderApp()
+  await connectWithToken(user)
+  await user.dblClick(await screen.findByRole("row", { name: /P00001/ }))
+  const heading = await screen.findByRole("heading", {
+    name: "Product — P00001 - Support",
+  })
+  expect(heading).toBeInTheDocument()
+
+  const name = screen.getByLabelText(/^Name/)
+  await user.clear(name)
+  await user.type(name, "Edited support")
+
+  await user.keyboard("{Escape}")
+  await waitFor(() =>
+    expect(
+      screen.getByRole("heading", { name: "Product — P00001 - Support" }),
+    ).toBeInTheDocument(),
+  )
+  expect(leaveIsGuarded()).toBe(true)
+
+  // Put the value back: there is nothing to lose now, so neither guard should
+  // still be in the way. Asserted as a transition within this test rather than
+  // as a fact about the page, which would depend on every test before it.
+  await user.clear(name)
+  await user.type(name, "Support")
+  await waitFor(() => expect(leaveIsGuarded()).toBe(false))
+
+  await user.keyboard("{Escape}")
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("heading", { name: "Product — P00001 - Support" }),
+    ).not.toBeInTheDocument(),
+  )
+})
+
+function leaveIsGuarded(): boolean {
+  const leaving = new Event("beforeunload", { cancelable: true })
+  window.dispatchEvent(leaving)
+  return leaving.defaultPrevented
+}
+
 function renderApp() {
   const client = new QueryClient({
     defaultOptions: {

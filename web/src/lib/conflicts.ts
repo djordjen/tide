@@ -111,5 +111,36 @@ export function resolveRecordConflict(
 }
 
 function conflictValueEqual(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right)
+  // Structural, not `JSON.stringify`. Serialising to compare makes key order
+  // significant, so a server that emits the same collection row with its keys
+  // in another order -- a different ORM, a reordered column, a rebuilt dict --
+  // reads as having edited every one of those rows, and the person is asked to
+  // resolve a difference that is not there. Arrays keep their order, because a
+  // collection's order is part of its value.
+  if (Object.is(left, right)) {
+    return true
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((item, index) => conflictValueEqual(item, right[index]))
+    )
+  }
+  if (isRecord(left) && isRecord(right)) {
+    const keys = Object.keys(left)
+    return (
+      keys.length === Object.keys(right).length &&
+      keys.every(
+        (key) =>
+          Object.hasOwn(right, key) && conflictValueEqual(left[key], right[key]),
+      )
+    )
+  }
+  return false
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
 }

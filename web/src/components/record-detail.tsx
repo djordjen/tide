@@ -798,7 +798,10 @@ export function RecordDetail({
       ) {
         event.preventDefault()
         onNext()
-      } else if (event.key === "Escape" && !busy) {
+      } else if (event.key === "Escape" && !busy && !dirty) {
+        // Refused while there are unsaved changes, the same way Previous and
+        // Next already are. Escape is one keystroke away from every field in
+        // the form, and discarding an edit for it is not recoverable.
         event.preventDefault()
         onClose()
       }
@@ -817,6 +820,19 @@ export function RecordDetail({
     onPrevious,
     busy,
   ])
+
+  useEffect(() => {
+    if (!dirty) {
+      return
+    }
+    // Escape is guarded above, but closing the tab, following a link or
+    // reloading are not ours to intercept -- this is the only way to ask.
+    function confirmLeaving(event: BeforeUnloadEvent) {
+      event.preventDefault()
+    }
+    window.addEventListener("beforeunload", confirmLeaving)
+    return () => window.removeEventListener("beforeunload", confirmLeaving)
+  }, [dirty])
 
   const visibleSections =
     tabs.length > 0
