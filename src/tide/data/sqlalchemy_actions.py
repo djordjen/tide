@@ -402,7 +402,17 @@ class SQLAlchemyActionExecutionStore:
         except (TypeError, ValueError) as error:
             raise ActionStoreError("stored action audit is invalid") from error
 
-    def record_audit(self, event: RecordAuditEvent) -> None:
+    def record_audit(
+        self, event: RecordAuditEvent, *, connection: Any = None
+    ) -> None:
+        """Record one CRUD event, enlisting in ``connection`` when it is ours.
+
+        A caller can only hand over a connection from the same engine; one
+        belonging to a different database would silently write the trail
+        somewhere the record is not, so that case opens its own transaction
+        instead. The two are the same engine in every managed deployment.
+        """
+
         if not event.changes:
             raise ActionStoreError("record audit events require at least one change")
         identity_json = serialize_action_value(event.identity)
@@ -419,9 +429,13 @@ class SQLAlchemyActionExecutionStore:
             "source": event.source,
             "changes_json": _serialize_record_changes(event.changes),
         }
+        statement = insert(self.record_audit_table).values(**values)
         try:
-            with self.engine.begin() as connection:
-                connection.execute(insert(self.record_audit_table).values(**values))
+            if connection is not None and connection.engine is self.engine:
+                connection.execute(statement)
+                return
+            with self.engine.begin() as owned:
+                owned.execute(statement)
         except SQLAlchemyError as error:
             raise ActionStoreError("could not write record audit") from error
 

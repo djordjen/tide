@@ -142,13 +142,20 @@ record write use separate short database transactions. A crash after the record
 commit but before the reservation is completed therefore leaves an
 `in_progress` record rather than risking duplicate execution. Operators must
 compare the audit correlation, target state, and application-specific side
-effects before reconciling it. CRUD events are currently persisted in a
-separate short transaction after the application write. A crash between those
-transactions can therefore leave a successful mutation without its record
-event; deployments requiring atomic application/audit commits need a future
-shared transaction/outbox boundary.
+effects before reconciling it.
 
-Atomic completion in the same transaction as application changes, retention
-and purge policy, reconciliation commands, collection-detail events, failed
-CRUD-attempt audit, and auditing of MCP/report/export operations remain later
-production work.
+CRUD events are written **inside** the record's own write transaction. The
+repository invokes a callback on its connection before committing, and the
+audit store enlists in that connection when it belongs to the same engine, so
+a change and the record of it commit together or not at all. An audit write
+that fails takes the change down with it: an unaccountable change is the one
+outcome an audit trail exists to prevent. A store configured against a
+different database cannot enlist and opens its own transaction, which restores
+the older gap — deployments that separate the two should expect it.
+
+Action reservations are a separate story and still use their own short
+transaction, so the `in_progress` reconciliation above still applies to them.
+
+Retention and purge policy, reconciliation commands, collection-detail events,
+failed CRUD-attempt audit, auditing of MCP/report/export operations, and a unit
+of work spanning several record writes remain later production work.

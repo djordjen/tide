@@ -51,6 +51,7 @@ from tide.data.repository import (
     FilterCondition,
     QuerySpec,
     RelationshipLoadPlan,
+    OnWritten,
     RowPolicyMismatch,
     WriteIntegrityError,
     SortField,
@@ -526,6 +527,7 @@ class SQLAlchemyRepository:
         criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         references: tuple[DeleteReference, ...] = (),
         collections: tuple[DeleteCollection, ...] = (),
+        on_written: OnWritten | None = None,
     ) -> dict[str, Any]:
         # Children are rows in their own table, so the database allocates their
         # keys; only the document-shaped adapter has to assign them itself.
@@ -536,7 +538,7 @@ class SQLAlchemyRepository:
             raise ValueError("repository write metadata does not match the compiled entity")
         try:
             with self.engine.begin() as connection:
-                return self._write_entity(
+                stored = self._write_entity(
                     connection,
                     entity,
                     dict(values),
@@ -546,6 +548,12 @@ class SQLAlchemyRepository:
                     criteria_parameters=criteria_parameters,
                     references=references,
                 )
+                if on_written is not None:
+                    # Runs before the commit, so anything it writes on this
+                    # connection lands with the record -- and its failure takes
+                    # the record with it rather than leaving it unaccounted for.
+                    on_written(connection, stored)
+                return stored
         except IntegrityError as error:
             raise WriteIntegrityError(entity) from error
 

@@ -594,6 +594,20 @@ class RecordsService:
                 criteria_parameters=self.security.policy_parameters(context),
                 references=_delete_references(self.model),
                 collections=_delete_collections(self.model),
+                on_written=lambda connection, written: self._record_audit(
+                    entity,
+                    (
+                        RecordAuditOperation.CREATE
+                        if session.is_new
+                        else RecordAuditOperation.UPDATE
+                    ),
+                    written[_primary_key(entity)],
+                    {} if session.is_new else deepcopy(session.original),
+                    written,
+                    context,
+                    source,
+                    connection=connection,
+                ),
             )
         except RowPolicyMismatch as error:
             raise AuthorizationError(
@@ -617,19 +631,7 @@ class RecordsService:
             stored.get(version_field) if version_field is not None else None
         )
         session.mark_committed(stored)
-        self._record_audit(
-            entity,
-            (
-                RecordAuditOperation.CREATE
-                if was_new
-                else RecordAuditOperation.UPDATE
-            ),
-            session.identity,
-            original,
-            stored,
-            context,
-            source,
-        )
+        del original, was_new  # the audit entry was written with the record
         return self._project(entity, stored, context)
 
     def _record_audit(
@@ -641,6 +643,7 @@ class RecordsService:
         after: Mapping[str, Any],
         context: RequestContext,
         source: MutationSource,
+        connection: Any = None,
     ) -> None:
         changes = _audit_changes(self.model, entity, operation, before, after)
         if not changes:
@@ -657,7 +660,8 @@ class RecordsService:
                 occurred_at=self._now(),
                 source=str(source),
                 changes=changes,
-            )
+            ),
+            connection=connection,
         )
 
     def _now(self) -> datetime:

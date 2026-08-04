@@ -174,7 +174,9 @@ class ActionExecutionStore(Protocol):
         newest_first: bool = False,
     ) -> tuple[ActionAuditEvent, ...]: ...
 
-    def record_audit(self, event: RecordAuditEvent) -> None: ...
+    def record_audit(
+        self, event: RecordAuditEvent, *, connection: Any = None
+    ) -> None: ...
 
     def record_audit_events(
         self,
@@ -307,7 +309,10 @@ class InMemoryActionExecutionStore:
             events = matching if limit is None else matching[:limit]
             return tuple(_copy_audit(event) for event in events)
 
-    def record_audit(self, event: RecordAuditEvent) -> None:
+    def record_audit(
+        self, event: RecordAuditEvent, *, connection: Any = None
+    ) -> None:
+        del connection  # nothing here to enlist in
         if not event.changes:
             raise ActionStoreError("record audit events require at least one change")
         with self._lock:

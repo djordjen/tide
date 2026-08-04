@@ -12,6 +12,7 @@ from tide.data.repository import (
     DeleteReference,
     DeletedRecord,
     NO_PARAMETERS,
+    OnWritten,
     QuerySpec,
     RelationshipLoadPlan,
     RowPolicyMismatch,
@@ -183,6 +184,7 @@ class InMemoryRepository:
         criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         references: tuple[DeleteReference, ...] = (),
         collections: tuple[DeleteCollection, ...] = (),
+        on_written: OnWritten | None = None,
     ) -> dict[str, Any]:
         with self._lock:
             bucket = self._records.setdefault(entity, {})
@@ -212,7 +214,20 @@ class InMemoryRepository:
                     raise ConcurrencyError(expected_version, actual_version)
                 if version_field:
                     record[version_field] = int(actual_version) + 1
+            previous = bucket.get(identity)
             bucket[identity] = deepcopy(record)
+            if on_written is not None:
+                # There is no transaction to enlist in, so undo by hand: the
+                # record and whatever accompanies it still have to land
+                # together or not at all.
+                try:
+                    on_written(None, record)
+                except Exception:
+                    if previous is None:
+                        bucket.pop(identity, None)
+                    else:
+                        bucket[identity] = previous
+                    raise
             return record
 
     def delete(

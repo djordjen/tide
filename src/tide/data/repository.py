@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Iterable, Mapping, Protocol, runtime_checkable
+from typing import Any, Callable, Iterable, Mapping, Protocol, runtime_checkable
 
 
 NO_PARAMETERS: Mapping[str, Any] = MappingProxyType({})
@@ -166,6 +166,16 @@ def query_sort_key(value: Any) -> tuple[bool, Any]:
     return value is None, value
 
 
+OnWritten = Callable[[Any, Mapping[str, Any]], None]
+"""Called inside a write's transaction, with its connection and stored values.
+
+Whatever it writes commits with the record or not at all. The first argument is
+the adapter's transaction handle -- a SQLAlchemy `Connection`, or `None` for an
+adapter that has none -- and is only meaningful to something that already knows
+which adapter it is talking to.
+"""
+
+
 class RowPolicyMismatch(Exception):
     """A row exists, but it does not satisfy repository-supplied criteria."""
 
@@ -248,6 +258,7 @@ class Repository(Protocol):
         criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         references: tuple[DeleteReference, ...] = (),
         collections: tuple[DeleteCollection, ...] = (),
+        on_written: OnWritten | None = None,
     ) -> dict[str, Any]: ...
 
     def delete(
