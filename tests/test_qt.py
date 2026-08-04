@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -13,6 +14,7 @@ from tide import compile_project
 from tide.api import TideApiClientError
 from tide.api.contracts import TideEntityCapabilities, TideSessionInfo
 from tide.data import FilterCondition, QuerySpec, SortField
+from tide.qt import presenter as presenter_module
 from tide.qt import (
     QtBrowseController,
     QtBrowseQuery,
@@ -1381,3 +1383,76 @@ def _invoice_lines_session(model: Any) -> TideSessionInfo:
             }
         }
     )
+
+
+def test_a_draft_never_decides_which_fields_a_qt_form_locks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`immutable_when` is answered from the stored record, in Qt as elsewhere.
+
+    Qt's `_edit_form` takes a parameter named `values`, which reads like a
+    draft and is not one: every caller supplies it from a server response --
+    `get_record` when opening, the write result after saving. The service and
+    the terminal evaluate against the record too, so all three agree.
+
+    Asserting on the *outcome* would prove nothing here, because no condition
+    in this application reads a field a draft is allowed to carry, so both
+    bases give the same answer. What the basis is, is the thing to assert, so
+    this watches which mapping the shared predicate is handed: the draft sends
+    a currency the stored record does not have, and the predicate must still
+    see the stored one.
+    """
+
+    model = compile_project(INVOICING)
+    controller = QtBrowseController(
+        model,
+        _InvoiceLinesClient(),
+        _invoice_lines_session(model),
+        page_size=2,
+    )
+    form = controller.edit_form(1)
+    stored_currency = form.original["currency"]
+    assert stored_currency != "USD"
+
+    seen: list[Mapping[str, Any]] = []
+    original = presenter_module._field_is_immutable
+
+    def watching(field: Any, values: Mapping[str, Any]) -> bool:
+        seen.append(values)
+        return original(field, values)
+
+    monkeypatch.setattr(presenter_module, "_field_is_immutable", watching)
+    controller.review_edit_conflict(
+        form,
+        {
+            "invoice_date": date(2026, 7, 2),
+            "currency": "USD",
+            "customer": 1,
+            "lines": deepcopy(list(form.collections[0].records)),
+        },
+    )
+
+    assert seen, "the conflict review must rebuild the form from the server"
+    bases = {values.get("currency") for values in seen if "currency" in values}
+    assert bases == {stored_currency}
+
+
+def test_a_qt_draft_cannot_carry_the_field_an_immutable_condition_reads() -> None:
+    """The second reason the basis cannot diverge, independent of the first.
+
+    `sales.Invoice` locks on `status != 'draft'`, and `status` is system-owned,
+    so it is not among the form's editable fields -- and a draft naming a field
+    the form does not offer is refused outright rather than merged.
+    """
+
+    model = compile_project(INVOICING)
+    controller = QtBrowseController(
+        model,
+        _InvoiceLinesClient(),
+        _invoice_lines_session(model),
+        page_size=2,
+    )
+    form = controller.edit_form(1)
+
+    with pytest.raises(ValueError, match="non-writable"):
+        controller.review_edit_conflict(form, {"status": "posted"})
