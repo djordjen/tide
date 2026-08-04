@@ -11,6 +11,7 @@ import { afterEach, expect, it, vi } from "vitest"
 
 import App from "@/App"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { connectWithToken } from "@/test/connect"
 
 afterEach(() => {
   cleanup()
@@ -101,13 +102,7 @@ it("creates and updates a flat metadata form through the secured API", async () 
 
   const user = userEvent.setup()
   renderApp()
-  await user.type(
-    await screen.findByLabelText("Application token"),
-    "a-development-token-that-is-long-enough",
-  )
-  await user.click(
-    screen.getByRole("button", { name: "Connect securely" }),
-  )
+  await connectWithToken(user)
 
   await user.click(await screen.findByRole("button", { name: "New" }))
   expect(
@@ -248,13 +243,7 @@ it("reviews a stale draft and rebases explicit choices onto the fresh ETag", asy
 
   const user = userEvent.setup()
   renderApp()
-  await user.type(
-    await screen.findByLabelText("Application token"),
-    "a-development-token-that-is-long-enough",
-  )
-  await user.click(
-    screen.getByRole("button", { name: "Connect securely" }),
-  )
+  await connectWithToken(user)
   await user.dblClick(await screen.findByRole("row", { name: /P00001/ }))
 
   const name = await screen.findByLabelText(/^Name/)

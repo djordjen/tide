@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from "vitest"
 
 import App from "@/App"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { connectWithToken } from "@/test/connect"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -67,13 +68,7 @@ it("opens a shared-layout detail and navigates without replacing the shell", asy
 
   const user = userEvent.setup()
   renderApp()
-  await user.type(
-    await screen.findByLabelText("Application token"),
-    "a-development-token-that-is-long-enough",
-  )
-  await user.click(
-    screen.getByRole("button", { name: "Connect securely" }),
-  )
+  await connectWithToken(user)
 
   const firstRow = await screen.findByRole("row", {
     name: /INV-2026-0001/,

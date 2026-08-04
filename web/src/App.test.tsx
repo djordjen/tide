@@ -6,6 +6,7 @@ import { afterEach, expect, it, vi } from "vitest"
 import App from "@/App"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { TideApi } from "@/lib/api"
+import { connectWithToken, TOKEN } from "@/test/connect"
 
 afterEach(() => {
   cleanup()
@@ -48,13 +49,7 @@ it("connects through the safe manifest and renders capability navigation", async
 
   const user = userEvent.setup()
   renderApp()
-  await user.type(
-    await screen.findByLabelText("Application token"),
-    "a-development-token-that-is-long-enough",
-  )
-  await user.click(
-    screen.getByRole("button", { name: "Connect securely" }),
-  )
+  await connectWithToken(user)
 
   expect(
     await screen.findByRole("heading", { name: "Invoices" }),
@@ -69,7 +64,7 @@ it("connects through the safe manifest and renders capability navigation", async
     requests.every(
       (request) =>
         request.authorization ===
-        "Bearer a-development-token-that-is-long-enough",
+        `Bearer ${TOKEN}`,
     ),
   ).toBe(true)
   expect(

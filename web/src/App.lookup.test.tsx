@@ -11,6 +11,7 @@ import { afterEach, expect, it, vi } from "vitest"
 
 import App from "@/App"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { connectWithToken } from "@/test/connect"
 
 afterEach(() => {
   cleanup()
@@ -129,13 +130,7 @@ it("searches a metadata lookup and creates a related record with Save & Select",
 
   const user = userEvent.setup()
   renderApp()
-  await user.type(
-    await screen.findByLabelText("Application token"),
-    "a-development-token-that-is-long-enough",
-  )
-  await user.click(
-    screen.getByRole("button", { name: "Connect securely" }),
-  )
+  await connectWithToken(user)
   await user.dblClick(
     await screen.findByRole("row", { name: /INV-2026-0001/ }),
   )
@@ -342,13 +337,7 @@ it("saves Invoice line drafts and Product Save & Select as one parent update", a
 
   const user = userEvent.setup()
   renderApp()
-  await user.type(
-    await screen.findByLabelText("Application token"),
-    "a-development-token-that-is-long-enough",
-  )
-  await user.click(
-    screen.getByRole("button", { name: "Connect securely" }),
-  )
+  await connectWithToken(user)
   await user.dblClick(
     await screen.findByRole("row", { name: /INV-2026-0001/ }),
   )
@@ -544,13 +533,7 @@ it("saves a dirty Invoice before posting it through the domain action", async ()
 
   const user = userEvent.setup()
   renderApp()
-  await user.type(
-    await screen.findByLabelText("Application token"),
-    "a-development-token-that-is-long-enough",
-  )
-  await user.click(
-    screen.getByRole("button", { name: "Connect securely" }),
-  )
+  await connectWithToken(user)
   await user.dblClick(
     await screen.findByRole("row", { name: /INV-2026-0001/ }),
   )
@@ -708,13 +691,7 @@ it("previews secured record and summary reports and downloads controlled exports
 
   const user = userEvent.setup()
   renderApp()
-  await user.type(
-    await screen.findByLabelText("Application token"),
-    "a-development-token-that-is-long-enough",
-  )
-  await user.click(
-    screen.getByRole("button", { name: "Connect securely" }),
-  )
+  await connectWithToken(user)
 
   await user.click(
     await screen.findByRole("button", {
@@ -742,9 +719,14 @@ it("previews secured record and summary reports and downloads controlled exports
   await user.dblClick(
     await screen.findByRole("row", { name: /INV-2026-0001/ }),
   )
-  await user.click(
-    await screen.findByRole("button", { name: "Preview Invoice" }),
-  )
+  // The button renders disabled while the record is still loading, and a
+  // click on a disabled button is a silent no-op -- so waiting for it to
+  // exist is not enough to know the click will do anything.
+  const preview = await screen.findByRole("button", {
+    name: "Preview Invoice",
+  })
+  await waitFor(() => expect(preview).toBeEnabled())
+  await user.click(preview)
   const invoiceDialog = await screen.findByRole("dialog", {
     name: "Invoice",
   })
