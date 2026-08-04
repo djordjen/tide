@@ -50,6 +50,7 @@ from tide.api.config import (
     DEFAULT_REQUEST_BODY_TIMEOUT_SECONDS,
 )
 from tide.api.inputs import build_writable_models, field_is_writable
+from tide.api.local_auth import LocalAuthenticationBusy
 from tide.api.openapi import (
     DEFAULT_BASE_PATH,
     REST_OPERATIONS,
@@ -622,7 +623,7 @@ def build_fastapi_app(
             tags=["TIDE"],
             summary="Sign in with a local username and password",
             response_model=TideBrowserSessionInfo,
-            responses=_documented_errors(401),
+            responses=_documented_errors(401, 503),
         )
         def browser_password_login(
             request: Request,
@@ -635,6 +636,17 @@ def build_fastapi_app(
                     username=credentials.username,
                     password=credentials.password,
                 )
+            except LocalAuthenticationBusy as error:
+                # Capacity, not credentials. Telling a legitimate user their
+                # password is wrong would send them to reset it.
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "code": "login_capacity_exhausted",
+                        "message": "too many sign-in attempts in progress",
+                    },
+                    headers={"Retry-After": "1"},
+                ) from error
             except ValueError as error:
                 raise _unauthorized() from error
             response = JSONResponse(

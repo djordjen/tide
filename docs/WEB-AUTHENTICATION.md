@@ -71,6 +71,28 @@ Non-loopback local-password serving requires direct TLS with the existing
 `--ssl-certfile` and `--ssl-keyfile` options. Reverse-proxy trust remains a
 separate deployment feature.
 
+### The cost of a refused sign-in
+
+Verifying a password is deliberately expensive — 600,000 PBKDF2-HMAC-SHA-256
+iterations — so a sign-in route is a CPU amplifier unless the server refuses
+before paying. Two bounds keep that from being usable:
+
+- **A throttled username is refused before hashing.** Once an identity has
+  reached `max_failures` within the window, further attempts cost a dictionary
+  lookup. The refusal was already decided; buying it a third of a second of CPU
+  only helps the attacker. This does reveal that a username is currently
+  throttled, which is something whoever caused the throttling already knows.
+- **Concurrent verifications are capped** (`max_concurrent_verifications`,
+  8 by default). Per-username throttling cannot see an attacker who never
+  repeats a name, so the cost of verifying needs a bound that does not depend
+  on identity. Exceeding it answers `503` with `Retry-After`, not `401` — a
+  legitimate user should retry, not go and reset a password that is correct.
+
+An un-throttled attempt for an unknown username still hashes a dummy value, so
+a present identity cannot be told from an absent one by how long the answer
+takes. That equalisation is why the first bound is conditional on throttling
+rather than on whether the user exists.
+
 ## Optional browser OIDC flow
 
 The optional browser flow uses Authorization Code with PKCE (`S256`):

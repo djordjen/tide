@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 import secrets
 import sqlite3
-from threading import RLock
+from threading import BoundedSemaphore, RLock
 import time
 from typing import Callable, Iterator
 
@@ -31,6 +31,15 @@ _USERNAME = re.compile(r"[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?")
 
 class LocalAuthenticationError(ValueError):
     """A local identity operation could not be completed safely."""
+
+
+class LocalAuthenticationBusy(LocalAuthenticationError):
+    """Too many sign-ins are already being verified.
+
+    A subclass so anything catching the generic error keeps refusing, but a
+    distinct type so the route can answer "try again" rather than telling a
+    legitimate user their password is wrong.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -315,6 +324,7 @@ class LocalPasswordAuth:
         max_failures: int = 5,
         max_failure_subjects: int = 4096,
         failure_window_seconds: int = 60,
+        max_concurrent_verifications: int = 8,
         clock: Callable[[], float] = time.time,
     ) -> None:
         for label, value in (
@@ -323,6 +333,7 @@ class LocalPasswordAuth:
             ("maximum failures", max_failures),
             ("maximum failure subjects", max_failure_subjects),
             ("failure window", failure_window_seconds),
+            ("concurrent verifications", max_concurrent_verifications),
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise ValueError(f"local authentication {label} must be positive")
@@ -335,6 +346,8 @@ class LocalPasswordAuth:
         self.max_failures = max_failures
         self.max_failure_subjects = max_failure_subjects
         self.failure_window_seconds = failure_window_seconds
+        self.max_concurrent_verifications = max_concurrent_verifications
+        self._verifications = BoundedSemaphore(max_concurrent_verifications)
         self.session_cookie_name = (
             "__Host-tide_session" if secure_cookie else "tide_session"
         )
@@ -346,6 +359,23 @@ class LocalPasswordAuth:
             secrets.token_urlsafe(24),
             iterations=store.password_iterations,
         )
+
+    @contextmanager
+    def verification_slot(self) -> Iterator[None]:
+        """Hold one of the bounded password-verification slots.
+
+        Per-username throttling cannot see an attacker who never repeats a
+        name, so the cost of verifying needs a bound of its own. These handlers
+        run in the server's shared threadpool: without a cap, a few dozen
+        concurrent attempts starve every other request the application serves.
+        """
+
+        if not self._verifications.acquire(blocking=False):
+            raise LocalAuthenticationBusy("too many sign-in attempts in progress")
+        try:
+            yield
+        finally:
+            self._verifications.release()
 
     def login(self, *, username: str, password: str) -> LocalLoginResult:
         now = self._clock()
@@ -360,17 +390,29 @@ class LocalPasswordAuth:
             failures = self._failure_bucket_locked(normalized_username, now=now)
             throttled = len(failures) >= self.max_failures
 
-        user = self.store.get_user(normalized_username)
-        password_hash = user.password_hash if user is not None else self._dummy_hash
-        password_matches = verify_password(password, password_hash)
+        if throttled:
+            # The refusal is already decided. Hashing anyway would let an
+            # attacker convert one cheap request into a third of a second of
+            # server CPU, which is the amplification throttling exists to stop.
+            # It reveals that this username is currently throttled -- something
+            # whoever caused the throttling already knows.
+            raise LocalAuthenticationError("username or password is incorrect")
+
+        with self.verification_slot():
+            user = self.store.get_user(normalized_username)
+            # An un-throttled miss still pays, so a present username cannot be
+            # told from an absent one by how long the answer takes.
+            password_hash = (
+                user.password_hash if user is not None else self._dummy_hash
+            )
+            password_matches = verify_password(password, password_hash)
         roles = (
             user.roles.intersection(self.allowed_roles)
             if user is not None
             else frozenset()
         )
         if (
-            throttled
-            or not username_valid
+            not username_valid
             or user is None
             or not user.enabled
             or not password_matches
