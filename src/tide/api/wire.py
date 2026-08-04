@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Mapping
 
+from tide.runtime.errors import QueryFieldError
 from tide.api.contracts import TideAuditEvent, TideAuditFieldChange
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 from tide.security import PROTECTED
@@ -112,7 +113,7 @@ def decode_filter_value(
     value: Any,
 ) -> Any:
     if field_name not in entity.fields:
-        raise ValueError(f"unknown query field {field_name!r}")
+        raise QueryFieldError(f"unknown query field {field_name!r}")
     return decode_wire_value(model, entity.field(field_name), value)
 
 

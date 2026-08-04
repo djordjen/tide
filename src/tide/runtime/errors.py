@@ -69,6 +69,17 @@ class ActionStoreError(TideRuntimeError):
     code = "action_store_error"
 
 
+class QueryFieldError(ValueError):
+    """A structured query named a field that cannot be used.
+
+    A `ValueError` so the callers that already catch one keep working, and a
+    type of its own so the transport can tell a message TIDE composed from one
+    a library raised. The difference is between telling a client "unknown query
+    field 'nope'", which is true, safe and actionable, and handing it
+    "[<class 'decimal.ConversionSyntax'>]", which is none of those.
+    """
+
+
 class InvalidQueryCursor(TideRuntimeError):
     code = "invalid_query_cursor"
 

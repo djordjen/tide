@@ -18,6 +18,17 @@ QUALIFIED_IDENTIFIER = re.compile(
 )
 SIMPLE_IDENTIFIER = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 APPLICATION_ID = re.compile(r"^[a-z][a-z0-9-]{1,62}$")
+RESERVED_DEVICE_NAMES = frozenset(
+    {"con", "prn", "aux", "nul", "clock$"}
+    | {f"com{digit}" for digit in "123456789"}
+    | {f"lpt{digit}" for digit in "123456789"}
+)
+"""Names Windows resolves to a device rather than a file, at any extension.
+
+An application identifier becomes a directory name, so `con` fails at
+`os.rename` when the plan is applied rather than when it is validated. Failing
+closed either way, but the diagnosis arrives from the wrong layer.
+"""
 
 
 class GenerationModel(BaseModel):
@@ -128,6 +139,11 @@ class CreateApplicationOperation(GenerationModel):
         if not APPLICATION_ID.fullmatch(self.application_id):
             raise ValueError(
                 "application_id must be lowercase kebab-case and 2-63 characters"
+            )
+        if self.application_id.split(".", 1)[0] in RESERVED_DEVICE_NAMES:
+            raise ValueError(
+                f"application_id {self.application_id!r} is a reserved Windows "
+                "device name and cannot be a directory"
             )
         return self
 

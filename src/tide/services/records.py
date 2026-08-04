@@ -34,6 +34,7 @@ from tide.runtime.errors import (
     ValidationFailed,
     ValidationIssue,
     VersionPreconditionRequired,
+    QueryFieldError,
 )
 from tide.security.engine import PROTECTED, SecurityEngine
 from tide.services.cursors import (
@@ -414,7 +415,7 @@ class RecordsService:
             sort.field for sort in query.sort
         ]:
             if field_name not in entity.fields:
-                raise ValueError(f"unknown query field {field_name!r}")
+                raise QueryFieldError(f"unknown query field {field_name!r}")
             if not self.security.can_read_field(entity_name, field_name, context):
                 raise AuthorizationError(f"field {field_name!r} cannot be used for filtering or sorting")
             field = entity.fields[field_name]

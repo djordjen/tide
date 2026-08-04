@@ -65,13 +65,42 @@ disabled, left with no permitted role, or given a different password loses its
 sessions; a role merely added or removed reaches the principal without signing
 the user out of work in progress.
 
-That makes `tide auth set-password` the operator's sign-out-everywhere: the
-store is a file both the CLI and the server read, so changing a password ends
-that user's sessions at the next check without touching the running process.
-`LocalPasswordAuth.revoke_user` and `revoke_all` end them immediately, but
+A session records a digest of the password hash it was issued against — never
+the hash, and never compared with anything a caller sends. That makes `tide
+auth set-password` the operator's sign-out-everywhere: the store is a file both
+the CLI and the server read, so changing a password ends that user's sessions
+at the next check without touching the running process.
+
+A successful sign-in also re-hashes the password when the stored work factor is
+below the configured one, which is the only moment the plaintext is both in
+hand and known good. That moves the hash without the password changing, so the
+sign-in re-stamps that user's live sessions rather than signing them out for an
+upgrade nobody asked for. The stored format carries its own iteration count, so
+an old hash keeps verifying until it is replaced.
+
+`LocalPasswordAuth.revoke_user` and `revoke_all` end sessions immediately, but
 sessions live in the serving process's memory, so those are for embedded hosts
 and a future authenticated admin route — not something a separate CLI process
 can reach.
+
+When a browser adapter is configured, every response carries a same-origin
+content policy — `default-src`, `script-src`, `connect-src`, `img-src` and
+`font-src` all `'self'`, `object-src 'none'`, `form-action 'self'`,
+`frame-ancestors 'none'`, `base-uri 'self'`. `style-src` additionally permits
+inline styles, because React writes element `style` attributes; the stylesheet
+itself is same-origin. `Strict-Transport-Security` is sent only when the
+request arrived over HTTPS: asserting it on a plain-HTTP loopback response
+would at best be ignored and at worst pin a developer's machine to a scheme it
+is not serving.
+
+The identity store is restricted to its owning account when it is created —
+`chmod 0600` where that means something, and `icacls` with inheritance dropped
+on Windows, which is the documented primary platform and where `chmod` moves
+only the read-only flag. Both are best effort: a failure leaves the file less
+protected than intended rather than refusing to start, because turning a
+hardening step into an outage helps nobody. SQLite writes journal side-files
+beside the store and those inherit the *directory*, so restrict the directory
+too if the store holds accounts you care about.
 
 The session identifier and CSRF token do not rotate during a session. A fresh
 pair is minted at every sign-in, which is where session fixation is prevented;

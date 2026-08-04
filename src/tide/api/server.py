@@ -89,6 +89,7 @@ from tide.runtime import (
     InvalidQueryCursor,
     NotFoundError,
     Principal,
+    QueryFieldError,
     RequestContext,
     TideRuntimeError,
     ValidationFailed,
@@ -392,8 +393,26 @@ def build_fastapi_app(
                 response.headers["Referrer-Policy"] = "no-referrer"
                 response.headers["X-Frame-Options"] = "DENY"
                 response.headers["Content-Security-Policy"] = (
-                    "frame-ancestors 'none'; base-uri 'self'"
+                    "default-src 'self'; "
+                    "script-src 'self'; "
+                    # React writes element style attributes, which style-src
+                    # governs; the built stylesheet itself is same-origin.
+                    "style-src 'self' 'unsafe-inline'; "
+                    "img-src 'self' data:; "
+                    "font-src 'self'; "
+                    "connect-src 'self'; "
+                    "object-src 'none'; "
+                    "form-action 'self'; "
+                    "frame-ancestors 'none'; "
+                    "base-uri 'self'"
                 )
+                if request.url.scheme == "https":
+                    # Only over TLS. Sent on a plain-HTTP loopback response it
+                    # is ignored by browsers at best, and at worst pins a
+                    # developer's machine to a scheme it is not serving.
+                    response.headers["Strict-Transport-Security"] = (
+                        "max-age=31536000; includeSubDomains"
+                    )
             response.headers[CORRELATION_HEADER] = correlation_id
             log_runtime_event(
                 runtime_logger,
@@ -1489,7 +1508,10 @@ def _list_endpoint(
                 context,
             )
         except ValueError as error:
-            raise _bad_request(str(error)) from error
+            # The message is the service's, not the caller's: it can name
+            # internal limits and fields. The correlation identifier is how
+            # an operator finds the detail this deliberately withholds.
+            raise _bad_request("list query parameters are invalid") from error
         return page_model.model_validate(
             {
                 "records": [
@@ -1542,8 +1564,12 @@ def _query_endpoint(
                 ),
                 context,
             )
+        except QueryFieldError as error:
+            # Composed here, so it is safe to repeat: it names a field the
+            # caller sent, not an internal limit or a library's exception type.
+            raise _bad_request(str(error)) from error
         except (KeyError, TypeError, ValueError, InvalidOperation) as error:
-            raise _bad_request(str(error) or "structured query is invalid") from error
+            raise _bad_request("structured query is invalid") from error
         return page_model.model_validate(
             {
                 "records": [

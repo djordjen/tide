@@ -5,14 +5,15 @@ from __future__ import annotations
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from collections import OrderedDict, deque
 from collections.abc import Iterable
-from contextlib import contextmanager
-from dataclasses import dataclass
+from contextlib import contextmanager, suppress
+from dataclasses import dataclass, replace
 from hashlib import pbkdf2_hmac, sha256
 import os
 from pathlib import Path
 import re
 import secrets
 import sqlite3
+import subprocess
 from threading import BoundedSemaphore, RLock
 import time
 from typing import Callable, Iterator
@@ -66,9 +67,16 @@ class _LocalSession:
     credential_stamp: str
     """Digest of the password hash this session was issued against.
 
-    Not the hash itself, and never compared against anything a caller sends:
-    it exists only so a changed password can be recognised as a different
-    credential, which is what makes resetting one end the sessions it opened.
+    Not the hash, and never compared with anything a caller sends: it exists so
+    that changing a password is recognisable as a different credential, which
+    is what ends the sessions opened under the old one.
+
+    The stored `password_changed_at` would read more naturally and is not used,
+    because the store keeps it to the second -- creating a user and resetting
+    their password within the same second are indistinguishable in it, which is
+    ordinary in a test and plausible in an emergency. The digest cannot miss.
+    Upgrading the work factor also moves the hash, so `login` re-stamps the
+    sessions it did that to rather than signing anyone out for it.
     """
 
     revalidate_at: float
@@ -139,8 +147,7 @@ class LocalUserStore:
             self._bind_metadata(connection, "schema_version", _SCHEMA_VERSION)
             self._bind_metadata(connection, "application", self.application)
             connection.execute("PRAGMA optimize")
-        if os.name != "nt":
-            os.chmod(self.path, 0o600)
+        _restrict_to_owner(self.path)
 
     def validate(self) -> None:
         if not self.path.is_file():
@@ -240,6 +247,26 @@ class LocalUserStore:
         if cursor.rowcount != 1:
             raise LocalAuthenticationError(
                 f"local user {normalized_username!r} does not exist"
+            )
+
+    def upgrade_password_hash(self, username: str, password_hash: str) -> None:
+        """Replace a stored hash with a stronger one for the same password.
+
+        Deliberately leaves `password_changed_at` alone: the password did not
+        change, only the cost of checking it, and moving that timestamp would
+        sign the user out of every other session for an upgrade they did not
+        ask for.
+        """
+
+        self.validate()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE tide_local_users
+                SET password_hash = ?
+                WHERE username = ?
+                """,
+                (password_hash, normalize_username(username)),
             )
 
     def get_user(self, username: str) -> LocalUser | None:
@@ -440,6 +467,18 @@ class LocalPasswordAuth:
                     failures.append(now)
             raise LocalAuthenticationError("username or password is incorrect")
 
+        # The one moment the plaintext is in hand and already known good, so
+        # it is the only chance to re-hash at the current cost without asking
+        # anyone to change their password. The stored format carries its own
+        # iteration count, so an old hash keeps verifying until it is replaced.
+        stored_hash = user.password_hash
+        if _hash_iterations(stored_hash) < self.store.password_iterations:
+            stored_hash = hash_password(
+                password, iterations=self.store.password_iterations
+            )
+            self.store.upgrade_password_hash(user.username, stored_hash)
+            self._restamp_sessions(user.username, _credential_stamp(stored_hash))
+
         principal = Principal(
             f"local:{user.username}",
             roles=frozenset(roles),
@@ -454,7 +493,7 @@ class LocalPasswordAuth:
                 csrf_token=csrf_token,
                 expires_at=now + self.session_lifetime_seconds,
                 username=user.username,
-                credential_stamp=_credential_stamp(user.password_hash),
+                credential_stamp=_credential_stamp(stored_hash),
                 revalidate_at=now + self.revalidate_interval_seconds,
             )
             while len(self._sessions) > self.max_sessions:
@@ -525,6 +564,21 @@ class LocalPasswordAuth:
             credential_stamp=session.credential_stamp,
             revalidate_at=now + self.revalidate_interval_seconds,
         )
+
+    def _restamp_sessions(self, username: str, stamp: str) -> None:
+        """Carry this user's live sessions onto a re-hashed credential.
+
+        The hash moved because the work factor did, not because the password
+        did, so the sessions issued against the old one stay valid.
+        """
+
+        with self._lock:
+            for session_id, session in list(self._sessions.items()):
+                if session.username != username:
+                    continue
+                self._sessions[session_id] = replace(
+                    session, credential_stamp=stamp
+                )
 
     def revoke_user(self, username: str) -> int:
         """End every session held by one account, now rather than on interval.
@@ -606,12 +660,6 @@ def normalize_username(username: str) -> str:
     return normalized
 
 
-def _credential_stamp(password_hash: str) -> str:
-    """Digest a stored password hash so a change to it is recognisable."""
-
-    return sha256(password_hash.encode("utf-8")).hexdigest()
-
-
 def hash_password(
     password: str,
     *,
@@ -640,6 +688,26 @@ def validate_password(password: str) -> None:
     """Validate the bounded local password policy without retaining a value."""
 
     _password_bytes(password)
+
+
+def _credential_stamp(password_hash: str) -> str:
+    """Digest a stored hash, so a change to it is recognisable without keeping it."""
+
+    return sha256(password_hash.encode("utf-8")).hexdigest()
+
+
+def _hash_iterations(encoded_hash: str) -> int:
+    """Report the work factor a stored hash was produced with.
+
+    An unreadable hash reports the maximum, so it is never mistaken for one
+    that wants strengthening -- `verify_password` will refuse it anyway.
+    """
+
+    try:
+        _algorithm, raw_iterations, _salt, _digest = encoded_hash.split("$")
+        return int(raw_iterations)
+    except (TypeError, ValueError):
+        return _MAX_PASSWORD_ITERATIONS
 
 
 def verify_password(password: str, encoded_hash: str) -> bool:
@@ -693,6 +761,45 @@ def _encode(value: bytes) -> str:
 def _decode(value: str) -> bytes:
     padding = "=" * (-len(value) % 4)
     return urlsafe_b64decode(value + padding)
+
+
+def _restrict_to_owner(path: Path) -> None:
+    """Keep the identity store readable only by the account that owns it.
+
+    `chmod` is meaningless on Windows -- it moves the read-only flag and
+    nothing else -- and Windows is this project's documented primary platform,
+    so leaving it at "POSIX only" left the store world-readable exactly where
+    it is most used. `icacls` is the tool that does apply there: inheritance is
+    dropped so the parent directory's permissions cannot grant anyone else in,
+    and the owning account is granted full control.
+
+    Best effort by design. A failure here means the file is less protected than
+    intended, not that it is unusable, and refusing to start would turn a
+    hardening step into an outage on machines with unusual account setups.
+    Operators who need certainty should confirm the ACL; see the operational
+    notes. SQLite writes journal side-files next to this one and those inherit
+    the *directory*, which is why the directory is worth restricting too.
+    """
+
+    if os.name != "nt":
+        os.chmod(path, 0o600)
+        return
+    account = os.environ.get("USERNAME")
+    if not account:
+        return
+    with suppress(OSError, subprocess.SubprocessError):
+        subprocess.run(
+            [
+                "icacls",
+                str(path),
+                "/inheritance:r",
+                "/grant:r",
+                f"{account}:F",
+            ],
+            check=False,
+            capture_output=True,
+            timeout=15,
+        )
 
 
 def _utc_timestamp() -> str:
