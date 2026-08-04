@@ -9,6 +9,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from textual_support import wait_until
 from tide import compile_project
 from tide.api.client import TideApiClient, TideApiClientError
 from tide.api.remote import (
@@ -46,19 +47,8 @@ BASE_URL = "http://127.0.0.1"
 async def _wait_until(
     pilot: Pilot[object],
     condition: Callable[[], bool],
-    *,
-    attempts: int = 50,
 ) -> None:
-    """Drain remote Textual work until a stable observable state is ready."""
-
-    for _ in range(attempts):
-        await pilot.pause()
-        if condition():
-            await pilot.pause()
-            if condition():
-                return
-        await pilot.pause(0.01)
-    assert condition(), "remote Textual UI did not reach the expected state"
+    await wait_until(pilot, condition, description="the expected remote state")
 
 
 def test_remote_audit_history_uses_server_capabilities_and_safe_contract() -> None:

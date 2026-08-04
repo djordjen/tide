@@ -11,6 +11,7 @@ from textual.containers import Horizontal
 from textual.pilot import Pilot
 from textual.widgets import Button, DataTable, Input, Select, Static, TextArea, Tree
 
+from textual_support import wait_until
 from tide.cli import main
 from tide.development import DesignerDocumentReference, StudioError, StudioService
 from tide.tui import StudioApp
@@ -1729,18 +1730,8 @@ async def _select_view(
 async def _wait_until(
     pilot: Pilot[object],
     condition: Callable[[], bool],
-    *,
-    attempts: int = 50,
 ) -> None:
-    """Drain Textual messages until an observable Studio state is reached."""
-    for _ in range(attempts):
-        await pilot.pause()
-        if condition():
-            await pilot.pause()
-            if condition():
-                return
-        await pilot.pause(0.01)
-    assert condition(), "Textual Studio did not reach the expected state"
+    await wait_until(pilot, condition, description="the expected Studio state")
 
 
 def _property_key(app: StudioApp, path: tuple[str | int, ...]) -> str:

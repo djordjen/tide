@@ -13,6 +13,7 @@ from sqlalchemy import create_engine, inspect
 from textual.pilot import Pilot
 from textual.widgets import Button, DataTable, Input, Select, Static, TabbedContent
 
+from textual_support import wait_until
 from tide import compile_project
 from tide.cli import main
 from tide.data import (
@@ -42,18 +43,8 @@ INVOICING = ROOT / "applications" / "invoicing"
 async def _wait_until(
     pilot: Pilot[object],
     condition: Callable[[], bool],
-    *,
-    attempts: int = 50,
 ) -> None:
-    """Drain Textual messages until an observable UI state is reached."""
-    for _ in range(attempts):
-        await pilot.pause()
-        if condition():
-            await pilot.pause()
-            if condition():
-                return
-        await pilot.pause(0.01)
-    assert condition(), "Textual did not reach the expected state"
+    await wait_until(pilot, condition, description="the expected state")
 
 
 def _delete_confirmation_ready(app: TideApp) -> bool:
