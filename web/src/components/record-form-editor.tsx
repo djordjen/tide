@@ -500,6 +500,14 @@ function ReferenceLookupDialog({
       api.searchLookup(lookup, debouncedSearch, signal),
     enabled: !creating,
     staleTime: 10_000,
+    // The search term is part of the key, so without this the table empties
+    // every time the debounce fires and fills again when the results land.
+    // That flickers, and it quietly drops a choice: `selected` is looked up in
+    // the rows currently held, so a row picked from the list as it stood --
+    // which is the only list the person could see -- stops being selectable
+    // the moment the narrower results arrive, and the Select button goes dead
+    // under the pointer.
+    placeholderData: (previous) => previous,
   })
   const records = query.data ?? []
   const selected = records.find(

@@ -763,6 +763,132 @@ it("previews secured record and summary reports and downloads controlled exports
   ])
 })
 
+it("keeps a chosen lookup row selectable while the search catches up", async () => {
+  // The search term is part of the lookup query key, so the rows reload when
+  // the debounce fires. A row chosen from the list as it stood -- the only
+  // list the person could see -- has to survive that. Otherwise `selected` is
+  // looked up in rows that no longer exist and the Select button goes dead
+  // under the pointer, for a reason nothing on screen explains.
+  //
+  // The reload is held open rather than raced. Hoping to land inside that
+  // window is what made the neighbouring test fail about one run in twenty.
+  let releaseSearch = () => {}
+  let searchStarted = false
+  const searchHeld = new Promise<void>((resolve) => {
+    releaseSearch = resolve
+  })
+  const storedInvoice = invoice(1)
+
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: false,
+          mode: null,
+          login_path: null,
+          session_path: null,
+          logout_path: null,
+        })
+      }
+      if (url.endsWith("/_tide/session")) {
+        return jsonResponse(session)
+      }
+      if (url.endsWith("/_tide/presentation")) {
+        return jsonResponse(presentation)
+      }
+      if (url.endsWith("/invoices/_query")) {
+        return jsonResponse({
+          records: [
+            {
+              id: 1,
+              number: storedInvoice.number,
+              customer: storedInvoice.customer,
+              status: storedInvoice.status,
+              total: storedInvoice.total,
+            },
+          ],
+          next_cursor: null,
+        })
+      }
+      if (url.endsWith("/invoices/1") && init?.method === "GET") {
+        return jsonResponse(storedInvoice, { headers: { ETag: '"4"' } })
+      }
+      if (url.endsWith("/customers/_query")) {
+        const body = JSON.parse(String(init?.body)) as {
+          filters: Array<{ field: string; value: string }>
+        }
+        if (body.filters.length > 0) {
+          searchStarted = true
+          await searchHeld
+          return jsonResponse({
+            records: [customer(2, "NORTH", "Northwind Trade", "sales@north.test")],
+            next_cursor: null,
+          })
+        }
+        return jsonResponse({
+          records: [
+            customer(1, "ADRIA", "Adria Consulting", "hello@adria.test"),
+            customer(2, "NORTH", "Northwind Trade", "sales@north.test"),
+          ],
+          next_cursor: null,
+        })
+      }
+      const customerMatch = /\/customers\/(\d+)$/.exec(url)
+      if (customerMatch && init?.method === "GET") {
+        return jsonResponse(
+          customerMatch[1] === "2"
+            ? customer(2, "NORTH", "Northwind Trade", "sales@north.test")
+            : customer(1, "ADRIA", "Adria Consulting", "hello@adria.test"),
+        )
+      }
+      const productMatch = /\/products\/(\d+)$/.exec(url)
+      if (productMatch && init?.method === "GET") {
+        return jsonResponse(
+          product(Number(productMatch[1]), "DEMO", "Demo product", "100.00"),
+        )
+      }
+      throw new Error(`Unexpected URL ${url}`)
+    }),
+  )
+
+  const user = userEvent.setup()
+  renderApp()
+  await connectWithToken(user)
+  await user.dblClick(
+    await screen.findByRole("row", { name: /INV-2026-0001/ }),
+  )
+  await user.click(screen.getByRole("button", { name: "Select Customer" }))
+  const dialog = await screen.findByRole("dialog", { name: "Select Customer" })
+
+  await within(dialog).findByRole("row", { name: /NORTH.*Northwind Trade/ })
+  await user.type(
+    within(dialog).getByLabelText("Search lookup records"),
+    "north",
+  )
+  // The debounce has fired and the narrowed search is in flight, held open.
+  // This is the window, entered deliberately rather than raced for.
+  await waitFor(() => expect(searchStarted).toBe(true))
+
+  // The list the person is looking at must still be there. Without carrying
+  // the previous rows the table empties here, and a row chosen in this window
+  // -- the only rows they can see -- stops resolving, which disables Select
+  // under the pointer.
+  const chosen = within(dialog).getByRole("row", {
+    name: /NORTH.*Northwind Trade/,
+  })
+  await user.click(chosen)
+  expect(within(dialog).getByRole("button", { name: "Select" })).toBeEnabled()
+
+  releaseSearch()
+  expect(
+    await within(dialog).findByRole("row", {
+      name: /NORTH.*Northwind Trade/,
+    }),
+  ).toBeInTheDocument()
+})
+
 function renderApp() {
   const client = new QueryClient({
     defaultOptions: {
