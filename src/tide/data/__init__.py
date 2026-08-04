@@ -22,6 +22,7 @@ from tide.data.repository import (
     RelationshipLoadPlan,
     Repository,
     SortField,
+    WriteIntegrityError,
 )
 from tide.data.revision_sql import (
     RevisionSqlArtifact,
@@ -62,6 +63,7 @@ __all__ = [
     "RelationshipLoad",
     "RelationshipLoadPlan",
     "Repository",
+    "WriteIntegrityError",
     "RevisionArtifact",
     "RevisionGenerationError",
     "RevisionSqlArtifact",

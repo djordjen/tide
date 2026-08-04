@@ -170,6 +170,20 @@ class RowPolicyMismatch(Exception):
     """A row exists, but it does not satisfy repository-supplied criteria."""
 
 
+class WriteIntegrityError(Exception):
+    """The database refused a write for an integrity constraint.
+
+    Raised instead of letting a driver-specific error escape, so the service
+    can decide what the constraint means -- a duplicate a caller can fix reads
+    very differently from a foreign key the caller cannot see. The original
+    error stays attached as the cause.
+    """
+
+    def __init__(self, entity: str) -> None:
+        super().__init__(f"{entity} write violated a database constraint")
+        self.entity = entity
+
+
 @runtime_checkable
 class Repository(Protocol):
     def check_readiness(self) -> None:
@@ -207,6 +221,15 @@ class Repository(Protocol):
     ) -> dict[str, Any]: ...
 
     def exists(self, entity: str, identity: Any) -> bool: ...
+
+    def unique_conflict(
+        self,
+        entity: str,
+        field: str,
+        value: Any,
+        *,
+        exclude_identity: Any,
+    ) -> bool: ...
 
     def peek_next_identity(self, entity: str) -> int: ...
 

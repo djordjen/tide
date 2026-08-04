@@ -51,6 +51,7 @@ from tide.data.repository import (
     QuerySpec,
     RelationshipLoadPlan,
     RowPolicyMismatch,
+    WriteIntegrityError,
     SortField,
 )
 from tide.data.sql_expressions import QueryTranslationError, translate_expression
@@ -438,6 +439,30 @@ class SQLAlchemyRepository:
         with self.engine.connect() as connection:
             return connection.execute(statement).first() is not None
 
+    def unique_conflict(
+        self,
+        entity: str,
+        field: str,
+        value: Any,
+        *,
+        exclude_identity: Any,
+    ) -> bool:
+        """Ask the index whether another row already holds ``value``.
+
+        One indexed lookup, bounded by the answer rather than by the table.
+        The result is still only true at the moment it is read -- the write
+        transaction has not opened yet -- so the unique index remains the
+        guard and this only buys the caller a field-shaped error.
+        """
+
+        table = self.table(entity)
+        primary_key = _primary_key(self.model.entity(entity))
+        statement = select(table.c[primary_key]).where(table.c[field] == value)
+        if exclude_identity is not None:
+            statement = statement.where(table.c[primary_key] != exclude_identity)
+        with self.engine.connect() as connection:
+            return connection.execute(statement.limit(1)).first() is not None
+
     def peek_next_identity(self, entity: str) -> int:
         table = self.table(entity)
         primary_key = _primary_key(self.model.entity(entity))
@@ -467,17 +492,20 @@ class SQLAlchemyRepository:
         expected_version_field = _version_field(self.model.entity(entity))
         if primary_key != expected_key or version_field != expected_version_field:
             raise ValueError("repository write metadata does not match the compiled entity")
-        with self.engine.begin() as connection:
-            return self._write_entity(
-                connection,
-                entity,
-                dict(values),
-                expected_version=expected_version,
-                is_new=is_new,
-                row_criteria=row_criteria,
-                criteria_parameters=criteria_parameters,
-                references=references,
-            )
+        try:
+            with self.engine.begin() as connection:
+                return self._write_entity(
+                    connection,
+                    entity,
+                    dict(values),
+                    expected_version=expected_version,
+                    is_new=is_new,
+                    row_criteria=row_criteria,
+                    criteria_parameters=criteria_parameters,
+                    references=references,
+                )
+        except IntegrityError as error:
+            raise WriteIntegrityError(entity) from error
 
     def delete(
         self,

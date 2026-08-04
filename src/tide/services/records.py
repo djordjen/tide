@@ -22,6 +22,7 @@ from tide.data.repository import (
     RelationshipLoadPlan,
     Repository,
     RowPolicyMismatch,
+    WriteIntegrityError,
     SortField,
 )
 from tide.runtime.context import RequestContext
@@ -599,6 +600,15 @@ class RecordsService:
                 f"{context.principal.identifier!r} may not {write_operation} this "
                 f"{entity.name} record"
             ) from error
+        except WriteIntegrityError as error:
+            # The pre-check ran on its own connection before this transaction
+            # opened, so a duplicate could have landed in between. Asking again
+            # says which field collided; a constraint this service does not
+            # model is not a validation failure and must keep its own error.
+            issues = self._unique_conflicts(entity, values, session.identity)
+            if not issues:
+                raise
+            raise ValidationFailed(issues) from error
         was_new = session.is_new
         original = {} if was_new else deepcopy(session.original)
         session.identity = stored[_primary_key(entity)]
@@ -1014,17 +1024,38 @@ class RecordsService:
                 )
         return issues
 
-    def _validate_uniqueness(self, entity: NormalizedEntity, values: dict[str, Any], identity: Any) -> None:
+    def _unique_conflicts(
+        self, entity: NormalizedEntity, values: dict[str, Any], identity: Any
+    ) -> list[ValidationIssue]:
+        """Name the unique fields whose value another record already holds.
+
+        A null never collides, matching the database: SQL uniqueness ignores
+        NULL, so two customers may both omit an email.
+        """
+
+        issues: list[ValidationIssue] = []
         for field_name, field in entity.fields.items():
-            if not field.metadata.get("unique"):
+            if not field.metadata.get("unique") or values.get(field_name) is None:
                 continue
-            if values.get(field_name) is None:
-                continue
-            for record in self.repository.all(entity.name):
-                if record.get(_primary_key(entity)) != identity and record.get(field_name) == values.get(field_name):
-                    raise ValidationFailed(
-                        [ValidationIssue("unique", f"{field_name} must be unique", (field_name,))]
+            if self.repository.unique_conflict(
+                entity.name,
+                field_name,
+                values[field_name],
+                exclude_identity=identity,
+            ):
+                issues.append(
+                    ValidationIssue(
+                        "unique",
+                        f"{field_name} must be unique",
+                        (field_name,),
                     )
+                )
+        return issues
+
+    def _validate_uniqueness(self, entity: NormalizedEntity, values: dict[str, Any], identity: Any) -> None:
+        issues = self._unique_conflicts(entity, values, identity)
+        if issues:
+            raise ValidationFailed(issues)
 
     def _relationship_plan(
         self,

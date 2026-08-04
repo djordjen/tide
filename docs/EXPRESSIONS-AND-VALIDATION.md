@@ -178,6 +178,24 @@ Write a pattern both engines accept: the server matches it with Python
 alternation, anchoring by the surrounding contract — covers field masks.
 Named groups and other engine-specific syntax do not belong here.
 
+## Uniqueness
+
+`unique: true` is enforced by a database unique index. Before writing, the
+service asks one indexed question per unique field — "does another record
+already hold this value?" — so a duplicate is reported as an ordinary
+field-shaped validation issue rather than a failed write.
+
+That question is answered before the write transaction opens, so it can be
+stale: a duplicate may land in the gap. The index is what actually guarantees
+uniqueness, and when it refuses a write the service asks again to identify the
+field and raises the same structured error. A caller therefore sees the same
+result whether it lost the race or not. Constraints the service does not model
+keep their own error, because they are not something a caller can fix by
+editing a field.
+
+A null never collides. SQL uniqueness ignores NULL, and the service matches it,
+so any number of records may leave an optional unique field empty.
+
 Cross-field and conditional rules are explicit:
 
 ```yaml

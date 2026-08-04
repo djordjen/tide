@@ -131,6 +131,27 @@ class InMemoryRepository:
         with self._lock:
             return identity in self._records.get(entity, {})
 
+    def unique_conflict(
+        self,
+        entity: str,
+        field: str,
+        value: Any,
+        *,
+        exclude_identity: Any,
+    ) -> bool:
+        """Report whether another record already holds ``value``.
+
+        A dictionary has no index to ask, so this still walks the entity -- but
+        it walks the stored mappings rather than hydrating copies of them with
+        their child collections, which is what made the old scan expensive.
+        """
+
+        with self._lock:
+            return any(
+                identity != exclude_identity and record.get(field) == value
+                for identity, record in self._records.get(entity, {}).items()
+            )
+
     def peek_next_identity(self, entity: str) -> int:
         with self._lock:
             return self._next_identity.get(entity, 1)
