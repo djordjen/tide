@@ -31,6 +31,7 @@ from tide.presentation import (
     field_alignment,
     field_label,
     form_layout_sections,
+    record_display,
     record_label,
     view_field_hidden,
 )
@@ -621,7 +622,7 @@ class QtBrowseController:
         if identity is None or identity is PROTECTED:
             raise ValueError("Qt detail record identity is unavailable")
         values = self.client.get_record(self.entity.name, identity).values
-        display = _display_record(self.entity, values)
+        display = record_display(self.entity, values)
         return QtDetailRecord(
             identity=identity,
             title=f"{self.entity.label} — {display}",
@@ -1239,7 +1240,7 @@ class QtBrowseController:
             raise ValueError("Qt lookup record identity is unavailable")
         record = QtLookupRecord(
             identity=identity,
-            display=_display_record(target, values),
+            display=record_display(target, values),
             cells=tuple(
                 self._format_value(target.field(column.name), values.get(column.name))
                 for column in spec.columns
@@ -1414,7 +1415,7 @@ class QtBrowseController:
             title=(
                 f"New {singular}"
                 if operation == "create"
-                else f"{singular} — {_display_record(self.entity, values)}"
+                else f"{singular} — {record_display(self.entity, values)}"
             ),
             operation=operation,
             identity=identity,
@@ -2014,7 +2015,7 @@ class QtBrowseController:
             return cached
         try:
             record = self.client.get_record(entity_name, identity).values
-            result = _display_record(self.model.entity(entity_name), record)
+            result = record_display(self.model.entity(entity_name), record)
         except TideRuntimeError:
             result = "Protected"
         with self._reference_cache_lock:
@@ -2180,27 +2181,7 @@ _field_alignment = field_alignment
 _record_label = record_label
 
 
-def _display_record(entity: NormalizedEntity, values: Mapping[str, Any]) -> str:
-    primary_key = _primary_key_name(entity)
-    if not entity.display:
-        return str(values.get(primary_key, ""))
-    if "{" not in entity.display:
-        return _safe_display_value(values.get(entity.display))
-    try:
-        return entity.display.format_map(
-            {name: _safe_display_value(value) for name, value in values.items()}
-        )
-    except (KeyError, ValueError):
-        return str(values.get(primary_key, ""))
-
-
 def _primary_key_name(entity: NormalizedEntity) -> str:
     return entity.primary_key.name
-
-
-def _safe_display_value(value: Any) -> str:
-    if value is PROTECTED:
-        return "Protected"
-    return "" if value is None else str(value)
 
 

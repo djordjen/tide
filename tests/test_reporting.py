@@ -81,6 +81,40 @@ def test_report_service_builds_secured_formatted_invoice(reporting) -> None:
     assert "Total: 850.00" in document.plain_text()
 
 
+def test_a_downloaded_report_is_named_from_metadata_not_from_invoicing() -> None:
+    """The filename came from the sample application, in framework code.
+
+    `f"invoice-{record.get('number', primary_key)}"` names every application's
+    reports after an invoice, and reaches for a field only invoicing has. Both
+    are invisible from invoicing itself, where the report is titled "Invoice"
+    and the entity displays itself by `number`.
+    """
+
+    model = compile_project(ROOT / "tests" / "fixtures" / "valid" / "inspection")
+    repository = InMemoryRepository()
+    context = RequestContext(
+        Principal("report:user", roles=frozenset({"inspector"})),
+        channel=Channel.TUI,
+    )
+    records = RecordsService(model, repository)
+    stored = records.commit(
+        records.create(
+            "inspect.Inspection",
+            context,
+            {"reference": "INS-001", "steps": [{"title": "Check seals"}]},
+        ),
+        context,
+    )
+
+    document = ReportService(model, records).build_for_record(
+        "inspect.sheet",
+        stored["id"],
+        context,
+    )
+
+    assert document.suggested_filename == "inspection-sheet-INS-001"
+
+
 def test_report_permission_and_protected_detail_fail_closed(reporting) -> None:
     service, _context = reporting
     denied = RequestContext(
@@ -126,7 +160,7 @@ def test_summary_report_groups_secured_rows_and_exports_safe_csv(
     )
 
     assert document.title == "Posted Sales Summary"
-    assert document.suggested_filename == "sales-summary-2026-07-20"
+    assert document.suggested_filename == "posted-sales-summary-2026-07-20"
     assert [column.name for column in document.detail.columns] == [
         "customer",
         "currency",

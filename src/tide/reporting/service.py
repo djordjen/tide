@@ -13,7 +13,7 @@ from tide.compiler.expressions import evaluate_expression
 from tide.labels import humanize as _humanize, value_label
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 from tide.data import FilterCondition, QuerySpec, SortField
-from tide.presentation import field_alignment, field_label
+from tide.presentation import field_alignment, field_label, record_display
 from tide.runtime import Channel, RequestContext, TideRuntimeError
 from tide.runtime.errors import AuthorizationError, ValidationFailed, ValidationIssue
 from tide.security import PROTECTED
@@ -106,7 +106,6 @@ class ReportService:
             ReportValue("", text) for text in footer_text if text
         )
         now = generated_at or datetime.now(timezone.utc)
-        filename_value = record.get("number", record.get(primary_key))
         return ReportDocument(
             report=report_name,
             title=title,
@@ -117,7 +116,9 @@ class ReportService:
             detail=detail,
             footer_values=footer_values + extra_footer,
             page_footer_template=page_footer,
-            suggested_filename=f"invoice-{_safe_filename(str(filename_value))}",
+            suggested_filename=_report_filename(
+                report, record_display(entity, record)
+            ),
         )
 
     def build_for_record(
@@ -271,9 +272,8 @@ class ReportService:
                 ReportValue("Source records", str(len(page.records)), "right"),
             ),
             page_footer_template="Page {page_number} of {page_count}",
-            suggested_filename=(
-                f"{_safe_filename(report_name.replace('.', '-'))}-"
-                f"{now.astimezone(timezone.utc).date().isoformat()}"
+            suggested_filename=_report_filename(
+                report, now.astimezone(timezone.utc).date().isoformat()
             ),
         )
 
@@ -619,6 +619,24 @@ def _display_record(entity: NormalizedEntity, values: Mapping[str, Any]) -> str:
             pass
     primary_key = _primary_key(entity)
     return str(values.get(primary_key, ""))
+
+
+def _report_filename(report: Mapping[str, Any], qualifier: str) -> str:
+    """Name a downloaded report after what the reader was looking at.
+
+    The record report used to be `f"invoice-{record.get('number', ...)}"` --
+    one application's report and one application's field name, in framework
+    code, which named every other application's records after an invoice and
+    fell back to the primary key the moment an entity had no `number`. Both
+    halves are declared metadata: the report's title is what the reader saw on
+    screen, and the entity's `display` is how the application says a record
+    names itself.
+
+    Lower-cased because it is a filename, and the title is prose.
+    """
+
+    title = _safe_filename(str(report.get("title") or "report")).lower()
+    return f"{title}-{_safe_filename(qualifier)}"
 
 
 def _safe_filename(value: str) -> str:

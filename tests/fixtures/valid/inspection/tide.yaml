@@ -7,4 +7,5 @@
 schema_version: "0.1"
 application: {name: Inspection, version: 0.1.0}
 model: {paths: [models]}
+reports: {paths: [reports]}
 security: {paths: [security]}

@@ -1,0 +1,36 @@
+# A record report belonging to an application that is not invoicing.
+#
+# The report service used to name a downloaded record report
+# `f"invoice-{record.get('number', primary_key)}"`, so every application's
+# reports were named after an invoice, and any entity without a `number`
+# field fell back to its primary key. Neither half is visible from the
+# invoicing application, whose report is titled "Invoice" and whose entity
+# displays itself by `number` -- both wrong things produce the right answer
+# there. This one is titled something else and displays itself by
+# `reference`, so it can tell them apart.
+report: inspect.sheet
+title: Inspection Sheet
+entity: inspect.Inspection
+permission: inspect.read
+
+parameters:
+  inspection_id: {type: integer, required: true}
+
+query:
+  criteria: "id == $inspection_id"
+
+bands:
+  report_header:
+    - text: Inspection Sheet
+      style: report_title
+
+  record_header:
+    - field: reference
+      label: Reference
+
+  detail:
+    source: steps
+    columns: [position, title]
+
+  page_footer:
+    - expression: "'Page ' + page_number"

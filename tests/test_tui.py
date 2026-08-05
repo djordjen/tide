@@ -476,7 +476,7 @@ def test_textual_invoice_report_preview_and_exports(tmp_path: Path) -> None:
             assert "4,610.00" in app.screen.document.plain_text()
             await pilot.click("#export-csv")
             await pilot.pause()
-            assert list(tmp_path.glob("sales-summary-*.csv"))
+            assert list(tmp_path.glob("posted-sales-summary-*.csv"))
 
     asyncio.run(exercise())
 

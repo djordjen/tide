@@ -381,7 +381,7 @@ def test_remote_textual_preview_uses_the_server_report_document(
                 assert isinstance(tide_app.screen, ReportPreviewScreen)
                 assert "4,610.00" in tide_app.screen.document.plain_text()
                 await pilot.click("#export-csv")
-                assert list(tmp_path.glob("sales-summary-*.csv"))
+                assert list(tmp_path.glob("posted-sales-summary-*.csv"))
 
     asyncio.run(exercise())
 
