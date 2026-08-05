@@ -22,10 +22,17 @@ import { useCallback, useEffect, useState } from "react"
  * to Products opens a customer nobody asked for -- and pushing two entries for
  * one click would make Back a half-step.
  */
+/**
+ * One shared empty list, so a caller that clears nothing gets the same
+ * `clears` every render. A fresh `[]` as the default would change `update`'s
+ * identity on every render, and every callback built on it with it.
+ */
+const CLEARS_NOTHING: readonly string[] = []
+
 export function useUrlParameter(
   name: string,
   fallback: string,
-  clears: readonly string[] = [],
+  clears: readonly string[] = CLEARS_NOTHING,
 ): [string, (next: string) => void] {
   const [value, setValue] = useState(() => readParameter(name) ?? fallback)
 

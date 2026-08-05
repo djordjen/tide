@@ -177,7 +177,7 @@ export function BrowseWorkspace({
         setActiveIdentity(identity)
       }
     },
-    [form, identityOf, view.operations],
+    [form, identityOf, setActiveIdentity, view.operations],
   )
   const navigate = useCallback(
     async (offset: -1 | 1) => {
@@ -235,6 +235,7 @@ export function BrowseWorkspace({
       navigationPending,
       query,
       records,
+      setActiveIdentity,
     ],
   )
 
