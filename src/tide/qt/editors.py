@@ -33,7 +33,7 @@ from tide.security import PROTECTED
 
 from tide.labels import value_label
 
-from .presenter import (
+from .contracts import (
     QtEditCollection,
     QtEditField,
     QtEditForm,

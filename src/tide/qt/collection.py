@@ -24,6 +24,11 @@ from .columns import (
     fit_interactive_columns,
     qt_alignment,
 )
+from .contracts import (
+    QtEditCollection,
+    QtEditField,
+    QtLookupSelection,
+)
 from .editors import (
     build_field_editor,
     collection_structure,
@@ -31,11 +36,6 @@ from .editors import (
     configure_field_label,
     editor_value,
     set_editor_value,
-)
-from .presenter import (
-    QtEditCollection,
-    QtEditField,
-    QtLookupSelection,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - the parent is only an annotation

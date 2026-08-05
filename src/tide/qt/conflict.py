@@ -22,9 +22,11 @@ from PySide6.QtWidgets import (
 
 from tide.sessions import ConflictDisposition, ConflictValueChoice
 
+from .contracts import (
+    QtEditConflict,
+)
 from .presenter import (
     QtBrowseController,
-    QtEditConflict,
 )
 
 

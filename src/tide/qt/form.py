@@ -44,6 +44,13 @@ from tide.reporting import (
 
 from .collection import TideQtCollectionEditor
 from .conflict import TideQtConflictDialog
+from .contracts import (
+    QtEditActionError,
+    QtEditConflict,
+    QtEditField,
+    QtEditForm,
+    QtLookupSelection,
+)
 from .editors import (
     TideQtReferenceEditor,
     build_field_editor,
@@ -56,11 +63,6 @@ from .editors import (
 from .lookup import TideQtLookupDialog
 from .presenter import (
     QtBrowseController,
-    QtEditActionError,
-    QtEditConflict,
-    QtEditField,
-    QtEditForm,
-    QtLookupSelection,
 )
 from .report import open_local_report
 from .workers import CallWorker

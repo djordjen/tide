@@ -11,9 +11,11 @@ from PySide6.QtCore import (
     Slot,
 )
 
+from .contracts import (
+    QtBrowseQuery,
+)
 from .presenter import (
     QtBrowseController,
-    QtBrowseQuery,
 )
 
 

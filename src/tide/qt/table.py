@@ -16,10 +16,12 @@ from PySide6.QtCore import (
 )
 
 from .columns import qt_alignment
-from .presenter import (
+from .contracts import (
     QtBrowseBatch,
-    QtBrowseController,
     QtBrowseQuery,
+)
+from .presenter import (
+    QtBrowseController,
 )
 from .workers import BatchWorker
 

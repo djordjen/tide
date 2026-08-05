@@ -14,8 +14,10 @@ from PySide6.QtWidgets import (
     QTableWidget,
 )
 
-from .presenter import (
+from .contracts import (
     QtBrowseColumn,
+)
+from .presenter import (
     QtBrowseController,
 )
 

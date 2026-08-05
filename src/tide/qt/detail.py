@@ -26,7 +26,7 @@ from .columns import (
     fit_interactive_columns,
     qt_alignment,
 )
-from .presenter import (
+from .contracts import (
     QtDetailCollection,
     QtDetailGroup,
     QtDetailRecord,

@@ -34,10 +34,12 @@ from .columns import (
     fit_interactive_columns,
     qt_alignment,
 )
-from .presenter import (
-    QtBrowseController,
+from .contracts import (
     QtLookupRecord,
     QtLookupSpec,
+)
+from .presenter import (
+    QtBrowseController,
 )
 from .workers import CallWorker
 

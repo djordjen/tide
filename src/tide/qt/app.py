@@ -55,13 +55,15 @@ from .columns import (
     known_column_order,
     known_column_widths,
 )
+from .contracts import (
+    BrowseApiClient,
+    QtBrowseQuery,
+    QtEditForm,
+)
 from .detail import TideQtDetailDialog
 from .form import TideQtEditDialog
 from .presenter import (
-    BrowseApiClient,
     QtBrowseController,
-    QtBrowseQuery,
-    QtEditForm,
 )
 from .report import TideQtReportDialog
 from .table import TideQtTableModel
