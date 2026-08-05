@@ -6,7 +6,6 @@ from copy import deepcopy
 from dataclasses import replace
 from datetime import date, datetime
 from decimal import Decimal
-from threading import Lock
 from typing import Any, Literal, Mapping
 
 from tide.labels import value_label
@@ -36,13 +35,14 @@ from tide.presentation import (
     view_field_hidden,
 )
 from tide.reporting import ReportDocument
-from tide.runtime import TideRuntimeError
 from tide.security import PROTECTED
 from tide.sessions import (
     ConflictValueChoice,
     compare_record_conflict,
     resolve_record_conflict,
 )
+from .references import ReferenceDisplayCache
+
 from .contracts import (
     BrowseApiClient,
     QtBrowseBatch,
@@ -116,8 +116,7 @@ class QtBrowseController:
             )
             for field in (self.entity.field(name) for name in self.field_names)
         )
-        self._reference_cache: dict[tuple[str, Any], str] = {}
-        self._reference_cache_lock = Lock()
+        self._references = ReferenceDisplayCache(client, model)
         self.record_report = self._select_record_report()
         self.summary_report = self._select_summary_report()
 
@@ -244,8 +243,7 @@ class QtBrowseController:
     def reset_browse(self) -> None:
         """Discard browse-only display caches before a fresh server query."""
 
-        with self._reference_cache_lock:
-            self._reference_cache.clear()
+        self._references.clear()
 
     def query_spec(
         self,
@@ -971,8 +969,7 @@ class QtBrowseController:
             ),
             values=deepcopy(dict(values)),
         )
-        with self._reference_cache_lock:
-            self._reference_cache[(target.name, identity)] = record.display
+        self._references.remember(target.name, identity, record.display)
         return record
 
     def apply_lookup_selection(
@@ -1302,7 +1299,7 @@ class QtBrowseController:
                     and reference_value is not None
                     and reference_value is not PROTECTED
                 ):
-                    self._reference_display(
+                    self._references.display(
                         target_field.target_entity,
                         reference_value,
                     )
@@ -1472,7 +1469,7 @@ class QtBrowseController:
 
         if value is None or value is PROTECTED or not field.target_entity:
             return ""
-        return self._reference_display(field.target_entity, value)
+        return self._references.display(field.target_entity, value)
 
     def format_form_value(self, field_name: str, value: Any) -> str:
         """Format one root form value with the compiled presentation rules."""
@@ -1581,7 +1578,7 @@ class QtBrowseController:
             maximum=metadata.get("maximum"),
             target_entity=field.target_entity,
             reference_display=(
-                self._reference_display(field.target_entity, value)
+                self._references.display(field.target_entity, value)
                 if metadata["type"] == "reference"
                 and field.target_entity
                 and value is not None
@@ -1708,7 +1705,7 @@ class QtBrowseController:
         if value is None:
             return ""
         if field.metadata["type"] == "reference" and field.target_entity:
-            return self._reference_display(field.target_entity, value)
+            return self._references.display(field.target_entity, value)
         if field.metadata["type"] == "choice":
             return value_label(value)
         configuration = self.model.formats.get(
@@ -1731,19 +1728,6 @@ class QtBrowseController:
             return "Yes" if value else "No"
         return str(value)
 
-    def _reference_display(self, entity_name: str, identity: Any) -> str:
-        key = entity_name, identity
-        with self._reference_cache_lock:
-            cached = self._reference_cache.get(key, _CACHE_MISS)
-        if cached is not _CACHE_MISS:
-            return cached
-        try:
-            record = self.client.get_record(entity_name, identity).values
-            result = record_display(self.model.entity(entity_name), record)
-        except TideRuntimeError:
-            result = "Protected"
-        with self._reference_cache_lock:
-            return self._reference_cache.setdefault(key, result)
 
 
 def _select_browse_view(
@@ -1812,7 +1796,6 @@ class _EmptyCapabilities:
 
 
 _EMPTY_CAPABILITIES = _EmptyCapabilities()
-_CACHE_MISS = object()
 
 
 
