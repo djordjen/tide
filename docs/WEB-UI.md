@@ -250,9 +250,16 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-`check` runs TypeScript plus Vitest unit/component tests. Playwright supplies a
-small browser smoke test for the built connection surface. CI runs all of these
-against one supported Node version alongside the Python 3.11 framework suite.
+`check` runs TypeScript plus Vitest unit/component tests, all against stubbed
+responses. `test:e2e` runs six journeys against the real stack: Playwright
+starts `tide serve --demo --auth local --web-root web/dist`, creates a local
+account for that run, and drives the built bundle through password sign-in,
+browsing, opening a record with its nested lines, creating and editing a
+Customer, drafting an Invoice through both lookups and posting it, previewing
+and exporting the summary report, and a two-tab stale-edit conflict. It
+therefore needs the Python side of TIDE on the path (`uv sync --extra api
+--extra report`) and a current `npm run build`. CI runs all of these against
+one supported Node version alongside the Python 3.11 framework suite.
 
 ## Current boundary and next slice
 

@@ -17,6 +17,9 @@ dist/
 output/
 tmp/
 .tide/local-auth.sqlite3*
+# Identity and credentials the end-to-end journeys create for one run.
+.tide/e2e-auth.sqlite3*
+.tide/e2e-credentials.json
 
 # Web renderer build and test artifacts
 web/node_modules/

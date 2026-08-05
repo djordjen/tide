@@ -121,6 +121,12 @@ deployments, but no third-party login is required. See
 
 `docs/WEB-UI.md` carries the current feature list.
 
+Six Playwright journeys run against a real `tide serve` hosting the built
+bundle at its own origin: password sign-in, browsing, a record's nested lines,
+create/edit/reload, drafting an Invoice through both lookups and posting it,
+report preview and export, and a two-tab stale-edit conflict. They replaced a
+single smoke test against a static copy of `dist/`.
+
 ### Machine interfaces and AI-assisted generation
 
 `tide serve` requires a 32-character-or-longer development bearer token in

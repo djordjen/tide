@@ -58,6 +58,14 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: web/package-lock.json
+      # The journeys drive the renderer against a real TIDE server hosting the
+      # built bundle, so this job needs the Python side too.
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          python-version: "3.11"
+      - run: uv sync --locked --extra api --extra report
+        working-directory: .
       - run: npm ci
       # `check` is the single local gate: tsc, eslint, then the unit tests.
       - run: npm run check

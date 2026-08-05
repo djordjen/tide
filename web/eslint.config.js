@@ -35,4 +35,15 @@ export default tseslint.config(
     files: ["*.config.{ts,js}", "vite.config.ts", "playwright.config.ts"],
     languageOptions: { globals: globals.node },
   },
+  {
+    // The end-to-end launcher is plain Node, so `tsc -b` never sees it.
+    // Linting is the only check it gets; do not leave it unchecked.
+    files: ["tests/e2e/**/*.mjs"],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      globals: globals.node,
+    },
+  },
 );
