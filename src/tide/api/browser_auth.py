@@ -16,6 +16,7 @@ from urllib.parse import urlencode, urlsplit
 
 import httpx
 
+from tide.api.browser_session import BrowserSessionAccess
 from tide.runtime import Principal
 
 
@@ -44,12 +45,6 @@ class BrowserLoginStart:
 class BrowserLoginResult:
     session_id: str
     return_to: str
-
-
-@dataclass(frozen=True, slots=True)
-class BrowserSessionAccess:
-    principal: Principal
-    csrf_token: str
 
 
 @dataclass(frozen=True, slots=True)

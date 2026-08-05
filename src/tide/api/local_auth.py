@@ -18,7 +18,7 @@ from threading import BoundedSemaphore, RLock
 import time
 from typing import Callable, Iterator
 
-from tide.api.browser_auth import BrowserSessionAccess
+from tide.api.browser_session import BrowserSessionAccess
 from tide.runtime import Principal
 
 
