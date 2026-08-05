@@ -26,11 +26,11 @@ from .presenter import (
 from .workers import BatchWorker
 
 
-#: Qt passes a model index in either form, and the stubs type every
-#: overridable method that way. Both answer `isValid`, `row` and `column`.
-ModelIndex = QModelIndex | QPersistentModelIndex
-
-
+# The overrides below spell `QModelIndex | QPersistentModelIndex` out each
+# time rather than sharing an alias. Qt passes an index in either form and the
+# stubs type every overridable method that way -- but where PySide6 is not
+# installed, which is the Linux CI job, both names are `Any`, and an alias
+# assigned from `Any | Any` stops being usable as a type at all.
 class TideQtTableModel(QAbstractTableModel):
     """Incremental read-only table over opaque FastAPI continuation cursors."""
 
@@ -74,15 +74,21 @@ class TideQtTableModel(QAbstractTableModel):
     def query(self) -> QtBrowseQuery:
         return self._query
 
-    def rowCount(self, parent: ModelIndex = QModelIndex()) -> int:
+    def rowCount(
+        self,
+        parent: QModelIndex | QPersistentModelIndex = QModelIndex(),
+    ) -> int:
         return 0 if parent.isValid() else len(self._rows)
 
-    def columnCount(self, parent: ModelIndex = QModelIndex()) -> int:
+    def columnCount(
+        self,
+        parent: QModelIndex | QPersistentModelIndex = QModelIndex(),
+    ) -> int:
         return 0 if parent.isValid() else len(self.columns)
 
     def data(
         self,
-        index: ModelIndex,
+        index: QModelIndex | QPersistentModelIndex,
         role: int = Qt.ItemDataRole.DisplayRole,
     ) -> Any:
         if not index.isValid():
@@ -120,7 +126,11 @@ class TideQtTableModel(QAbstractTableModel):
         except ValueError:
             return None
 
-    def canFetchMore(self, parent: ModelIndex = QModelIndex(), /) -> bool:
+    def canFetchMore(
+        self,
+        parent: QModelIndex | QPersistentModelIndex = QModelIndex(),
+        /,
+    ) -> bool:
         return (
             not parent.isValid()
             and not self._loading
@@ -128,7 +138,11 @@ class TideQtTableModel(QAbstractTableModel):
             and self.has_more
         )
 
-    def fetchMore(self, parent: ModelIndex = QModelIndex(), /) -> None:
+    def fetchMore(
+        self,
+        parent: QModelIndex | QPersistentModelIndex = QModelIndex(),
+        /,
+    ) -> None:
         if not self.canFetchMore(parent):
             return
         self._start_fetch(self._next_cursor)
