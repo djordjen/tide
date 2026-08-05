@@ -7,6 +7,12 @@ import { defineConfig } from "vitest/config"
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 
+// The renderer reads the same variable to build its request paths, so a
+// development server that proxied a fixed `/api` would forward nothing once a
+// deployment moved its API elsewhere.
+const basePath = process.env.VITE_TIDE_BASE_PATH ?? "/api/v1"
+const apiTarget = process.env.VITE_TIDE_API_TARGET ?? "http://127.0.0.1:8000"
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
@@ -19,12 +25,12 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      "/api": {
-        target: process.env.VITE_TIDE_API_TARGET ?? "http://127.0.0.1:8000",
+      [basePath]: {
+        target: apiTarget,
         changeOrigin: false,
       },
       "/health": {
-        target: process.env.VITE_TIDE_API_TARGET ?? "http://127.0.0.1:8000",
+        target: apiTarget,
         changeOrigin: false,
       },
     },

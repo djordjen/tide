@@ -213,6 +213,24 @@ renderer, so Web hosting cannot shadow `/api`, `/docs`, OpenAPI, health, or MCP
 routes. Fingerprinted `/assets/` files receive immutable caching while the HTML
 entry point remains uncached.
 
+`build_fastapi_app(base_path=...)` decides where the API lives, and the
+manifest builds every resource, query, selection, report, and
+browser-authentication path from it. A renderer built for one base path cannot
+talk to a server using another: its first request misses, and any manifest path
+outside the configured base is refused as unsafe. Both defaults are `/api/v1`,
+so an ordinary deployment sets nothing. A deployment that moved the API — for
+example the whole application hosted under `https://host/tide/` — tells the
+build where it went:
+
+```powershell
+cd web
+$env:VITE_TIDE_BASE_PATH = "/tide/api/v1"
+npm run build
+```
+
+The value is inlined at build time, so one bundle belongs to one deployment.
+The development server reads the same variable to decide what to proxy.
+
 This command is a local development example. A non-loopback host also requires
 direct TLS, process supervision, resource limits, and the controls in
 [Operational baseline](OPERATIONS.md).

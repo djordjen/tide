@@ -20,7 +20,6 @@ import type {
 } from "@/lib/contracts"
 
 const WIRE_VERSION = "0.1"
-const DEFAULT_BASE_PATH = "/api/v1"
 
 interface TideErrorEnvelope {
   code?: unknown
@@ -64,6 +63,25 @@ export class TideApiError extends Error {
   }
 }
 
+/**
+ * Where this deployment's API lives, relative to the origin serving the page.
+ *
+ * `build_fastapi_app(base_path=...)` is a server-side choice, and the manifest
+ * builds every resource, query, selection, report and browser-authentication
+ * path from it. A renderer that assumes `/api/v1` therefore cannot talk to a
+ * server configured any other way: its own first request 404s, and any path
+ * the manifest supplies from outside `/api/` is refused as unsafe. Hosting the
+ * whole application under `https://host/tide/` is exactly that case.
+ *
+ * Read from the build environment because the bundle is static -- Vite inlines
+ * the value, so one build belongs to one deployment. That is the bargain the
+ * development proxy already makes through `VITE_TIDE_API_TARGET`. It sits
+ * below `TideApiError` because a misconfigured build is reported with one.
+ */
+const API_BASE_PATH = configuredBasePath(
+  import.meta.env.VITE_TIDE_BASE_PATH ?? "/api/v1",
+)
+
 export class TideApi {
   readonly basePath: string
   readonly token: string | null
@@ -73,7 +91,7 @@ export class TideApi {
 
   constructor(
     token: string,
-    basePath = DEFAULT_BASE_PATH,
+    basePath = API_BASE_PATH,
     browserSession: {
       authentication: TideBrowserAuthenticationInfo
       csrfToken: string
@@ -107,7 +125,7 @@ export class TideApi {
   }
 
   static async discoverBrowserAuthentication(
-    basePath = DEFAULT_BASE_PATH,
+    basePath = API_BASE_PATH,
     signal?: AbortSignal,
   ): Promise<TideBrowserAuthenticationInfo> {
     const normalizedBasePath = safeApiPath(basePath)
@@ -142,7 +160,7 @@ export class TideApi {
     authentication: TideBrowserAuthenticationInfo,
     username: string,
     password: string,
-    basePath = DEFAULT_BASE_PATH,
+    basePath = API_BASE_PATH,
     signal?: AbortSignal,
   ): Promise<TideApi> {
     if (
@@ -186,7 +204,7 @@ export class TideApi {
 
   static async restoreBrowserSession(
     authentication: TideBrowserAuthenticationInfo,
-    basePath = DEFAULT_BASE_PATH,
+    basePath = API_BASE_PATH,
     signal?: AbortSignal,
   ): Promise<TideApi | null> {
     if (
@@ -724,19 +742,51 @@ function safeValidationIssues(value: unknown): TideValidationIssue[] {
   })
 }
 
+/** Validate this build's own API base path, and say so if it is unusable. */
+function configuredBasePath(value: string): string {
+  const normalized = value.replace(/\/+$/, "")
+  if (!wellFormedPath(normalized)) {
+    throw new TideApiError(
+      `VITE_TIDE_BASE_PATH must be an absolute path, not ${value.trim() || "an empty value"}.`,
+      { code: "configuration_error" },
+    )
+  }
+  return normalized
+}
+
+/**
+ * Refuse a path the server supplied that is not this deployment's API.
+ *
+ * The manifest names every path the renderer will call, so this is the one
+ * place a compromised or confused server could aim the browser somewhere else
+ * with the session's credentials attached. Anchoring on the configured base
+ * path rather than a literal `/api/` keeps that narrow whatever the deployment
+ * chose, and refusing a `..` segment stops the anchor being walked back out of
+ * -- `fetch` resolves the path before sending it, so a prefix test alone reads
+ * a path the server never gets.
+ */
 function safeApiPath(path: string): string {
+  const normalized = path.replace(/\/+$/, "")
   if (
-    !path.startsWith("/") ||
-    path.startsWith("//") ||
-    path.includes("\\") ||
-    !path.startsWith("/api/")
+    !wellFormedPath(normalized) ||
+    (normalized !== API_BASE_PATH &&
+      !normalized.startsWith(`${API_BASE_PATH}/`))
   ) {
     throw new TideApiError(
       "The server supplied an unsafe API resource path.",
       { code: "contract_mismatch" },
     )
   }
-  return path.replace(/\/+$/, "")
+  return normalized
+}
+
+function wellFormedPath(path: string): boolean {
+  return (
+    path.startsWith("/") &&
+    !path.startsWith("//") &&
+    !path.includes("\\") &&
+    !path.split("/").includes("..")
+  )
 }
 
 function reportRequestPath(
