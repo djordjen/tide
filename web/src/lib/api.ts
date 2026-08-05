@@ -818,3 +818,19 @@ function responseFilename(disposition: string | null): string | null {
   }
   return /filename="([^"]+)"/i.exec(disposition)?.[1] ?? null
 }
+
+
+/**
+ * Present an unknown failure as something the surface can render.
+ *
+ * A rejected mutation may carry anything at all; every caller wants a
+ * `TideApiError` with a message worth showing.
+ */
+export function actionApiError(
+  error: unknown,
+  fallback: string,
+): TideApiError {
+  return error instanceof TideApiError
+    ? error
+    : new TideApiError(fallback)
+}

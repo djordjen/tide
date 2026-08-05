@@ -1,7 +1,9 @@
+import type { TideValidationIssue } from "@/lib/api"
 import type {
   TideFormPresentation,
   TidePresentationFormCollection,
   TidePresentationFormField,
+  TidePresentationFormSection,
   TideRecord,
 } from "@/lib/contracts"
 
@@ -472,4 +474,61 @@ function compareDecimals(left: string, right: string): number {
   )
   const comparison = leftValue < rightValue ? -1 : leftValue > rightValue ? 1 : 0
   return leftNegative ? -comparison : comparison
+}
+
+
+export function formTabs(sections: TidePresentationFormSection[]): string[] {
+  if (!sections.some((section) => section.tab)) {
+    return []
+  }
+  return [
+    ...new Set(sections.map((section) => section.tab ?? "General")),
+  ]
+}
+
+
+export function collectionDraftState(
+  form: TideFormPresentation,
+  record?: TideRecord,
+): Record<string, TideRecord[]> {
+  return Object.fromEntries(
+    form.sections
+      .filter(
+        (
+          section,
+        ): section is TidePresentationFormCollection =>
+          section.kind === "collection" &&
+          section.writable === true,
+      )
+      .map((section) => [
+        section.name,
+        collectionDraftRows(section, record?.[section.name]),
+      ]),
+  )
+}
+
+
+export function issueFieldErrors(
+  form: TideFormPresentation,
+  issues: TideValidationIssue[],
+): TideFormErrors {
+  const errors: TideFormErrors = {}
+  for (const issue of issues) {
+    for (const name of issue.fields) {
+      const field = form.fields[name]
+      if (!field || errors[name]) {
+        continue
+      }
+      errors[name] = issue.message.replace(
+        new RegExp(`^${escapeRegExp(name)}\\b`, "i"),
+        field.label,
+      )
+    }
+  }
+  return errors
+}
+
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }

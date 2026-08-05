@@ -1,3 +1,15 @@
+import type {
+  TideFormPresentation,
+  TidePresentationFormCollection,
+  TideRecord,
+} from "@/lib/contracts"
+import {
+  collectionDraftRows,
+  collectionMutationPayload,
+  formDraft,
+  mutationPayload,
+} from "@/lib/form-draft"
+
 export type TideConflictDisposition =
   | "your_change"
   | "current_change"
@@ -143,4 +155,46 @@ function conflictValueEqual(left: unknown, right: unknown): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
+}
+
+
+export function conflictRecordValues(
+  form: TideFormPresentation,
+  collections: TidePresentationFormCollection[],
+  record: TideRecord,
+  fieldNames: readonly string[],
+): Record<string, unknown> {
+  const scalarNames = new Set(
+    fieldNames.filter((name) => form.fields[name] !== undefined),
+  )
+  const values = mutationPayload(
+    form,
+    formDraft(form, record),
+    scalarNames,
+  )
+  for (const name of fieldNames) {
+    const collection = collections.find(
+      (section) => section.name === name,
+    )
+    if (collection) {
+      values[name] = collectionMutationPayload(
+        collection,
+        collectionDraftRows(collection, record[name]),
+      )
+    }
+  }
+  return values
+}
+
+
+export function conflictFieldLabel(
+  form: TideFormPresentation,
+  collections: TidePresentationFormCollection[],
+  name: string,
+): string {
+  return (
+    form.fields[name]?.label ??
+    collections.find((collection) => collection.name === name)?.label ??
+    name
+  )
 }

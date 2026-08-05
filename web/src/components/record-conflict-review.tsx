@@ -13,6 +13,7 @@ import type {
   TidePresentationFormCollection,
 } from "@/lib/contracts"
 import {
+  conflictFieldLabel,
   resolveRecordConflict,
   type TideConflictChoice,
   type TideConflictDisposition,
@@ -323,18 +324,6 @@ function ConflictOutcome({
     conflict: "",
   }[disposition]
   return <span className="text-xs text-muted-foreground">{label}</span>
-}
-
-function conflictFieldLabel(
-  form: TideFormPresentation,
-  collections: TidePresentationFormCollection[],
-  name: string,
-): string {
-  return (
-    form.fields[name]?.label ??
-    collections.find((collection) => collection.name === name)?.label ??
-    name
-  )
 }
 
 function formatConflictValue(
