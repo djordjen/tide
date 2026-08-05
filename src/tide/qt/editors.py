@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 import re
-from typing import Any
+from functools import partial
+from typing import Any, Callable
 
 from PySide6.QtCore import (
     QObject,
@@ -19,6 +20,7 @@ from PySide6.QtGui import (
     QShortcut,
 )
 from PySide6.QtWidgets import (
+    QLabel,
     QCheckBox,
     QComboBox,
     QHBoxLayout,
@@ -28,6 +30,8 @@ from PySide6.QtWidgets import (
 )
 
 from tide.security import PROTECTED
+
+from tide.labels import value_label
 
 from .presenter import (
     QtEditCollection,
@@ -277,3 +281,106 @@ def _parse_edit_date(value: str) -> date:
         except ValueError:
             continue
     raise ValueError("invalid date")
+
+
+def build_field_editor(
+    field: QtEditField,
+    *,
+    event_filter: QObject,
+    lookup_handler: Callable[[], None],
+    saving: bool = False,
+) -> QWidget:
+    """Build the editor a field's compiled type asks for.
+
+    This lives beside the value round trip rather than on the dialog because
+    it is about the field, not the screen: the inline collection editor was
+    reaching through its parent dialog for it, for a decision that has nothing
+    to do with the parent.
+    """
+
+    if field.field_type == "reference" and field.lookup_view is not None:
+        reference = TideQtReferenceEditor(field)
+        reference.lookupRequested.connect(lookup_handler)
+        configure_field_editor(field, reference, saving=saving)
+        return reference
+    if field.field_type == "boolean":
+        check = QCheckBox()
+        check.setChecked(bool(field.value))
+        check.setObjectName(f"edit-field-{field.name}")
+        check.installEventFilter(event_filter)
+        configure_field_editor(field, check, saving=saving)
+        return check
+    if field.field_type == "choice":
+        choices = QComboBox()
+        choices.setObjectName(f"edit-field-{field.name}")
+        if not field.required:
+            choices.addItem("", None)
+        for choice in field.choices:
+            choices.addItem(value_label(choice), choice)
+        current = choices.findData(field.value)
+        choices.setCurrentIndex(max(current, 0))
+        choices.installEventFilter(event_filter)
+        configure_field_editor(field, choices, saving=saving)
+        return choices
+
+    text = QLineEdit(edit_text(field))
+    text.setObjectName(f"edit-field-{field.name}")
+    if field.numeric_mask is not None:
+        text.editingFinished.connect(
+            partial(normalize_numeric_editor, text, field)
+        )
+    text.installEventFilter(event_filter)
+    configure_field_editor(field, text, saving=saving)
+    return text
+
+
+def configure_field_editor(
+    field: QtEditField,
+    editor: QWidget,
+    *,
+    saving: bool = False,
+) -> None:
+    """Apply a field's current permissions and workflow state to its editor.
+
+    `saving` disables everything for the length of a request without changing
+    what the field says about itself, so the state is restored rather than
+    recomputed when the request finishes.
+    """
+
+    editable = field.editable and not saving
+    editor.setEnabled(editable)
+    editor.setFocusPolicy(
+        Qt.FocusPolicy.StrongFocus if editable else Qt.FocusPolicy.NoFocus
+    )
+    if isinstance(editor, TideQtReferenceEditor):
+        editor.field = field
+        editor.select_button.setVisible(field.editable)
+        editor.clear_button.setVisible(field.editable and not field.required)
+        editor.display.setStyleSheet("" if field.editable else _READ_ONLY_STYLE)
+        return
+    if isinstance(editor, QLineEdit):
+        editor.setReadOnly(not field.editable)
+        editor.setStyleSheet("" if field.editable else _READ_ONLY_STYLE)
+        editor.setMaxLength(field.max_length or 32_767)
+        # A newly built editor has no validator, so there is nothing to clear
+        # when the field is read-only or carries no mask.
+        validator = field_validator(field, editor) if field.editable else None
+        if validator is not None:
+            editor.setValidator(validator)
+        editor.setPlaceholderText(
+            "DD.MM.YYYY"
+            if field.field_type == "date" and field.editable
+            else ""
+        )
+
+
+def configure_field_label(label: QLabel, field: QtEditField) -> None:
+    """Mark a field's label with what it currently requires and permits."""
+
+    label.setText(f"{field.label} *" if field.required else field.label)
+    label.setStyleSheet(
+        "" if field.editable else "color: palette(mid); font-style: italic;"
+    )
+
+
+_READ_ONLY_STYLE = "background: palette(alternate-base); color: palette(mid);"

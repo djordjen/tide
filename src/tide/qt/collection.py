@@ -25,7 +25,10 @@ from .columns import (
     qt_alignment,
 )
 from .editors import (
+    build_field_editor,
     collection_structure,
+    configure_field_editor,
+    configure_field_label,
     editor_value,
     set_editor_value,
 )
@@ -92,8 +95,9 @@ class TideQtCollectionEditor(QGroupBox):
                     label = QLabel(
                         f"{field.label} *" if field.required else field.label
                     )
-                    editor = dialog._field_editor(
+                    editor = build_field_editor(
                         field,
+                        event_filter=dialog,
                         lookup_handler=partial(self._open_lookup, field),
                     )
                     self.editors[field.name] = editor
@@ -157,8 +161,8 @@ class TideQtCollectionEditor(QGroupBox):
         self.setTitle(collection.label)
         for name, editor in self.editors.items():
             field = self._fields[name]
-            self.dialog._configure_field_editor(field, editor)
-            self.dialog._configure_field_label(
+            configure_field_editor(field, editor)
+            configure_field_label(
                 self._field_labels[name],
                 field,
             )
@@ -241,10 +245,7 @@ class TideQtCollectionEditor(QGroupBox):
         self.setEnabled(not working)
         if not working:
             for name, editor in self.editors.items():
-                self.dialog._configure_field_editor(
-                    self._fields[name],
-                    editor,
-                )
+                configure_field_editor(self._fields[name], editor)
             self._update_actions()
 
     def apply_lookup_selection(self, selection: QtLookupSelection) -> None:

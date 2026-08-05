@@ -37,7 +37,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from tide.labels import value_label
 from tide.presentation import action_label, field_label
 from tide.reporting import (
     write_pdf,
@@ -47,11 +46,11 @@ from .collection import TideQtCollectionEditor
 from .conflict import TideQtConflictDialog
 from .editors import (
     TideQtReferenceEditor,
-    edit_text,
+    build_field_editor,
+    configure_field_editor,
+    configure_field_label,
     editor_value,
-    field_validator,
     form_structure,
-    normalize_numeric_editor,
     set_editor_value,
 )
 from .lookup import TideQtLookupDialog
@@ -308,8 +307,8 @@ class TideQtEditDialog(QDialog):
         self.heading.setText(form.title)
         for name, editor in self.editors.items():
             field = self._fields[name]
-            self._configure_field_editor(field, editor)
-            self._configure_field_label(self._field_labels[name], field)
+            configure_field_editor(field, editor, saving=self._saving)
+            configure_field_label(self._field_labels[name], field)
             blocker = QSignalBlocker(editor)
             set_editor_value(
                 field,
@@ -420,108 +419,17 @@ class TideQtEditDialog(QDialog):
         *,
         lookup_handler: Callable[[], None] | None = None,
     ) -> QWidget:
-        if (
-            field.field_type == "reference"
-            and field.lookup_view is not None
-        ):
-            reference = TideQtReferenceEditor(field)
-            reference.lookupRequested.connect(
+        """Build one field's editor, bound to this dialog."""
+
+        return build_field_editor(
+            field,
+            event_filter=self,
+            lookup_handler=(
                 lookup_handler
                 if lookup_handler is not None
                 else partial(self._open_lookup, field)
-            )
-            self._configure_field_editor(field, reference)
-            return reference
-        if field.field_type == "boolean":
-            check = QCheckBox()
-            check.setChecked(bool(field.value))
-            check.setObjectName(f"edit-field-{field.name}")
-            check.installEventFilter(self)
-            self._configure_field_editor(field, check)
-            return check
-        if field.field_type == "choice":
-            choices = QComboBox()
-            choices.setObjectName(f"edit-field-{field.name}")
-            if not field.required:
-                choices.addItem("", None)
-            for choice in field.choices:
-                choices.addItem(
-                    value_label(choice),
-                    choice,
-                )
-            current = choices.findData(field.value)
-            choices.setCurrentIndex(max(current, 0))
-            choices.installEventFilter(self)
-            self._configure_field_editor(field, choices)
-            return choices
-
-        text = QLineEdit(edit_text(field))
-        text.setObjectName(f"edit-field-{field.name}")
-        if field.numeric_mask is not None:
-            text.editingFinished.connect(
-                partial(normalize_numeric_editor, text, field)
-            )
-        text.installEventFilter(self)
-        self._configure_field_editor(field, text)
-        return text
-
-    def _configure_field_editor(
-        self,
-        field: QtEditField,
-        editor: QWidget,
-    ) -> None:
-        editable = field.editable and not self._saving
-        editor.setEnabled(editable)
-        editor.setFocusPolicy(
-            Qt.FocusPolicy.StrongFocus
-            if editable
-            else Qt.FocusPolicy.NoFocus
-        )
-        if isinstance(editor, TideQtReferenceEditor):
-            editor.field = field
-            editor.select_button.setVisible(field.editable)
-            editor.clear_button.setVisible(field.editable and not field.required)
-            editor.display.setStyleSheet(
-                ""
-                if field.editable
-                else (
-                    "background: palette(alternate-base); "
-                    "color: palette(mid);"
-                )
-            )
-            return
-        if isinstance(editor, QLineEdit):
-            editor.setReadOnly(not field.editable)
-            editor.setStyleSheet(
-                ""
-                if field.editable
-                else (
-                    "background: palette(alternate-base); "
-                    "color: palette(mid);"
-                )
-            )
-            editor.setMaxLength(field.max_length or 32_767)
-            # A newly built editor has no validator, so there is nothing to
-            # clear when the field is read-only or carries no mask.
-            validator = field_validator(field, editor) if field.editable else None
-            if validator is not None:
-                editor.setValidator(validator)
-            editor.setPlaceholderText(
-                "DD.MM.YYYY"
-                if field.field_type == "date" and field.editable
-                else ""
-            )
-
-    @staticmethod
-    def _configure_field_label(
-        label: QLabel,
-        field: QtEditField,
-    ) -> None:
-        label.setText(f"{field.label} *" if field.required else field.label)
-        label.setStyleSheet(
-            ""
-            if field.editable
-            else "color: palette(mid); font-style: italic;"
+            ),
+            saving=self._saving,
         )
 
     def _save(self) -> None:
@@ -558,23 +466,17 @@ class TideQtEditDialog(QDialog):
             message=f"Saving the draft and running {action.label} through TIDE…",
         )
         draft = deepcopy(values)
-        worker = CallWorker(
+        worker = self._start(
             lambda: self.controller.execute_form_action(
                 self.form,
                 action_name,
                 draft,
                 idempotency_key=f"qt:{uuid4()}",
-            )
+            ),
+            completed=self._action_completed,
+            failed=self._action_failed,
         )
-        self._workers.add(worker)
-        self._action_attempts[worker] = (
-            self.form,
-            draft,
-            action_name,
-        )
-        worker.signals.completed.connect(self._action_completed)
-        worker.signals.failed.connect(self._action_failed)
-        self._thread_pool.start(worker)
+        self._action_attempts[worker] = (self.form, draft, action_name)
 
     def _preview_report(self) -> None:
         if (
@@ -595,11 +497,11 @@ class TideQtEditDialog(QDialog):
             label=self._save_label,
             message="Building the secured PDF preview…",
         )
-        worker = CallWorker(self._build_report_pdf)
-        self._workers.add(worker)
-        worker.signals.completed.connect(self._report_pdf_ready)
-        worker.signals.failed.connect(self._report_pdf_failed)
-        self._thread_pool.start(worker)
+        self._start(
+            self._build_report_pdf,
+            completed=self._report_pdf_ready,
+            failed=self._report_pdf_failed,
+        )
 
     def _build_report_pdf(self) -> Path:
         assert self.report_directory is not None
@@ -659,12 +561,12 @@ class TideQtEditDialog(QDialog):
     ) -> None:
         draft = deepcopy(dict(values))
         self._set_saving(True)
-        worker = CallWorker(lambda: self.controller.save_form(form, draft))
-        self._workers.add(worker)
+        worker = self._start(
+            lambda: self.controller.save_form(form, draft),
+            completed=self._save_completed,
+            failed=self._save_failed,
+        )
         self._save_attempts[worker] = (form, draft)
-        worker.signals.completed.connect(self._save_completed)
-        worker.signals.failed.connect(self._save_failed)
-        self._thread_pool.start(worker)
 
     def _editor_values(
         self,
@@ -794,7 +696,7 @@ class TideQtEditDialog(QDialog):
         # `selected` rather than `dialog.selected_record`: this runs on a
         # worker thread, so re-reading the dialog's attribute there would read
         # it again long after the check above, and could read a different one.
-        worker = CallWorker(
+        worker = self._start(
             lambda: self.controller.apply_lookup_selection(
                 self.form,
                 field.name,
@@ -805,13 +707,11 @@ class TideQtEditDialog(QDialog):
                     if collection_editor is not None
                     else None
                 ),
-            )
+            ),
+            completed=self._lookup_applied,
+            failed=self._lookup_failed,
         )
-        self._workers.add(worker)
         self._lookup_targets[worker] = collection_editor
-        worker.signals.completed.connect(self._lookup_applied)
-        worker.signals.failed.connect(self._lookup_failed)
-        self._thread_pool.start(worker)
 
     @Slot(object, object)
     def _lookup_applied(
@@ -943,13 +843,11 @@ class TideQtEditDialog(QDialog):
                 "version for a three-way review…"
             ),
         )
-        review_worker = CallWorker(
-            lambda: self.controller.review_edit_conflict(form, draft)
+        self._start(
+            lambda: self.controller.review_edit_conflict(form, draft),
+            completed=self._conflict_ready,
+            failed=self._conflict_failed,
         )
-        self._workers.add(review_worker)
-        review_worker.signals.completed.connect(self._conflict_ready)
-        review_worker.signals.failed.connect(self._conflict_failed)
-        self._thread_pool.start(review_worker)
 
     @Slot(object, object)
     def _conflict_ready(
@@ -1024,6 +922,29 @@ class TideQtEditDialog(QDialog):
                 )
         self.reopenRequested.emit(form, message)
         super().reject()
+
+    def _start(
+        self,
+        call: Callable[[], Any],
+        *,
+        completed: Callable[[Any, CallWorker], None],
+        failed: Callable[[Exception, CallWorker], None],
+    ) -> CallWorker:
+        """Run one secured call on this dialog's single worker thread.
+
+        Save, domain actions, report preview, lookup selection and conflict
+        review all reach the server the same way, and each of these lines
+        matters: a worker nobody holds is collected mid-flight, and one that
+        is never started leaves the dialog saving for good. Callers that have
+        to remember what they sent key it on the returned worker.
+        """
+
+        worker = CallWorker(call)
+        self._workers.add(worker)
+        worker.signals.completed.connect(completed)
+        worker.signals.failed.connect(failed)
+        self._thread_pool.start(worker)
+        return worker
 
     def _set_saving(
         self,
