@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-import importlib.util
 from pathlib import Path
 from types import ModuleType
 from typing import Any
 
 from tide.compiler.normalized import ApplicationModel
 from tide.data.repository import Repository
+from tide.runtime.application import (
+    ApplicationModuleError,
+    load_application_module,
+)
 
 
 class DemoDataError(ValueError):
@@ -87,13 +90,11 @@ def _reserve_sequence_floors(module: ModuleType, repository: Repository) -> None
 
 
 def _load_provider(provider_file: Path) -> ModuleType:
-    module_name = f"tide_demo_data_{abs(hash(provider_file.resolve()))}"
-    spec = importlib.util.spec_from_file_location(module_name, provider_file)
-    if spec is None or spec.loader is None:
-        raise DemoDataError(f"could not load demo data from {provider_file.as_posix()}")
-    module = importlib.util.module_from_spec(spec)
     try:
-        spec.loader.exec_module(module)
+        return load_application_module(provider_file)
+    except ApplicationModuleError as error:
+        raise DemoDataError(
+            f"could not load demo data from {provider_file.as_posix()}"
+        ) from error
     except Exception as error:
         raise DemoDataError(f"demo data provider failed: {error}") from error
-    return module

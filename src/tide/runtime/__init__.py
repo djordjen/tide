@@ -1,7 +1,9 @@
 from tide.runtime.context import Channel, Principal, RequestContext
 from tide.runtime.application import (
+    ApplicationModuleError,
     ApplicationRuntimeError,
     configure_application_runtime,
+    load_application_module,
 )
 from tide.runtime.errors import (
     ActionDisabled,
@@ -23,6 +25,7 @@ from tide.runtime.errors import (
 
 __all__ = [
     "ActionDisabled",
+    "ApplicationModuleError",
     "ApplicationRuntimeError",
     "ActionStoreError",
     "AuthorizationError",
@@ -42,4 +45,5 @@ __all__ = [
     "ValidationFailed",
     "VersionPreconditionRequired",
     "configure_application_runtime",
+    "load_application_module",
 ]

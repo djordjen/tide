@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
 from types import ModuleType
 from typing import Mapping
 
 from tide.compiler.normalized import ApplicationModel
-from tide.runtime import RequestContext
+from tide.runtime import (
+    ApplicationModuleError,
+    RequestContext,
+    load_application_module,
+)
 from tide.services import ActionService, RecordsService
 
 
@@ -68,15 +71,11 @@ def seed_fake_data(
 
 
 def _load_provider(provider_file: Path) -> ModuleType:
-    module_name = f"tide_fake_data_{abs(hash(provider_file.resolve()))}"
-    spec = importlib.util.spec_from_file_location(module_name, provider_file)
-    if spec is None or spec.loader is None:
+    try:
+        return load_application_module(provider_file)
+    except ApplicationModuleError as error:
         raise FakeDataError(
             f"could not load fake data from {provider_file.as_posix()}"
-        )
-    module = importlib.util.module_from_spec(spec)
-    try:
-        spec.loader.exec_module(module)
+        ) from error
     except Exception as error:
         raise FakeDataError(f"fake-data provider failed: {error}") from error
-    return module

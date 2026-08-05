@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 from pathlib import Path
+import re
+import sys
 from types import ModuleType
 from typing import TYPE_CHECKING
 
@@ -15,6 +18,64 @@ if TYPE_CHECKING:
 
 class ApplicationRuntimeError(ValueError):
     """The application's optional runtime registration is invalid."""
+
+
+class ApplicationModuleError(ImportError):
+    """A Python file an application owns could not be imported."""
+
+
+def load_application_module(path: Path) -> ModuleType:
+    """Import a Python file an application owns, once per path.
+
+    Five places wrote this out: the runtime hook, the demo-data provider, the
+    fake-data provider, the invoicing application's own action loader, and the
+    template that generates that loader into every generated application. Each
+    named the module `f"..._{abs(hash(path.resolve()))}"` and left it out of
+    `sys.modules`, and both halves are wrong in ways that stay quiet:
+
+    * `hash` on a string is salted per process, so the same file is a
+      differently-named module on every run. Anything that reads `__name__` --
+      a traceback, a log line, a pickle -- reads a number that means nothing
+      and never repeats.
+    * A module absent from `sys.modules` cannot be found by its own name, so
+      `typing.get_type_hints` on anything it defines fails. Under
+      `from __future__ import annotations`, which every file in this tree
+      uses, that is every annotation the runtime tries to resolve.
+    * Loading twice executed twice, and the two runs produce different class
+      objects for the same `class` statement, so `isinstance` says no between
+      values that came from the same source file.
+
+    The name is derived from the path, so it is stable across processes and
+    readable in a traceback. The digest keeps two `runtime.py` files in
+    different applications apart.
+    """
+
+    resolved = path.resolve()
+    name = _application_module_name(resolved)
+    cached = sys.modules.get(name)
+    if cached is not None:
+        return cached
+    spec = importlib.util.spec_from_file_location(name, resolved)
+    if spec is None or spec.loader is None:
+        raise ApplicationModuleError(f"could not load {resolved.as_posix()}")
+    module = importlib.util.module_from_spec(spec)
+    # Registered before execution, so a module that inspects its own
+    # annotations while importing can find itself, and removed again if that
+    # execution fails -- a half-run module left behind would be returned to
+    # the next caller as though it had loaded.
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(name, None)
+        raise
+    return module
+
+
+def _application_module_name(resolved: Path) -> str:
+    digest = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:12]
+    readable = re.sub(r"[^0-9A-Za-z]+", "_", f"{resolved.parent.name}_{resolved.stem}")
+    return f"tide_application_{readable.strip('_') or 'module'}_{digest}"
 
 
 def configure_application_runtime(
@@ -97,17 +158,13 @@ def verify_runtime_registrations(
 
 
 def _load_runtime(runtime_file: Path) -> ModuleType:
-    module_name = f"tide_application_runtime_{abs(hash(runtime_file.resolve()))}"
-    spec = importlib.util.spec_from_file_location(module_name, runtime_file)
-    if spec is None or spec.loader is None:
+    try:
+        return load_application_module(runtime_file)
+    except ApplicationModuleError as error:
         raise ApplicationRuntimeError(
             f"could not load application runtime from {runtime_file.as_posix()}"
-        )
-    module = importlib.util.module_from_spec(spec)
-    try:
-        spec.loader.exec_module(module)
+        ) from error
     except Exception as error:
         raise ApplicationRuntimeError(
             f"application runtime failed to load: {error}"
         ) from error
-    return module

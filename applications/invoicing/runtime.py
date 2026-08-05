@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
-from types import ModuleType
+
+from tide.runtime import load_application_module
 from tide.services import ActionService, RecordsService
 
 
 def configure_runtime(records: RecordsService, actions: ActionService) -> None:
-    invoicing_actions = _load_actions()
+    invoicing_actions = load_application_module(
+        Path(__file__).with_name("actions.py")
+    )
     records.register_generator(
         "actions.allocate_invoice_number",
         lambda values, _context, repository: invoicing_actions.allocate_invoice_number(
@@ -25,16 +27,3 @@ def configure_runtime(records: RecordsService, actions: ActionService) -> None:
             occurred_at=payload.get("occurred_at"),
         ),
     )
-
-
-def _load_actions() -> ModuleType:
-    actions_file = Path(__file__).with_name("actions.py")
-    spec = importlib.util.spec_from_file_location(
-        "tide_invoicing_actions",
-        actions_file,
-    )
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"could not load {actions_file.as_posix()}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
