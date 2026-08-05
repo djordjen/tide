@@ -123,7 +123,6 @@ module = [
     "tide.development.studio",
     "tide.mcp.contracts",
     "tide.mcp.runtime",
-    "tide.qt.app",
     "tide.qt.presenter",
     "tide.reporting.service",
     "tide.tui.app",

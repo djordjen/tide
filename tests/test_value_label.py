@@ -18,16 +18,36 @@ from tide.labels import humanize, value_label
 
 ROOT = Path(__file__).parents[1]
 
-# Every module that displays a stored choice value.
-CONSUMERS = (
-    "tide.reporting.service",
-    "tide.tui.app",
-    "tide.tui.form",
-    "tide.tui.lookup",
-    "tide.tui.studio",
-    "tide.qt.app",
-    "tide.qt.presenter",
-)
+def _consumers() -> tuple[str, ...]:
+    """Every module that displays a stored choice value, found not listed.
+
+    A hand-kept list goes stale the moment a renderer is split into more
+    modules: `tide.qt.app` stayed here after the code that called this moved
+    to `tide.qt.form`, so the guard was asking a module about a function it no
+    longer contained. Deriving it means the guard follows the code.
+    """
+
+    modules = []
+    for path in sorted((ROOT / "src" / "tide").rglob("*.py")):
+        if path.name == "labels.py":
+            continue
+        if "value_label" not in path.read_text(encoding="utf-8"):
+            continue
+        parts = path.relative_to(ROOT / "src").with_suffix("").parts
+        if parts[-1] == "__init__":
+            parts = parts[:-1]
+        modules.append(".".join(parts))
+    return tuple(modules)
+
+
+CONSUMERS = _consumers()
+
+
+def test_the_guard_still_has_something_to_guard() -> None:
+    """A derived list that quietly emptied would pass everything below."""
+
+    families = {name.split(".")[1] for name in CONSUMERS}
+    assert {"qt", "reporting", "tui"} <= families, CONSUMERS
 
 
 @pytest.mark.parametrize("module_name", CONSUMERS)

@@ -7,6 +7,7 @@ dependencies.
 
 from __future__ import annotations
 
+from importlib import import_module
 from typing import Any
 
 from .presenter import (
@@ -62,48 +63,35 @@ __all__ = [
     "TideQtLookupDialog",
     "TideQtReferenceEditor",
     "TideQtReportDialog",
+    "TideQtTableModel",
     "TideQtWindow",
     "TideQtWorkspaceWindow",
     "run_qt_application",
 ]
 
 
-def __getattr__(name: str) -> Any:
-    if name in {
-        "TideQtDetailDialog",
-        "TideQtCollectionEditor",
-        "TideQtConflictDialog",
-        "TideQtEditDialog",
-        "TideQtLookupDialog",
-        "TideQtReferenceEditor",
-        "TideQtReportDialog",
-        "TideQtWindow",
-        "TideQtWorkspaceWindow",
-        "run_qt_application",
-    }:
-        from .app import (
-            TideQtCollectionEditor,
-            TideQtConflictDialog,
-            TideQtDetailDialog,
-            TideQtEditDialog,
-            TideQtLookupDialog,
-            TideQtReferenceEditor,
-            TideQtReportDialog,
-            TideQtWindow,
-            TideQtWorkspaceWindow,
-            run_qt_application,
-        )
+#: Which module holds each widget. This is the one place that knows, so a
+#: screen can move without every caller following it, and importing one screen
+#: does not drag in the rest of the renderer.
+_WIDGETS = {
+    "TideQtCollectionEditor": "collection",
+    "TideQtConflictDialog": "conflict",
+    "TideQtDetailDialog": "detail",
+    "TideQtEditDialog": "form",
+    "TideQtLookupDialog": "lookup",
+    "TideQtReferenceEditor": "editors",
+    "TideQtReportDialog": "report",
+    "TideQtTableModel": "table",
+    "TideQtWindow": "app",
+    "TideQtWorkspaceWindow": "app",
+    "run_qt_application": "app",
+}
 
-        return {
-            "TideQtCollectionEditor": TideQtCollectionEditor,
-            "TideQtConflictDialog": TideQtConflictDialog,
-            "TideQtDetailDialog": TideQtDetailDialog,
-            "TideQtEditDialog": TideQtEditDialog,
-            "TideQtLookupDialog": TideQtLookupDialog,
-            "TideQtReferenceEditor": TideQtReferenceEditor,
-            "TideQtReportDialog": TideQtReportDialog,
-            "TideQtWindow": TideQtWindow,
-            "TideQtWorkspaceWindow": TideQtWorkspaceWindow,
-            "run_qt_application": run_qt_application,
-        }[name]
-    raise AttributeError(name)
+
+def __getattr__(name: str) -> Any:
+    """Load a widget on first use, so PySide6 stays optional until then."""
+
+    module = _WIDGETS.get(name)
+    if module is None:
+        raise AttributeError(name)
+    return getattr(import_module(f".{module}", __name__), name)
