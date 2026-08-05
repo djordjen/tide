@@ -133,13 +133,11 @@ it("leaves no dialog to keep the promise on its own", () => {
   // before one of them drifted, so the agreement is checked rather than
   // assumed -- and the fourth dialog is caught the day it is written.
   const components = dirname(fileURLToPath(import.meta.url))
-  const unguarded = readdirSync(components, { recursive: true })
-    .filter(
-      (name) =>
-        typeof name === "string" &&
-        name.endsWith(".tsx") &&
-        !name.endsWith(".test.tsx"),
-    )
+  const unguarded = readdirSync(components, {
+    recursive: true,
+    encoding: "utf8",
+  })
+    .filter((name) => name.endsWith(".tsx") && !name.endsWith(".test.tsx"))
     .filter((name) => {
       const source = readFileSync(join(components, name), "utf8")
       return (
