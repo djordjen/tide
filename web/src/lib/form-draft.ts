@@ -139,6 +139,34 @@ export function mutationPayload(
   )
 }
 
+/**
+ * Say what a draft holds so far, in the wire types the server insists on.
+ *
+ * This goes through the same `payloadValue` conversion as a save, because the
+ * server decodes both with one strict decoder: an integer field must arrive as
+ * a JSON number, a boolean as a JSON boolean. A text input only ever hands
+ * back a string, so sending the draft raw made the server refuse the whole
+ * selection -- and with it the assignments the selection exists to perform.
+ *
+ * It differs from `mutationPayload` in what it leaves out. A save replaces the
+ * record, so every writable field is sent, empty ones included. A selection
+ * only describes work in progress, so a field nobody has filled is omitted
+ * rather than asserted as null.
+ */
+export function referenceSelectionDraft(
+  form: TideFormPresentation,
+  draft: TideFormDraft,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.values(form.fields)
+      .filter(
+        (field) => field.writable && draft[field.name] !== undefined,
+      )
+      .map((field) => [field.name, payloadValue(field, draft[field.name])])
+      .filter(([, value]) => value !== null),
+  )
+}
+
 export function changedMutationPayload(
   form: TideFormPresentation,
   draft: TideFormDraft,

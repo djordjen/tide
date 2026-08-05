@@ -110,6 +110,10 @@ it("searches a metadata lookup and creates a related record with Save & Select",
           identity: number
         }
         selections.push(body)
+        const refusal = selectionWireRefusal(body.entity, body.values)
+        if (refusal) {
+          return refusal
+        }
         return jsonResponse({
           values: { ...body.values, customer: body.identity },
         })
@@ -306,6 +310,10 @@ it("saves Invoice line drafts and Product Save & Select as one parent update", a
           identity: number
         }
         selections.push(body)
+        const refusal = selectionWireRefusal(body.entity, body.values)
+        if (refusal) {
+          return refusal
+        }
         const selected = products.get(body.identity)
         return jsonResponse({
           values: {
@@ -376,7 +384,7 @@ it("saves Invoice line drafts and Product Save & Select as one parent update", a
     field: "product",
     identity: 3,
     values: {
-      line_number: "1",
+      line_number: 1,
       product: 1,
       description: "Demo line",
       quantity: "1.000",
@@ -902,6 +910,65 @@ function renderApp() {
         <App />
       </TooltipProvider>
     </QueryClientProvider>,
+  )
+}
+
+/**
+ * The JSON type the server's selection decoder takes each field in.
+ *
+ * `tide.api.wire.decode_wire_value` accepts an integer only as a number and a
+ * decimal only as a string, and refuses the whole request otherwise. A stub
+ * that echoes back whatever it is handed cannot see a renderer serialising a
+ * text input straight onto the wire -- which is how a Product selection came
+ * to fail against a real server while passing here.
+ */
+const SELECTION_WIRE_TYPES: Record<
+  string,
+  Record<string, "string" | "number" | "boolean">
+> = {
+  "sales.Invoice": {
+    invoice_date: "string",
+    currency: "string",
+    customer: "number",
+  },
+  "sales.InvoiceLine": {
+    line_number: "number",
+    description: "string",
+    quantity: "string",
+    unit_price: "string",
+    product: "number",
+  },
+}
+
+function selectionWireRefusal(
+  entity: string,
+  values: Record<string, unknown>,
+): Response | null {
+  const expected = SELECTION_WIRE_TYPES[entity]
+  if (expected === undefined) {
+    return badRequest(`no wire types are declared for ${entity}`)
+  }
+  for (const [name, value] of Object.entries(values)) {
+    const wanted = expected[name]
+    if (wanted === undefined) {
+      return badRequest(`unknown draft field ${entity}.${name}`)
+    }
+    if (typeof value !== wanted) {
+      return badRequest(
+        `${entity}.${name} arrived as ${typeof value}, not ${wanted}`,
+      )
+    }
+  }
+  return null
+}
+
+function badRequest(detail: string): Response {
+  return jsonResponse(
+    {
+      code: "invalid_request",
+      message: `reference-selection payload is invalid: ${detail}`,
+    },
+    { status: 400 },
   )
 }
 

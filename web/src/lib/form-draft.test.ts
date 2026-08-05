@@ -13,6 +13,7 @@ import {
   mutationPayload,
   newCollectionDraft,
   normalizeNumericDraft,
+  referenceSelectionDraft,
   shiftIsoDate,
   validateFormDraft,
 } from "@/lib/form-draft"
@@ -93,6 +94,36 @@ describe("metadata-driven form drafts", () => {
         },
       ),
     ).toEqual({ name: "Updated support" })
+  })
+
+  it("sends a selection draft in the server's wire types, not the input's", () => {
+    // Every editor hands back a string. The server's selection decoder takes
+    // an integer only as a JSON number, so a draft passed through unconverted
+    // is refused whole and the selection assigns nothing.
+    const payload = referenceSelectionDraft(invoiceLineForm, {
+      line_number: "1",
+      quantity: "3",
+      description: "",
+      product: null,
+      taxable: false,
+    })
+
+    expect(payload).toEqual({
+      line_number: 1,
+      quantity: "3",
+      taxable: false,
+    })
+    expect(typeof payload.line_number).toBe("number")
+    expect(typeof payload.quantity).toBe("string")
+  })
+
+  it("leaves a selection draft's unfilled fields out rather than nulling them", () => {
+    // A save replaces the record, so it states every field. A selection only
+    // reports work in progress: a field nobody has reached is not a field
+    // somebody cleared, and the server echoes back what it was sent.
+    expect(
+      referenceSelectionDraft(invoiceLineForm, formDraft(invoiceLineForm)),
+    ).toEqual({ taxable: false })
   })
 })
 
@@ -181,6 +212,63 @@ describe("collections the renderer knows nothing about", () => {
     expect(form?.label).toBe("Position")
   })
 })
+
+const invoiceLineForm: TideFormPresentation = {
+  view: "sales.InvoiceLine.edit",
+  entity: "sales.InvoiceLine",
+  label: "Invoice Line",
+  display_template: null,
+  fields: {
+    line_number: field({
+      name: "line_number",
+      label: "Line Number",
+      field_type: "integer",
+      required: true,
+      numeric_mask: "0",
+    }),
+    quantity: field({
+      name: "quantity",
+      label: "Quantity",
+      field_type: "decimal",
+      required: true,
+      numeric_mask: "0.000",
+      precision: 12,
+      scale: 3,
+    }),
+    description: field({
+      name: "description",
+      label: "Description",
+      required: true,
+      max_length: 200,
+    }),
+    product: field({
+      name: "product",
+      label: "Product",
+      field_type: "reference",
+      required: true,
+      target_entity: "catalog.Product",
+    }),
+    taxable: field({
+      name: "taxable",
+      label: "Taxable",
+      field_type: "boolean",
+      has_default: true,
+      default_value: false,
+    }),
+  },
+  sections: [
+    {
+      kind: "group",
+      label: "Line",
+      rows: [
+        ["line_number", "quantity"],
+        ["description", "product"],
+        ["taxable"],
+      ],
+      tab: null,
+    },
+  ],
+}
 
 const shipmentStops: TidePresentationFormCollection = {
   kind: "collection",

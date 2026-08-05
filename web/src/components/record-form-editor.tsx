@@ -33,6 +33,7 @@ import {
   isEditableForm,
   mutationPayload,
   normalizeNumericDraft,
+  referenceSelectionDraft,
   shiftIsoDate,
   validateFormDraft,
   type TideFormDraft,
@@ -936,21 +937,6 @@ function NestedCreate({
         </Button>
       </footer>
     </>
-  )
-}
-
-function referenceSelectionDraft(
-  form: TideFormPresentation,
-  draft: TideFormDraft,
-): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.values(form.fields)
-      .filter((field) => field.writable)
-      .map((field) => [field.name, draft[field.name]])
-      .filter(
-        ([, value]) =>
-          value !== "" && value !== null && value !== undefined,
-      ),
   )
 }
 
