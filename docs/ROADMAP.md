@@ -429,3 +429,24 @@ Deeper report design and developer-MCP editing remain later Milestone 7 work.
 - public module or application repository;
 - source generation only if runtime metadata proves insufficient;
 - alternative runtimes only after the model contract is stable.
+
+## Command-line direction
+
+The shape the CLI is growing towards. Some of these exist today; see
+[the changelog](../CHANGELOG.md) for which.
+
+```bash
+tide new invoicing
+tide model validate
+tide model explain sales.Invoice.customer
+tide view explain sales.Invoice.edit
+tide api export-openapi
+tide auth check-oidc
+tide db check
+tide db diff
+tide db migrate
+tide studio
+tide run
+tide serve
+tide report preview sales.invoice
+```
