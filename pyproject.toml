@@ -129,7 +129,6 @@ module = [
     "tide.tui.audit",
     "tide.tui.form",
     "tide.tui.report",
-    "tide.tui.studio",
     "tide.tui.table",
 ]
 ignore_errors = true

@@ -1830,3 +1830,55 @@ def test_a_row_highlight_after_teardown_does_not_crash_the_studio() -> None:
                 row_key=table.coordinate_to_cell_key((0, 0)).row_key,
             )
         )
+
+
+def test_textual_studio_quits_but_not_over_an_open_yaml_edit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`q` is the only way out, and it is an async action.
+
+    `App.action_quit` is a coroutine. Studio overrode it with a plain method,
+    which worked because Textual awaits whatever an action returns -- but
+    nothing here ever pressed `q`, so neither the override nor the guard that
+    protects an in-progress YAML edit had any coverage at all.
+    """
+
+    app = StudioApp(StudioService(INVOICING))
+    notifications: list[str] = []
+    monkeypatch.setattr(
+        app,
+        "notify",
+        lambda message, **_options: notifications.append(str(message)),
+    )
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 36)) as pilot:
+            await pilot.pause()
+            app.action_edit_source()
+            await pilot.pause()
+            assert app._source_editing
+
+            # Called rather than pressed: while the YAML edit is open the
+            # TextArea has focus and types the `q` instead of triggering the
+            # binding, so a keypress here would prove nothing about the guard.
+            await app.action_quit()
+            await pilot.pause()
+            # `exit()` does not stop the app within one pause, so `is_running`
+            # alone would pass with the guard deleted. What proves the guard
+            # ran is that it said so, and that the edit is still open.
+            assert notifications == [
+                "Apply or cancel the expert YAML edit before closing Studio"
+            ]
+            assert app._source_editing
+            assert app.is_running
+
+            app.action_cancel_source_edit()
+            await pilot.pause()
+            assert not app._source_editing
+
+            # Pressed, so the binding is covered too.
+            await pilot.press("q")
+            await wait_until(pilot, lambda: not app.is_running, description="Studio to close")
+            assert not app.is_running
+
+    asyncio.run(exercise())
