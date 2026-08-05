@@ -751,9 +751,17 @@ def _create_parser() -> argparse.ArgumentParser:
             "(default name: TIDE_DATABASE_URL)"
         ),
     )
-    seed.add_argument("--customers", type=int, default=25)
-    seed.add_argument("--products", type=int, default=20)
-    seed.add_argument("--invoices", type=int, default=100)
+    seed.add_argument(
+        "--count",
+        action="append",
+        default=[],
+        metavar="NAME=NUMBER",
+        help=(
+            "how many records the application's fake-data provider should "
+            "make of NAME; repeat for each name the provider understands, and "
+            "omit a name to accept the provider's own default"
+        ),
+    )
     seed.add_argument("--random-seed", type=int, default=20260716)
     seed.add_argument("--locale", default="en_US")
     seed.add_argument("--role", default="sales_clerk")
@@ -2138,6 +2146,40 @@ def _db_verify_backup(arguments: argparse.Namespace) -> int:
     return 0
 
 
+def _seed_counts(values: list[str]) -> dict[str, int]:
+    """Read `--count NAME=NUMBER` options into what the provider is asked for.
+
+    The framework used to spell these as `--customers`, `--products` and
+    `--invoices`: three of the sample application's collections, in the CLI of
+    a framework that is supposed to know nothing about invoicing, and useless
+    to anyone whose application counts something else. The decision of
+    2026-07-16 already put fake-data profiles in application-owned providers;
+    the flags had stayed behind.
+
+    Nothing here knows which names are meaningful -- that is the provider's
+    business -- so an unrecognised one is not an error at this layer. What is
+    checked is the shape, and a repeated name, because a second spelling of
+    the same thing silently overriding the first is how a typo becomes a
+    surprise.
+    """
+
+    counts: dict[str, int] = {}
+    for value in values:
+        name, separator, number = value.partition("=")
+        name = name.strip()
+        if not separator or not name:
+            raise ValueError(f"count {value!r} is not NAME=NUMBER")
+        if name in counts:
+            raise ValueError(f"count {name!r} was given more than once")
+        try:
+            counts[name] = int(number)
+        except ValueError as error:
+            raise ValueError(f"count for {name!r} is not a number: {number!r}") from error
+        if counts[name] < 0:
+            raise ValueError(f"count for {name!r} must not be negative")
+    return counts
+
+
 def _db_seed(arguments: argparse.Namespace) -> int:
     model = compile_project(arguments.project)
     if str(model.database["mode"]) != "managed":
@@ -2147,13 +2189,10 @@ def _db_seed(arguments: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    counts = {
-        "customers": arguments.customers,
-        "products": arguments.products,
-        "invoices": arguments.invoices,
-    }
-    if any(count < 0 for count in counts.values()):
-        print("Fake-data counts must not be negative.", file=sys.stderr)
+    try:
+        counts = _seed_counts(arguments.count)
+    except ValueError as error:
+        print(f"Fake-data seeding failed: {error}", file=sys.stderr)
         return 1
 
     storage = _open_run_storage(arguments, model, purpose="Fake-data")

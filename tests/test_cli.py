@@ -4,12 +4,13 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import create_engine
 
 from tide import compile_project
 from tide.api.auth import OidcJwtAuthenticator
 from tide.api.browser_auth import OidcBrowserAuth, OidcBrowserProviderInfo
-from tide.cli import main
+from tide.cli import _seed_counts, main
 from tide.data import (
     SQLAlchemyActionExecutionStore,
     SQLAlchemyCursorStore,
@@ -1059,12 +1060,12 @@ def test_db_seed_populates_empty_managed_database_deterministically(
                 str(INVOICING),
                 "--database-env",
                 "SEED_DATABASE_URL",
-                "--customers",
-                "4",
-                "--products",
-                "3",
-                "--invoices",
-                "6",
+                "--count",
+                "customers=4",
+                "--count",
+                "products=3",
+                "--count",
+                "invoices=6",
                 "--random-seed",
                 "12345",
             ]
@@ -1100,6 +1101,44 @@ def test_db_seed_populates_empty_managed_database_deterministically(
     )
     assert repeated == 1
     assert "database is not empty" in capsys.readouterr().err
+
+
+def test_seed_counts_name_nothing_the_framework_knows_about() -> None:
+    """`--customers`, `--products` and `--invoices` were the sample app's.
+
+    A framework CLI that only knows how to count invoices is no use to an
+    application counting inspections, and the 2026-07-16 decision had already
+    put fake-data profiles in application-owned providers. The names are the
+    provider's business now, so nothing here rejects one it does not
+    recognise -- only shapes it cannot read.
+    """
+
+    assert _seed_counts([]) == {}
+    assert _seed_counts(["inspections=3", "readings=12"]) == {
+        "inspections": 3,
+        "readings": 12,
+    }
+    assert _seed_counts(["anything-at-all=0"]) == {"anything-at-all": 0}
+
+
+@pytest.mark.parametrize(
+    ("values", "message"),
+    [
+        (["customers"], "not NAME=NUMBER"),
+        (["=4"], "not NAME=NUMBER"),
+        (["customers=lots"], "is not a number"),
+        (["customers=-1"], "must not be negative"),
+        # Silently taking the last of two spellings is how a typo becomes a
+        # database with the wrong number of rows in it.
+        (["customers=4", "customers=5"], "more than once"),
+    ],
+)
+def test_a_seed_count_that_cannot_be_read_is_refused(
+    values: list[str],
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        _seed_counts(values)
 
 
 def _write_generation_plan(tmp_path: Path) -> Path:

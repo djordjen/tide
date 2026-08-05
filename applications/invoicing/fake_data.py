@@ -19,9 +19,12 @@ def seed_fake_data(
     counts: dict[str, int],
     random_seed: int,
 ) -> dict[str, int]:
-    customer_count = counts.get("customers", 0)
-    product_count = counts.get("products", 0)
-    invoice_count = counts.get("invoices", 0)
+    # The defaults live here rather than in `tide db seed`, because how many
+    # of a thing makes a useful development database is a question about this
+    # application, not about the framework running it.
+    customer_count = counts.get("customers", 25)
+    product_count = counts.get("products", 20)
+    invoice_count = counts.get("invoices", 100)
     if invoice_count and (not customer_count or not product_count):
         raise ValueError("fake invoices require at least one customer and product")
 
