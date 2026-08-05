@@ -46,8 +46,14 @@ class ActionService:
         self.model = model
         self.records = records
         self.security = security or records.security
+        # Read from the records service, never written back to it. The line
+        # that used to follow this one -- `records.audit_store = ...` --
+        # retargeted the caller's audit sink as a side effect of constructing
+        # an action service, so a second `ActionService` over the same records
+        # moved where CRUD audit went and left the first one disagreeing about
+        # it. Every composition site in the tree already passed the same store
+        # to both, which is what makes it wiring rather than a fixup.
         self.execution_store = execution_store or records.audit_store
-        records.audit_store = self.execution_store
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._event_id_factory = event_id_factory or (lambda: str(uuid4()))
         self._handlers: dict[str, ActionHandler] = {}

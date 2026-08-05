@@ -52,6 +52,26 @@ invoicing_actions = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(invoicing_actions)
 
 
+def test_building_an_action_service_leaves_the_records_audit_sink_alone() -> None:
+    """Constructing one service must not quietly rewire another.
+
+    `ActionService.__init__` assigned `records.audit_store`, so a second action
+    service over the same records service moved where CRUD audit was written
+    and left the first one believing it still went somewhere else. Nothing
+    needed it: every composition site in the tree already passes the same store
+    to both, which is what makes it wiring rather than a fixup.
+    """
+
+    crud_audit = InMemoryActionExecutionStore()
+    action_audit = InMemoryActionExecutionStore()
+    model, repository, _records = _memory_runtime()
+    records = RecordsService(model, repository, audit_store=crud_audit)
+
+    ActionService(model, records, execution_store=action_audit)
+
+    assert records.audit_store is crud_audit
+
+
 def test_in_memory_store_survives_action_service_recreation() -> None:
     store = InMemoryActionExecutionStore()
     model, repository, records = _memory_runtime()
