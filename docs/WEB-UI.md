@@ -69,6 +69,10 @@ database.
   regular-expression, numeric-mask, precision/scale, range, and choice hints;
 - Enter traversal, date `+`/`-` shortcuts, changed-fields-only updates, and
   field-addressable client and server validation feedback;
+- modal dialogs — reference lookup, conflict review, and report preview — that
+  take focus when they open, hold `Tab` and `Shift+Tab` within their own
+  controls, and hand focus back to whatever opened them, so `aria-modal="true"`
+  is enforced rather than only declared;
 - optimistic update protection whenever the entity declares a concurrency
   token and its record response supplies an ETag;
 - explicit Original/Current/Your draft review after a stale update, including

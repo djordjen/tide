@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import {
   Download,
@@ -15,6 +15,7 @@ import type {
   TideReportDocument,
   TideReportExportFormat,
 } from "@/lib/contracts"
+import { useDialogFocus } from "@/lib/dialog-focus"
 import { cn } from "@/lib/utils"
 
 interface ReportPreviewProps {
@@ -30,6 +31,8 @@ export function ReportPreview({
   identity,
   onClose,
 }: ReportPreviewProps) {
+  const dialogRef = useRef<HTMLElement>(null)
+  const keepFocusInDialog = useDialogFocus(dialogRef)
   const [exporting, setExporting] =
     useState<TideReportExportFormat | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
@@ -95,10 +98,13 @@ export function ReportPreview({
       }}
     >
       <section
+        ref={dialogRef}
         aria-labelledby="tide-report-preview-title"
         aria-modal="true"
         role="dialog"
+        tabIndex={-1}
         className="flex h-[min(94vh,980px)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border bg-background shadow-2xl"
+        onKeyDown={keepFocusInDialog}
       >
         <header className="flex shrink-0 items-center justify-between gap-4 border-b px-4 py-3 md:px-6">
           <div className="min-w-0">

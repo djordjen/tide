@@ -26,6 +26,7 @@ import type {
   TidePresentationManifest,
   TideRecord,
 } from "@/lib/contracts"
+import { useDialogFocus } from "@/lib/dialog-focus"
 import {
   acceptsNumericDraft,
   formDraft,
@@ -474,6 +475,7 @@ function ReferenceLookupDialog({
 }) {
   const queryClient = useQueryClient()
   const dialogRef = useRef<HTMLElement>(null)
+  const keepFocusInDialog = useDialogFocus(dialogRef)
   const searchRef = useRef<HTMLInputElement>(null)
   const [search, setSearch] = useState("")
   const debouncedSearch = useDebouncedValue(search.trim(), 250)
@@ -577,6 +579,7 @@ function ReferenceLookupDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="tide-lookup-title"
+        tabIndex={-1}
         className="flex max-h-[min(46rem,calc(100vh-2rem))] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border bg-card shadow-2xl"
         onKeyDown={(event) => {
           event.stopPropagation()
@@ -587,9 +590,9 @@ function ReferenceLookupDialog({
             } else {
               onClose()
             }
-          } else if (event.key === "Tab") {
-            trapDialogFocus(event, dialogRef.current)
+            return
           }
+          keepFocusInDialog(event)
         }}
       >
         <header className="flex items-start justify-between gap-4 border-b px-5 py-4">
@@ -961,32 +964,6 @@ export function formEditorId(
     "-",
   )
   return `tide-editor-${view}-${fieldName}`
-}
-
-function trapDialogFocus(
-  event: KeyboardEvent<HTMLElement>,
-  dialog: HTMLElement | null,
-) {
-  if (!dialog) {
-    return
-  }
-  const focusable = Array.from(
-    dialog.querySelectorAll<HTMLElement>(
-      "button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex='-1'])",
-    ),
-  )
-  const first = focusable[0]
-  const last = focusable.at(-1)
-  if (!first || !last) {
-    return
-  }
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault()
-    last.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault()
-    first.focus()
-  }
 }
 
 function FieldMessage({

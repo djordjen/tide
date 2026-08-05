@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import {
   AlertTriangle,
   Check,
@@ -18,6 +18,7 @@ import {
   type TideConflictDisposition,
   type TideRecordConflict,
 } from "@/lib/conflicts"
+import { useDialogFocus } from "@/lib/dialog-focus"
 import { formatCellValue } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -44,6 +45,8 @@ export function RecordConflictReview({
   onReloadCurrent,
   onApply,
 }: RecordConflictReviewProps) {
+  const dialogRef = useRef<HTMLElement>(null)
+  const keepFocusInDialog = useDialogFocus(dialogRef)
   const resolution = resolveRecordConflict(conflict, choices)
   const retainedSafe = conflict.rebaseFields.filter(
     (name) => !lockedFields.has(name),
@@ -71,10 +74,13 @@ export function RecordConflictReview({
       }}
     >
       <section
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="record-conflict-title"
+        tabIndex={-1}
         className="flex max-h-[min(800px,calc(100vh-1.5rem))] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border bg-card shadow-2xl md:max-h-[calc(100vh-3rem)]"
+        onKeyDown={keepFocusInDialog}
       >
         <header className="shrink-0 border-b px-5 py-4 md:px-6">
           <div className="flex items-start gap-3">
