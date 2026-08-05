@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
@@ -71,6 +71,69 @@ it("falls back when a link names a view this principal cannot see", async () => 
   ).toBeInTheDocument()
 })
 
+it("puts the open record in the address bar and takes it back", async () => {
+  stubServer()
+  const user = userEvent.setup()
+  renderApp()
+  await connectWithToken(user)
+
+  await user.dblClick(await screen.findByRole("row", { name: /P00001/ }))
+
+  expect(
+    await screen.findByRole("heading", { name: "Product — P00001" }),
+  ).toBeInTheDocument()
+  expect(new URLSearchParams(window.location.search).get("record")).toBe("1")
+
+  window.history.back()
+
+  // Waiting on the detail going away, not on the browse heading appearing:
+  // the browse stays mounted behind the detail, so it is found either way.
+  // The wait is also what keeps `back` from settling inside the next test --
+  // jsdom delivers `popstate` in a later task, and an unawaited one rewrote
+  // the URL of the test after this one.
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("heading", { name: "Product — P00001" }),
+    ).not.toBeInTheDocument(),
+  )
+  expect(new URLSearchParams(window.location.search).get("record")).toBeNull()
+})
+
+it("opens the record a link names", async () => {
+  window.history.replaceState(
+    null,
+    "",
+    "/?view=catalog.Product.browse&record=1",
+  )
+  stubServer()
+  const user = userEvent.setup()
+  renderApp()
+  await connectWithToken(user)
+
+  expect(
+    await screen.findByRole("heading", { name: "Product — P00001" }),
+  ).toBeInTheDocument()
+})
+
+it("closes the record when the view it belonged to is left", async () => {
+  // Entities number their rows from one, so a record identity only means
+  // something inside the view it came from. Carried across, `record=1` opens
+  // a customer nobody asked for.
+  stubServer()
+  const user = userEvent.setup()
+  renderApp()
+  await connectWithToken(user)
+  await user.dblClick(await screen.findByRole("row", { name: /P00001/ }))
+  await screen.findByRole("heading", { name: "Product — P00001" })
+
+  await user.click(screen.getByRole("button", { name: "Customers" }))
+
+  expect(
+    await screen.findByRole("heading", { name: "Customers" }),
+  ).toBeInTheDocument()
+  expect(new URLSearchParams(window.location.search).get("record")).toBeNull()
+})
+
 function stubServer() {
   vi.stubGlobal(
     "fetch",
@@ -91,8 +154,14 @@ function stubServer() {
       if (url.endsWith("/_tide/presentation")) {
         return jsonResponse(presentation)
       }
+      if (url.endsWith("/products/_query")) {
+        return jsonResponse({ records: [product], next_cursor: null })
+      }
       if (url.endsWith("/_query")) {
         return jsonResponse({ records: [], next_cursor: null })
+      }
+      if (url.endsWith("/products/1")) {
+        return jsonResponse(product, { headers: { ETag: '"1"' } })
       }
       throw new Error(`Unexpected URL ${url}`)
     }),
@@ -160,7 +229,18 @@ const column = {
   reference: null,
 }
 
-function browseView(view: string, entity: string, label: string) {
+const product = {
+  id: 1,
+  code: "P00001",
+  _tide: { writable_fields: [], protected_fields: [] },
+}
+
+function browseView(
+  view: string,
+  entity: string,
+  label: string,
+  detailView: string | null = null,
+) {
   return {
     view,
     entity,
@@ -175,7 +255,7 @@ function browseView(view: string, entity: string, label: string) {
     sortable_fields: ["code"],
     page_size: 25,
     operations: ["list", "get"],
-    detail_view: null,
+    detail_view: detailView,
   }
 }
 
@@ -207,6 +287,7 @@ const presentation = {
       "catalog.Product.browse",
       "catalog.Product",
       "Products",
+      "catalog.Product.edit",
     ),
     "crm.Customer.browse": browseView(
       "crm.Customer.browse",
@@ -214,5 +295,38 @@ const presentation = {
       "Customers",
     ),
   },
-  forms: {},
+  forms: {
+    "catalog.Product.edit": {
+      view: "catalog.Product.edit",
+      entity: "catalog.Product",
+      label: "Product",
+      display_template: "code",
+      fields: {
+        code: {
+          ...column,
+          writable: false,
+          required: false,
+          help: null,
+          max_length: null,
+          choices: [],
+          regex: null,
+          numeric_mask: null,
+          precision: null,
+          scale: null,
+          minimum: null,
+          maximum: null,
+          has_default: false,
+          default_value: null,
+        },
+      },
+      sections: [
+        {
+          kind: "group",
+          label: "Product",
+          rows: [["code"]],
+          tab: null,
+        },
+      ],
+    },
+  },
 }

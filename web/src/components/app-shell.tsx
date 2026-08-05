@@ -25,6 +25,9 @@ import type { TideApi } from "@/lib/api"
 import type { TideConnection } from "@/lib/contracts"
 import { useUrlParameter } from "@/lib/url-state"
 
+/** Leaving a view closes whatever record was open in it. */
+const CLEARED_BY_VIEW = ["record"] as const
+
 interface AppShellProps {
   api: TideApi
   connection: TideConnection
@@ -40,6 +43,7 @@ export function AppShell({
   const [requestedView, setSelectedView] = useUrlParameter(
     "view",
     firstView ?? "",
+    CLEARED_BY_VIEW,
   )
   // The address bar is a caller like any other, so a view it names is checked
   // against the manifest rather than trusted. A principal who cannot see the

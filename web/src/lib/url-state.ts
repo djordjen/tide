@@ -15,10 +15,17 @@ import { useCallback, useEffect, useState } from "react"
  * A value equal to the fallback is removed rather than written, which keeps
  * the default view's URL clean and makes "no parameter" and "the default"
  * the same state rather than two.
+ *
+ * `clears` names parameters this one invalidates, dropped in the same history
+ * entry. A record identity only means something inside the view it came from
+ * -- entities number their rows from one, so carrying `record=1` from Invoices
+ * to Products opens a customer nobody asked for -- and pushing two entries for
+ * one click would make Back a half-step.
  */
 export function useUrlParameter(
   name: string,
   fallback: string,
+  clears: readonly string[] = [],
 ): [string, (next: string) => void] {
   const [value, setValue] = useState(() => readParameter(name) ?? fallback)
 
@@ -41,6 +48,9 @@ export function useUrlParameter(
       } else {
         parameters.delete(name)
       }
+      for (const cleared of clears) {
+        parameters.delete(cleared)
+      }
       const query = parameters.toString()
       window.history.pushState(
         null,
@@ -48,7 +58,7 @@ export function useUrlParameter(
         `${window.location.pathname}${query ? `?${query}` : ""}`,
       )
     },
-    [name, fallback],
+    [name, fallback, clears],
   )
 
   return [value, update]

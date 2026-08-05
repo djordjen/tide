@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
+import { useUrlParameter } from "@/lib/url-state"
 import { TideApiError, type TideApi } from "@/lib/api"
 import type {
   TideBrowsePresentation,
@@ -73,7 +74,19 @@ export function BrowseWorkspace({
   const [selectedIdentity, setSelectedIdentity] = useState<unknown | null>(
     null,
   )
-  const [activeIdentity, setActiveIdentity] = useState<unknown | null>(null)
+  // The open record lives in the address bar, so it can be sent to someone,
+  // survives a refresh, and answers the back button. It is carried as text
+  // because that is what a URL holds; every use of it -- the GET path, the
+  // report path, matching a loaded row -- already went through `String`.
+  const [activeRecord, setActiveRecord] = useUrlParameter("record", "")
+  const activeIdentity = activeRecord === "" ? null : activeRecord
+  const setActiveIdentity = useCallback(
+    (identity: unknown) =>
+      setActiveRecord(
+        identity === null || identity === undefined ? "" : String(identity),
+      ),
+    [setActiveRecord],
+  )
   const [creating, setCreating] = useState(false)
   const [feedback, setFeedback] = useState<string | null>(null)
   const [navigationPending, setNavigationPending] = useState(false)

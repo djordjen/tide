@@ -39,6 +39,10 @@ database.
 ## What is implemented
 
 - responsive application shell with grouped, capability-filtered navigation;
+- the open view and the open record in the address bar as `?view=` and
+  `?record=`, so a screen can be linked to, survives a refresh, and answers the
+  back button; a named view is checked against the manifest rather than
+  trusted, and leaving a view closes the record that belonged to it;
 - light and dark themes;
 - server-side search, named filters, sorting, and opaque-cursor loading;
 - automatic incremental loading near the bottom of the visible grid;
