@@ -19,10 +19,10 @@ decision log rather than being silently assumed in implementation code.
    ChatGPT/Codex to developer MCP and carries an exact candidate through the
    separate explicit local approval boundary.
 6. [Qt GUI prototype](QT-GUI.md) runs the native browser, full Invoice draft
-   editing with Customer/Product lookups and **Save & Select**, and
-   Customer/Product workspaces with three-way stale-edit review and secured
-   Invoice posting plus temporary system-PDF preview over FastAPI without
-   database credentials.
+   editing with Customer/Product lookups, **Save & Select**, three-way
+   stale-edit review and secured posting, plus Customer/Product workspaces
+   and temporary system-PDF preview over FastAPI without database
+   credentials.
 7. [Web UI](WEB-UI.md) runs the generic React application shell, server-mode
    browse grid, shared-metadata record detail, Customer/Product editing,
    Invoice Customer/Product lookup with nested **Save & Select**, transactional
