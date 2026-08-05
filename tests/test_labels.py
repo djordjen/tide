@@ -62,15 +62,19 @@ def test_every_layer_humanizes_a_name_the_same_way() -> None:
     """
 
     from tide import presentation
-    from tide.development import studio
+    from tide.development.studio import layout, preview
     from tide.mcp import runtime
     from tide.reporting import service
 
+    # Named by module rather than by package: Studio is a package now, and a
+    # guard that asks the package about a name it re-exports would pass while
+    # a module inside it grew its own copy.
     forks = {
         "presentation": presentation._humanize,
         "mcp": runtime._humanize,
         "reporting": service._humanize,
-        "studio": studio.humanize,
+        "studio.layout": layout.humanize,
+        "studio.preview": preview.humanize,
     }
 
     assert set(forks.values()) == {humanize}, forks
@@ -243,9 +247,9 @@ def test_a_report_honours_an_explicitly_left_aligned_number() -> None:
 
 
 def test_the_studio_humanizes_a_view_field_like_every_other_layer() -> None:
-    from tide.development import studio
+    from tide.development.studio.layout import view_field_label
 
-    assert studio._view_field_label("customerName", None) == "Customer Name"
+    assert view_field_label("customerName", None) == "Customer Name"
 
 
 def test_the_terminal_aligns_a_column_on_its_format_not_only_its_type() -> None:

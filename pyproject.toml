@@ -120,7 +120,6 @@ module = [
     "tide.development.designer",
     "tide.development.designer_transaction",
     "tide.development.materialization",
-    "tide.development.studio",
     "tide.mcp.contracts",
     "tide.mcp.runtime",
     "tide.qt.presenter",
