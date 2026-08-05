@@ -10,7 +10,8 @@ from sqlalchemy import create_engine
 from tide import compile_project
 from tide.api.auth import OidcJwtAuthenticator
 from tide.api.browser_auth import OidcBrowserAuth, OidcBrowserProviderInfo
-from tide.cli import _seed_counts, main
+from tide.cli import main
+from tide.cli.database import _seed_counts
 from tide.data import (
     SQLAlchemyActionExecutionStore,
     SQLAlchemyCursorStore,
