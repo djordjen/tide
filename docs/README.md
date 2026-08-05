@@ -76,6 +76,7 @@ decision log rather than being silently assumed in implementation code.
     application-service contract.
 29. [Roadmap](ROADMAP.md) orders the work into testable vertical slices.
 30. [Decision log](DECISIONS.md) records accepted and unresolved decisions.
+31. [Changelog](../CHANGELOG.md) is the running account of what has been built.
 
 ## Status vocabulary
 
