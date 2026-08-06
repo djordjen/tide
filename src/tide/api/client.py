@@ -41,8 +41,10 @@ from tide.services import (
     AuditFieldChange,
     AuditOutcome,
     AuditValueMode,
+    NO_REFERENCE_DISPLAYS,
     RecordAuditEvent,
     RecordAuditOperation,
+    ReferenceDisplays,
 )
 
 
@@ -56,6 +58,7 @@ class TideApiRecord:
 
     values: dict[str, Any]
     etag: str | None = None
+    references: ReferenceDisplays = NO_REFERENCE_DISPLAYS
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +67,13 @@ class TideApiPage:
 
     records: tuple[dict[str, Any], ...]
     next_cursor: str | None = None
+    references: ReferenceDisplays = NO_REFERENCE_DISPLAYS
+    """How the records on this page name what they point at.
+
+    Sent with the page, so a grid draws its reference columns without a
+    round trip each. Empty from a server that does not send them, which
+    leaves the caller doing what it did before.
+    """
 
 
 class TideApiClientError(TideRuntimeError):
@@ -225,9 +235,14 @@ class TideApiClient:
         ):
             raise TideApiContractError("server returned an invalid record page")
         entity = self.model.entity(entity_name)
+        references: dict[tuple[str, Any], str] = {}
         return TideApiPage(
-            records=tuple(_decode_record(self.model, entity, item) for item in raw_records),
+            records=tuple(
+                _decode_record(self.model, entity, item, references)
+                for item in raw_records
+            ),
             next_cursor=next_cursor,
+            references=ReferenceDisplays(references),
         )
 
     def get_record(self, entity_name: str, identity: Any) -> TideApiRecord:
@@ -283,11 +298,14 @@ class TideApiClient:
             next_cursor is None or isinstance(next_cursor, str)
         ):
             raise TideApiContractError("server returned an invalid record page")
+        references: dict[tuple[str, Any], str] = {}
         return TideApiPage(
             records=tuple(
-                _decode_record(self.model, entity, item) for item in raw_records
+                _decode_record(self.model, entity, item, references)
+                for item in raw_records
             ),
             next_cursor=next_cursor,
+            references=ReferenceDisplays(references),
         )
 
     def apply_reference_selection(
@@ -653,9 +671,16 @@ class TideApiClient:
         entity: NormalizedEntity,
         response: httpx.Response,
     ) -> TideApiRecord:
+        references: dict[tuple[str, Any], str] = {}
         return TideApiRecord(
-            values=_decode_record(self.model, entity, self._json_object(response)),
+            values=_decode_record(
+                self.model,
+                entity,
+                self._json_object(response),
+                references,
+            ),
             etag=response.headers.get("ETag"),
+            references=ReferenceDisplays(references),
         )
 
     def _request(
@@ -763,6 +788,7 @@ def _decode_record(
     model: ApplicationModel,
     entity: NormalizedEntity,
     raw: Any,
+    references: dict[tuple[str, Any], str] | None = None,
 ) -> dict[str, Any]:
     if not isinstance(raw, Mapping):
         raise TideApiContractError(f"{entity.name} record must be a JSON object")
@@ -773,6 +799,7 @@ def _decode_record(
             "protected_fields",
             "writable_fields",
             "actions",
+            "references",
         }:
             raise TideApiContractError(f"{entity.name} protection metadata is invalid")
         raw_protected = metadata.get("protected_fields") or []
@@ -783,6 +810,10 @@ def _decode_record(
             list,
         ) or not isinstance(raw_actions, Mapping):
             raise TideApiContractError(f"{entity.name} protection metadata is invalid")
+        if references is not None:
+            references.update(
+                _decode_reference_displays(entity, metadata.get("references"), raw)
+            )
         protected = {str(name) for name in raw_protected}
         if not protected <= set(entity.fields):
             raise TideApiContractError(f"{entity.name} protects an unknown field")
@@ -811,11 +842,50 @@ def _decode_record(
             result[field_name] = PROTECTED
             continue
         try:
-            result[field_name] = _decode_field(model, field, raw[field_name])
+            result[field_name] = _decode_field(
+                model,
+                field,
+                raw[field_name],
+                references,
+            )
         except (TypeError, ValueError, InvalidOperation) as error:
             raise TideApiContractError(
                 f"{entity.name}.{field_name} has an invalid wire value"
             ) from error
+    return result
+
+
+def _decode_reference_displays(
+    entity: NormalizedEntity,
+    raw: Any,
+    values: Mapping[str, Any],
+) -> dict[tuple[str, Any], str]:
+    """Key the server's per-field display text by the record it names.
+
+    The wire says "this record's `customer` reads as X"; the caller asks
+    "how does crm.Customer 4 read". Rekeying here is what lets two fields
+    pointing at the same record agree, and what a display cache expects.
+    """
+
+    if raw is None:
+        return {}
+    if not isinstance(raw, Mapping):
+        raise TideApiContractError(f"{entity.name} reference metadata is invalid")
+    result: dict[tuple[str, Any], str] = {}
+    for name, display in raw.items():
+        field = entity.fields.get(str(name))
+        if (
+            field is None
+            or field.metadata["type"] != "reference"
+            or field.target_entity is None
+            or not isinstance(display, str)
+        ):
+            raise TideApiContractError(
+                f"{entity.name} reference metadata is invalid"
+            )
+        identity = values.get(str(name))
+        if identity is not None:
+            result[(field.target_entity, identity)] = display
     return result
 
 
@@ -845,7 +915,12 @@ def _decode_draft(
     return result
 
 
-def _decode_field(model: ApplicationModel, field: NormalizedField, value: Any) -> Any:
+def _decode_field(
+    model: ApplicationModel,
+    field: NormalizedField,
+    value: Any,
+    references: dict[tuple[str, Any], str] | None = None,
+) -> Any:
     if value is None:
         return None
     field_type = str(field.metadata["type"])
@@ -853,7 +928,9 @@ def _decode_field(model: ApplicationModel, field: NormalizedField, value: Any) -
         if field.target_entity is None or not isinstance(value, list):
             raise TypeError
         target = model.entity(field.target_entity)
-        return [_decode_record(model, target, item) for item in value]
+        return [
+            _decode_record(model, target, item, references) for item in value
+        ]
     if field_type == "reference":
         if field.target_entity is None:
             raise TypeError

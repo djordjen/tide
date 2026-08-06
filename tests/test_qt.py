@@ -29,6 +29,7 @@ from tide.reporting import (
     ReportTable,
     ReportValue,
 )
+from tide.services import ReferenceDisplays
 from tide.sessions import ConflictDisposition, ConflictValueChoice
 
 
@@ -132,6 +133,9 @@ class _BrowseClient:
                     },
                 ),
                 next_cursor="invoice-page-2",
+                references=ReferenceDisplays(
+                    {("crm.Customer", 1): "ADRIA - Adria Consulting"}
+                ),
             )
         assert query.cursor == "invoice-page-2"
         return SimpleNamespace(
@@ -146,6 +150,9 @@ class _BrowseClient:
                 },
             ),
             next_cursor=None,
+            references=ReferenceDisplays(
+                {("crm.Customer", 2): "NORTH - Northwind"}
+            ),
         )
 
     def get_record(self, entity_name: str, identity: Any) -> Any:
@@ -484,7 +491,9 @@ def test_qt_browse_formats_incremental_cursor_batches() -> None:
     assert first.columns[-1].alignment == "right"
     assert first.identities == (1, 2)
     assert first.next_cursor == "invoice-page-2"
-    assert client.reference_reads == 1
+    # The page named its own customer. Before that arrived with the
+    # page this was one authorized round trip per distinct value.
+    assert client.reference_reads == 0
 
     second = controller.fetch_batch(first.next_cursor)
     assert second.rows[0][2] == "NORTH - Northwind"
@@ -605,7 +614,10 @@ def test_qt_detail_uses_form_groups_and_nested_inline_collection() -> None:
         ),
     )
     assert client.invoice_reads == 1
-    assert client.reference_reads == 2
+    # The browse page already named the customer, so only the line's product
+    # is still bought here -- and only because this double answers a record
+    # fetch without the names a real server sends with it.
+    assert client.reference_reads == 1
 
 
 def test_qt_record_report_requires_session_capability_and_uses_remote_document(

@@ -30,14 +30,24 @@ export function TideDisplayValue({
   const value = record[column.name]
   const protectedFields = record._tide?.protected_fields ?? []
   const reference = column.reference
+  const withheld = protectedFields.includes(column.name)
+  // Resolved with the page that carried this row, so the common case costs
+  // nothing. It describes the row as the server sent it -- anything that
+  // edits a value has to leave the name behind with the value it named.
+  // A withheld field takes none: a name is a value, and the whole point of
+  // withholding one is that this reader does not get it.
+  const resolved = withheld
+    ? undefined
+    : record._tide?.references?.[column.name]
   const referenceQuery = useQuery({
     queryKey: ["reference-display", reference?.entity, value],
     enabled:
+      resolved === undefined &&
       reference !== null &&
       reference !== undefined &&
       value !== null &&
       value !== undefined &&
-      !protectedFields.includes(column.name),
+      !withheld,
     queryFn: ({ signal }) => {
       if (!reference) {
         throw new Error("reference contract missing")
@@ -49,7 +59,9 @@ export function TideDisplayValue({
   })
 
   let text = formatCellValue(column, value, protectedFields)
-  if (reference && referenceQuery.data) {
+  if (reference && resolved !== undefined) {
+    text = resolved
+  } else if (reference && referenceQuery.data) {
     text = formatReferenceDisplay(reference, referenceQuery.data)
   }
 

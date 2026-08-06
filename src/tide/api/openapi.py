@@ -56,6 +56,11 @@ class TideProtectionMetadata(BaseModel):
         min_length=1,
         exclude_if=lambda value: value is None,
     )
+    references: dict[str, str] | None = Field(
+        default=None,
+        min_length=1,
+        exclude_if=lambda value: value is None,
+    )
 
 
 class TideApiValidationIssue(BaseModel):

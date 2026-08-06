@@ -405,6 +405,41 @@ def _app(role: str) -> tuple[object, object]:
     return model, app
 
 
+def test_a_remote_page_arrives_already_naming_what_it_points_at() -> None:
+    """The whole point of resolving server-side is what the client skips.
+
+    A remote renderer used to spend one authorized GET per distinct visible
+    reference value. Here the page carries the names, and the assertion that
+    matters is the request log: no /customers/N at all.
+    """
+
+    model, app = _app("sales_clerk")
+    with _http_client(app) as transport:
+        client = TideApiClient(model, BASE_URL, TOKEN, http_client=transport)
+        session = client.connect()
+        context = RequestContext(
+            Principal(session.principal, roles=frozenset(session.roles)),
+            channel=Channel.TUI,
+        )
+        records = RemoteRecordsService(model, client, session)
+        requests: list[str] = []
+        transport.event_hooks["request"] = [
+            lambda request: requests.append(request.url.path)
+        ]
+
+        page = records.query_page(
+            "sales.Invoice",
+            QuerySpec(limit=25),
+            context,
+        )
+
+        assert page.references.display("crm.Customer", 1) == (
+            "ADRIA - Adria Consulting"
+        )
+        assert page.references.display("crm.Customer", 3) == "LOV - Lovćen Studio"
+        assert requests == ["/api/v1/invoices/_query"]
+
+
 def _http_client(app: object) -> httpx.Client:
     def dispatch(request: httpx.Request) -> httpx.Response:
         async def send() -> httpx.Response:

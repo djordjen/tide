@@ -150,7 +150,12 @@ class RuntimeMcpService:
         return TideMcpRecord(
             application=self.model.name,
             entity=entity_name,
-            record=wire_record(self.model, entity, values),
+            record=wire_record(
+                self.model,
+                entity,
+                values,
+                self.records.reference_displays(entity_name, (values,), context),
+            ),
         )
 
     def search(
@@ -192,7 +197,8 @@ class RuntimeMcpService:
             application=self.model.name,
             entity=entity_name,
             records=tuple(
-                wire_record(self.model, entity, record) for record in page.records
+                wire_record(self.model, entity, record, page.references)
+                for record in page.records
             ),
             next_cursor=page.next_cursor,
         )
@@ -369,7 +375,16 @@ class RuntimeMcpService:
             action=action,
             identity=identity,
             record=(
-                wire_record(self.model, entity, values)
+                wire_record(
+                    self.model,
+                    entity,
+                    values,
+                    self.records.reference_displays(
+                        entity_name,
+                        (values,),
+                        context,
+                    ),
+                )
                 if values is not None
                 else None
             ),

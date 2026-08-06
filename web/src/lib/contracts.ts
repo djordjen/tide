@@ -258,6 +258,8 @@ export interface TideProtectionMetadata {
   protected_fields?: string[]
   writable_fields?: string[]
   actions?: Record<string, TideRecordActionState>
+  /** How each reference on this record names its target, resolved server-side. */
+  references?: Record<string, string>
 }
 
 export interface TideRecordActionState {

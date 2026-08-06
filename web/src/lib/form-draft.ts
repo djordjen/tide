@@ -219,8 +219,21 @@ export function collectionDraftRows(
       record && typeof record === "object"
         ? (record as TideRecord)
         : ({} as TideRecord)
-    return { ...source, ...formDraft(form, source) }
+    return { ...source, ...draftMetadata(source), ...formDraft(form, source) }
   })
+}
+
+function draftMetadata(source: TideRecord): Partial<TideRecord> {
+  const metadata = source._tide
+  if (!metadata?.references) {
+    return {}
+  }
+  // A draft exists to change values, and a resolved name belongs to the
+  // value it named. The rest of the envelope describes the field or the
+  // record, so it survives editing; this does not.
+  const { references, ...rest } = metadata
+  void references
+  return { _tide: rest }
 }
 
 export function newCollectionDraft(

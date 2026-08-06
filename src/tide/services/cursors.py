@@ -11,6 +11,7 @@ from typing import Any, Protocol
 
 from tide.data.repository import FilterCondition, SortField
 from tide.runtime.errors import InvalidQueryCursor
+from tide.services.references import NO_REFERENCE_DISPLAYS, ReferenceDisplays
 
 CURSOR_VERSION = 1
 
@@ -36,6 +37,13 @@ class CursorState:
 class QueryPage:
     records: tuple[dict[str, Any], ...]
     next_cursor: str | None
+    references: ReferenceDisplays = NO_REFERENCE_DISPLAYS
+    """How the records on this page name what they point at.
+
+    Resolved with the page, because a grid draws its reference columns
+    at the moment it draws the rows and would otherwise buy each name
+    separately.
+    """
 
 
 class CursorStore(Protocol):

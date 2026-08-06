@@ -318,6 +318,7 @@ class QtBrowseController:
             self.entity.name,
             self.query_spec(query or QtBrowseQuery(), cursor),
         )
+        self._references.remember_page(remote)
         rows = tuple(
             tuple(
                 self._format_value(self.entity.field(name), record.get(name))
@@ -343,7 +344,9 @@ class QtBrowseController:
         assert self.detail_view is not None
         if identity is None or identity is PROTECTED:
             raise ValueError("Qt detail record identity is unavailable")
-        values = self.client.get_record(self.entity.name, identity).values
+        remote = self.client.get_record(self.entity.name, identity)
+        self._references.remember_page(remote)
+        values = remote.values
         display = record_display(self.entity, values)
         return QtDetailRecord(
             identity=identity,
@@ -934,6 +937,7 @@ class QtBrowseController:
         )
         for query in queries:
             page = self.client.query_records(target.name, query)
+            self._references.remember_page(page)
             for record in page.records:
                 identity = record.get(key_name)
                 if identity is None or identity is PROTECTED:

@@ -554,6 +554,7 @@ def test_record_get_projects_server_evaluated_workflow_field_state() -> None:
             "actions": {
                 "post": {"visible": True, "enabled": True},
             },
+            "references": {"customer": "MORA - Mora Trade"},
         }
 
     asyncio.run(exercise())
@@ -2364,6 +2365,108 @@ def test_tide_serve_requires_mcp_resource_path_to_match_endpoint(capsys) -> None
         "URL whose path exactly matches --mcp-path\n"
     )
 
+
+
+def test_a_listed_record_carries_the_name_of_what_it_points_at() -> None:
+    """The grid can draw `customer` without asking who customer 1 is.
+
+    Eight invoices name three customers. Before this the client bought
+    those three names with three more authorized round trips, renewed as
+    the reader scrolled; now they arrive with the page that needs them.
+    """
+
+    app = _app("sales_clerk")
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            listed = await client.get(
+                "/api/v1/invoices",
+                headers=_authorization(),
+            )
+
+        assert listed.status_code == 200
+        records = listed.json()["records"]
+        assert [record["_tide"]["references"]["customer"] for record in records] == [
+            "ADRIA - Adria Consulting",
+            "MORA - Mora Trade",
+            "LOV - Lovćen Studio",
+            "ADRIA - Adria Consulting",
+            "MORA - Mora Trade",
+            "LOV - Lovćen Studio",
+            "ADRIA - Adria Consulting",
+            "MORA - Mora Trade",
+        ]
+
+    asyncio.run(exercise())
+
+
+def test_a_fetched_record_names_what_its_children_point_at_too() -> None:
+    app = _app("sales_clerk")
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            fetched = await client.get(
+                "/api/v1/invoices/1",
+                headers=_authorization(),
+            )
+
+        assert fetched.status_code == 200
+        invoice = fetched.json()
+        assert invoice["_tide"]["references"] == {
+            "customer": "ADRIA - Adria Consulting",
+        }
+        # A collection grid draws references of its own, and the child rows
+        # travel inside this response rather than being fetched separately.
+        assert [line["_tide"]["references"] for line in invoice["lines"]] == [
+            {"product": "CONS - Consulting hour"},
+        ]
+
+    asyncio.run(exercise())
+
+
+def test_a_reference_the_caller_cannot_read_carries_no_name() -> None:
+    app = _app("summary_viewer")
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            listed = await client.get(
+                "/api/v1/invoices",
+                headers=_authorization(),
+            )
+
+        assert listed.status_code == 200
+        records = listed.json()["records"]
+        assert records
+        # `summary_viewer` may read invoices and nothing else. The identity
+        # is still there -- it is a value of this record -- but nothing on
+        # the wire says what it names.
+        assert all(record["customer"] for record in records)
+        assert all(
+            "references" not in record.get("_tide", {}) for record in records
+        )
+
+    asyncio.run(exercise())
+
+
+def test_a_queried_page_names_its_references_the_same_way_a_listed_one_does() -> None:
+    app = _app("sales_clerk")
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            queried = await client.post(
+                "/api/v1/invoices/_query",
+                headers=_authorization(),
+                json={"filters": [{"field": "customer", "operator": "eq", "value": 2}]},
+            )
+
+        assert queried.status_code == 200
+        records = queried.json()["records"]
+        assert len(records) == 3
+        assert {record["_tide"]["references"]["customer"] for record in records} == {
+            "MORA - Mora Trade",
+        }
+
+    asyncio.run(exercise())
 
 def _app(
     role: str | None,

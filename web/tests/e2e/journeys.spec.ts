@@ -30,6 +30,31 @@ test("signs in with a password the server owns and reads its records", async ({
   await expect(invoice).toContainText("LOV - Lovćen Studio")
 })
 
+test("names every reference in the grid without a request each", async ({
+  page,
+}) => {
+  const reads: string[] = []
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname
+    if (/^\/api\/v1\/(customers|products)\//.test(path)) {
+      reads.push(path)
+    }
+  })
+
+  await signIn(page)
+
+  // Eight seeded invoices naming three customers. The names are resolved
+  // with the page that carries the rows, so the grid draws them without
+  // buying any of them -- which is the only place that shows.
+  await expect(page.getByRole("row", { name: /INV-2026-0001/ })).toContainText(
+    "ADRIA - Adria Consulting",
+  )
+  await expect(page.getByRole("row", { name: /INV-2026-0003/ })).toContainText(
+    "LOV - Lovćen Studio",
+  )
+  expect(reads).toEqual([])
+})
+
 test("opens a record and reads the lines a field policy guards", async ({
   page,
 }) => {

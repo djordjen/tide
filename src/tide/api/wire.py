@@ -9,18 +9,31 @@ from tide.runtime.errors import QueryFieldError
 from tide.api.contracts import TideAuditEvent, TideAuditFieldChange
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 from tide.security import PROTECTED
-from tide.services import ActionAuditEvent, RecordAuditEvent
+from tide.services import (
+    ActionAuditEvent,
+    NO_REFERENCE_DISPLAYS,
+    RecordAuditEvent,
+    ReferenceDisplays,
+)
 
 
 def wire_record(
     model: ApplicationModel,
     entity: NormalizedEntity,
     values: Mapping[str, Any],
+    displays: ReferenceDisplays = NO_REFERENCE_DISPLAYS,
 ) -> dict[str, Any]:
-    """Project a secured record with structured protected-field metadata."""
+    """Project a secured record with structured protected-field metadata.
+
+    ``displays`` carries how the records this one points at name themselves,
+    resolved once for the whole page. A reference with no entry simply gets
+    none: the client still has the identity and can ask, which is what it
+    did for every reference before any of this was resolved server-side.
+    """
 
     result: dict[str, Any] = {}
     protected: list[str] = []
+    references: dict[str, str] = {}
     for field_name, field in entity.fields.items():
         value = values.get(field_name)
         if value is PROTECTED:
@@ -29,12 +42,19 @@ def wire_record(
         elif field.metadata["type"] == "collection" and field.target_entity:
             target = model.entity(field.target_entity)
             result[field_name] = [
-                wire_record(model, target, child) for child in (value or ())
+                wire_record(model, target, child, displays)
+                for child in (value or ())
             ]
         else:
             result[field_name] = value
+            if field.metadata["type"] == "reference" and field.target_entity:
+                display = displays.display(field.target_entity, value)
+                if display is not None:
+                    references[field_name] = display
     if protected:
-        result["_tide"] = {"protected_fields": protected}
+        result.setdefault("_tide", {})["protected_fields"] = protected
+    if references:
+        result.setdefault("_tide", {})["references"] = references
     return result
 
 

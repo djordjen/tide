@@ -890,6 +890,11 @@ class TideApp(App[None]):
             query,
             self.context,
         )
+        # The page already knows how it names what it points at. Taking those
+        # first means the reference columns below cost nothing to draw; a page
+        # that resolved none leaves each cell to fetch as it always did.
+        with self._reference_cache_lock:
+            self._reference_cache.update(page.references.entries)
         primary_key = _primary_key(entity)
         rendered_rows = tuple(
             (

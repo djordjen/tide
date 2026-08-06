@@ -540,12 +540,13 @@ class RecordsService:
                     ),
                 )
             )
+        projected = tuple(
+            self._project(entity, record, context) for record in page_records
+        )
         return QueryPage(
-            records=tuple(
-                self._project(entity, record, context)
-                for record in page_records
-            ),
+            records=projected,
             next_cursor=next_cursor,
+            references=self.reference_displays(entity_name, projected, context),
         )
 
     def reference_displays(
@@ -600,17 +601,25 @@ class RecordsService:
         records: Sequence[Mapping[str, Any]],
         context: RequestContext,
         wanted: dict[str, dict[Any, None]],
+        skip: str | None = None,
     ) -> None:
         """Gather what each readable reference in ``records`` points at.
 
         Children are walked too: a collection grid shows references of its
         own, and resolving them with the page costs one more load rather
         than one per visible row.
+
+        ``skip`` is the child's pointer back at the parent it arrived
+        inside, which names a record the reader is already looking at. The
+        adapters disagree about whether it is even populated on a hydrated
+        child, so resolving it would put an adapter's habit on the wire.
         """
 
         entity = self.model.entity(entity_name)
         for field_name, field in entity.fields.items():
             field_type = field.metadata["type"]
+            if field_name == skip:
+                continue
             if field.target_entity is None or field_type not in {
                 "reference",
                 "collection",
@@ -629,11 +638,13 @@ class RecordsService:
                     if isinstance(item, Mapping)
                 ]
                 if children:
+                    inverse = field.metadata.get("inverse")
                     self._collect_reference_identities(
                         target.name,
                         children,
                         context,
                         wanted,
+                        str(inverse) if inverse else None,
                     )
                 continue
             if not self._display_is_visible(target, context):

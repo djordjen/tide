@@ -1515,7 +1515,12 @@ def _list_endpoint(
         return page_model.model_validate(
             {
                 "records": [
-                    _wire_record(records.model, entity, record)
+                    _wire_record(
+                        records.model,
+                        entity,
+                        record,
+                        page.references,
+                    )
                     for record in page.records
                 ],
                 "next_cursor": page.next_cursor,
@@ -1573,7 +1578,12 @@ def _query_endpoint(
         return page_model.model_validate(
             {
                 "records": [
-                    _wire_record(records.model, entity, record)
+                    _wire_record(
+                        records.model,
+                        entity,
+                        record,
+                        page.references,
+                    )
                     for record in page.records
                 ],
                 "next_cursor": page.next_cursor,
@@ -1620,7 +1630,12 @@ def _wire_record_with_state(
     values: Mapping[str, Any],
     context: RequestContext,
 ) -> dict[str, Any]:
-    projected = _wire_record(records.model, entity, values)
+    projected = _wire_record(
+        records.model,
+        entity,
+        values,
+        records.reference_displays(entity.name, (values,), context),
+    )
     writable_fields = _record_writable_fields(
         records,
         entity,

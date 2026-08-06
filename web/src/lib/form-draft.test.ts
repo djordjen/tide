@@ -8,6 +8,7 @@ import type {
 import {
   acceptsNumericDraft,
   changedMutationPayload,
+  collectionDraftRows,
   collectionEditorForm,
   formDraft,
   mutationPayload,
@@ -324,4 +325,101 @@ function field(
     default_value: null,
     ...fieldOverrides,
   }
+}
+
+describe("a collection draft row", () => {
+  it("leaves the server's resolved reference names behind", () => {
+    const rows = collectionDraftRows(lineCollection, [
+      {
+        id: 1,
+        product: 4,
+        description: "Consulting",
+        _tide: {
+          protected_fields: ["description"],
+          references: { product: "CONS - Consulting hour" },
+        },
+      },
+    ])
+
+    // The row is about to be edited. `protected_fields` is a fact about the
+    // field and survives; a resolved name belongs to the value it named, and
+    // the point of a draft is that the value can change.
+    expect(rows[0]._tide).toEqual({ protected_fields: ["description"] })
+  })
+
+  it("keeps an envelope that has nothing value-shaped in it", () => {
+    const rows = collectionDraftRows(lineCollection, [
+      { id: 1, product: 4, description: "Consulting", _tide: { protected_fields: ["description"] } },
+    ])
+
+    expect(rows[0]._tide).toEqual({ protected_fields: ["description"] })
+  })
+})
+
+const productField: TidePresentationFormField = {
+  name: "product",
+  label: "Product",
+  field_type: "reference",
+  alignment: "left",
+  format: null,
+  format_options: null,
+  target_entity: "catalog.Product",
+  reference: null,
+  writable: true,
+  required: true,
+  help: null,
+  max_length: null,
+  choices: [],
+  regex: null,
+  numeric_mask: null,
+  precision: null,
+  scale: null,
+  minimum: null,
+  maximum: null,
+  has_default: false,
+  default_value: null,
+}
+
+const descriptionField: TidePresentationFormField = {
+  name: "description",
+  label: "Description",
+  field_type: "string",
+  alignment: "left",
+  format: null,
+  format_options: null,
+  target_entity: null,
+  reference: null,
+  writable: true,
+  required: true,
+  help: null,
+  max_length: 200,
+  choices: [],
+  regex: null,
+  numeric_mask: null,
+  precision: null,
+  scale: null,
+  minimum: null,
+  maximum: null,
+  has_default: false,
+  default_value: null,
+}
+
+const lineCollection: TidePresentationFormCollection = {
+  kind: "collection",
+  name: "lines",
+  label: "Lines",
+  record_label: "Line",
+  entity: "sales.InvoiceLine",
+  view: "sales.InvoiceLine.inline",
+  identity_field: "id",
+  sequence_field: null,
+  columns: [],
+  fields: { product: productField, description: descriptionField },
+  groups: [
+    { kind: "group", label: "Line", rows: [["product", "description"]], tab: null },
+  ],
+  actions: [],
+  draft_operations: ["create", "update"],
+  writable: true,
+  tab: null,
 }

@@ -60,6 +60,20 @@ class ReferenceDisplayCache:
         with self._lock:
             self._entries[(entity_name, identity)] = display
 
+    def remember_page(self, response: Any) -> None:
+        """Absorb whatever names a loaded page or record already carried.
+
+        `BrowseApiClient` is deliberately loose about what it returns, so a
+        response carrying none -- an older server, or a fake driving the
+        renderer in a test -- simply leaves the cache to fetch as before.
+        """
+
+        displays = getattr(response, "references", None)
+        entries = getattr(displays, "entries", None)
+        if entries:
+            with self._lock:
+                self._entries.update(entries)
+
     def clear(self) -> None:
         """Forget everything, because the records behind it may have changed."""
 

@@ -7,6 +7,7 @@ from decimal import Decimal
 from pathlib import Path
 import shutil
 import threading
+from typing import Any
 
 from rich.text import Text
 from sqlalchemy import create_engine, inspect
@@ -1495,6 +1496,41 @@ def test_textual_validation_feedback_and_cancel_preserve_record() -> None:
             assert stored["invoice_date"].isoformat() == "2026-07-03"
             assert stored["version"] == 1
             assert not isinstance(app.screen, RecordEditScreen)
+
+    asyncio.run(exercise())
+
+
+def test_textual_browse_names_its_references_without_a_read_each(
+    monkeypatch,
+) -> None:
+    """The grid shows "ADRIA - Adria Consulting"; it should not buy it.
+
+    Eight invoices over three customers used to cost three record reads on
+    top of the page, renewed whenever the cache was cleared. The page now
+    arrives already knowing, and a read here means it did not.
+    """
+
+    app = _demo_app(page_size=25)
+    reads: list[tuple[str, Any]] = []
+    loaded = app.records.get
+
+    def tracked_get(entity_name, identity, context):
+        reads.append((entity_name, identity))
+        return loaded(entity_name, identity, context)
+
+    monkeypatch.setattr(app.records, "get", tracked_get)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 16)) as pilot:
+            table = app.query_one("#records", DataTable)
+            await _wait_until(
+                pilot,
+                lambda: table.row_count >= 8 and not app._query_loading,
+            )
+            assert [str(value) for value in table.get_row_at(0)][2] == (
+                "ADRIA - Adria Consulting"
+            )
+            assert [entity for entity, _ in reads if entity == "crm.Customer"] == []
 
     asyncio.run(exercise())
 
