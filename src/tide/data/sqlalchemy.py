@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
-from contextlib import suppress
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager, suppress
+from copy import copy
 from dataclasses import dataclass
 from decimal import Decimal
 import re
+from threading import get_ident
 from typing import Any
 
 from sqlalchemy import (
@@ -56,6 +58,10 @@ from tide.data.repository import (
     OnWritten,
     RowPolicyMismatch,
     DuplicateIdentityError,
+    UnitOfWorkBypassed,
+    UnitOfWorkClosed,
+    UnitOfWorkFailed,
+    scoped,
     WriteIntegrityError,
     SortField,
 )
@@ -113,6 +119,16 @@ class SchemaCompatibilityError(TideRuntimeError):
         super().__init__("; ".join(str(issue) for issue in self.issues))
 
 
+
+@dataclass
+class _SqlScope:
+    """One SQL unit of work: the connection its calls share, and its verdict."""
+
+    connection: Connection
+    doomed: bool = False
+    closed: bool = False
+
+
 class SQLAlchemyRepository:
     """Dictionary repository backed by a synchronous SQLAlchemy engine.
 
@@ -131,12 +147,111 @@ class SQLAlchemyRepository:
             self.metadata,
             dialect_name=self.engine.dialect.name,
         )
+        self._scope: _SqlScope | None = None
+        self._open_on_thread: int | None = None
         self._sequence_table = Table(
             "tide_sequence",
             self.metadata,
             Column("name", Unicode(255), primary_key=True),
             Column("value", BigInteger().with_variant(Integer(), "sqlite"), nullable=False),
         )
+
+    @contextmanager
+    def transaction(self) -> Iterator[SQLAlchemyRepository]:
+        """Open a scope whose reads and writes share one connection.
+
+        The scope yields a repository bound to that connection -- a shallow
+        copy, because everything else on this object is fixed once it is
+        built. Calls on the copy join the transaction and calls on the
+        original do not, which is the distinction a `unit=` keyword would
+        leave to the caller to remember at every site.
+        """
+
+        if self._scope is not None:
+            # Joining rather than nesting: an operation built from two smaller
+            # ones is still one commit, and only the outermost scope decides.
+            with self._joined():
+                yield self
+            return
+        with self.engine.connect() as connection:
+            scope = _SqlScope(connection=connection)
+            self._open_on_thread = get_ident()
+            unit = copy(self)
+            unit._scope = scope
+            handle = connection.begin()
+            try:
+                yield unit
+            except BaseException:
+                handle.rollback()
+                raise
+            else:
+                if scope.doomed:
+                    handle.rollback()
+                    raise UnitOfWorkFailed(
+                        "a failed write left this unit of work unable to commit"
+                    )
+                handle.commit()
+            finally:
+                scope.closed = True
+                self._open_on_thread = None
+
+    @contextmanager
+    def _joined(self) -> Iterator[None]:
+        """Run inside the scope already open, without deciding its outcome."""
+
+        try:
+            yield
+        except BaseException:
+            self._doom()
+            raise
+
+    @contextmanager
+    def _reading(self) -> Iterator[Connection]:
+        """Read on the scope's connection, or on one of this call's own.
+
+        A read inside a scope has to use its connection, not a fresh one:
+        another connection cannot see the scope's uncommitted writes, so an
+        operation that writes a record and then reads it back would find
+        nothing.
+        """
+
+        scope = self._active_scope()
+        if scope is not None:
+            yield scope.connection
+            return
+        with self.engine.connect() as connection:
+            yield connection
+
+    @contextmanager
+    def _writing(self) -> Iterator[Connection]:
+        """Write on the scope's transaction, or in one of this call's own."""
+
+        scope = self._active_scope()
+        if scope is not None:
+            yield scope.connection
+            return
+        with self.engine.begin() as connection:
+            yield connection
+
+    def _active_scope(self) -> _SqlScope | None:
+        scope = self._scope
+        if scope is None:
+            if self._open_on_thread == get_ident():
+                raise UnitOfWorkBypassed(
+                    "this repository has an open unit of work; call the "
+                    "repository that scope yielded"
+                )
+            return None
+        if scope.closed:
+            raise UnitOfWorkClosed(
+                "this unit of work belongs to a scope that has already ended"
+            )
+        return scope
+
+    def _doom(self) -> None:
+        scope = self._scope
+        if scope is not None:
+            scope.doomed = True
 
     def table(self, entity: str) -> Table:
         return self._tables[entity]
@@ -305,6 +420,7 @@ class SQLAlchemyRepository:
                     f"row policy {policy['id']!r} cannot run in SQL: {error}"
                 ) from error
 
+    @scoped(writes=True)
     def seed(
         self,
         entity: str,
@@ -317,7 +433,7 @@ class SQLAlchemyRepository:
             raise ValueError(
                 f"seed primary key {primary_key!r} does not match {expected_key!r}"
             )
-        with self.engine.begin() as connection:
+        with self._writing() as connection:
             for values in records:
                 self._write_entity(
                     connection,
@@ -327,10 +443,11 @@ class SQLAlchemyRepository:
                     is_new=True,
                 )
 
+    @scoped(writes=False)
     def all(self, entity: str) -> list[dict[str, Any]]:
         table = self.table(entity)
         primary_key = _primary_key(self.model.entity(entity))
-        with self.engine.connect() as connection:
+        with self._reading() as connection:
             rows = (
                 connection.execute(select(table).order_by(table.c[primary_key]))
                 .mappings()
@@ -338,6 +455,7 @@ class SQLAlchemyRepository:
             )
             return [self._hydrate(connection, entity, row) for row in rows]
 
+    @scoped(writes=False)
     def query(
         self,
         entity: str,
@@ -354,7 +472,7 @@ class SQLAlchemyRepository:
             criteria_parameters=criteria_parameters,
             relationships=relationships,
         )
-        with self.engine.connect() as connection:
+        with self._reading() as connection:
             rows = connection.execute(statement).mappings().all()
             return [
                 self._hydrate(
@@ -422,6 +540,7 @@ class SQLAlchemyRepository:
             )
         return statement.limit(query.limit)
 
+    @scoped(writes=False)
     def get(
         self,
         entity: str,
@@ -431,7 +550,7 @@ class SQLAlchemyRepository:
         criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         relationships: RelationshipLoadPlan | None = None,
     ) -> dict[str, Any]:
-        with self.engine.connect() as connection:
+        with self._reading() as connection:
             return self._get(
                 connection,
                 entity,
@@ -441,6 +560,7 @@ class SQLAlchemyRepository:
                 relationships=relationships,
             )
 
+    @scoped(writes=False)
     def get_many(
         self,
         entity: str,
@@ -474,7 +594,7 @@ class SQLAlchemyRepository:
             if _is_persisted(field)
         ]
         result: dict[Any, dict[str, Any]] = {}
-        with self.engine.connect() as connection:
+        with self._reading() as connection:
             for start in range(0, len(wanted), BATCH_IDENTITY_LIMIT):
                 batch = wanted[start : start + BATCH_IDENTITY_LIMIT]
                 statement = select(table).where(
@@ -485,15 +605,17 @@ class SQLAlchemyRepository:
                     result[values[primary_key]] = values
         return result
 
+    @scoped(writes=False)
     def exists(self, entity: str, identity: Any) -> bool:
         table = self.table(entity)
         primary_key = _primary_key(self.model.entity(entity))
         statement = select(table.c[primary_key]).where(
             table.c[primary_key] == identity
         )
-        with self.engine.connect() as connection:
+        with self._reading() as connection:
             return connection.execute(statement).first() is not None
 
+    @scoped(writes=False)
     def unique_conflict(
         self,
         entity: str,
@@ -515,14 +637,15 @@ class SQLAlchemyRepository:
         statement = select(table.c[primary_key]).where(table.c[field] == value)
         if exclude_identity is not None:
             statement = statement.where(table.c[primary_key] != exclude_identity)
-        with self.engine.connect() as connection:
+        with self._reading() as connection:
             return connection.execute(statement.limit(1)).first() is not None
 
+    @scoped(writes=False)
     def peek_next_identity(self, entity: str) -> int:
         table = self.table(entity)
         primary_key = _primary_key(self.model.entity(entity))
         statement = select(func.max(table.c[primary_key]))
-        with self.engine.connect() as connection:
+        with self._reading() as connection:
             current = connection.execute(statement).scalar_one_or_none()
         return int(current or 0) + 1
 
@@ -596,6 +719,7 @@ class SQLAlchemyRepository:
                 continue
         raise WriteIntegrityError("tide_sequence")
 
+    @scoped(writes=True)
     def write(
         self,
         entity: str,
@@ -619,7 +743,7 @@ class SQLAlchemyRepository:
         if primary_key != expected_key or version_field != expected_version_field:
             raise ValueError("repository write metadata does not match the compiled entity")
         try:
-            with self.engine.begin() as connection:
+            with self._writing() as connection:
                 stored = self._write_entity(
                     connection,
                     entity,
@@ -643,11 +767,24 @@ class SQLAlchemyRepository:
             # rolled back, so this runs on a fresh connection and could in
             # principle miss a row deleted in between -- in which case the write
             # keeps the general error rather than claiming the wrong cause.
+            #
+            # Inside a unit of work there is no rolled-back transaction to ask
+            # around: the scope's connection is still open and, on a backend
+            # that aborts a transaction after a failed statement, the probe
+            # would raise over the error it was sent to explain. The scope is
+            # doomed either way, so it keeps the general error rather than
+            # buying a subclass with a query that is not portable here.
             identity = values.get(primary_key)
-            if is_new and identity is not None and self.exists(entity, identity):
+            if (
+                self._scope is None
+                and is_new
+                and identity is not None
+                and self.exists(entity, identity)
+            ):
                 raise DuplicateIdentityError(entity, identity) from error
             raise WriteIntegrityError(entity) from error
 
+    @scoped(writes=True)
     def delete(
         self,
         entity: str,
@@ -683,7 +820,7 @@ class SQLAlchemyRepository:
             for policy in row_criteria
         )
         try:
-            with self.engine.begin() as connection:
+            with self._writing() as connection:
                 current = connection.execute(
                     select(
                         table.c[primary_key],

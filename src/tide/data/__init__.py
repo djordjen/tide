@@ -25,6 +25,9 @@ from tide.data.repository import (
     Repository,
     SortField,
     sequence_name,
+    UnitOfWorkBypassed,
+    UnitOfWorkClosed,
+    UnitOfWorkFailed,
     WriteIntegrityError,
 )
 from tide.data.revision_sql import (
@@ -80,6 +83,9 @@ __all__ = [
     "SchemaIssue",
     "SchemaManagementError",
     "SortField",
+    "UnitOfWorkBypassed",
+    "UnitOfWorkClosed",
+    "UnitOfWorkFailed",
     "sequence_name",
     "create_sqlite_backup",
     "generate_revision",

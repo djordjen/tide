@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
-from threading import RLock
-from typing import Any, Iterable, Mapping, Sequence
+from contextlib import contextmanager
+from copy import copy, deepcopy
+from dataclasses import dataclass
+from threading import RLock, get_ident
+from typing import Any, Iterable, Iterator, Mapping, Sequence
 
 from tide.compiler.expressions import evaluate_expression
 from tide.data.repository import (
@@ -19,7 +21,11 @@ from tide.data.repository import (
     RelationshipLoadPlan,
     RowPolicyMismatch,
     SortField,
+    UnitOfWorkBypassed,
+    UnitOfWorkClosed,
+    UnitOfWorkFailed,
     matches_filter,
+    scoped,
     query_sort_key,
 )
 from tide.runtime.errors import (
@@ -30,18 +36,98 @@ from tide.runtime.errors import (
 )
 
 
+@dataclass
+class _Scope:
+    """One in-memory unit of work: what to put back, and whether to.
+
+    The undo is a snapshot rather than a log because that is what `write` and
+    `delete` already did by hand for their single-call case, and a dictionary
+    of records is small enough that copying it is cheaper than replaying an
+    inverse of every mutation. Identity allocation is deliberately outside it:
+    a database sequence does not give numbers back on rollback either, and a
+    reused identity is worse than a gap.
+    """
+
+    snapshot: dict[str, dict[Any, dict[str, Any]]]
+    doomed: bool = False
+    closed: bool = False
+
+
 class InMemoryRepository:
     def __init__(self) -> None:
         self._records: dict[str, dict[Any, dict[str, Any]]] = {}
         self._next_identity: dict[str, int] = {}
         self._sequences: dict[str, int] = {}
         self._lock = RLock()
+        self._scope: _Scope | None = None
+        self._open_on_thread: int | None = None
+
+    @contextmanager
+    def transaction(self) -> Iterator[InMemoryRepository]:
+        """Open a scope whose writes land together or not at all."""
+
+        if self._scope is not None:
+            # Joining rather than nesting: an operation built from two smaller
+            # ones is still one commit, and only the outermost scope decides.
+            with self._joined():
+                yield self
+            return
+        with self._lock:
+            scope = _Scope(snapshot=deepcopy(self._records))
+            self._open_on_thread = get_ident()
+            unit = copy(self)
+            unit._scope = scope
+            try:
+                yield unit
+            except BaseException:
+                self._records = scope.snapshot
+                raise
+            else:
+                if scope.doomed:
+                    self._records = scope.snapshot
+                    raise UnitOfWorkFailed(
+                        "a failed write left this unit of work unable to commit"
+                    )
+            finally:
+                scope.closed = True
+                self._open_on_thread = None
+
+    @contextmanager
+    def _joined(self) -> Iterator[None]:
+        """Run inside the scope already open, without deciding its outcome."""
+
+        try:
+            yield
+        except BaseException:
+            self._doom()
+            raise
+
+    def _active_scope(self) -> _Scope | None:
+        scope = self._scope
+        if scope is None:
+            if self._open_on_thread == get_ident():
+                raise UnitOfWorkBypassed(
+                    "this repository has an open unit of work; call the "
+                    "repository that scope yielded"
+                )
+            return None
+        if scope.closed:
+            raise UnitOfWorkClosed(
+                "this unit of work belongs to a scope that has already ended"
+            )
+        return scope
+
+    def _doom(self) -> None:
+        scope = self._scope
+        if scope is not None:
+            scope.doomed = True
 
     def check_readiness(self) -> None:
         """The process-local store is ready when its synchronization primitive works."""
         with self._lock:
             return
 
+    @scoped(writes=True)
     def seed(self, entity: str, records: Iterable[dict[str, Any]], *, primary_key: str = "id") -> None:
         with self._lock:
             bucket = self._records.setdefault(entity, {})
@@ -54,10 +140,12 @@ class InMemoryRepository:
                         self._next_identity.get(entity, 1), identity + 1
                     )
 
+    @scoped(writes=False)
     def all(self, entity: str) -> list[dict[str, Any]]:
         with self._lock:
             return [deepcopy(record) for record in self._records.get(entity, {}).values()]
 
+    @scoped(writes=False)
     def query(
         self,
         entity: str,
@@ -103,6 +191,7 @@ class InMemoryRepository:
             )
         return records[: query.limit]
 
+    @scoped(writes=False)
     def get(
         self,
         entity: str,
@@ -131,6 +220,7 @@ class InMemoryRepository:
                 raise RowPolicyMismatch
             return result
 
+    @scoped(writes=False)
     def get_many(
         self,
         entity: str,
@@ -172,10 +262,12 @@ class InMemoryRepository:
             )
         }
 
+    @scoped(writes=False)
     def exists(self, entity: str, identity: Any) -> bool:
         with self._lock:
             return identity in self._records.get(entity, {})
 
+    @scoped(writes=False)
     def unique_conflict(
         self,
         entity: str,
@@ -197,6 +289,7 @@ class InMemoryRepository:
                 for identity, record in self._records.get(entity, {}).items()
             )
 
+    @scoped(writes=False)
     def peek_next_identity(self, entity: str) -> int:
         with self._lock:
             return self._next_identity.get(entity, 1)
@@ -227,6 +320,7 @@ class InMemoryRepository:
             self._sequences[name] = floor
             return floor
 
+    @scoped(writes=True)
     def write(
         self,
         entity: str,
@@ -286,6 +380,7 @@ class InMemoryRepository:
                     raise
             return record
 
+    @scoped(writes=True)
     def delete(
         self,
         entity: str,

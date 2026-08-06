@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
+from functools import wraps
 from types import MappingProxyType
-from typing import Any, Callable, Iterable, Mapping, Protocol, Sequence, runtime_checkable
+from typing import (
+    Any,
+    Callable,
+    Iterable,
+    Mapping,
+    Protocol,
+    Sequence,
+    TypeVar,
+    runtime_checkable,
+)
 
 
 NO_PARAMETERS: Mapping[str, Any] = MappingProxyType({})
@@ -252,8 +263,116 @@ class DuplicateIdentityError(WriteIntegrityError):
         self.identity = identity
 
 
+class UnitOfWorkClosed(Exception):
+    """A unit of work was used after the scope that owns it ended.
+
+    The scope is the lifetime: once it commits or rolls back there is no
+    transaction left to join, so a call arriving late would land outside the
+    atomicity the caller asked for. Refusing is the only honest answer --
+    silently running it is exactly the bug this whole contract exists to
+    remove.
+    """
+
+
+class UnitOfWorkBypassed(Exception):
+    """The repository a scope came from was used while that scope was open.
+
+    What such a call does is not something the adapters can agree on, which
+    is why it is refused rather than defined. The document store holds one
+    lock and one snapshot, so a write that slips past the scope on the same
+    thread is undone with it; a database hands out a second connection that
+    commits on its own -- unless the pool is handing back the same one, as
+    SQLite in memory does, in which case it joins after all. Three answers to
+    one question is not a contract.
+
+    A caller that meant to write outside the scope wants a second repository;
+    a caller that meant to write inside it wants the object the scope yielded,
+    which is the one thing it had to be holding to reach here.
+    """
+
+
+class UnitOfWorkFailed(Exception):
+    """A scope was left in a state its own failure had already condemned.
+
+    A failed write inside a unit of work dooms the whole scope, because
+    without savepoints there is no way to undo just that write. Catching the
+    error and carrying on would otherwise commit whatever ran before it,
+    which is a partial write wearing a transaction's clothes.
+    """
+
+
+
+_Method = TypeVar("_Method", bound=Callable[..., Any])
+
+
+def scoped(*, writes: bool) -> Callable[[_Method], _Method]:
+    """Bind one repository method to the unit of work it is called on.
+
+    Two lines every method in both adapters would otherwise repeat: refuse a
+    scope that has already ended, and -- for a write -- condemn the scope when
+    the call fails, because there is no savepoint to undo just that write
+    with. A read that fails changes nothing, so it leaves the scope alone.
+
+    It reaches for `_active_scope` and `_doom` on whatever it decorates, which
+    is the only thing the two adapters' scopes have in common: one holds a
+    dictionary snapshot and the other a database connection.
+    """
+
+    def decorate(method: _Method) -> _Method:
+        @wraps(method)
+        def guarded(self: Any, *args: Any, **kwargs: Any) -> Any:
+            self._active_scope()
+            try:
+                return method(self, *args, **kwargs)
+            except BaseException:
+                if writes:
+                    self._doom()
+                raise
+
+        return guarded  # type: ignore[return-value]
+
+    return decorate
+
+
 @runtime_checkable
 class Repository(Protocol):
+    def transaction(self) -> AbstractContextManager[Repository]:
+        """Open a scope several reads and writes commit or roll back together.
+
+        The scope yields a repository of its own; calls on *that* object join
+        it, and calls on the original do not::
+
+            with repository.transaction() as unit:
+                unit.write(...)
+                unit.write(...)
+
+        Writing it this way rather than passing a `unit=` to every method is
+        deliberate. A parameter can be forgotten at one call site out of ten,
+        and the result is a write that quietly commits on its own inside what
+        the reader takes to be a transaction; an object cannot be forgotten,
+        because there is nothing else to call.
+
+        Four rules, and both adapters keep all four:
+
+        * a clean exit commits, and an exception rolls back;
+        * a failed **write** dooms the scope: the unit refuses further work
+          and the exit rolls back even if the caller swallowed the error.
+          There are no savepoints to undo one write with, and how much of a
+          refused statement survives is the backend's business -- PostgreSQL
+          fails everything after it, SQLite carries on. A failed *read*
+          changes nothing and does not doom, so a `NotFoundError` a caller
+          means to handle stays handleable;
+        * `transaction()` on a unit *joins* the scope it is already in rather
+          than nesting a new one, so an operation built from two smaller ones
+          is still a single commit. Only the outermost scope decides;
+        * using a unit after its scope has ended raises `UnitOfWorkClosed`.
+
+        Sequence allocation deliberately stays outside any scope it is called
+        from -- see `next_sequence_value`, which commits its claim immediately
+        so that an abandoned write leaves a gap rather than a held lock.
+        """
+        ...
+
     def check_readiness(self) -> None:
         """Raise when the persistence dependency cannot safely serve requests."""
         ...
