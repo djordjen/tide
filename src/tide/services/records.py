@@ -562,9 +562,11 @@ class RecordsService:
         must be readable, the fields its display names must be readable, and
         its read policy still decides row by row.
 
-        This is a convenience, not an access decision -- everything it fails
-        to resolve is simply missing, and a renderer that gets nothing shows
-        the stored identity instead.
+        Every refusal degrades to absence rather than raising: a display it
+        may not resolve is simply not there, and a renderer that gets nothing
+        shows the stored identity, which is what it did before this existed.
+        Absence is the only negative answer, so nothing here can distinguish
+        a row the policy hid from one that was never there.
         """
 
         wanted: dict[str, dict[Any, None]] = {}
