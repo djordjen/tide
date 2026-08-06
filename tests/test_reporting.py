@@ -228,3 +228,54 @@ def test_html_and_pdf_renderers_write_standalone_documents(
     pdf_path = write_pdf(document, tmp_path / "invoice.pdf")
     assert html_path.read_text(encoding="utf-8") == html
     assert pdf_path.read_bytes().startswith(b"%PDF-")
+
+
+def test_a_summary_report_names_its_groups_without_a_read_each(
+    reporting,
+    monkeypatch,
+) -> None:
+    """The one consumer of this transform that never had a cache.
+
+    Every other renderer at least remembered a resolved name; the report
+    formatter asked again for every cell, so a 500-row summary grouped by
+    customer made 500 reads of the same handful of records.
+    """
+
+    service, context = reporting
+    reads: list[tuple[str, object]] = []
+    loaded = service.records.get
+
+    def tracked_get(entity_name, identity, request_context):
+        reads.append((entity_name, identity))
+        return loaded(entity_name, identity, request_context)
+
+    monkeypatch.setattr(service.records, "get", tracked_get)
+
+    document = service.build("sales.summary", {}, context)
+
+    assert isinstance(document.detail, ReportTable)
+    assert [cell.text for cell in document.detail.rows[0][:1]] == [
+        "ADRIA - Adria Consulting",
+    ]
+    assert [entity for entity, _ in reads if entity == "crm.Customer"] == []
+
+
+def test_a_record_report_names_its_lines_without_a_read_each(
+    reporting,
+    monkeypatch,
+) -> None:
+    service, context = reporting
+    reads: list[tuple[str, object]] = []
+    loaded = service.records.get
+
+    def tracked_get(entity_name, identity, request_context):
+        reads.append((entity_name, identity))
+        return loaded(entity_name, identity, request_context)
+
+    monkeypatch.setattr(service.records, "get", tracked_get)
+
+    service.build_for_record("sales.invoice", 1, context)
+
+    # One read, for the invoice itself. Its customer and every line's product
+    # come from the one resolution that read follows.
+    assert reads == [("sales.Invoice", 1)]

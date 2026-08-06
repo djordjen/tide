@@ -14,6 +14,7 @@ from tide.labels import humanize as _humanize, value_label
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.presentation import field_alignment, field_label, record_display
+from tide.services import NO_REFERENCE_DISPLAYS, ReferenceDisplays
 from tide.runtime import Channel, RequestContext, TideRuntimeError
 from tide.runtime.errors import AuthorizationError, ValidationFailed, ValidationIssue
 from tide.security import PROTECTED
@@ -67,6 +68,11 @@ class ReportService:
             parameter_values[parameter_name],
             report_context,
         )
+        references = self.records.reference_displays(
+            entity.name,
+            (record,),
+            report_context,
+        )
         bands = report["bands"]
         header_text, header_values = self._content_values(
             entity,
@@ -74,6 +80,7 @@ class ReportService:
             bands.get("report_header", ()),
             parameter_values,
             report_context,
+            references,
         )
         record_text, record_values = self._content_values(
             entity,
@@ -81,6 +88,7 @@ class ReportService:
             bands.get("record_header", ()),
             parameter_values,
             report_context,
+            references,
         )
         footer_text, footer_values = self._content_values(
             entity,
@@ -88,12 +96,14 @@ class ReportService:
             bands.get("report_footer", ()),
             parameter_values,
             report_context,
+            references,
         )
         detail = self._detail(
             entity,
             record,
             bands["detail"],
             report_context,
+            references,
         )
         page_footer = self._page_footer(
             record,
@@ -236,6 +246,7 @@ class ReportService:
                         value,
                         report_context,
                         format_name=group.get("format"),
+                        references=page.references,
                     ),
                     _alignment(
                         entity.field(str(group["field"])),
@@ -284,6 +295,7 @@ class ReportService:
         items: tuple[Mapping[str, Any], ...],
         parameters: Mapping[str, Any],
         context: RequestContext,
+        references: ReferenceDisplays = NO_REFERENCE_DISPLAYS,
     ) -> tuple[tuple[str, ...], tuple[ReportValue, ...]]:
         texts: list[str] = []
         values: list[ReportValue] = []
@@ -299,6 +311,7 @@ class ReportService:
                     raw,
                     context,
                     format_name=item.get("format"),
+                    references=references,
                 )
                 values.append(
                     ReportValue(
@@ -326,6 +339,7 @@ class ReportService:
         record: Mapping[str, Any],
         detail: Mapping[str, Any],
         context: RequestContext,
+        references: ReferenceDisplays = NO_REFERENCE_DISPLAYS,
     ) -> ReportTable:
         source_name = str(detail["source"])
         source = entity.field(source_name)
@@ -352,6 +366,7 @@ class ReportService:
                             field,
                             _read_report_value(target.name, field.name, raw_row),
                             context,
+                            references=references,
                         ),
                         _alignment(field, self.model.formats, None),
                     )
@@ -396,10 +411,14 @@ class ReportService:
         context: RequestContext,
         *,
         format_name: Any = None,
+        references: ReferenceDisplays = NO_REFERENCE_DISPLAYS,
     ) -> str:
         if value is None:
             return ""
         if field.metadata["type"] == "reference" and field.target_entity:
+            resolved = references.display(field.target_entity, value)
+            if resolved is not None:
+                return resolved
             try:
                 related = self.records.get(field.target_entity, value, context)
             except TideRuntimeError:
