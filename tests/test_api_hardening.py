@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
+from threading import Event, Thread
 from typing import Any
 
 import httpx
@@ -18,6 +19,7 @@ import pytest
 
 from tide import compile_project
 from tide.api.local_auth import (
+    LocalAuthenticationError,
     LocalPasswordAuth,
     LocalUserStore,
     hash_password,
@@ -50,6 +52,9 @@ def test_the_identity_store_is_restricted_on_every_platform(
     store.initialize()
 
     assert store.path.is_file()
+    store.validate()
+    store.create_user("clerk", PASSWORD, roles={"sales_clerk"})
+    assert store.get_user("clerk") is not None
     if os.name != "nt":
         assert store.path.stat().st_mode & 0o077 == 0
 
@@ -100,6 +105,42 @@ def test_a_store_whose_permissions_cannot_be_set_is_still_usable(
     store.create_user("clerk", PASSWORD, roles={"sales_clerk"})
 
     assert store.get_user("clerk") is not None
+
+
+def test_windows_acl_uses_the_effective_sid_not_username(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The environment can name a different account than the process token."""
+
+    import subprocess
+
+    from tide.api.local_auth import _restrict_with_icacls
+
+    calls: list[list[str]] = []
+
+    def run(arguments: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        del kwargs
+        calls.append(arguments)
+        if arguments[0] == "whoami":
+            return subprocess.CompletedProcess(
+                arguments,
+                0,
+                stdout='"host\\effective","S-1-5-21-1234"\n',
+                stderr="",
+            )
+        return subprocess.CompletedProcess(arguments, 0, stdout="", stderr="")
+
+    target = tmp_path / "auth.sqlite3"
+    target.write_bytes(b"")
+    monkeypatch.setenv("USERNAME", "a-different-account")
+    monkeypatch.setattr(subprocess, "run", run)
+
+    _restrict_with_icacls(target)
+
+    assert calls[0] == ["whoami", "/user", "/fo", "csv", "/nh"]
+    assert calls[1][0] == "icacls"
+    assert "*S-1-5-21-1234:F" in calls[1]
+    assert all("a-different-account" not in argument for argument in calls[1])
 
 
 # --- the stored password hash ------------------------------------------------
@@ -155,6 +196,59 @@ def test_upgrading_the_work_factor_keeps_other_sessions_signed_in(
     now[0] += auth.revalidate_interval_seconds
 
     assert auth.authenticate_session(existing) is not None
+
+
+def test_a_password_reset_wins_a_race_with_hash_upgrade(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A login with the old password must never undo an administrator's reset."""
+
+    from tide.api import local_auth
+
+    weak = _store(tmp_path, iterations=1_000)
+    weak.initialize()
+    weak.create_user("clerk", PASSWORD, roles={"sales_clerk"})
+    stronger = _store(tmp_path, iterations=4_000)
+    auth = LocalPasswordAuth(
+        stronger,
+        allowed_roles=frozenset({"sales_clerk"}),
+        secure_cookie=False,
+    )
+    replacement = "an entirely different passphrase"
+    upgrade_started = Event()
+    reset_finished = Event()
+    original_hash_password = hash_password
+
+    def delayed_hash(password: str, *, iterations: int) -> str:
+        if password == PASSWORD and iterations == 4_000:
+            upgrade_started.set()
+            assert reset_finished.wait(5), "password reset did not finish"
+        return original_hash_password(password, iterations=iterations)
+
+    monkeypatch.setattr(local_auth, "hash_password", delayed_hash)
+    outcome: list[str] = []
+
+    def sign_in() -> None:
+        try:
+            auth.login(username="clerk", password=PASSWORD)
+        except LocalAuthenticationError:
+            outcome.append("refused")
+        else:
+            outcome.append("accepted")
+
+    login = Thread(target=sign_in)
+    login.start()
+    assert upgrade_started.wait(5), "login did not reach the hash upgrade"
+    stronger.set_password("clerk", replacement)
+    reset_finished.set()
+    login.join(5)
+
+    assert not login.is_alive()
+    stored = stronger.get_user("clerk")
+    assert stored is not None
+    assert outcome == ["refused"]
+    assert verify_password(replacement, stored.password_hash)
+    assert not verify_password(PASSWORD, stored.password_hash)
 
 
 def test_an_unreadable_hash_is_not_mistaken_for_a_weak_one() -> None:

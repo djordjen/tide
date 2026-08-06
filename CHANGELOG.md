@@ -42,6 +42,12 @@ explicit permission/exposure, row-policy and version enforcement, stable
 reference conflicts, and transactional relationship behavior in memory,
 managed SQL, and legacy no-DDL SQL.
 
+Repository transaction scopes now keep SQL ownership in the current execution
+context rather than one mutable thread identifier, so concurrent requests
+cannot overwrite each other's bypass protection. The yielded repository still
+joins nested work and the original repository is still refused inside its own
+scope.
+
 Milestones 0 and 1 are substantially implemented, and the secured application
 core milestone is complete. The v0.1 compiler, resolved-view provenance, typed
 expressions, headless services, in-memory and SQLite repositories, tests, and
@@ -119,9 +125,16 @@ tables. The first `start.bat web` or `web-demo` run prompts for the local
 deployments, but no third-party login is required. See
 [Web authentication](docs/WEB-AUTHENTICATION.md).
 
+Password work-factor upgrades now compare-and-swap the hash they verified, so
+an administrator's concurrent reset always wins. Concurrent requests crossing
+a session's revalidation boundary reuse the first refreshed result rather than
+turning the second request into a false expiry. Windows identity-file ACLs are
+granted to the process token's SID rather than the mutable `USERNAME`
+environment value, and access is checked after hardening.
+
 `docs/WEB-UI.md` carries the current feature list.
 
-Six Playwright journeys run against a real `tide serve` hosting the built
+Seven Playwright journeys run against a real `tide serve` hosting the built
 bundle at its own origin: password sign-in, browsing, a record's nested lines,
 create/edit/reload, drafting an Invoice through both lookups and posting it,
 report preview and export, and a two-tab stale-edit conflict. They replaced a

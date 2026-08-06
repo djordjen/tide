@@ -84,6 +84,23 @@ random bearer token, applies TTL and capacity transactionally, and uses an
 explicitly owned table. Both implement the same `CursorStore` service
 dependency; see [Shared cursor storage](CURSOR-STORAGE.md).
 
+## Repository transaction scopes
+
+`Repository.transaction()` yields a repository bound to one unit of work. Reads
+and writes made through that yielded object share the transaction; a nested
+scope on it joins rather than committing early. A failed write condemns the
+scope even if its exception is caught, an exception leaving the outer scope
+rolls everything back, and a yielded repository cannot be reused after its
+scope closes.
+
+Using the original repository from the same execution context while its scope
+is open raises `UnitOfWorkBypassed`. SQLAlchemy tracks that ownership with a
+`ContextVar`, so two server requests may hold independent scopes concurrently
+without overwriting one shared thread marker. Each request is still protected
+from accidentally committing through its original repository instead of the
+unit it was given. The in-memory adapter serializes scopes around its snapshot
+and provides the same observable commit/rollback contract.
+
 ## Mutation preconditions
 
 When an entity has a concurrency token, generated REST responses expose that

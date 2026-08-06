@@ -85,7 +85,9 @@ to pay per authenticated request. Within that interval the session keeps the
 principal it was issued. At the next check, an account that has been deleted,
 disabled, left with no permitted role, or given a different password loses its
 sessions; a role merely added or removed reaches the principal without signing
-the user out of work in progress.
+the user out of work in progress. Requests that reach the revalidation boundary
+together may both read the store, but the later one adopts the already-refreshed
+session instead of treating the first request's replacement as a revocation.
 
 A session records a digest of the password hash it was issued against — never
 the hash, and never compared with anything a caller sends. That makes `tide
@@ -98,7 +100,11 @@ below the configured one, which is the only moment the plaintext is both in
 hand and known good. That moves the hash without the password changing, so the
 sign-in re-stamps that user's live sessions rather than signing them out for an
 upgrade nobody asked for. The stored format carries its own iteration count, so
-an old hash keeps verifying until it is replaced.
+an old hash keeps verifying until it is replaced. Replacement is a conditional
+compare-and-swap against the hash the login actually verified. If an
+administrator resets the password in the meantime, the reset wins and the
+stale login is refused; two simultaneous upgrades of the same password safely
+converge on the one that reached storage first.
 
 `LocalPasswordAuth.revoke_user` and `revoke_all` end sessions immediately, but
 sessions live in the serving process's memory, so those are for embedded hosts
@@ -118,7 +124,11 @@ is not serving.
 The identity store is restricted to its owning account when it is created —
 `chmod 0600` where that means something, and `icacls` with inheritance dropped
 on Windows, which is the documented primary platform and where `chmod` moves
-only the read-only flag. Both are best effort: a failure leaves the file less
+only the read-only flag. The Windows grant names the SID reported by the current
+process token, not `%USERNAME%`, which may belong to the interactive host rather
+than a service, sandbox or impersonated process. TIDE checks that it can reopen
+the file and restores inherited access on a failed hardening attempt. Both
+platform mechanisms remain best effort: a failure leaves the file less
 protected than intended rather than refusing to start, because turning a
 hardening step into an outage helps nobody. SQLite writes journal side-files
 beside the store and those inherit the *directory*, so restrict the directory

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, suppress
+from contextvars import ContextVar
 from copy import copy
 from dataclasses import dataclass
 from decimal import Decimal
 import re
-from threading import get_ident
 from typing import Any
 
 from sqlalchemy import (
@@ -148,7 +148,10 @@ class SQLAlchemyRepository:
             dialect_name=self.engine.dialect.name,
         )
         self._scope: _SqlScope | None = None
-        self._open_on_thread: int | None = None
+        self._scope_open = ContextVar(
+            f"tide_sql_scope_open_{id(self)}",
+            default=False,
+        )
         self._sequence_table = Table(
             "tide_sequence",
             self.metadata,
@@ -173,12 +176,17 @@ class SQLAlchemyRepository:
             with self._joined():
                 yield self
             return
+        if self._scope_open.get():
+            raise UnitOfWorkBypassed(
+                "this repository has an open unit of work; call the "
+                "repository that scope yielded"
+            )
         with self.engine.connect() as connection:
             scope = _SqlScope(connection=connection)
-            self._open_on_thread = get_ident()
             unit = copy(self)
             unit._scope = scope
             handle = connection.begin()
+            owner = self._scope_open.set(True)
             try:
                 yield unit
             except BaseException:
@@ -193,7 +201,7 @@ class SQLAlchemyRepository:
                 handle.commit()
             finally:
                 scope.closed = True
-                self._open_on_thread = None
+                self._scope_open.reset(owner)
 
     @contextmanager
     def _joined(self) -> Iterator[None]:
@@ -236,7 +244,7 @@ class SQLAlchemyRepository:
     def _active_scope(self) -> _SqlScope | None:
         scope = self._scope
         if scope is None:
-            if self._open_on_thread == get_ident():
+            if self._scope_open.get():
                 raise UnitOfWorkBypassed(
                     "this repository has an open unit of work; call the "
                     "repository that scope yielded"

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from threading import Barrier, Thread
 from typing import Any
 
 import pytest
@@ -116,6 +117,42 @@ def test_a_session_is_not_re_read_on_every_request(tmp_path: Path) -> None:
         assert auth.authenticate_session(session) is not None
 
     assert store.lookups == before, "the cached principal should have answered"
+
+
+def test_concurrent_revalidation_keeps_both_requests_authenticated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Replacing a refreshed session is not the same thing as revoking it."""
+
+    auth, store, now = _auth(tmp_path, revalidate_interval_seconds=30)
+    session = auth.login(username="clerk", password=PASSWORD).session_id
+    now[0] += auth.revalidate_interval_seconds
+    original_get_user = store.get_user
+    revalidating = Barrier(2)
+
+    def concurrent_get_user(username: str) -> Any:
+        revalidating.wait(timeout=5)
+        return original_get_user(username)
+
+    monkeypatch.setattr(store, "get_user", concurrent_get_user)
+    authenticated: list[bool] = []
+    errors: list[BaseException] = []
+
+    def authenticate() -> None:
+        try:
+            authenticated.append(auth.authenticate_session(session) is not None)
+        except BaseException as error:
+            errors.append(error)
+
+    requests = [Thread(target=authenticate) for _ in range(2)]
+    for request in requests:
+        request.start()
+    for request in requests:
+        request.join(5)
+
+    assert all(not request.is_alive() for request in requests)
+    assert errors == []
+    assert authenticated == [True, True]
 
 
 def test_revocation_does_not_wait_for_the_interval(tmp_path: Path) -> None:

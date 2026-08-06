@@ -16,7 +16,7 @@ import sqlite3
 import subprocess
 from threading import BoundedSemaphore, RLock
 import time
-from typing import Callable, Iterator
+from typing import Callable, Iterator, NoReturn
 
 from tide.api.browser_session import BrowserSessionAccess
 from tide.runtime import Principal
@@ -28,6 +28,7 @@ MIN_PASSWORD_CHARACTERS = 12
 _MAX_PASSWORD_ITERATIONS = 2_000_000
 _SCHEMA_VERSION = "1"
 _USERNAME = re.compile(r"[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?")
+_WINDOWS_SID = re.compile(r"\bS-\d+(?:-\d+)+\b", re.IGNORECASE)
 
 
 class LocalAuthenticationError(ValueError):
@@ -309,25 +310,37 @@ class LocalUserStore:
             )
         return normalized_roles
 
-    def upgrade_password_hash(self, username: str, password_hash: str) -> None:
+    def upgrade_password_hash(
+        self,
+        username: str,
+        expected_password_hash: str,
+        password_hash: str,
+    ) -> bool:
         """Replace a stored hash with a stronger one for the same password.
 
         Deliberately leaves `password_changed_at` alone: the password did not
         change, only the cost of checking it, and moving that timestamp would
         sign the user out of every other session for an upgrade they did not
-        ask for.
+        ask for. The expected hash makes this compare-and-swap: an
+        administrator's concurrent password reset must win rather than being
+        overwritten by a sign-in that verified the previous password.
         """
 
         self.validate()
         with self._connect() as connection:
-            connection.execute(
+            cursor = connection.execute(
                 """
                 UPDATE tide_local_users
                 SET password_hash = ?
-                WHERE username = ?
+                WHERE username = ? AND password_hash = ?
                 """,
-                (password_hash, normalize_username(username)),
+                (
+                    password_hash,
+                    normalize_username(username),
+                    expected_password_hash,
+                ),
             )
+        return cursor.rowcount == 1
 
     def get_user(self, username: str) -> LocalUser | None:
         self.validate()
@@ -518,14 +531,7 @@ class LocalPasswordAuth:
             or not password_matches
             or not roles
         ):
-            with self._lock:
-                failures = self._failure_bucket_locked(
-                    normalized_username,
-                    now=now,
-                )
-                if len(failures) < self.max_failures:
-                    failures.append(now)
-            raise LocalAuthenticationError("username or password is incorrect")
+            self._refuse_login(normalized_username, now=now)
 
         # The one moment the plaintext is in hand and already known good, so
         # it is the only chance to re-hash at the current cost without asking
@@ -533,11 +539,42 @@ class LocalPasswordAuth:
         # iteration count, so an old hash keeps verifying until it is replaced.
         stored_hash = user.password_hash
         if _hash_iterations(stored_hash) < self.store.password_iterations:
-            stored_hash = hash_password(
+            candidate_hash = hash_password(
                 password, iterations=self.store.password_iterations
             )
-            self.store.upgrade_password_hash(user.username, stored_hash)
-            self._restamp_sessions(user.username, _credential_stamp(stored_hash))
+            upgraded = self.store.upgrade_password_hash(
+                user.username,
+                stored_hash,
+                candidate_hash,
+            )
+            current = self.store.get_user(user.username)
+            current_roles = (
+                current.roles.intersection(self.allowed_roles)
+                if current is not None
+                else frozenset()
+            )
+            current_password_matches = bool(
+                current is not None
+                and (
+                    (upgraded and current.password_hash == candidate_hash)
+                    or verify_password(password, current.password_hash)
+                )
+            )
+            if (
+                current is None
+                or not current.enabled
+                or not current_password_matches
+                or not current_roles
+            ):
+                self._refuse_login(normalized_username, now=now)
+            user = current
+            roles = current_roles
+            stored_hash = current.password_hash
+            if upgraded and stored_hash == candidate_hash:
+                self._restamp_sessions(
+                    user.username,
+                    _credential_stamp(stored_hash),
+                )
 
         principal = Principal(
             f"local:{user.username}",
@@ -568,30 +605,38 @@ class LocalPasswordAuth:
         if not isinstance(session_id, str) or not session_id:
             return None
         now = self._clock()
-        with self._lock:
-            self._prune_locked(now)
-            session = self._sessions.get(session_id)
-            if session is None:
-                return None
-            self._sessions.move_to_end(session_id)
-            if now < session.revalidate_at:
-                return BrowserSessionAccess(session.principal, session.csrf_token)
+        while True:
+            with self._lock:
+                self._prune_locked(now)
+                session = self._sessions.get(session_id)
+                if session is None:
+                    return None
+                self._sessions.move_to_end(session_id)
+                if now < session.revalidate_at:
+                    return BrowserSessionAccess(
+                        session.principal,
+                        session.csrf_token,
+                    )
 
-        # Re-reading opens a connection to the store, so it is bounded by an
-        # interval rather than done per request. Between checks a session is
-        # trusted; without them it was trusted for eight hours, which meant a
-        # disabled account, a reset password and a withdrawn role all kept
-        # working until the browser was closed.
-        refreshed = self._revalidated(session, now=now)
-        with self._lock:
-            if self._sessions.get(session_id) is not session:
-                return None
-            if refreshed is None:
-                self._sessions.pop(session_id, None)
-                return None
-            self._sessions[session_id] = refreshed
-            self._sessions.move_to_end(session_id)
-        return BrowserSessionAccess(refreshed.principal, refreshed.csrf_token)
+            # Re-reading opens a connection to the store, so it is bounded by
+            # an interval rather than done per request. Two requests may reach
+            # the boundary together. If the other one refreshes the mapping
+            # first, loop over its result instead of mistaking replacement for
+            # revocation; an actual revocation removes the mapping and the next
+            # pass returns None.
+            refreshed = self._revalidated(session, now=now)
+            with self._lock:
+                if self._sessions.get(session_id) is not session:
+                    continue
+                if refreshed is None:
+                    self._sessions.pop(session_id, None)
+                    return None
+                self._sessions[session_id] = refreshed
+                self._sessions.move_to_end(session_id)
+                return BrowserSessionAccess(
+                    refreshed.principal,
+                    refreshed.csrf_token,
+                )
 
     def _revalidated(
         self, session: _LocalSession, *, now: float
@@ -706,6 +751,15 @@ class LocalPasswordAuth:
         while len(self._failures) > self.max_failure_subjects:
             self._failures.popitem(last=False)
         return failures
+
+    def _refuse_login(self, username: str, *, now: float) -> NoReturn:
+        """Record one generic credential refusal and disclose nothing else."""
+
+        with self._lock:
+            failures = self._failure_bucket_locked(username, now=now)
+            if len(failures) < self.max_failures:
+                failures.append(now)
+        raise LocalAuthenticationError("username or password is incorrect")
 
 
 def normalize_username(username: str) -> str:
@@ -863,14 +917,56 @@ def _restrict_with_icacls(path: Path) -> None:
     directory is worth restricting too.
     """
 
-    account = os.environ.get("USERNAME")
-    if not account:
+    sid = _current_windows_sid()
+    if sid is None:
         return
     with suppress(OSError, subprocess.SubprocessError):
-        subprocess.run(
-            ["icacls", str(path), "/inheritance:r", "/grant:r", f"{account}:F"],
+        restricted = subprocess.run(
+            ["icacls", str(path), "/inheritance:r", "/grant:r", f"*{sid}:F"],
             check=False,
             capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if restricted.returncode != 0 or not _can_reopen(path):
+            _restore_windows_inheritance(path)
+
+
+def _current_windows_sid() -> str | None:
+    """Return the SID represented by this process token, never an env hint."""
+
+    with suppress(OSError, subprocess.SubprocessError):
+        result = subprocess.run(
+            ["whoami", "/user", "/fo", "csv", "/nh"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if result.returncode == 0:
+            match = _WINDOWS_SID.search(result.stdout or "")
+            if match is not None:
+                return match.group(0)
+    return None
+
+
+def _can_reopen(path: Path) -> bool:
+    try:
+        with path.open("r+b"):
+            return True
+    except OSError:
+        return False
+
+
+def _restore_windows_inheritance(path: Path) -> None:
+    """Best-effort recovery if applying the restrictive ACL went wrong."""
+
+    with suppress(OSError, subprocess.SubprocessError):
+        subprocess.run(
+            ["icacls", str(path), "/inheritance:e"],
+            check=False,
+            capture_output=True,
+            text=True,
             timeout=15,
         )
 

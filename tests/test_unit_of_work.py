@@ -11,6 +11,7 @@ be indistinguishable from up here.
 from __future__ import annotations
 
 from pathlib import Path
+from threading import Barrier, Thread
 from typing import Any, Iterator
 
 import pytest
@@ -118,6 +119,50 @@ def test_going_round_the_scope_is_refused_rather_than_defined(
             write(repository, 2, "BYPASS")
 
     assert codes(repository) == []
+
+
+def test_concurrent_sql_scopes_keep_their_bypass_ownership_separate(
+    tmp_path: Path,
+) -> None:
+    """One request's owner marker must not overwrite another request's."""
+
+    database = (tmp_path / "transactions.sqlite3").as_posix()
+    store = SQLAlchemyRepository(
+        compile_project(INVOICING),
+        f"sqlite+pysqlite:///{database}",
+    )
+    store.create_schema()
+    entered = Barrier(2)
+    checked = Barrier(2)
+    refused: list[bool] = []
+    errors: list[BaseException] = []
+
+    def transact() -> None:
+        try:
+            with store.transaction():
+                entered.wait(timeout=5)
+                try:
+                    store.all("crm.Customer")
+                except UnitOfWorkBypassed:
+                    refused.append(True)
+                else:
+                    refused.append(False)
+                checked.wait(timeout=5)
+        except BaseException as error:
+            errors.append(error)
+
+    requests = [Thread(target=transact) for _ in range(2)]
+    try:
+        for request in requests:
+            request.start()
+        for request in requests:
+            request.join(5)
+
+        assert all(not request.is_alive() for request in requests)
+        assert errors == []
+        assert sorted(refused) == [True, True]
+    finally:
+        store.dispose()
 
 
 def test_a_swallowed_write_failure_still_condemns_the_scope(
