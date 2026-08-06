@@ -122,7 +122,8 @@ def test_the_cap_is_released_when_a_login_fails(tmp_path: Path) -> None:
 def test_hashing_a_password_is_still_expensive(tmp_path: Path) -> None:
     """Guard the parameter this whole issue is about."""
 
-    del tmp_path
     from tide.api.local_auth import DEFAULT_PASSWORD_ITERATIONS
 
     assert DEFAULT_PASSWORD_ITERATIONS == 600_000
+    store = LocalUserStore(tmp_path / "default.sqlite3", application="TIDE Invoicing")
+    assert store.password_iterations == DEFAULT_PASSWORD_ITERATIONS

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from collections.abc import Mapping, MutableMapping, MutableSequence, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
@@ -322,8 +323,17 @@ class DesignerSession:
         self._undo: list[dict[str, bytes]] = []
         self._redo: list[dict[str, bytes]] = []
         self.base_fingerprint = _fingerprint_files(self._base_files)
+        self._working_fingerprint = self.base_fingerprint
+        self._evaluation_cache: OrderedDict[str, _Evaluation] = OrderedDict()
+        self._document_index_cache: OrderedDict[
+            str,
+            dict[tuple[DocumentKind, str | None], str | None],
+        ] = OrderedDict()
         self.session_id = "tide-designer-" + token_hex(12)
-        _index_documents(self._working_files, self.project_file)
+        self._document_index = _index_documents(
+            self._working_files, self.project_file
+        )
+        self._remember_document_index()
 
     def snapshot(self) -> DesignerSnapshot:
         evaluation = self._evaluate()
@@ -333,7 +343,7 @@ class DesignerSession:
             session_id=self.session_id,
             project=self.root.name,
             base_fingerprint=self.base_fingerprint,
-            candidate_fingerprint=_fingerprint_files(self._working_files),
+            candidate_fingerprint=self._working_fingerprint,
             valid=evaluation.valid,
             dirty=bool(changed),
             can_undo=bool(self._undo),
@@ -355,26 +365,22 @@ class DesignerSession:
         self,
         target: DesignerDocumentReference,
     ) -> DesignerDocumentContent:
-        relative = _resolve_document(
-            target,
-            _index_documents(self._working_files, self.project_file),
-        )
+        relative = _resolve_document(target, self._document_index)
         return DesignerDocumentContent(
             target=target,
             file=relative,
             content=self._working_files[relative].decode("utf-8"),
-            candidate_fingerprint=_fingerprint_files(self._working_files),
+            candidate_fingerprint=self._working_fingerprint,
         )
 
     def documents(self) -> DesignerDocumentCatalog:
-        index = _index_documents(self._working_files, self.project_file)
         descriptors = tuple(
             DesignerDocumentDescriptor(
                 target=DesignerDocumentReference(kind=kind, name=name),
                 file=relative,
             )
             for (kind, name), relative in sorted(
-                index.items(),
+                self._document_index.items(),
                 key=lambda item: (
                     item[0][0],
                     (item[0][1] or "").casefold(),
@@ -384,7 +390,7 @@ class DesignerSession:
         )
         return DesignerDocumentCatalog(
             project=self.root.name,
-            candidate_fingerprint=_fingerprint_files(self._working_files),
+            candidate_fingerprint=self._working_fingerprint,
             documents=descriptors,
         )
 
@@ -407,9 +413,15 @@ class DesignerSession:
     def execute_batch(self, batch: DesignerCommandBatch) -> DesignerSnapshot:
         before = dict(self._working_files)
         candidate = dict(self._working_files)
+        candidate_index = dict(self._document_index)
         try:
             for command in batch.commands:
-                _apply_command(candidate, self.project_file, command)
+                candidate_index = _apply_command(
+                    candidate,
+                    self.project_file,
+                    command,
+                    candidate_index,
+                )
         except DesignerError:
             raise
         except Exception as error:  # pragma: no cover - defensive normalization
@@ -422,6 +434,9 @@ class DesignerSession:
             if len(self._undo) > MAX_DESIGNER_HISTORY:
                 del self._undo[0]
             self._working_files = candidate
+            self._working_fingerprint = _fingerprint_files(candidate)
+            self._document_index = candidate_index
+            self._remember_document_index()
             self._redo.clear()
         return self.snapshot()
 
@@ -429,14 +444,14 @@ class DesignerSession:
         if not self._undo:
             raise DesignerError("TIDEDES010", "there is no designer command to undo")
         self._redo.append(dict(self._working_files))
-        self._working_files = self._undo.pop()
+        self._restore_working_files(self._undo.pop())
         return self.snapshot()
 
     def redo(self) -> DesignerSnapshot:
         if not self._redo:
             raise DesignerError("TIDEDES011", "there is no designer command to redo")
         self._undo.append(dict(self._working_files))
-        self._working_files = self._redo.pop()
+        self._restore_working_files(self._redo.pop())
         return self.snapshot()
 
     def _capture_save_state(self) -> _DesignerSessionState:
@@ -457,13 +472,36 @@ class DesignerSession:
     ) -> None:
         """Advance the clean base only when this session still has that candidate."""
 
-        if _fingerprint_files(self._working_files) != candidate_fingerprint:
+        if self._working_fingerprint != candidate_fingerprint:
             return
         self._base_files = dict(saved_files)
         self.base_fingerprint = candidate_fingerprint
 
     def _evaluate(self) -> _Evaluation:
-        return _evaluate_project(self.project_file, self._working_files)
+        cached = self._evaluation_cache.get(self._working_fingerprint)
+        if cached is not None:
+            self._evaluation_cache.move_to_end(self._working_fingerprint)
+            return cached
+        evaluation = _evaluate_project(self.project_file, self._working_files)
+        self._evaluation_cache[self._working_fingerprint] = evaluation
+        while len(self._evaluation_cache) > MAX_DESIGNER_HISTORY + 1:
+            self._evaluation_cache.popitem(last=False)
+        return evaluation
+
+    def _restore_working_files(self, files: dict[str, bytes]) -> None:
+        self._working_files = files
+        self._working_fingerprint = _fingerprint_files(files)
+        cached = self._document_index_cache.get(self._working_fingerprint)
+        if cached is None:
+            cached = _index_documents(files, self.project_file)
+        self._document_index = cached
+        self._remember_document_index()
+
+    def _remember_document_index(self) -> None:
+        self._document_index_cache[self._working_fingerprint] = self._document_index
+        self._document_index_cache.move_to_end(self._working_fingerprint)
+        while len(self._document_index_cache) > MAX_DESIGNER_HISTORY + 1:
+            self._document_index_cache.popitem(last=False)
 
 
 def _evaluate_project(
@@ -630,10 +668,11 @@ def _apply_command(
     files: dict[str, bytes],
     project_file: str,
     command: DesignerCommand,
-) -> None:
-    index = _index_documents(files, project_file)
+    index: dict[tuple[DocumentKind, str | None], str | None],
+) -> dict[tuple[DocumentKind, str | None], str | None]:
     relative = _resolve_document(command.target, index)
     document = _load_round_trip_yaml(relative, files[relative])
+    original_identity = _document_identity(document, relative, project_file)
     if isinstance(command, DesignerReplaceDocumentSourceCommand):
         replacement = _encode_source_text(command.source, files[relative])
         candidate_document = _load_round_trip_yaml(relative, replacement)
@@ -654,7 +693,7 @@ def _apply_command(
                 "project source exceeds the 16 MiB designer preview limit",
             )
         files[relative] = replacement
-        return
+        return index
     if isinstance(command, DesignerSetValueCommand):
         parent, part = _resolve_parent(document, command.path)
         _set_child(parent, part, _round_trip_value(command.value), command.path)
@@ -687,6 +726,9 @@ def _apply_command(
     else:  # pragma: no cover - discriminated union is exhaustive
         raise DesignerError("TIDEDES009", "unsupported designer command")
     files[relative] = _dump_round_trip_yaml(document, files[relative])
+    if _document_identity(document, relative, project_file) != original_identity:
+        return _index_documents(files, project_file)
+    return index
 
 
 def _document_identity(

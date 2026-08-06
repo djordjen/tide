@@ -48,7 +48,7 @@ def test_the_identity_store_is_restricted_on_every_platform(
 ) -> None:
     """`chmod` does nothing on Windows, which is the documented main platform."""
 
-    store = LocalUserStore(tmp_path / "auth.sqlite3", application="TIDE Invoicing")
+    store = _store(tmp_path, iterations=1_000)
     store.initialize()
 
     assert store.path.is_file()
@@ -100,7 +100,7 @@ def test_a_store_whose_permissions_cannot_be_set_is_still_usable(
     monkeypatch.setattr(subprocess, "run", refuse)
     monkeypatch.setattr(os, "chmod", refuse)
 
-    store = LocalUserStore(tmp_path / "auth.sqlite3", application="TIDE Invoicing")
+    store = _store(tmp_path, iterations=1_000)
     store.initialize()
     store.create_user("clerk", PASSWORD, roles={"sales_clerk"})
 

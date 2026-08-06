@@ -220,6 +220,13 @@ live browse/form runtime, compact terminals scroll instead of clipping tools,
 and invalid view candidates retain an explanation while designer actions fail
 closed.
 
+Studio sessions now reuse the compiled evaluation and semantic document index
+for an unchanged candidate fingerprint. The cache is bounded by the same
+history limit as undo/redo, candidate mutations refresh only the affected
+state, and semantic identity changes still force a complete re-index. Repeated
+panels and previews therefore no longer rematerialize the same temporary
+project or reparse every YAML document.
+
 ### Databases and operations
 
 `tide run --database-env` selects a persistent SQLAlchemy repository using the

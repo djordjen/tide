@@ -65,6 +65,13 @@ Undo/redo history, command batches, path depth, source count, and source bytes
 are bounded. No command runs application Python, opens the configured database,
 or writes an application source file.
 
+Within one session, the immutable candidate fingerprint also keys a bounded
+evaluation cache and semantic document index. Reopening panels, resolving a
+preview, or revisiting an undo/redo state reuses that exact result; a changed
+candidate is compiled once, and a semantic identity change rebuilds the index.
+The cache never crosses the session or its source snapshot, and it cannot make
+an invalid candidate appear valid.
+
 Round-trip YAML editing preserves comments, quotes, flow/block style and key
 order so a one-property command does not replace an entire human-authored file.
 

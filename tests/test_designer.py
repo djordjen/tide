@@ -289,6 +289,77 @@ def test_designer_session_exposes_only_a_valid_resolved_candidate_model(
         session.application_model()
 
 
+def test_designer_session_reuses_each_unchanged_candidate_evaluation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rendering one candidate repeatedly must not recompile temporary copies."""
+
+    from tide.development import designer as designer_module
+
+    evaluations = 0
+    indexes = 0
+    evaluate_project = designer_module._evaluate_project
+    index_documents = designer_module._index_documents
+
+    def counting_evaluation(project_file, files):
+        nonlocal evaluations
+        evaluations += 1
+        return evaluate_project(project_file, files)
+
+    def counting_index(files, project_file):
+        nonlocal indexes
+        indexes += 1
+        return index_documents(files, project_file)
+
+    monkeypatch.setattr(designer_module, "_evaluate_project", counting_evaluation)
+    monkeypatch.setattr(designer_module, "_index_documents", counting_index)
+    session = DesignerService(_write_project(tmp_path)).open_session()
+
+    original = session.snapshot()
+    assert session.snapshot() == original
+    assert session.application_model().entity("core.Item").name == "core.Item"
+    assert session.document(_entity()).target == _entity()
+    assert session.documents().candidate_fingerprint == original.candidate_fingerprint
+    assert evaluations == 1
+    assert indexes == 1
+
+    changed = session.execute(
+        DesignerSetValueCommand(
+            target=_entity(),
+            path=("label",),
+            value="Stock items",
+        )
+    )
+    assert session.snapshot() == changed
+    assert session.application_model().entity("core.Item").label == "Stock items"
+    assert session.document(_entity()).target == _entity()
+    assert evaluations == 2
+    assert indexes == 1
+
+    assert session.undo().candidate_fingerprint == original.candidate_fingerprint
+    assert evaluations == 2
+    assert indexes == 1
+    assert session.redo().candidate_fingerprint == changed.candidate_fingerprint
+    assert session.undo().candidate_fingerprint == original.candidate_fingerprint
+    assert evaluations == 2
+    assert indexes == 1
+
+    renamed_target = DesignerDocumentReference(kind="entity", name="core.Renamed")
+    renamed = session.execute(
+        DesignerSetValueCommand(
+            target=_entity(),
+            path=("entity",),
+            value="core.Renamed",
+        )
+    )
+    assert not renamed.valid
+    assert session.document(renamed_target).target == renamed_target
+    with pytest.raises(DesignerError, match="unknown designer document"):
+        session.document(_entity())
+    assert evaluations == 3
+    assert indexes == 2
+
+
 def test_source_reference_can_address_non_semantic_yaml(tmp_path: Path) -> None:
     session = DesignerService(_write_project(tmp_path)).open_session()
     target = DesignerDocumentReference(kind="source", name="security/policies.yaml")

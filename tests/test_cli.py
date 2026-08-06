@@ -578,6 +578,15 @@ def test_auth_create_user_and_set_password_use_separate_local_store(
     capsys,
     tmp_path: Path,
 ) -> None:
+    from functools import partial
+
+    from tide.api import local_auth as local_auth_module
+
+    monkeypatch.setattr(
+        local_auth_module,
+        "LocalUserStore",
+        partial(local_auth_module.LocalUserStore, password_iterations=1_000),
+    )
     store = tmp_path / "local-auth.sqlite3"
     monkeypatch.setenv("TEST_LOCAL_PASSWORD", "correct horse battery staple")
 
