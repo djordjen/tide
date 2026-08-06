@@ -4,11 +4,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Callable, Iterable, Mapping, Protocol, runtime_checkable
+from typing import Any, Callable, Iterable, Mapping, Protocol, Sequence, runtime_checkable
 
 
 NO_PARAMETERS: Mapping[str, Any] = MappingProxyType({})
 """Empty binding set for row criteria that name no ``$`` parameter."""
+
+BATCH_IDENTITY_LIMIT = 500
+"""How many identities one batched load may name in a single statement.
+
+Every driver caps bound parameters -- SQLite at 999 by default, SQL Server at
+2,100 -- and a page of records with several reference columns can ask about
+more identities than that. Batches split at this width, so the cap is the
+adapter's business and not the caller's.
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,6 +287,27 @@ class Repository(Protocol):
         criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         relationships: RelationshipLoadPlan | None = None,
     ) -> dict[str, Any]: ...
+
+    def get_many(
+        self,
+        entity: str,
+        identities: Sequence[Any],
+        *,
+        row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
+    ) -> dict[Any, dict[str, Any]]:
+        """Return the stored rows for ``identities``, keyed by identity.
+
+        An identity the criteria refuse and an identity that is not there
+        are both simply absent: the caller asked about rows it already holds
+        references to, and telling those two apart would answer a question
+        the row policy exists to refuse.
+
+        Only stored scalar values come back. Child collections are left out
+        rather than returned unfiltered, so nothing here can widen what a
+        policy-filtered read would have shown.
+        """
+        ...
 
     def exists(self, entity: str, identity: Any) -> bool: ...
 

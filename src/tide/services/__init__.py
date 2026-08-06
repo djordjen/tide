@@ -15,6 +15,7 @@ from tide.services.action_store import (
     RecordAuditOperation,
 )
 from tide.services.cursors import CursorStore, InMemoryCursorStore, QueryPage
+from tide.services.references import NO_REFERENCE_DISPLAYS, ReferenceDisplays
 from tide.services.records import FilterCondition, MutationSource, QuerySpec, RecordsService, SortField
 
 __all__ = [
@@ -35,9 +36,11 @@ __all__ = [
     "IdempotencyRecord",
     "IdempotencyStatus",
     "MutationSource",
+    "NO_REFERENCE_DISPLAYS",
     "QuerySpec",
     "QueryPage",
     "RecordsService",
+    "ReferenceDisplays",
     "RecordAuditEvent",
     "RecordAuditOperation",
     "SortField",

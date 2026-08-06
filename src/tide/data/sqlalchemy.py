@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from decimal import Decimal
@@ -44,6 +44,7 @@ from sqlalchemy.sql.type_api import TypeEngine
 from tide.compiler.expressions import POLICY_PARAMETERS
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 from tide.data.repository import (
+    BATCH_IDENTITY_LIMIT,
     DeleteCollection,
     DeleteReference,
     DeletedRecord,
@@ -439,6 +440,50 @@ class SQLAlchemyRepository:
                 criteria_parameters=criteria_parameters,
                 relationships=relationships,
             )
+
+    def get_many(
+        self,
+        entity: str,
+        identities: Sequence[Any],
+        *,
+        row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
+    ) -> dict[Any, dict[str, Any]]:
+        """Read the rows for ``identities`` with one statement per batch."""
+
+        wanted = list(dict.fromkeys(identities))
+        if not wanted:
+            return {}
+        normalized_entity = self.model.entity(entity)
+        table = self.table(entity)
+        primary_key = _primary_key(normalized_entity)
+        criteria_predicates = [
+            translate_expression(
+                criteria,
+                model=self.model,
+                entity=normalized_entity,
+                columns=table.c,
+                tables=self._tables,
+                parameters=criteria_parameters,
+            )
+            for criteria in row_criteria
+        ]
+        columns = [
+            field_name
+            for field_name, field in normalized_entity.fields.items()
+            if _is_persisted(field)
+        ]
+        result: dict[Any, dict[str, Any]] = {}
+        with self.engine.connect() as connection:
+            for start in range(0, len(wanted), BATCH_IDENTITY_LIMIT):
+                batch = wanted[start : start + BATCH_IDENTITY_LIMIT]
+                statement = select(table).where(
+                    and_(table.c[primary_key].in_(batch), *criteria_predicates)
+                )
+                for row in connection.execute(statement).mappings():
+                    values = {name: row[table.c[name]] for name in columns}
+                    result[values[primary_key]] = values
+        return result
 
     def exists(self, entity: str, identity: Any) -> bool:
         table = self.table(entity)

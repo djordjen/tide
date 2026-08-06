@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import date
-from string import Formatter
 from typing import Mapping
 from urllib.parse import quote
 
@@ -40,6 +39,7 @@ from tide.presentation import (
     browse_named_filters,
     browse_search_field,
     browse_sortable_fields,
+    display_fields,
     field_alignment,
     field_label,
     form_layout_sections,
@@ -849,21 +849,8 @@ def _safe_display_template(
     entity: NormalizedEntity,
     readable_fields: frozenset[str],
 ) -> str | None:
-    if entity.display is None:
-        return None
-    try:
-        display_fields = tuple(
-            field_name
-            for _, field_name, _, _ in Formatter().parse(entity.display)
-            if field_name
-        )
-    except ValueError:
-        return None
-    if not display_fields and "{" not in entity.display:
-        display_fields = (entity.display,)
-    if not display_fields or not all(
-        field_name in readable_fields for field_name in display_fields
-    ):
+    names = display_fields(entity)
+    if not names or not all(name in readable_fields for name in names):
         return None
     return entity.display
 

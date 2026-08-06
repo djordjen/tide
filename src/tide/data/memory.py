@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from threading import RLock
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 
 from tide.compiler.expressions import evaluate_expression
 from tide.data.repository import (
@@ -130,6 +130,47 @@ class InMemoryRepository:
             ):
                 raise RowPolicyMismatch
             return result
+
+    def get_many(
+        self,
+        entity: str,
+        identities: Sequence[Any],
+        *,
+        row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
+    ) -> dict[Any, dict[str, Any]]:
+        """Return the stored scalars for ``identities`` the criteria admit.
+
+        This repository holds no model, so a collection is recognised by its
+        shape rather than by its declared type: children are stored inline as
+        a list of mappings, and no scalar field type is ever a list.
+        """
+
+        with self._lock:
+            stored = self._records.get(entity, {})
+            found = {
+                identity: {
+                    name: deepcopy(value)
+                    for name, value in stored[identity].items()
+                    if not isinstance(value, (list, tuple))
+                }
+                for identity in dict.fromkeys(identities)
+                if identity in stored
+            }
+        return {
+            identity: values
+            for identity, values in found.items()
+            if all(
+                bool(
+                    evaluate_expression(
+                        criteria,
+                        values,
+                        parameters=criteria_parameters,
+                    )
+                )
+                for criteria in row_criteria
+            )
+        }
 
     def exists(self, entity: str, identity: Any) -> bool:
         with self._lock:

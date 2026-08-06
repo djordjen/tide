@@ -8,7 +8,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 import re
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 from uuid import uuid4
 
 from tide.compiler.expressions import PARAMETER_PATTERN, evaluate_expression
@@ -26,6 +26,7 @@ from tide.data.repository import (
     WriteIntegrityError,
     SortField,
 )
+from tide.display import display_fields, record_display
 from tide.runtime.context import RequestContext
 from tide.runtime.errors import (
     AuthorizationError,
@@ -46,6 +47,7 @@ from tide.services.cursors import (
     InMemoryCursorStore,
     QueryPage,
 )
+from tide.services.references import ReferenceDisplays
 from tide.services.action_store import (
     ActionExecutionStore,
     AuditFieldChange,
@@ -545,6 +547,132 @@ class RecordsService:
             ),
             next_cursor=next_cursor,
         )
+
+    def reference_displays(
+        self,
+        entity_name: str,
+        records: Sequence[Mapping[str, Any]],
+        context: RequestContext,
+    ) -> ReferenceDisplays:
+        """Resolve how every reference in ``records`` names its target.
+
+        One load per target entity, however many rows point at it, carrying
+        the same authority a single read would have had: the target entity
+        must be readable, the fields its display names must be readable, and
+        its read policy still decides row by row.
+
+        This is a convenience, not an access decision -- everything it fails
+        to resolve is simply missing, and a renderer that gets nothing shows
+        the stored identity instead.
+        """
+
+        wanted: dict[str, dict[Any, None]] = {}
+        self._collect_reference_identities(entity_name, records, context, wanted)
+        entries: dict[tuple[str, Any], str] = {}
+        for target_name, identities in wanted.items():
+            if not identities:
+                continue
+            target = self.model.entity(target_name)
+            rows = self.repository.get_many(
+                target_name,
+                list(identities),
+                row_criteria=self.security.row_criteria(target_name, "read"),
+                criteria_parameters=self.security.policy_parameters(context),
+            )
+            for identity, values in rows.items():
+                if not self.security.row_allowed(
+                    target_name,
+                    "read",
+                    values,
+                    context,
+                ):
+                    # The adapter's criteria and this predicate disagreeing
+                    # is worth knowing about, but the safe reading is the
+                    # strict one, and it is indistinguishable to the caller
+                    # from a row the policy refused outright.
+                    continue
+                entries[(target_name, identity)] = record_display(target, values)
+        return ReferenceDisplays(entries)
+
+    def _collect_reference_identities(
+        self,
+        entity_name: str,
+        records: Sequence[Mapping[str, Any]],
+        context: RequestContext,
+        wanted: dict[str, dict[Any, None]],
+    ) -> None:
+        """Gather what each readable reference in ``records`` points at.
+
+        Children are walked too: a collection grid shows references of its
+        own, and resolving them with the page costs one more load rather
+        than one per visible row.
+        """
+
+        entity = self.model.entity(entity_name)
+        for field_name, field in entity.fields.items():
+            field_type = field.metadata["type"]
+            if field.target_entity is None or field_type not in {
+                "reference",
+                "collection",
+            }:
+                continue
+            if not self.security.can_read_field(entity_name, field_name, context):
+                continue
+            target = self.model.entity(field.target_entity)
+            if not self.security.can_access_entity(target, "read", context):
+                continue
+            if field_type == "collection":
+                children = [
+                    item
+                    for record in records
+                    for item in (record.get(field_name) or ())
+                    if isinstance(item, Mapping)
+                ]
+                if children:
+                    self._collect_reference_identities(
+                        target.name,
+                        children,
+                        context,
+                        wanted,
+                    )
+                continue
+            if not self._display_is_visible(target, context):
+                continue
+            identities = wanted.setdefault(target.name, {})
+            for record in records:
+                value = record.get(field_name)
+                if value is None or value is PROTECTED:
+                    continue
+                identities.setdefault(value, None)
+
+    def _display_is_visible(
+        self,
+        target: NormalizedEntity,
+        context: RequestContext,
+    ) -> bool:
+        """Report whether this principal may be shown how ``target`` names itself.
+
+        A batched load reads stored scalars, so a display over a collection
+        or a virtual computed field is not resolvable this way. Those fall
+        back to the per-record fetch rather than being rendered from a value
+        the batch never read.
+        """
+
+        names = display_fields(target)
+        if not names:
+            return False
+        for field_name in names:
+            if field_name not in target.fields:
+                return False
+            if not self.security.can_read_field(target.name, field_name, context):
+                return False
+            field = target.fields[field_name]
+            computed = field.metadata.get("computed")
+            if field.metadata["type"] == "collection" or (
+                computed and computed.get("materialization") == "virtual"
+            ):
+                return False
+        return True
 
     def commit(
         self,

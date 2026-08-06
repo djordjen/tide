@@ -14,6 +14,7 @@ from tide.data.migrations import (
     propose_migration,
 )
 from tide.data.repository import (
+    BATCH_IDENTITY_LIMIT,
     DeleteCollection,
     DeleteReference,
     DuplicateIdentityError,
@@ -48,6 +49,7 @@ from tide.data.sqlalchemy_cursors import SQLAlchemyCursorStore
 from tide.data.sql_expressions import QueryTranslationError
 
 __all__ = [
+    "BATCH_IDENTITY_LIMIT",
     "DatabaseBackupArtifact",
     "DatabaseBackupError",
     "DatabaseBackupUnsupported",
