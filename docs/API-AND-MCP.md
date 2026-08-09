@@ -653,8 +653,8 @@ current session boundary.
 ## Useful commands
 
 ```bash
-tide api describe
 tide api export-openapi
+tide api check-server
 tide auth check-oidc
 tide mcp dev applications/invoicing
 tide serve --mcp

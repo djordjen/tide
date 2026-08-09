@@ -365,7 +365,7 @@ deletions explicitly.
 
 The intended workflow is:
 
-```bash
+```text
 tide model validate
 tide db diff
 tide db revision --name add-invoice-status \
@@ -405,7 +405,7 @@ YAML/JSON -> parsed data -> typed source model -> merge and resolution
 JSON is the natural MCP/OpenAPI interchange representation even when developers
 author YAML. A formatter may later provide:
 
-```bash
+```text
 tide model format
 tide model export --format json
 ```

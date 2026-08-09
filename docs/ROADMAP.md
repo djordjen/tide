@@ -440,7 +440,7 @@ Deeper report design and developer-MCP editing remain later Milestone 7 work.
 The shape the CLI is growing towards. Some of these exist today; see
 [the changelog](../CHANGELOG.md) for which.
 
-```bash
+```text
 tide new invoicing
 tide model validate
 tide model explain sales.Invoice.customer
