@@ -16,9 +16,13 @@ build/
 dist/
 output/
 tmp/
-.tide/local-auth.sqlite3*
-# Identity and credentials the end-to-end journeys create for one run.
-.tide/e2e-auth.sqlite3*
+# Local identity stores, as a pattern rather than a list. Each application gets
+# its own store, and this repository is public: the Contacts shortcut created
+# `.tide/contacts-local-auth.sqlite3`, which was not on the per-file list, so
+# `.tide/` became untracked content one `git add -A` away from publishing an
+# administrator's password hash. A third application must not need an edit here.
+.tide/*auth*.sqlite3*
+# Credentials the end-to-end journeys create for one run.
 .tide/e2e-credentials.json
 
 # Web renderer build and test artifacts

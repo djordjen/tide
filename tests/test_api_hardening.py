@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
+import subprocess
 from threading import Event, Thread
 from typing import Any
 
@@ -41,6 +42,38 @@ SELF = "'self'"
 
 
 # --- the stored identity file ------------------------------------------------
+
+
+def test_every_local_identity_store_stays_out_of_the_repository() -> None:
+    """The pattern has to cover a store nobody has named yet.
+
+    Restricting the file's ACL is pointless if the file is then published.
+    The ignore rules were a per-file list until a second application arrived
+    with `.tide/contacts-local-auth.sqlite3`, which was not on it: `.tide/`
+    became untracked content one `git add -A` away from putting an
+    administrator's PBKDF2 hash in a public repository.
+    """
+
+    stores = (
+        ".tide/local-auth.sqlite3",
+        ".tide/local-auth.sqlite3-wal",
+        ".tide/e2e-auth.sqlite3",
+        ".tide/contacts-local-auth.sqlite3",
+        ".tide/a-later-application-local-auth.sqlite3",
+        ".tide/e2e-credentials.json",
+    )
+
+    checked = subprocess.run(
+        ["git", "check-ignore", *stores],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    # `check-ignore` exits 0 when *any* argument matches and prints only the
+    # ones that do, so the exit status would pass while five of six leaked.
+    assert set(checked.stdout.split()) == set(stores)
 
 
 def test_the_identity_store_is_restricted_on_every_platform(

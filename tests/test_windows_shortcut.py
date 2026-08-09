@@ -41,8 +41,13 @@ def test_contacts_web_demo_dispatches_to_its_batch_label(tmp_path: Path) -> None
     environment = os.environ.copy()
     environment["PATH"] = str(command_dir) + os.pathsep + environment["PATH"]
 
+    # Named by full path rather than relying on cmd.exe finding it in the
+    # working directory: that lookup is off wherever
+    # `NoDefaultCurrentDirectoryInExePath` is set, and the failure looks like a
+    # broken shortcut ("'start.bat' is not recognized") rather than a hostile
+    # environment. The subject here is the batch label, not command resolution.
     completed = subprocess.run(
-        ["cmd.exe", "/d", "/c", "start.bat", "contacts-web-demo"],
+        ["cmd.exe", "/d", "/c", str(shortcut), "contacts-web-demo"],
         cwd=tmp_path,
         env=environment,
         capture_output=True,

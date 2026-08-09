@@ -185,6 +185,11 @@ REST, and runtime-MCP surfaces.
 The generic seed command now requires an explicit application `--role`; the
 remaining Invoicing-specific `sales_clerk` default was removed, and the Windows
 Invoicing shortcut now uses the generic repeatable `--count NAME=NUMBER` form.
+Every application's local identity store is now ignored by pattern rather than
+by name, so a new demo shortcut cannot leave a password hash in reach of
+`git add`. The superseded `docs/examples/first-application` copy was removed;
+[Build your first TIDE application](docs/FIRST-APPLICATION.md) now follows the
+maintained `applications/contacts` sources directly.
 
 ### Designers and Studio
 
