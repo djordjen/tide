@@ -10,6 +10,11 @@ renderers:
     label: React Web
 
 reference_contract:
+  # The role every renderer resolves this contract as. Recorded here rather
+  # than defaulted in the harness: a default is an Invoicing role that a second
+  # application does not define, and the resulting failure reads as an empty
+  # capability set rather than as a missing setting.
+  role: sales_clerk
   navigation:
     - label: Sales
       views: [sales.Invoice.browse]

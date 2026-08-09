@@ -198,6 +198,20 @@ def test_the_evidence_check_refuses_a_path_outside_the_repository() -> None:
         )
 
 
+def test_a_contract_that_names_no_role_is_refused_rather_than_defaulted() -> None:
+    """`sales_clerk` was the fallback until a second application existed.
+
+    A default here is an Invoicing role that another application does not
+    define, so the contract would resolve as a role granting nothing and fail
+    as an empty capability set -- never as the missing setting it actually is.
+    """
+
+    assert _contract_role(MATRIX["reference_contract"]) == "sales_clerk"
+
+    with pytest.raises(AssertionError, match="must name the role"):
+        _contract_role({"browse": {}, "forms": {}})
+
+
 def test_the_contract_check_refuses_a_renderer_whose_columns_drift(model: Any) -> None:
     contract = MATRIX["reference_contract"]
     resolved = _shared_resolution(model, contract)
@@ -664,10 +678,20 @@ def _browse_view_for(model: Any, entity_name: str) -> str:
 
 
 def _contract_role(contract: dict[str, Any]) -> str:
-    return str(contract.get("role", "sales_clerk"))
+    """Every contract states its own role; there is no default.
+
+    `sales_clerk` used to be the fallback, which is an Invoicing role a second
+    application does not define. A contract that forgot to set one would be
+    resolved as a role granting nothing, and the failure read as an empty
+    capability set rather than as a missing setting.
+    """
+
+    role = contract.get("role")
+    assert role, "the contract must name the role its renderers resolve as"
+    return str(role)
 
 
-def _qt_session(model: Any, *, role: str = "sales_clerk") -> TideSessionInfo:
+def _qt_session(model: Any, *, role: str) -> TideSessionInfo:
     return TideSessionInfo(
         application=model.name,
         application_version=model.version,
@@ -689,7 +713,7 @@ def _web_session(
     model: Any,
     exposures: Any,
     *,
-    role: str = "sales_clerk",
+    role: str,
 ) -> TideSessionInfo:
     return TideSessionInfo(
         application=model.name,
