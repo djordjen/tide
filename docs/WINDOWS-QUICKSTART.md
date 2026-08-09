@@ -237,6 +237,25 @@ For secured runtime MCP instead, use `contacts-mcp-demo`; it mounts at
 [Contacts application guide](../applications/contacts/README.md) for the model,
 generation proof, cross-platform commands, and persistent Faker seeding.
 
+### Any application
+
+The `contacts-*` names above are spellings of a general form: every demo
+command takes an optional application, and leaving it out means Invoicing.
+
+```powershell
+.\start.bat demo contacts
+.\start.bat web-demo contacts
+.\start.bat api-demo contacts
+```
+
+`demo`, `auditor-demo`, `studio`, `api-demo`, `mcp-demo`, `web-demo` and `gui`
+all work this way, and none of them names an application in the script. A third
+application needs one settings block under `:use_application` in `start.bat` --
+its label, roles and identity store -- and every command above then works for
+it, including the Web renderer. The SQL Server commands (`init`, `check`,
+`diff`, `seed`, `api`, `mcp`, `web`) stay Invoicing-only, because Invoicing is
+the only application with a managed SQL Server database behind it.
+
 ## Local API
 
 Start the API with isolated demo data:

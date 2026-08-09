@@ -190,6 +190,11 @@ by name, so a new demo shortcut cannot leave a password hash in reach of
 `git add`. The superseded `docs/examples/first-application` copy was removed;
 [Build your first TIDE application](docs/FIRST-APPLICATION.md) now follows the
 maintained `applications/contacts` sources directly.
+The developer shortcuts take the application as an argument instead of existing
+once per application: `start.bat demo contacts`, `start.bat web-demo contacts`,
+and a single `npm run dev:app -- --app <name>`. The documented `contacts-*`
+names still work, and a third application needs one settings block in
+`start.bat` and no `package.json` entry at all.
 
 ### Designers and Studio
 

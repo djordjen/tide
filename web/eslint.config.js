@@ -36,9 +36,10 @@ export default tseslint.config(
     languageOptions: { globals: globals.node },
   },
   {
-    // The end-to-end launcher is plain Node, so `tsc -b` never sees it.
-    // Linting is the only check it gets; do not leave it unchecked.
-    files: ["tests/e2e/**/*.mjs"],
+    // The end-to-end launcher and the dev-server runner are plain Node, so
+    // `tsc -b` never sees them. Linting is the only check they get; do not
+    // leave them unchecked.
+    files: ["tests/e2e/**/*.mjs", "scripts/**/*.mjs"],
     extends: [js.configs.recommended],
     languageOptions: {
       ecmaVersion: 2022,
