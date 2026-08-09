@@ -36,7 +36,13 @@ jobs:
       # silently unrun -- which is exactly how it stopped running here before.
       - run: uv run python -c "import PySide6"
         if: matrix.os == 'windows-latest'
-      - run: uv run python -m pytest --cov --cov-report=term-missing
+      # Four workers, pinned rather than `auto`: the Textual and Studio suites
+      # drive real terminal pilots with real timeouts, and oversubscribing a
+      # runner makes them miss waits rather than fail honestly -- the same
+      # reason `web/vite.config.ts` caps its jsdom pool. `loadfile` keeps each
+      # file on one worker, so nothing has to stop assuming its own ordering.
+      # Measured at 1.96x with coverage; four repeat runs found no flakes.
+      - run: uv run python -m pytest --cov --cov-report=term-missing -n 4 --dist loadfile
       # Whole directories, not a hand-maintained file list: the second
       # application arrived with four unlinted Python files because the list
       # named only `applications/invoicing/actions.py`.

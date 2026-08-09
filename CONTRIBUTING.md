@@ -11,9 +11,16 @@ With `uv`:
 ```bash
 uv sync --extra dev
 uv run pytest
-uv run ruff check src tests applications/invoicing/actions.py
+uv run ruff check src tests applications
 uv run tide model validate applications/invoicing
+uv run tide model validate applications/contacts
 ```
+
+These are the commands CI runs, so a green local run means a green build. The
+suite takes about three minutes; `uv run pytest -n 4 --dist loadfile` is what CI
+uses and roughly halves that. Four workers is deliberate rather than `auto`:
+the Textual suites drive real terminal pilots with real timeouts, and
+oversubscribing makes them miss waits instead of failing honestly.
 
 With a standard virtual environment:
 

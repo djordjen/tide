@@ -65,6 +65,7 @@ dev = [
     "PyJWT[crypto]>=2.10,<3",
     "pytest>=8.3,<10",
     "pytest-cov>=6.0,<8",
+    "pytest-xdist>=3.6,<4",
     "reportlab>=4.4,<5",
     "ruff>=0.15,<1",
     "textual[syntax]>=8.2,<9",
