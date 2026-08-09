@@ -1,0 +1,10 @@
+view: crm.Company.edit
+entity: crm.Company
+kind: form
+layout:
+- group: Companies
+  rows:
+  - - code
+    - website
+  - - name
+    - active

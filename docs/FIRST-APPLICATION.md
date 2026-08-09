@@ -1,129 +1,135 @@
 # Build Your First TIDE Application
 
-This tutorial builds a small Contacts application without changing the TIDE
-runtime. It demonstrates the smallest useful vertical slice: one entity, two
-views, explicit permissions, TUI access, and generated REST/OpenAPI and MCP
-contracts.
+This tutorial follows the checked-in
+[Contacts application](../applications/contacts/README.md), TIDE Framework's
+compact second application. It demonstrates Companies, Contacts, a reference
+lookup, two roles, one workflow action, demo/Faker data, and the same compiled
+presentation contract in TUI, Qt, and Web.
 
-The finished, CI-validated files are in
-[`docs/examples/first-application`](examples/first-application/). Copy that
-directory to `applications/contacts` if you want to run it unchanged:
+Unlike the richer Invoicing reference, Contacts starts from a structured
+generation plan. The plan is checked in at
+[`examples/ai_generation/contacts_plan.json`](../examples/ai_generation/contacts_plan.json),
+and CI proves that its deterministic generated artifacts exactly match the
+maintained application.
+
+## 1. Preview the structured plan
+
+From the repository root:
 
 ```powershell
-Copy-Item docs/examples/first-application applications/contacts -Recurse
+uv run tide app preview examples/ai_generation/contacts_plan.json --workspace .
 ```
 
-## 1. Create the application manifest
+Preview validates typed operations, creates a temporary candidate, compiles it,
+runs bounded security/CRUD/action checks, returns the exact diff, and deletes
+the candidate. It does not write to `applications/`, run an external command,
+or connect to an application database.
 
-Create `applications/contacts/tide.yaml`:
+In this checkout the command reports `ready: false` only because the reviewed
+`applications/contacts` destination already exists. The candidate's checks and
+12 artifacts still complete; replacement remains correctly prohibited.
 
-```yaml
-schema_version: "0.1"
+The checked-in Contacts plan produces 12 baseline artifacts:
 
-application:
-  name: TIDE Contacts
-  version: 0.1.0
-
-model:
-  paths: [models]
-
-views:
-  paths: [views]
-
-security:
-  paths: [security]
+```text
+applications/contacts/
+  tide.yaml
+  actions.py
+  runtime.py
+  models/crm/{company,contact}.yaml
+  views/crm/{company,contact}-{browse,edit,lookup}.yaml
+  security/policies.yaml
 ```
 
-The application owns its YAML below `applications/contacts`; the reusable
-framework remains below `src/tide`. TIDE compiles all referenced documents into
-one normalized model before any renderer or data adapter uses them.
+`demo_data.py`, `fake_data.py`, and `README.md` are deliberate application-owned
+additions after generation.
 
-## 2. Define a Contact
+## 2. Understand the model
 
-Create `applications/contacts/models/contact.yaml` using the
-[validated example](examples/first-application/models/contact.yaml). Its main
-sections have distinct responsibilities:
+[`company.yaml`](../applications/contacts/models/crm/company.yaml) defines a
+unique code, name, optional website, and active flag.
 
-- `fields` defines the logical data model;
-- `expose` opts the entity into TUI, REST, and MCP surfaces;
-- `permissions` gives every operation an explicit security requirement;
-- `display` and `search_fields` provide shared presentation defaults.
+[`contact.yaml`](../applications/contacts/models/crm/contact.yaml) defines a
+required reference to Company plus an action-owned status and archive stamps.
+The reference is normalized against Company's integer primary key, and
+`on_delete: restrict` prevents a referenced Company from being removed.
 
-The `email` edit mask, required `name`, string lengths, and permissions are
-enforced below the renderer, so TUI, REST, and MCP cannot disagree about them.
+Both entities explicitly opt operations into REST and MCP. Their permissions
+are also explicit; omitting a mutation permission never makes it unrestricted.
 
-## 3. Define browse and edit views
+## 3. Understand shared presentation
 
-Copy the validated
-[browse view](examples/first-application/views/contact-browse.yaml) and
-[edit view](examples/first-application/views/contact-edit.yaml) into the new
-application's `views` directory.
+The six documents under [`views/crm`](../applications/contacts/views/crm/)
+define browse columns, search fields, lookup columns, and two-column form rows.
+TUI, Qt, and Web interpret that same semantic ordering. Renderer-specific
+measurements do not rewrite the application YAML.
 
-The browse document chooses columns and search fields. The edit document uses
-rows to describe placement, while each renderer remains responsible for its
-native controls and responsive behavior. Layout metadata does not redefine the
-entity or its validation.
+Contact is marked as the default browse, while the compiler's useful fallback
+navigation exposes both Companies and Contacts under one Application group.
 
-## 4. Grant application roles
+## 4. Understand security and workflow
 
-Copy the validated
-[security policy](examples/first-application/security/policies.yaml) into
-`applications/contacts/security/policies.yaml`.
+[`security/policies.yaml`](../applications/contacts/security/policies.yaml)
+defines:
 
-`contact_manager` may read and modify records. `contact_viewer` is read-only.
-These are application roles used by the shared security engine; hiding a button
-in a client is never the authorization boundary.
+- `contact_editor`, which may maintain both entities and archive Contacts;
+- `contact_viewer`, which may only read them.
 
-## 5. Validate before running
+The generated `archive` action is visible only with `crm.contact.archive`, is
+enabled only for active Contacts, and updates status, time, and principal
+through the server-side action service. Its idempotency declaration applies
+equally to TUI, REST, and runtime MCP.
+
+## 5. Validate and run it
 
 ```powershell
 uv run tide model validate applications/contacts
+uv run --extra tui tide run applications/contacts --demo --role contact_editor
 ```
 
-Expected output:
+Expected validation output:
 
 ```text
-Model is valid: TIDE Contacts 0.1.0 (1 entities, 2 views, 0 reports, 0 warning(s)).
+Model is valid: TIDE Contacts 0.1.0 (2 entities, 6 views, 0 reports, 0 warning(s)).
 ```
 
-Validation checks references, field types, view members, permissions, and the
-other metadata contracts without connecting to a database.
-
-## 6. Run the TUI
+On Windows the equivalent shortcut is:
 
 ```powershell
-uv run --extra tui tide run applications/contacts --demo --role contact_manager
+.\start.bat contacts-demo
 ```
 
-The demo repository is in memory. Add, edit, search, and delete Contacts; all
-changes disappear when the process exits. To verify the read-only role, start a
-second session with `--role contact_viewer`.
+Try creating a Company, creating a Contact through the Company lookup, and
+archiving that Contact. Then restart with `contacts-viewer-demo` and confirm
+that mutation actions are absent or disabled.
 
-## 7. Inspect the generated API
+## 6. Run other renderers and interfaces
 
-Export OpenAPI without starting a server:
+The application README contains the complete commands. The shortest Windows
+paths are:
 
 ```powershell
-uv run tide api export-openapi applications/contacts
+.\start.bat contacts-studio
+.\start.bat contacts-web-demo
+.\start.bat contacts-api-demo
+.\start.bat contacts-gui
+.\start.bat contacts-mcp-demo
 ```
 
-The Contact routes exist because `expose.rest` opted them in. OpenAPI describes
-the contract; it does not bypass authentication or any Contact permission.
+Qt is an API client, so keep `contacts-api-demo` running while starting
+`contacts-gui`. Web starts its API automatically and uses a separate TIDE-owned
+username/password store. OpenAPI documents the generated REST contract but
+does not authorize a caller or bypass service security.
 
-Runtime MCP follows the same rule: only the resources and tools named in
-`expose.mcp` are generated, and their calls still pass through application
-services and security.
+## 7. Generate another application
 
-## What to change next
+Copy the Contacts plan to a new filename, change `application_id`, application
+name, entities, fields, roles, and actions, then preview it. For a new absent
+destination only, `tide app apply` displays the candidate again and requires
+the complete evidence-bound approval phrase before publishing it.
 
-Try one small change at a time and validate after each one:
-
-1. add a `phone` string field and place it on both views;
-2. add a `company` entity and a Contact-to-Company reference;
-3. add a lookup view for Company selection;
-4. define a row policy if viewers should see only a subset of Contacts;
-5. add a report only after the model and workflow are useful.
-
-Use [Metadata contract v0.1](METADATA-V0.md) for syntax and the maintained
-[Invoicing application](../applications/invoicing/README.md) for relationships,
-line items, actions, reports, auditing, and more advanced presentation.
+See [AI-assisted generation](AI-GENERATION-TUTORIAL.md) for ChatGPT/Codex plus
+developer MCP, and use the maintained
+[Invoicing application](../applications/invoicing/README.md) when you need
+master-detail collections, computed decimals, reports, concurrency, auditing,
+and more advanced layouts.

@@ -1070,6 +1070,8 @@ def test_db_seed_populates_empty_managed_database_deterministically(
                 str(INVOICING),
                 "--database-env",
                 "SEED_DATABASE_URL",
+                "--role",
+                "sales_clerk",
                 "--count",
                 "customers=4",
                 "--count",
@@ -1107,10 +1109,28 @@ def test_db_seed_populates_empty_managed_database_deterministically(
             str(INVOICING),
             "--database-env",
             "SEED_DATABASE_URL",
+            "--role",
+            "sales_clerk",
         ]
     )
     assert repeated == 1
     assert "database is not empty" in capsys.readouterr().err
+
+
+def test_db_seed_requires_an_explicit_application_role(capsys) -> None:
+    with pytest.raises(SystemExit) as stopped:
+        main(
+            [
+                "db",
+                "seed",
+                str(INVOICING),
+                "--database-env",
+                "SEED_DATABASE_URL",
+            ]
+        )
+
+    assert stopped.value.code == 2
+    assert "--role" in capsys.readouterr().err
 
 
 def test_seed_counts_name_nothing_the_framework_knows_about() -> None:

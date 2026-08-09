@@ -27,6 +27,13 @@ if /I "%~1"=="auth-user" goto auth_user
 if /I "%~1"=="gui-products" goto gui_products
 if /I "%~1"=="gui-customers" goto gui_customers
 if /I "%~1"=="gui" goto gui
+if /I "%~1"=="contacts-demo" goto contacts_demo
+if /I "%~1"=="contacts-viewer-demo" goto contacts_viewer_demo
+if /I "%~1"=="contacts-studio" goto contacts_studio
+if /I "%~1"=="contacts-api-demo" goto contacts_api_demo
+if /I "%~1"=="contacts-mcp-demo" goto contacts_mcp_demo
+if /I "%~1"=="contacts-web-demo" goto contacts_web_demo
+if /I "%~1"=="contacts-gui" goto contacts_gui
 if /I "%~1"=="help" goto help
 if not "%~1"=="" goto unknown
 
@@ -70,7 +77,7 @@ goto finish
 
 :seed
 echo Seeding the empty managed TIDE database with deterministic fake data...
-uv run --extra seed --extra sqlserver tide db seed applications/invoicing --database-env --customers 25 --products 20 --invoices 100 --random-seed 20260716
+uv run --extra seed --extra sqlserver tide db seed applications/invoicing --database-env --role sales_clerk --count customers=25 --count products=20 --count invoices=100 --random-seed 20260716
 goto finish
 
 :api
@@ -153,6 +160,50 @@ if errorlevel 1 goto finish
 uv run --extra gui --extra report tide gui applications/invoicing --api-url http://127.0.0.1:8000 --view crm.Customer.browse
 goto finish
 
+:contacts_demo
+echo Starting the generated Contacts application with isolated demo data...
+uv run --extra tui tide run applications/contacts --demo --role contact_editor
+goto finish
+
+:contacts_viewer_demo
+echo Starting the generated Contacts application in read-only mode...
+uv run --extra tui tide run applications/contacts --demo --role contact_viewer
+goto finish
+
+:contacts_studio
+echo Opening the generated Contacts application in TIDE Studio...
+uv run --extra studio tide studio applications/contacts
+goto finish
+
+:contacts_api_demo
+call :prepare_api_token
+echo Starting the Contacts API with isolated demo data...
+uv run --extra api --extra client tide serve applications/contacts --demo --role contact_editor --role contact_viewer --port 8000
+goto finish
+
+:contacts_mcp_demo
+call :prepare_api_token
+echo Starting the Contacts API and secured runtime MCP with isolated demo data...
+echo MCP clients connect to http://127.0.0.1:8000/mcp using the token above.
+uv run --extra api --extra client --extra mcp tide serve applications/contacts --demo --role contact_editor --role contact_viewer --port 8000 --mcp
+goto finish
+
+:contacts_web_demo
+call :ensure_contacts_local_auth
+if errorlevel 1 goto finish
+call :prepare_web
+if errorlevel 1 goto finish
+echo Starting the Contacts Web renderer with isolated demo data...
+echo Sign in with your local Contacts username and password.
+call npm --prefix web run dev:contacts-demo
+goto finish
+
+:contacts_gui
+call :read_api_token
+if errorlevel 1 goto finish
+uv run --extra gui tide gui applications/contacts --api-url http://127.0.0.1:8000
+goto finish
+
 :read_api_token
 set "TIDE_API_TOKEN="
 for /f "delims=" %%I in ('powershell -NoProfile -Command "$s = Read-Host 'Paste API token' -AsSecureString; [System.Net.NetworkCredential]::new('', $s).Password"') do set "TIDE_API_TOKEN=%%I"
@@ -182,6 +233,15 @@ echo First-time Web setup: create the local TIDE administrator.
 echo Username: admin
 echo The password is entered securely and is not saved in this batch file.
 uv run tide auth create-user applications/invoicing --store ".tide\local-auth.sqlite3" --username admin --display-name Administrator --role sales_clerk --role auditor
+exit /b %ERRORLEVEL%
+
+:ensure_contacts_local_auth
+if exist ".tide\contacts-local-auth.sqlite3" exit /b 0
+echo.
+echo First-time Contacts Web setup: create the local TIDE administrator.
+echo Username: admin
+echo The password is entered securely and is not saved in this batch file.
+uv run tide auth create-user applications/contacts --store ".tide\contacts-local-auth.sqlite3" --username admin --display-name Administrator --role contact_editor --role contact_viewer
 exit /b %ERRORLEVEL%
 
 :prepare_api_token
@@ -218,6 +278,13 @@ echo   start.bat auth-user Add a local Web user with invoicing roles
 echo   start.bat gui    Start the Qt Invoice browser as an API client
 echo   start.bat gui-products Start the editable Qt Product browser
 echo   start.bat gui-customers Start the editable Qt Customer browser
+echo   start.bat contacts-demo Start the generated Contacts TUI with demo data
+echo   start.bat contacts-viewer-demo Start the Contacts TUI read-only
+echo   start.bat contacts-studio Open Contacts in TIDE Studio
+echo   start.bat contacts-api-demo Start the Contacts REST API with demo data
+echo   start.bat contacts-mcp-demo Start Contacts REST plus secured runtime MCP
+echo   start.bat contacts-web-demo Start the Contacts Web renderer with demo data
+echo   start.bat contacts-gui Start the Contacts Qt client for contacts-api-demo
 echo   start.bat help   Show this help
 exit /b 0
 

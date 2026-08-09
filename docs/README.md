@@ -8,8 +8,9 @@ decision log rather than being silently assumed in implementation code.
 
 1. [Getting started](GETTING-STARTED.md) takes a new user from a clean checkout
    through the demo TUI, Studio, REST/OpenAPI, MCP, and optional SQL Server.
-2. [Build your first TIDE application](FIRST-APPLICATION.md) creates an
-   independent, runnable Contacts application from compiler-validated YAML.
+2. [Build your first TIDE application](FIRST-APPLICATION.md) follows the
+   generated, runnable Contacts application from structured plan through
+   shared TUI, Qt, Web, REST, and MCP contracts.
 3. [Invoicing application walkthrough](INVOICING-WALKTHROUGH.md) connects the
    current TUI workflow and screenshots to the exact YAML and Python sources.
 4. [REST API client tutorial](API-CLIENT-TUTORIAL.md) runs an authenticated

@@ -409,7 +409,10 @@ def _tui_resolution(model: Any, contract: dict[str, Any]) -> dict[str, Any]:
     records = RecordsService(model, InMemoryRepository())
     actions = ActionService(model, records)
     context = RequestContext(
-        principal=Principal("acceptance:tui", roles=frozenset({"sales_clerk"})),
+        principal=Principal(
+            "acceptance:tui",
+            roles=frozenset({_contract_role(contract)}),
+        ),
         channel=Channel.TUI,
     )
     default = TideApp(model, records, context, actions=actions)
@@ -462,7 +465,7 @@ def _tui_resolution(model: Any, contract: dict[str, Any]) -> dict[str, Any]:
 
 def _qt_resolution(model: Any, contract: dict[str, Any]) -> dict[str, Any]:
     client = _QtLayoutClient()
-    session = _qt_session(model)
+    session = _qt_session(model, role=_contract_role(contract))
 
     browse = {}
     for view_name in contract["browse"]:
@@ -492,7 +495,7 @@ def _web_resolution(model: Any, contract: dict[str, Any]) -> dict[str, Any]:
     exposures = rest_exposures(model, allowed_operations=REST_OPERATIONS)
     manifest = build_presentation_manifest(
         model,
-        _web_session(model, exposures),
+        _web_session(model, exposures, role=_contract_role(contract)),
         exposures,
         base_path="/api/v1",
     )
@@ -660,14 +663,18 @@ def _browse_view_for(model: Any, entity_name: str) -> str:
     )
 
 
-def _qt_session(model: Any) -> TideSessionInfo:
+def _contract_role(contract: dict[str, Any]) -> str:
+    return str(contract.get("role", "sales_clerk"))
+
+
+def _qt_session(model: Any, *, role: str = "sales_clerk") -> TideSessionInfo:
     return TideSessionInfo(
         application=model.name,
         application_version=model.version,
         schema_version=model.schema_version,
         authentication="renderer-acceptance",
         principal="acceptance:qt",
-        roles=("sales_clerk",),
+        roles=(role,),
         entities={
             name: TideEntityCapabilities(
                 operations=("list", "get"),
@@ -678,14 +685,19 @@ def _qt_session(model: Any) -> TideSessionInfo:
     )
 
 
-def _web_session(model: Any, exposures: Any) -> TideSessionInfo:
+def _web_session(
+    model: Any,
+    exposures: Any,
+    *,
+    role: str = "sales_clerk",
+) -> TideSessionInfo:
     return TideSessionInfo(
         application=model.name,
         application_version=model.version,
         schema_version=model.schema_version,
         authentication="renderer-acceptance",
         principal="acceptance:all-fields",
-        roles=("sales_clerk",),
+        roles=(role,),
         reports=tuple(model.reports),
         entities={
             name: TideEntityCapabilities(

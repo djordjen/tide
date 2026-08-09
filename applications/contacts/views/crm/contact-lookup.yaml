@@ -1,0 +1,17 @@
+view: crm.Contact.lookup
+entity: crm.Contact
+kind: lookup
+columns:
+- name
+- email
+- phone
+- company
+- status
+- archived_at
+- archived_by
+search:
+- name
+- email
+- phone
+- status
+- archived_by

@@ -209,6 +209,34 @@ when a different repeatable dataset is useful.
 
 Available commands can be displayed with `start.bat help`.
 
+## Generated Contacts application
+
+The same shortcut also exposes the independent Contacts portability proof:
+
+```powershell
+.\start.bat contacts-demo
+.\start.bat contacts-viewer-demo
+.\start.bat contacts-studio
+.\start.bat contacts-web-demo
+```
+
+`contacts-demo` uses the editor role; `contacts-viewer-demo` makes the shared
+read-only policy visible. `contacts-web-demo` creates a separate local Contacts
+identity store on first run and securely prompts for the `admin` password.
+
+To test the native GUI, start the demo API first and paste its printed token
+into the GUI process:
+
+```powershell
+.\start.bat contacts-api-demo
+.\start.bat contacts-gui
+```
+
+For secured runtime MCP instead, use `contacts-mcp-demo`; it mounts at
+`http://127.0.0.1:8000/mcp`. See the
+[Contacts application guide](../applications/contacts/README.md) for the model,
+generation proof, cross-platform commands, and persistent Faker seeding.
+
 ## Local API
 
 Start the API with isolated demo data:

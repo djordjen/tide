@@ -1,4 +1,4 @@
-# TIDE
+# TIDE Framework
 
 **Terminal Integrated Data Environment**
 
@@ -64,6 +64,7 @@ uv sync --extra dev
 uv run tide model validate applications/invoicing
 uv run tide run applications/invoicing --demo
 uv run tide serve applications/invoicing --demo
+uv run tide model validate applications/contacts
 uv run pytest
 ```
 
@@ -72,6 +73,11 @@ uv run pytest
 available from the same process. Neither needs a database: `--demo` seeds an
 in-memory one, and `tide serve` requires a development bearer token of at least
 32 characters in `TIDE_API_TOKEN` and binds to loopback.
+
+The smaller generated [Contacts application](applications/contacts/README.md)
+is the second portability proof. On Windows, `start.bat contacts-demo` runs it
+immediately; its README also covers Studio, Web, Qt, REST, runtime MCP, and
+persistent Faker data.
 
 [Getting started](docs/GETTING-STARTED.md) walks through the demo TUI, the
 [Web UI](docs/WEB-UI.md), Studio, REST/OpenAPI, MCP, and optionally SQL Server.
@@ -116,6 +122,13 @@ applications/
         models/
         views/
         reports/
+        security/
+    contacts/              generated second-application portability proof
+        tide.yaml
+        demo_data.py
+        fake_data.py
+        models/
+        views/
         security/
 tests/                     framework contract tests
 web/                       the React renderer

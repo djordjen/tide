@@ -1,0 +1,26 @@
+permissions:
+- crm.company.audit
+- crm.company.delete
+- crm.company.read
+- crm.company.write
+- crm.contact.archive
+- crm.contact.audit
+- crm.contact.delete
+- crm.contact.read
+- crm.contact.write
+roles:
+  contact_editor:
+    grants:
+    - crm.company.read
+    - crm.company.write
+    - crm.company.delete
+    - crm.company.audit
+    - crm.contact.read
+    - crm.contact.write
+    - crm.contact.delete
+    - crm.contact.audit
+    - crm.contact.archive
+  contact_viewer:
+    grants:
+    - crm.company.read
+    - crm.contact.read

@@ -10,6 +10,14 @@ The checked-in reference plan is
 It defines Companies, Products, Invoices and Invoice Lines, a Post action, an
 Invoice report with PDF capability, and separate creator/poster roles.
 
+For a smaller end-to-end portability proof, the checked-in
+[`contacts_plan.json`](../examples/ai_generation/contacts_plan.json) produces
+the generated baseline of the runnable
+[`applications/contacts`](../applications/contacts/README.md) application.
+CI compares all 12 generated artifacts byte-for-byte, exercises the real local
+approval boundary in a temporary workspace, and resolves its forms and browses
+through the shared, TUI, Qt, and Web entry points.
+
 ## The trust boundary
 
 ```mermaid
@@ -174,6 +182,15 @@ Before approval, review at least:
 - every compiler/runtime check and warning;
 - the complete generated diff, including fixed-template `actions.py`;
 - the no-write, no-database, and temporary-cleanup flags.
+
+To inspect the smaller plan that backs the repository's second application:
+
+```powershell
+uv run tide app preview examples/ai_generation/contacts_plan.json --workspace .
+```
+
+Its destination is already present, so the preview remains useful but apply
+fails closed instead of replacing maintained source.
 
 ## 5. Apply only if the exact candidate is accepted
 

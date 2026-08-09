@@ -1,0 +1,75 @@
+entity: crm.Contact
+label: Contacts
+display: '{name}'
+expose:
+  tui: true
+  rest:
+    operations:
+    - list
+    - get
+    - create
+    - update
+    - delete
+  mcp:
+    resources:
+    - schema
+    - record
+    - audit
+    tools:
+    - search
+    - create
+    - update
+    - delete
+permissions:
+  list: crm.contact.read
+  read: crm.contact.read
+  create: crm.contact.write
+  update: crm.contact.write
+  delete: crm.contact.delete
+  audit: crm.contact.audit
+fields:
+  id:
+    type: integer
+    primary_key: true
+  name:
+    type: string
+    length: 120
+    required: true
+  email:
+    type: string
+    length: 254
+  phone:
+    type: string
+    length: 40
+  company:
+    type: reference
+    target: crm.Company
+    on_delete: restrict
+    required: true
+  status:
+    type: choice
+    readonly: true
+    choices:
+    - active
+    - archived
+    default: active
+    write: action_only
+  archived_at:
+    type: datetime
+    readonly: true
+    write: action_only
+  archived_by:
+    type: string
+    length: 120
+    readonly: true
+    write: action_only
+actions:
+  archive:
+    label: Archive contact
+    enabled_when: status == 'active'
+    permission: crm.contact.archive
+    execute: actions.transition_crm_contact_archive
+    expose:
+      rest: true
+      mcp: true
+    idempotent: true

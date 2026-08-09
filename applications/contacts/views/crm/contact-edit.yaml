@@ -1,0 +1,13 @@
+view: crm.Contact.edit
+entity: crm.Contact
+kind: form
+layout:
+- group: Contacts
+  rows:
+  - - name
+    - status
+  - - email
+    - archived_at
+  - - phone
+    - archived_by
+  - - company

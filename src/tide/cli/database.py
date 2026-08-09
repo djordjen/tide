@@ -284,7 +284,11 @@ def add_database_commands(commands: argparse._SubParsersAction[argparse.Argument
     )
     seed.add_argument("--random-seed", type=int, default=20260716)
     seed.add_argument("--locale", default="en_US")
-    seed.add_argument("--role", default="sales_clerk")
+    seed.add_argument(
+        "--role",
+        required=True,
+        help="application role used by the secured fake-data provider",
+    )
     seed.set_defaults(handler=_db_seed, create_schema=False)
 
 

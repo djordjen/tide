@@ -363,6 +363,11 @@ Deeper report design and developer-MCP editing remain later Milestone 7 work.
   interactive local apply, atomic new-tree publication, failure cleanup, and
   an approval/artifact receipt; **implemented for new applications; developer
   MCP remains no-write pending a host-level human-approval contract**
+- second-application portability proof generated from a checked-in structured
+  plan: Company/Contact reference model, editor/viewer roles, idempotent Archive
+  action, deterministic demo and Faker data, exact artifact-regeneration check,
+  temporary-workspace approval/apply test, managed SQL storage, and shared
+  TUI/Qt/Web resolution; **implemented as `applications/contacts`**
 - headless DesignerService and command model; **implemented with semantic
   document references, bounded typed property/order/sequence commands and
   atomic command batches**

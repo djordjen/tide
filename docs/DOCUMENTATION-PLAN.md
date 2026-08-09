@@ -11,8 +11,9 @@ and testable by a new developer.
 
 - [Getting Started](GETTING-STARTED.md): five-minute demo, Invoicing tour,
   Studio, REST/OpenAPI, MCP, SQL Server, and project checks;
-- [Build Your First TIDE Application](FIRST-APPLICATION.md): an independent
-  Contacts application backed by checked-in, compiler-validated YAML;
+- [Build Your First TIDE Application](FIRST-APPLICATION.md): the independent
+  generated Contacts application, its approval-tested structured plan,
+  application-owned data providers, and shared renderer/API contracts;
 - [Invoicing Application Walkthrough](INVOICING-WALKTHROUGH.md): an illustrated
   task-oriented tour tied to the exact model, view, security, action, and report
   sources;

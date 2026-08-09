@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite",
     "dev:demo": "concurrently --kill-others --names api,web --prefix-colors blue,green \"cd .. && uv run --extra api --extra client --extra report tide serve applications/invoicing --demo --auth local --local-auth-store .tide/local-auth.sqlite3 --port 8000\" \"vite --open\"",
+    "dev:contacts-demo": "concurrently --kill-others --names api,web --prefix-colors blue,green \"cd .. && uv run --extra api --extra client tide serve applications/contacts --demo --auth local --local-auth-store .tide/contacts-local-auth.sqlite3 --port 8000\" \"vite --open\"",
     "dev:sqlserver": "concurrently --kill-others --names api,web --prefix-colors blue,green \"cd .. && uv run --extra api --extra client --extra report --extra sqlserver tide serve applications/invoicing --database-env --auth local --local-auth-store .tide/local-auth.sqlite3 --port 8000\" \"vite --open\"",
     "build": "tsc -b && vite build",
     "check": "tsc -b && eslint . && vitest run",

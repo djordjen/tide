@@ -1,0 +1,12 @@
+view: crm.Company.browse
+entity: crm.Company
+kind: browse
+columns:
+- code
+- name
+- website
+- active
+search:
+- code
+- name
+- website

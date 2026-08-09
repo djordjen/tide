@@ -172,6 +172,20 @@ the complete local client workflow in the
 [AI-assisted application generation](docs/AI-APPLICATION-GENERATION.md) for the
 architecture and security contract.
 
+The repository now includes `applications/contacts`, a compact second
+application backed by a checked-in structured generation plan. Its 12 generated
+artifacts are compared byte-for-byte with a fresh no-write candidate, while the
+real approval/apply boundary is exercised only in a temporary workspace.
+Application-owned deterministic demo and Faker providers support Companies,
+Contacts, references, editor/viewer roles, and an idempotent Archive action.
+The same browse/form contract is resolved through shared, Textual, Qt, and Web
+entry points, and the service workflow is certified against both in-memory and
+managed SQLAlchemy storage. Windows shortcuts expose its TUI, Studio, Web, Qt,
+REST, and runtime-MCP surfaces.
+The generic seed command now requires an explicit application `--role`; the
+remaining Invoicing-specific `sales_clerk` default was removed, and the Windows
+Invoicing shortcut now uses the generic repeatable `--count NAME=NUMBER` form.
+
 ### Designers and Studio
 
 Existing applications now have a headless DesignerService with typed property/

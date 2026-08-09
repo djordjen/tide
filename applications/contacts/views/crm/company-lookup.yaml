@@ -1,0 +1,12 @@
+view: crm.Company.lookup
+entity: crm.Company
+kind: lookup
+columns:
+- code
+- name
+- website
+- active
+search:
+- code
+- name
+- website

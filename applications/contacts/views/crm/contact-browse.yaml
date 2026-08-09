@@ -1,0 +1,19 @@
+view: crm.Contact.browse
+entity: crm.Contact
+kind: browse
+columns:
+- name
+- email
+- phone
+- company
+- status
+- archived_at
+- archived_by
+search:
+- name
+- email
+- phone
+- status
+- archived_by
+settings:
+  default: true

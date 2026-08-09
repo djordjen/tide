@@ -460,8 +460,11 @@ reports, security, mappings, and optional handlers.
 There is not yet a general `tide new` wizard. Today, developers can either:
 
 - create the manifest and YAML files directly using the metadata references;
-- follow [Build Your First TIDE Application](FIRST-APPLICATION.md), whose small
-  Contacts example is compiler-validated in CI;
+- run the generated [Contacts application](../applications/contacts/README.md)
+  with `start.bat contacts-demo`, then follow
+  [Build Your First TIDE Application](FIRST-APPLICATION.md); its plan, exact
+  generated baseline, approval path, services, storage, and renderer contracts
+  are validated in CI;
 - use the Invoicing structure as a reviewed example; or
 - use developer MCP to prepare a structured proposal, then review and apply it
   through the separate approval-required local command.
