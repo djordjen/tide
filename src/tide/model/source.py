@@ -172,9 +172,54 @@ class ValidationSource(SourceModel):
     model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
 
 
+RESERVED_ACTION_NAMES = frozenset({"cancel", "save"})
+"""Names the form action bar already uses, so an entity may not reuse them.
+
+A view's `actions:` list mixes both kinds, and every renderer resolves these two
+as the built-in discard and commit. A domain action sharing a name is therefore
+filtered out as though it were the built-in and never reaches a form -- silently,
+because the action is still exposed over REST and MCP, so only the screen is
+missing it.
+"""
+
+
 class ActionExposureSource(SourceModel):
     rest: bool = False
     mcp: bool = False
+
+
+class TransitionSource(SourceModel):
+    """The one place an action's effect on a state field is declared.
+
+    `from`/`to` name states of a `choice` field the workflow owns, and the
+    compiler derives the action's state guard from `from`. `locks_record`
+    says that arriving at `to` freezes the ordinarily writable fields, which
+    is what four copies of `immutable_when: "status != 'draft'"` used to say
+    by hand. `stamp` names the fields the handler records the transition in;
+    the compiler checks them rather than writing them, so the handler stays
+    the only thing that mutates a record.
+    """
+
+    field: str = Field(min_length=1)
+    from_: tuple[str, ...] = Field(alias="from", min_length=1)
+    to: str = Field(min_length=1)
+    locks_record: bool = False
+    stamp: dict[str, Literal["now", "principal"]] = Field(default_factory=dict)
+
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
+
+    @field_validator("from_", mode="before")
+    @classmethod
+    def one_or_more_states(cls, value: Any) -> Any:
+        """`from: draft` and `from: [draft, held]` both name a set of states.
+
+        A list matters because the generator's transition operation already
+        carried several, and flattened them into `status in [...]` -- which the
+        expression language does not accept, so that branch could only ever
+        produce a model that refused to compile.
+        """
+
+        return (value,) if isinstance(value, str) else value
 
 
 class ActionSource(SourceModel):
@@ -188,6 +233,7 @@ class ActionSource(SourceModel):
     expose: ActionExposureSource = Field(default_factory=ActionExposureSource)
     idempotent: bool = False
     audit: bool = True
+    transition: TransitionSource | None = None
 
 
 class FilterSource(SourceModel):

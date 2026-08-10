@@ -53,7 +53,8 @@ def test_runtime_mcp_exposure_is_explicit_and_deterministic() -> None:
     invoice = exposures["sales.Invoice"]
     assert invoice.delete_tool == "delete_sales_invoice"
     assert [(action.action, action.tool) for action in invoice.actions] == [
-        ("post", "post_sales_invoice")
+        ("post", "post_sales_invoice"),
+        ("void", "void_sales_invoice"),
     ]
 
 
@@ -107,7 +108,8 @@ def test_schema_resource_contains_only_principal_visible_fields() -> None:
 
     clerk_schema = service.entity_schema("sales.Invoice", _context("sales_clerk"))
     assert [(action.name, action.tool) for action in clerk_schema.actions] == [
-        ("post", "post_sales_invoice")
+        ("post", "post_sales_invoice"),
+        ("void", "void_sales_invoice"),
     ]
 
 

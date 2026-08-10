@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 import re
 from pathlib import Path
-from typing import Any, Iterable, TypeVar
+from typing import Any, Iterable, Mapping, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -30,6 +30,8 @@ from tide.compiler.normalized import (
 from tide.compiler.source import SourceDocument, YamlSourceError, load_yaml_document
 from tide.diagnostics import CompilationFailed, Diagnostic, Severity, SourceLocation
 from tide.model.source import (
+    RESERVED_ACTION_NAMES,
+    ActionSource,
     EntitySource,
     FieldSource,
     FormatsSource,
@@ -124,6 +126,8 @@ def compile_project(project: str | Path = ".") -> ApplicationModel:
             presets[name] = preset
             preset_documents[name] = document
 
+    entities = _apply_transitions(entities, entity_documents, diagnostics)
+
     dependency_map: dict[tuple[str, str], tuple[str, ...]] = {}
     _validate_entities(
         entities,
@@ -202,7 +206,12 @@ def compile_project(project: str | Path = ".") -> ApplicationModel:
             fields=immutable_mapping(normalized_fields),
             actions=immutable_mapping(
                 {
-                    name: action.model_dump(mode="json", exclude_none=True)
+                    # `by_alias` so a transition's `from` reaches the model, the
+                    # wire and the MCP schema under the name it was written as,
+                    # rather than as the `from_` Python needs it to be.
+                    name: action.model_dump(
+                        mode="json", by_alias=True, exclude_none=True
+                    )
                     for name, action in sorted(entity.actions.items())
                 }
             ),
@@ -655,6 +664,305 @@ def _source_column_name(field_name: str, field: FieldSource) -> str:
     return field.column or field_name
 
 
+_STAMP_FIELD_TYPES = {"now": "datetime", "principal": "string"}
+
+
+def _mentions(expression: str, name: str) -> bool:
+    return re.search(rf"\b{re.escape(name)}\b", expression) is not None
+
+
+def _state_predicate(field_name: str, states: Iterable[str]) -> str:
+    return " or ".join(f"{field_name} == {state!r}" for state in sorted(states))
+
+
+def _apply_transitions(
+    entities: dict[str, EntitySource],
+    documents: Mapping[str, SourceDocument],
+    diagnostics: list[Diagnostic],
+) -> dict[str, EntitySource]:
+    """Check each entity's declared state machine and derive its guards.
+
+    Runs before `_validate_entities` so the derived expressions are checked
+    like any other, and before normalization so every renderer, the REST
+    contract and the MCP schema see ordinary `enabled_when`/`immutable_when`
+    without needing to know transitions exist.
+    """
+
+    return {
+        entity_name: _derive_entity_guards(entity, documents[entity_name], diagnostics)
+        for entity_name, entity in entities.items()
+    }
+
+
+def _derive_entity_guards(
+    entity: EntitySource,
+    document: SourceDocument,
+    diagnostics: list[Diagnostic],
+) -> EntitySource:
+    transitions = {
+        name: action.transition
+        for name, action in sorted(entity.actions.items())
+        if action.transition is not None
+    }
+    if not transitions:
+        return entity
+
+    sound = _sound_state_fields(entity, transitions, document, diagnostics)
+    for action_name, transition in transitions.items():
+        _check_transition_states(entity, action_name, transition, document, diagnostics)
+        _check_stamp_targets(entity, action_name, transition, document, diagnostics)
+    _check_every_state_is_reachable(entity, transitions, sound, document, diagnostics)
+
+    locked = {
+        field_name: {
+            transition.to
+            for transition in transitions.values()
+            if transition.field == field_name and transition.locks_record
+        }
+        for field_name in sound
+    }
+    return entity.model_copy(
+        update={
+            "actions": _actions_with_state_guards(
+                entity, transitions, sound, document, diagnostics
+            ),
+            "fields": _fields_with_derived_immutability(
+                entity, locked, document, diagnostics
+            ),
+        }
+    )
+
+
+def _sound_state_fields(
+    entity: EntitySource,
+    transitions: Mapping[str, Any],
+    document: SourceDocument,
+    diagnostics: list[Diagnostic],
+) -> set[str]:
+    """Field names fit to carry a machine, reported once however many use them."""
+
+    sound: set[str] = set()
+    for field_name in sorted({transition.field for transition in transitions.values()}):
+        field = entity.fields.get(field_name)
+        if field is None or field.type != "choice":
+            _add(
+                diagnostics,
+                "TIDE270",
+                f"transition field {field_name!r} must be a declared choice field",
+                document,
+                ("fields", field_name),
+            )
+            continue
+        usable = True
+        if field.write != "action_only":
+            _add(
+                diagnostics,
+                "TIDE272",
+                f"state field {field_name!r} must be write: action_only, or an "
+                "ordinary update moves the record without running the action",
+                document,
+                ("fields", field_name, "write"),
+            )
+            usable = False
+        if field.default is None:
+            _add(
+                diagnostics,
+                "TIDE272",
+                f"state field {field_name!r} must declare a default, which is the "
+                "state a new record starts in",
+                document,
+                ("fields", field_name, "default"),
+            )
+            usable = False
+        if usable:
+            sound.add(field_name)
+    return sound
+
+
+def _check_transition_states(
+    entity: EntitySource,
+    action_name: str,
+    transition: Any,
+    document: SourceDocument,
+    diagnostics: list[Diagnostic],
+) -> None:
+    field = entity.fields.get(transition.field)
+    if field is None or field.type != "choice":
+        return
+    named = [("from", state) for state in transition.from_] + [("to", transition.to)]
+    for role, state in named:
+        if state not in field.choices:
+            _add(
+                diagnostics,
+                "TIDE271",
+                f"transition {role} {state!r} is not one of the choices declared "
+                f"for {transition.field!r}",
+                document,
+                ("actions", action_name, "transition", role),
+            )
+
+
+def _check_stamp_targets(
+    entity: EntitySource,
+    action_name: str,
+    transition: Any,
+    document: SourceDocument,
+    diagnostics: list[Diagnostic],
+) -> None:
+    """A stamp is checked, not written: the handler still records the change.
+
+    What the compiler can tell is whether the fields it names could hold the
+    value and whether anything but the action could forge one.
+    """
+
+    for stamp_field, value in sorted(transition.stamp.items()):
+        path = ("actions", action_name, "transition", "stamp", stamp_field)
+        field = entity.fields.get(stamp_field)
+        if field is None:
+            _add(
+                diagnostics,
+                "TIDE275",
+                f"transition stamps {stamp_field!r}, which the entity does not declare",
+                document,
+                path,
+            )
+            continue
+        expected = _STAMP_FIELD_TYPES[value]
+        if field.type != expected:
+            _add(
+                diagnostics,
+                "TIDE275",
+                f"transition stamps {value!r} into {stamp_field!r}, which is "
+                f"{field.type!r} rather than {expected!r}",
+                document,
+                path,
+            )
+        if field.write != "action_only":
+            _add(
+                diagnostics,
+                "TIDE275",
+                f"stamp field {stamp_field!r} must be write: action_only, or an "
+                "ordinary update could forge a transition that never happened",
+                document,
+                ("fields", stamp_field, "write"),
+            )
+
+
+def _check_every_state_is_reachable(
+    entity: EntitySource,
+    transitions: Mapping[str, Any],
+    sound: set[str],
+    document: SourceDocument,
+    diagnostics: list[Diagnostic],
+) -> None:
+    """A declared state nothing can produce is a record nobody can create.
+
+    `sales.Invoice` declared `cancelled` with no action that reached it, while
+    the demo data seeded a row already in it: that row could not be posted,
+    because it was not a draft, and could not be edited, for the same reason.
+    """
+
+    for field_name in sorted(sound):
+        field = entity.fields[field_name]
+        reached = {field.default} | {
+            transition.to
+            for transition in transitions.values()
+            if transition.field == field_name
+        }
+        for state in field.choices:
+            if state not in reached:
+                _add(
+                    diagnostics,
+                    "TIDE274",
+                    f"state {state!r} of {field_name!r} is declared but no transition "
+                    "reaches it, and it is not the initial state",
+                    document,
+                    ("fields", field_name, "choices"),
+                )
+
+
+def _actions_with_state_guards(
+    entity: EntitySource,
+    transitions: Mapping[str, Any],
+    sound: set[str],
+    document: SourceDocument,
+    diagnostics: list[Diagnostic],
+) -> dict[str, ActionSource]:
+    actions = dict(entity.actions)
+    for action_name, transition in transitions.items():
+        if transition.field not in sound:
+            continue
+        action = actions[action_name]
+        authored = action.enabled_when
+        if authored and _mentions(authored, transition.field):
+            _add(
+                diagnostics,
+                "TIDE273",
+                f"enabled_when may not test {transition.field!r}: the transition's "
+                "from state already says when this action applies",
+                document,
+                ("actions", action_name, "enabled_when"),
+            )
+            continue
+        guard = _state_predicate(transition.field, transition.from_)
+        actions[action_name] = action.model_copy(
+            update={"enabled_when": f"{guard} and ({authored})" if authored else guard}
+        )
+    return actions
+
+
+def _fields_with_derived_immutability(
+    entity: EntitySource,
+    locked: Mapping[str, set[str]],
+    document: SourceDocument,
+    diagnostics: list[Diagnostic],
+) -> dict[str, FieldSource]:
+    """Freeze the ordinarily writable fields in every locked state.
+
+    Fields the workflow already owns are left alone: their writability was
+    never in question, and a primary key is not editable in the first place.
+    """
+
+    predicates = {
+        field_name: _state_predicate(field_name, states)
+        for field_name, states in locked.items()
+        if states
+    }
+    if not predicates:
+        return dict(entity.fields)
+
+    fields = dict(entity.fields)
+    for field_name, field in sorted(entity.fields.items()):
+        if field.immutable_when and any(
+            _mentions(field.immutable_when, state_field) for state_field in predicates
+        ):
+            _add(
+                diagnostics,
+                "TIDE273",
+                f"immutable_when on {field_name!r} may not test a state field: a "
+                "transition with locks_record already freezes this field",
+                document,
+                ("fields", field_name, "immutable_when"),
+            )
+            continue
+        if (
+            field.write != "normal"
+            or field.readonly
+            or field.primary_key
+            or field.computed is not None
+            or field_name in predicates
+        ):
+            continue
+        derived = " or ".join(predicates[name] for name in sorted(predicates))
+        combined = (
+            f"({derived}) or ({field.immutable_when})"
+            if field.immutable_when
+            else derived
+        )
+        fields[field_name] = field.model_copy(update={"immutable_when": combined})
+    return fields
+
+
 def _validate_entities(
     entities: dict[str, EntitySource],
     documents: dict[str, SourceDocument],
@@ -743,6 +1051,16 @@ def _validate_entities(
                     ("permissions", operation),
                 )
         for action_name, action in entity.actions.items():
+            if action_name in RESERVED_ACTION_NAMES:
+                _add(
+                    diagnostics,
+                    "TIDE276",
+                    f"action {action_name!r} collides with the form action bar's "
+                    "built-in of that name and would be silently dropped from "
+                    "every form",
+                    document,
+                    ("actions", action_name),
+                )
             if not action.permission and not action.unrestricted:
                 _add(
                     diagnostics,
@@ -1641,7 +1959,7 @@ def _validate_view_actions(
         )
     _validate_action_names(
         view.actions,
-        allowed={"cancel", "save", *entity.actions},
+        allowed={*RESERVED_ACTION_NAMES, *entity.actions},
         description="view action bar",
         document=document,
         path=("actions",),

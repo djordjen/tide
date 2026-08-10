@@ -185,6 +185,24 @@ successful `tide model validate` prints warnings and includes them in the
 declare a `permission` or explicitly opt into `unrestricted: true`. Declaring
 both forms is rejected with `TIDE227`.
 
+An action's `transition` block has its own codes, described under
+[state transitions](APPLICATION-MODEL.md#state-transitions):
+
+| Code | Refused |
+|---|---|
+| `TIDE270` | the transition names a field that is not a declared `choice` |
+| `TIDE271` | a `from` or `to` state the field does not declare |
+| `TIDE272` | a state field that is not `write: action_only`, or has no `default` |
+| `TIDE273` | a guard written by hand that the transition already derives |
+| `TIDE274` | a declared state no transition reaches and that is not the initial one |
+| `TIDE275` | a stamp target that is missing, ordinarily writable, or the wrong type |
+
+`TIDE276` is separate and applies to any action: an entity may not name one
+`cancel` or `save`. A view's `actions:` list mixes domain actions with the form
+action bar's built-in discard and commit, and every renderer resolves those two
+names as the built-ins — so a domain action sharing one is dropped from every
+form while still appearing over REST and MCP.
+
 Reports have the same fail-closed access rule as actions: each report declares
 `permission` or explicitly sets `unrestricted: true`. A `kind: record` report
 binds one required parameter to its entity primary key and permits one

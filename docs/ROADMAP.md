@@ -42,6 +42,12 @@ presets, views, and reports compile and are inspectable through developer MCP.
 - local computed fields and cross-field validation;
 - resolved-model and resolved-view explanation;
 - developer MCP resources for entities, views, and diagnostics; **implemented**
+- declared state transitions on an action, with the state guard and
+  `immutable_when` derived from the machine, stamp targets checked, and a
+  declared state no transition reaches refused; **implemented 2026-08-10**,
+  including the generator emitting the block instead of a guard string.
+  Deliberately a transition table on one choice field, not the general-purpose
+  workflow language the decision log defers
 
 Exit condition: the compiler resolves Customer, Product, Invoice, and
 InvoiceLine, including references and calculated line totals.

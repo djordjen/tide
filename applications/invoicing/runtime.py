@@ -27,3 +27,11 @@ def configure_runtime(records: RecordsService, actions: ActionService) -> None:
             occurred_at=payload.get("occurred_at"),
         ),
     )
+    actions.register(
+        "actions.void_invoice",
+        lambda record, context, payload: invoicing_actions.void_invoice(
+            record,
+            principal=context.principal.identifier,
+            occurred_at=payload.get("occurred_at"),
+        ),
+    )

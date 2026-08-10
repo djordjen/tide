@@ -357,6 +357,68 @@ total:
 See [Expressions and validation](EXPRESSIONS-AND-VALIDATION.md) for computed
 field modes, aggregates, filtering, and security inheritance.
 
+## State transitions
+
+An action that moves a record between states of a `choice` field declares that
+move once, and the compiler derives the guards that follow from it:
+
+```yaml
+status:
+  type: choice
+  choices: [draft, posted, cancelled]
+  default: draft
+  readonly: true
+  write: action_only
+
+actions:
+  post:
+    label: Post invoice
+    permission: sales.invoice.post
+    execute: actions.post_invoice
+    enabled_when: "count(lines) > 0"
+    transition:
+      field: status
+      from: draft
+      to: posted
+      locks_record: true
+      stamp: {posted_at: now, posted_by: principal}
+```
+
+`from` accepts one state or a list of them. The compiler then:
+
+- **derives the action's state guard.** `enabled_when` holds only the business
+  half of the condition; the state half comes from `from`, and the resolved
+  action carries `status == 'draft' and (count(lines) > 0)`. Writing the state
+  half by hand is refused rather than checked for agreement, because two places
+  that must agree is the problem being removed.
+- **derives `immutable_when`** for every ordinarily writable field when some
+  transition sets `locks_record: true`. Fields the workflow already owns —
+  `action_only`, `system`, computed, read-only, and the primary key — are left
+  alone. Omit `locks_record` and nothing is frozen.
+- **checks the stamp targets** without writing them. The handler still records
+  the change; the compiler verifies each named field exists, is
+  `write: action_only`, and can hold `now` (a `datetime`) or `principal` (a
+  `string`).
+- **refuses a state nothing can reach.** Every declared choice must be the
+  field's `default` or the `to` of some transition. `sales.Invoice` declared
+  `cancelled` with no action producing it while the demo data seeded a record
+  already in it — a row that could be neither posted nor edited, because
+  neither was a draft.
+
+The state field must be `write: action_only`, or an ordinary update could move
+the record without running the action, and must declare a `default`, which is
+the state a new record starts in.
+
+An action may not be named `cancel` or `save`, whatever it does: those are the
+form action bar's built-ins, so a domain action of that name never reaches a
+form. Invoicing's is `void`, which is why the action and the `cancelled` state
+it produces read differently.
+
+This is deliberately a transition table on one field, not the general-purpose
+workflow language the [decision log](DECISIONS.md) defers. There are no
+parallel branches, no timers, no cross-entity effects; anything beyond a guard,
+a lock and a stamp belongs in the action's Python handler.
+
 ## Schema evolution
 
 Alembic executes migrations but does not decide model semantics. TIDE must

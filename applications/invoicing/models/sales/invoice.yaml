@@ -34,7 +34,6 @@ fields:
     required: true
     default_factory: today
     format: local_date
-    immutable_when: "status != 'draft'"
     audit: values
 
   currency:
@@ -42,7 +41,6 @@ fields:
     length: 3
     required: true
     default: EUR
-    immutable_when: "status != 'draft'"
     audit: values
 
   status:
@@ -66,6 +64,19 @@ fields:
     write: action_only
     audit: values
 
+  cancelled_at:
+    type: datetime
+    readonly: true
+    write: action_only
+    audit: values
+
+  cancelled_by:
+    type: string
+    length: 120
+    readonly: true
+    write: action_only
+    audit: values
+
   version:
     type: integer
     required: true
@@ -82,7 +93,6 @@ fields:
     inverse: invoices
     required: true
     on_delete: restrict
-    immutable_when: "status != 'draft'"
     audit: values
 
   lines:
@@ -92,7 +102,6 @@ fields:
     order_by: line_number
     cascade: [create, update]
     orphan_delete: true
-    immutable_when: "status != 'draft'"
 
   total:
     type: decimal
@@ -116,8 +125,31 @@ actions:
   post:
     label: Post invoice
     shortcut: Ctrl+P
-    enabled_when: "status == 'draft' and count(lines) > 0"
+    # The state half of this guard is derived from the transition below; only
+    # the business half is written here.
+    enabled_when: "count(lines) > 0"
     permission: sales.invoice.post
     execute: actions.post_invoice
     expose: {rest: true, mcp: true}
     idempotent: true
+    transition:
+      field: status
+      from: draft
+      to: posted
+      locks_record: true
+      stamp: {posted_at: now, posted_by: principal}
+
+  # Not named `cancel`: that is the form action bar's built-in discard, and a
+  # domain action sharing the name never reaches a form. TIDE276 refuses it.
+  void:
+    label: Void invoice
+    permission: sales.invoice.void
+    execute: actions.void_invoice
+    expose: {rest: true, mcp: true}
+    idempotent: true
+    transition:
+      field: status
+      from: draft
+      to: cancelled
+      locks_record: true
+      stamp: {cancelled_at: now, cancelled_by: principal}

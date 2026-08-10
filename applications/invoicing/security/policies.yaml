@@ -11,6 +11,7 @@ permissions:
   - sales.invoice.read
   - sales.invoice.write
   - sales.invoice.post
+  - sales.invoice.void
   - sales.invoice.report
   - sales.invoice.audit
   - sales.invoice.detail
@@ -27,6 +28,7 @@ roles:
       - sales.invoice.read
       - sales.invoice.write
       - sales.invoice.post
+      - sales.invoice.void
       - sales.invoice.report
       - sales.invoice.detail
 

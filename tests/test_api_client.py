@@ -68,7 +68,7 @@ def test_client_connects_and_reports_server_authorized_capabilities() -> None:
     assert "delete" in session.entities["crm.Customer"].operations
     assert "status" in session.entities["sales.Invoice"].readable_fields
     assert "status" not in session.entities["sales.Invoice"].writable_fields
-    assert session.entities["sales.Invoice"].actions == ("post",)
+    assert session.entities["sales.Invoice"].actions == ("post", "void")
     assert session.entities["sales.InvoiceLine"].operations == ()
     assert session.entities["sales.InvoiceLine"].draft_operations == (
         "create",

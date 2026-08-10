@@ -44,3 +44,29 @@ def post_invoice(
     invoice["posted_at"] = occurred_at or datetime.now(timezone.utc)
     invoice["posted_by"] = principal
     return invoice
+
+
+def void_invoice(
+    invoice: MutableMapping[str, Any],
+    *,
+    principal: str,
+    occurred_at: datetime | None = None,
+) -> MutableMapping[str, Any]:
+    """Cancel a draft exactly once and stamp who did it.
+
+    `cancelled` was a declared state with no action that produced it, while the
+    demo data seeded an invoice already in it -- a record the application could
+    neither create nor leave. The transition block now makes an unreachable
+    state a compile error, which is what surfaced this.
+    """
+
+    status = invoice.get("status")
+    if status == "cancelled":
+        return invoice
+    if status != "draft":
+        raise PostingError(f"only draft invoices can be voided, not {status!r}")
+
+    invoice["status"] = "cancelled"
+    invoice["cancelled_at"] = occurred_at or datetime.now(timezone.utc)
+    invoice["cancelled_by"] = principal
+    return invoice

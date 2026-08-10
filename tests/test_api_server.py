@@ -93,6 +93,8 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
             "invoice_date",
             "customer",
             "currency",
+            "cancelled_at",
+            "cancelled_by",
             "status",
             "lines",
             "posted_at",
@@ -105,7 +107,7 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
             "currency",
             "lines",
         }
-        assert invoice_capabilities["actions"] == ["post"]
+        assert invoice_capabilities["actions"] == ["post", "void"]
         assert invoice_capabilities["audit"] is False
         assert presentation.status_code == 200
         manifest = presentation.json()
@@ -540,7 +542,8 @@ def test_record_get_projects_server_evaluated_workflow_field_state() -> None:
             is None
         )
         assert posted.json()["_tide"]["actions"] == {
-            "post": {"visible": True, "enabled": False}
+            "post": {"visible": True, "enabled": False},
+            "void": {"visible": True, "enabled": False},
         }
         assert draft.status_code == 200
         assert draft.json()["_tide"] == {
@@ -552,7 +555,10 @@ def test_record_get_projects_server_evaluated_workflow_field_state() -> None:
                 "lines",
             ],
             "actions": {
+                # A draft can go either way, which is the point of declaring
+                # both transitions out of it.
                 "post": {"visible": True, "enabled": True},
+                "void": {"visible": True, "enabled": True},
             },
             "references": {"customer": "MORA - Mora Trade"},
         }
@@ -1591,7 +1597,8 @@ def test_server_posts_with_version_and_idempotency_preconditions() -> None:
         assert posted.json()["status"] == "posted"
         assert posted.json()["version"] == 2
         assert posted.json()["_tide"]["actions"] == {
-            "post": {"visible": True, "enabled": False}
+            "post": {"visible": True, "enabled": False},
+            "void": {"visible": True, "enabled": False},
         }
         assert posted.headers["etag"] == '"2"'
         assert replay.status_code == 200

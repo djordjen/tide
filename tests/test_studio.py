@@ -62,7 +62,7 @@ def test_studio_service_builds_semantic_tree_without_writing_sources() -> None:
     assert invoice.properties[0].value == "sales.Invoice"
     assert invoice.properties[0].editable is False
     assert next(item for item in invoice.properties if item.name == "fields").value == (
-        "11 properties"
+        "13 properties"
     )
     label = next(item for item in invoice.properties if item.path == ("label",))
     assert label.editable is True
@@ -1043,20 +1043,20 @@ def test_textual_studio_colors_yaml_and_searches_current_preview() -> None:
             query.value = "readonly"
             await pilot.pause()
 
-            assert len(app._search_matches) == 6
+            assert len(app._search_matches) == 8
             assert preview.selected_text.casefold() == "readonly"
-            assert "1 / 6" in str(
+            assert "1 / 8" in str(
                 app.query_one("#source-search-status", Static).content
             )
 
             await pilot.press("enter")
             await pilot.pause()
-            assert "2 / 6" in str(
+            assert "2 / 8" in str(
                 app.query_one("#source-search-status", Static).content
             )
             await pilot.click("#search-previous")
             await pilot.pause()
-            assert "1 / 6" in str(
+            assert "1 / 8" in str(
                 app.query_one("#source-search-status", Static).content
             )
 

@@ -26,6 +26,7 @@ from tide.api.contracts import (
     TideSessionInfo,
 )
 from tide.api.openapi import RestExposure
+from tide.model.source import RESERVED_ACTION_NAMES
 from tide.compiler.normalized import (
     ApplicationModel,
     NormalizedEntity,
@@ -483,10 +484,10 @@ def _form_contract(
                 str(name)
                 for name in view.data.get(
                     "actions",
-                    ("cancel", "save", *entity.actions),
+                    (*sorted(RESERVED_ACTION_NAMES), *entity.actions),
                 )
             )
-            if action_name not in {"cancel", "save"}
+            if action_name not in RESERVED_ACTION_NAMES
             and action_name in entity.actions
             and action_name in capabilities.actions
             and entity.actions[action_name].get("expose", {}).get("rest")

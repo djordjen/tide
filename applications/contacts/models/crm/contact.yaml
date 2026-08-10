@@ -66,10 +66,16 @@ fields:
 actions:
   archive:
     label: Archive contact
-    enabled_when: status == 'active'
     permission: crm.contact.archive
     execute: actions.transition_crm_contact_archive
     expose:
       rest: true
       mcp: true
     idempotent: true
+    transition:
+      field: status
+      from: active
+      to: archived
+      stamp:
+        archived_at: now
+        archived_by: principal

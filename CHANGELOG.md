@@ -24,6 +24,16 @@ detection, source-located diagnostics, project path confinement, cross-file
 relationship and view resolution, safe expression validation, computed-cycle
 detection, JSON Schema export, and immutable normalized model output.
 
+An action may declare a `transition` over a `choice` field. The compiler
+derives the action's state guard and, where a transition sets `locks_record`,
+the `immutable_when` of every ordinarily writable field; it checks stamp
+targets rather than writing them, and refuses a declared state no transition
+reaches. That last check found one: `sales.Invoice` declared `cancelled` with
+no action producing it, while the demo data seeded a record already in it, so
+the reference application gained the `cancel` action that makes the state
+reachable. The generated Contacts application emits the block from its plan
+instead of a hand-written guard string.
+
 The headless runtime adds secured record/query/action services, a repository
 protocol with in-memory and synchronous SQLAlchemy Core implementations,
 `RecordSession`, computed master-detail values, field protection, validation,

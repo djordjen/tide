@@ -699,26 +699,51 @@ _humanize_name = humanize_qualified
 
 
 def _action_document(transition: DefineStateTransitionOperation) -> dict[str, Any]:
-    conditions = [
-        (
-            f"{transition.state_field} == {transition.from_values[0]!r}"
-            if len(transition.from_values) == 1
-            else f"{transition.state_field} in {list(transition.from_values)!r}"
+    """Emit the declared machine, and let the compiler derive the guard.
+
+    This used to write the state guard out as an `enabled_when` string, which
+    put the same rule in two places for every generated application and could
+    not express more than one `from` state: the multi-value branch produced
+    `status in [...]`, an operator the expression language rejects, so any plan
+    using it generated an application that would not compile.
+    """
+
+    stamp = {
+        name: kind
+        for name, kind in (
+            (transition.stamp_datetime_field, "now"),
+            (transition.stamp_principal_field, "principal"),
         )
-    ]
-    if transition.requires_collection is not None:
-        conditions.append(f"count({transition.requires_collection}) > 0")
-    return {
-        "label": transition.label,
-        "enabled_when": " and ".join(conditions),
-        "permission": transition.permission,
-        "execute": _handler_reference(transition),
-        "expose": {
-            "rest": transition.expose_rest,
-            "mcp": transition.expose_mcp,
-        },
-        "idempotent": transition.idempotent,
+        if name is not None
     }
+    declared: dict[str, Any] = {
+        "field": transition.state_field,
+        "from": (
+            transition.from_values[0]
+            if len(transition.from_values) == 1
+            else list(transition.from_values)
+        ),
+        "to": transition.to_value,
+    }
+    if stamp:
+        declared["stamp"] = stamp
+
+    document: dict[str, Any] = {"label": transition.label}
+    if transition.requires_collection is not None:
+        document["enabled_when"] = f"count({transition.requires_collection}) > 0"
+    document.update(
+        {
+            "permission": transition.permission,
+            "execute": _handler_reference(transition),
+            "expose": {
+                "rest": transition.expose_rest,
+                "mcp": transition.expose_mcp,
+            },
+            "idempotent": transition.idempotent,
+            "transition": declared,
+        }
+    )
+    return document
 
 
 def _report_document(

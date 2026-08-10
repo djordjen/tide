@@ -144,6 +144,7 @@ def test_streamable_http_mcp_executes_secured_runtime_workflow() -> None:
             "create_sales_invoice",
             "update_sales_invoice",
             "post_sales_invoice",
+            "void_sales_invoice",
         }
         schema = json.loads(schema_result.contents[0].text)  # type: ignore[union-attr]
         assert schema["entity"] == "catalog.Product"
