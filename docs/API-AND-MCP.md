@@ -239,7 +239,7 @@ OIDC authentication may run over plain HTTP only on loopback; any non-loopback
 binding requires a certificate and key so Uvicorn terminates TLS directly. A
 reverse-proxy trust contract is
 not implemented yet, so forwarding headers are not an alternative to these
-checks. TUI, Qt, automation, REST, and hosted MCP clients obtain an access
+checks. TUI, automation, REST, and hosted MCP clients obtain an access
 token from the chosen provider and send it through the same bearer boundary.
 The optional same-origin Web adapter can instead perform Authorization Code
 with PKCE, retain access and refresh tokens behind FastAPI, and expose only an
@@ -340,17 +340,17 @@ unencrypted network. Redirects are not followed. This is the transport
 used by record/action facades consumed by Textual. Run `tide run
 applications/invoicing --api-url http://127.0.0.1:8000`; the TUI compiles
 presentation metadata locally but performs browse, structured filter/sort,
-lookup selection, create/update, and actions through HTTP. The Qt client now
+lookup selection, create/update, and actions through HTTP. A remote client
 reuses this boundary for browse queries, forms, reference selection, and nested
 **Save & Select** creation. Its InvoiceLine editor sends sanitized nested
 collection input through the ordinary Invoice create/update contract; no
 renderer-only mutation route is introduced. A `stale_version` response causes
-Qt to issue an ordinary authorized `get`, compare Original/Current/Draft through
+a renderer to issue an ordinary authorized `get`, compare Original/Current/Draft through
 the shared conflict contract, and reopen a resolved form with the new ETag.
 The review dialog does not receive a bypass route and does not write data.
-Qt form actions call the existing REST action route as well. If a local draft
-changed, Qt first performs the ordinary create/update request and uses its
-returned ETag as the action `If-Match`; each invocation receives a new `qt:`
+Form actions call the existing REST action route as well. If a local draft
+changed, the renderer first performs the ordinary create/update request and uses
+its returned ETag as the action `If-Match`; each invocation receives a new
 idempotency key. Session capabilities control presentation only—the server
 still enforces action exposure, permission, conditions, version, idempotency,
 validation, audit, and transaction behavior.
@@ -589,7 +589,7 @@ rather than protocol output.
 ## Web UI
 
 The dedicated Web UI is a presentation adapter over the same normalized model
-and service boundary as Textual and Qt. It now builds responsive
+and service boundary as Textual. It now builds responsive
 grouped navigation and virtualized server-mode browse workspaces from the safe
 presentation manifest and existing structured REST queries. Search, named
 filters, sorting, opaque-cursor loading, exact formatting, authorized reference

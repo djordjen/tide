@@ -16,7 +16,7 @@ the generated baseline of the runnable
 [`applications/contacts`](../applications/contacts/README.md) application.
 CI compares all 12 generated artifacts byte-for-byte, exercises the real local
 approval boundary in a temporary workspace, and resolves its forms and browses
-through the shared, TUI, Qt, and Web entry points.
+through the shared, TUI, and Web entry points.
 
 ## The trust boundary
 

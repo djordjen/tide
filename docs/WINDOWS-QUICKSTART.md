@@ -470,101 +470,7 @@ choose the initial `admin` password; then it opens the Web sign-in screen. Use
 `start.bat web` for the configured SQL Server database and `start.bat auth-user`
 to add another local user. The browser receives neither the password hash,
 database URL, nor application YAML; it calls the same secured FastAPI resources
-as Qt and remote Textual. See [Web UI](WEB-UI.md) for build and test commands.
-
-To test the first native desktop renderer, leave `start.bat api-demo` running
-and use another terminal:
-
-```powershell
-.\start.bat gui
-```
-
-Paste the printed API token into the hidden prompt. This starts the Qt
-application shell and installs the optional `gui` and `report` dependencies
-through `uv` when needed. The grouped sidebar comes from
-`presentation/defaults.yaml`; use it to move among Invoices, Customers, and
-Products. Capability-inaccessible items are absent. Returning to a visited
-workspace restores its live search/filter, loaded rows, selection, and personal
-column layout. Use **Open**, double-click, or **Enter** to open the selected
-Invoice and its lines. The same compact two-column form is used for viewing and
-editing; status, metadata, and permissions determine which fields and actions
-are enabled. **Previous** and **Next** at the form's bottom left open adjacent
-records in the current searched/filtered/sorted list; **Page Up** and **Page
-Down** are their keyboard shortcuts. Next transparently fetches another cursor
-batch when necessary. The same dialog remains at its current position while
-record values, line items, and enabled actions update. Navigation does not
-discard unsaved changes: save or cancel the draft first. Search by
-Invoice number, select a metadata-defined named filter, or click a sortable
-column heading to order the complete server result; click
-the same heading again to reverse the order. **Clear** restores the default
-query. Drag headings or dividers to personalize column order and widths;
-**Best Fit** resizes all columns to current contents, and **Reset Layout**
-returns to the application metadata defaults. Personal column settings are
-local to this application, view, and authenticated principal and never change
-the YAML. Scroll to the end to load and append another secured batch in the
-background. The GUI has no SQL Server URL or driver; it uses the same
-authenticated API client as remote Textual mode. See
-[Qt GUI Prototype](QT-GUI.md) for the current scope and explicit CLI form.
-
-In an editable Invoice, use **Select…** beside Customer or press F4. The
-multi-column lookup searches code, name, and email through FastAPI. Selecting a
-row applies the reference through the shared server draft operation. When your
-role can create Customers, **New** or Ctrl+N opens the Customer form;
-**Save & Select** returns to the still-unsaved Invoice.
-
-The Lines table and Line Details editor are in the same dialog. Use **Add line**,
-select Product through its multi-column lookup, enter Quantity, and choose
-**Apply line**. Product selection brings Description and Unit Price from the
-server; applying previews line Total and Invoice Total. **Remove line** changes
-the local draft only. The Invoice **Save** button automatically applies the
-selected line and sends one ETag-protected nested update through FastAPI.
-Authorized Product lookup creation also uses **Save & Select**.
-
-If the record changes between opening and saving, Qt displays Original,
-Current, and Your draft rather than overwriting it. Choose Current or Mine for
-each overlapping field, then **Apply Resolution** to reopen the result against
-the latest ETag. **Reload Current** discards the stale draft, while **Continue
-Editing** leaves it open and unsaved. The conflict dialog itself never writes.
-
-For a draft with at least one valid line, **Post invoice** is enabled from the
-compiled action metadata and authenticated session capability. It applies the
-selected line, saves changed header/lines, and then posts using the newly
-returned ETag plus a unique idempotency key. The refreshed row shows Posted.
-An action failure after a successful draft save reopens that saved version for
-correction; an empty or already-posted Invoice keeps Post disabled.
-For a read/post-only `invoice_poster` identity, Open shows the same form with
-fields and lines read-only, Save hidden, and Post available.
-
-Inside an opened Invoice, choose **Preview PDF** to request the authorized
-`sales.invoice` document from FastAPI. Qt renders it to a uniquely named PDF in
-the operating system's temporary directory on a background worker, then opens
-the configured system viewer. The temporary GUI-session directory is cleaned
-up later rather than filling `output\reports`. The shortcut installs both the
-`gui` and `report` extras; a role without report permission does not see the
-button.
-
-On the Invoice list, choose **Posted Sales Summary** to build the authorized
-parameterless `sales.summary` document in the background. Qt opens a native
-read-only preview grouped by Customer and Currency, with invoice count and
-sales total. **Export CSV**, **Export HTML**, and **Export PDF** write controlled
-files to the GUI session's temporary report directory. The report follows its
-server-owned query rather than the current table filter or loaded rows. The
-action is hidden when the session lacks report capability.
-
-Customer and Product creation/editing are available in **Master Data**. To
-start directly in either workspace, keep the same API server running and use:
-
-```powershell
-.\start.bat gui-products
-.\start.bat gui-customers
-```
-
-Use **New**, or select a row and use **Open**. The Product form demonstrates
-the `0.00` Decimal mask and the Customer/Product code fields demonstrate regex
-masks; both forms follow the YAML row layout and writable capabilities. Tab or
-Enter traverses the left field column before the right. Saving runs through
-FastAPI in the background and refreshes the secured list. Qt editors for
-reports that declare runtime parameters remain a later tranche.
+as remote Textual. See [Web UI](WEB-UI.md) for build and test commands.
 
 For an optional reviewed OIDC network test, first install that adapter:
 
@@ -588,7 +494,7 @@ uv run tide serve applications/invoicing --database-env `
   --mcp-resource-url https://tide.example.com:8443/mcp
 ```
 
-Remote TUI, Qt, REST, and MCP clients continue to obtain a bearer access token
+Remote TUI, REST, and MCP clients continue to obtain a bearer access token
 from that provider. Set `TIDE_API_TOKEN` before running
 `tide api check-server` or `tide run --api-url` against the HTTPS origin. The
 Web renderer can instead use TIDE's optional same-origin Authorization Code

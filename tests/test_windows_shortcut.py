@@ -271,21 +271,6 @@ DISPATCH: tuple[tuple[str, str], ...] = (
     ("contacts-web-demo", "NPM --prefix web run dev:app -- --app contacts"),
     ("web-demo contacts", "NPM --prefix web run dev:app -- --app contacts"),
     (
-        "gui",
-        "UV run --extra gui --extra report tide gui applications/invoicing"
-        " --api-url http://127.0.0.1:8000",
-    ),
-    (
-        "contacts-gui",
-        "UV run --extra gui tide gui applications/contacts"
-        " --api-url http://127.0.0.1:8000",
-    ),
-    (
-        "gui-customers",
-        "UV run --extra gui --extra report tide gui applications/invoicing"
-        " --api-url http://127.0.0.1:8000 --view crm.Customer.browse",
-    ),
-    (
         "seed",
         "UV run --extra seed --extra sqlserver tide db seed"
         " applications/invoicing --database-env --role sales_clerk"

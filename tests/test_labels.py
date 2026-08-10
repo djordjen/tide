@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from pathlib import Path
@@ -12,6 +14,8 @@ from tide.compiler.normalized import (
     immutable_mapping,
 )
 from tide.labels import humanize
+
+ROOT = Path(__file__).parents[1]
 
 
 def _field(name: str, **metadata: object) -> NormalizedField:
@@ -85,14 +89,14 @@ def test_every_renderer_resolves_browse_columns_the_same_way() -> None:
 
     Qt kept a private copy that had lost the unknown-column guard, so a view
     naming a field that does not exist rendered a broken grid there while the
-    other renderers refused it.
+    other renderers refused it. That renderer is gone; the guard stays, because
+    what it protects is the shape -- a renderer resolving its own columns.
     """
 
     from dataclasses import replace as replace_dataclass
 
     from tide import compile_project
     from tide.presentation import browse_columns
-    from tide.qt import presenter
     from tide.tui import app
 
     from pathlib import Path
@@ -101,7 +105,7 @@ def test_every_renderer_resolves_browse_columns_the_same_way() -> None:
     view = model.views["sales.Invoice.browse"]
     entity = model.entity("sales.Invoice")
 
-    resolvers = (browse_columns, presenter._browse_columns, app._browse_columns)
+    resolvers = (browse_columns, app._browse_columns)
     assert len({resolver(view, entity) for resolver in resolvers}) == 1
 
     broken = replace_dataclass(view, data={**dict(view.data), "columns": ["nonexistent"]})
@@ -119,11 +123,10 @@ def test_every_layer_labels_a_field_through_one_implementation() -> None:
     """
 
     from tide import presentation
-    from tide.qt import presenter
     from tide.reporting import service
     from tide.tui import app, form, lookup
 
-    modules = (presenter, service, app, form, lookup)
+    modules = (service, app, form, lookup)
     forks = {module.__name__: module._field_label for module in modules}
 
     assert set(forks.values()) == {presentation.field_label}, forks
@@ -139,10 +142,9 @@ def test_every_layer_names_one_record_through_one_implementation() -> None:
 
     from tide import presentation
     from tide.api import presentation as api_presentation
-    from tide.qt import presenter
     from tide.tui import app, form, lookup
 
-    modules = (api_presentation, presenter, app, form, lookup)
+    modules = (api_presentation, app, form, lookup)
     forks = {module.__name__: module._record_label for module in modules}
 
     assert set(forks.values()) == {presentation.record_label}, forks
@@ -218,16 +220,31 @@ def test_the_form_labels_a_camel_case_field_like_the_grid_does() -> None:
 
 
 def test_every_layer_aligns_a_field_through_one_implementation() -> None:
+    """Qt's fork left with its renderer. What remains is an alias and a scan.
+
+    `tide.api.presentation` and `tide.tui.table` import `field_alignment` by
+    name, so asserting their identity proves only that Python imports work.
+    The first version of this test did exactly that for two of three entries
+    and stayed green with a call site sabotaged -- a guard that cannot fail.
+    What can actually drift is a module growing its own implementation, so
+    that is what is checked: reporting's module-level alias by identity, and
+    the whole package for a private redefinition.
+    """
+
     from tide import presentation
-    from tide.qt import presenter
     from tide.reporting import service
 
-    forks = {
-        "qt": presenter._field_alignment,
-        "reporting": service._alignment,
-    }
+    assert service._alignment is presentation.field_alignment
 
-    assert set(forks.values()) == {presentation.field_alignment}, forks
+    own = re.compile(r"^def _?(?:field_)?alignment\(", re.M)
+    forks = sorted(
+        str(path.relative_to(ROOT))
+        for path in (ROOT / "src" / "tide").rglob("*.py")
+        if path.name != "presentation.py"
+        and own.search(path.read_text(encoding="utf-8"))
+    )
+
+    assert forks == []
 
 
 def test_a_report_honours_an_explicitly_left_aligned_number() -> None:

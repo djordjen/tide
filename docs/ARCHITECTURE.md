@@ -6,12 +6,12 @@ Every client invokes the same application services. A Textual screen, REST
 route, MCP tool, report, and future web form may authenticate differently, but
 none implements separate business or authorization rules.
 
-For a server deployment, TUI, Qt GUI, browser, and MCP clients are untrusted
+For a server deployment, TUI, browser, and MCP clients are untrusted
 remote adapters. They authenticate to the TIDE HTTP server and never receive a
 database URL. FastAPI is the transport boundary, not the business layer:
 
 ```text
-Remote TUI / Qt / Web / MCP
+Remote TUI / Web / MCP
             | HTTPS + credentials
             v
         FastAPI adapter
@@ -25,7 +25,7 @@ RecordsService / ActionService / ReportService
 
 The default `tide run` Textual adapter remains an in-process trusted-host mode
 and calls services directly. Its opt-in `--api-url` mode calls the same HTTP
-contracts intended for Qt and web clients and never embeds a database driver or
+contracts intended for remote clients and never embeds a database driver or
 connection string.
 
 The remote client validates an authenticated session
@@ -33,14 +33,9 @@ capability document against the locally compiled model before transferring
 records. It owns JSON/TIDE type conversion, protected-value reconstruction,
 opaque cursors, ETags, idempotency headers, and stable transport errors.
 Record/action facades present this client behind the interfaces already
-consumed by Textual; widgets do not construct URLs or authorize operations.
+consumed by Textual; renderers do not construct URLs or authorize operations.
 Local edit drafts remain `RecordSession` objects, while every load, lookup
-assignment, commit, and action crosses the authenticated service boundary. The
-Qt adapter uses Qt-neutral controllers over `TideApiClient`; a lazy optional
-PySide6 shell renders compiler-normalized application navigation, browse
-tables, forms, lookups, inline collections, actions, conflict review, and
-report previews without database packages or credentials. Its grouped
-navigation is capability-filtered, while authorization remains on the server.
+assignment, commit, and action crosses the authenticated service boundary.
 Remote presentation adapters retrieve the same safe browse semantics from
 the authenticated, versioned `/_tide/presentation` manifest. The server
 intersects navigation, columns, search, named filters, sorting, and operations

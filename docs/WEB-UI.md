@@ -57,7 +57,7 @@ database.
 - row selection plus one **Open** path through button, double-click, or Enter;
 - stable in-place record detail without closing or repositioning the shell;
 - renderer-neutral form rows, groups, tabs, and inline collections projected
-  from the same compiled YAML layout used by Textual and Qt;
+  from the same compiled YAML layout used by Textual;
 - inline collection wording and row numbering taken from the manifest —
   `record_label` names the rows and `sequence_field` names the field a new row
   is numbered by, so the widget carries no application's field names or
@@ -108,7 +108,7 @@ validation, concurrency, actions, and auditing.
 Portable metadata contains semantic presentation intent, not Tailwind class
 names or shadcn component names. A renderer maps shared field types, formats,
 alignment, and future conditional-style tokens to its own controls. This keeps
-the same YAML meaningful to Textual, Qt, Web, and later renderers.
+the same YAML meaningful to Textual, Web, and later renderers.
 
 The detail manifest is also a safe projection. It contains resolved semantic
 layout plus the editor facts needed to render a useful form: type, writable
@@ -158,7 +158,7 @@ generated resource path, and supported export formats. It does not expose the
 report query, criteria, bands, expressions, permission names, or database
 configuration. **Posted Sales Summary** on the Invoice list and **Preview
 Invoice** on a saved detail both ask FastAPI to build the same immutable
-`ReportDocument` used by Textual and Qt. React renders its already-formatted
+`ReportDocument` used by Textual. React renders its already-formatted
 values and tables; CSV, HTML, and PDF buttons call separately authorized export
 routes that rebuild and render the report server-side. Record preview is
 disabled while the form has unsaved changes so the displayed document cannot
@@ -269,7 +269,7 @@ semantic baseline and records deliberate gaps. Multi-column lookup selection
 and nested **Save & Select** are covered for scalar references such as
 Invoice Customer and collection references such as InvoiceLine Product.
 Transactional Invoice master-detail drafts are also covered. Three-way
-conflict review now has the same loss-prevention semantics in Textual, Qt, and
+conflict review now has the same loss-prevention semantics in Textual and
 Web. Metadata-driven domain actions now have the same service-mediated,
 ETag/idempotency-protected semantics in all three renderers. Record and summary
 report preview plus controlled CSV/HTML/PDF export close the recorded renderer

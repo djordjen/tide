@@ -6,7 +6,7 @@ Designers edit metadata and overlays, not generated source code. A preview uses
 the same compiler and the same layout resolution as the deployed renderers --
 `presentation.py` decides its sections, columns and labels, so a preview cannot
 show an arrangement no renderer produces. It draws that arrangement on its own
-text canvas rather than through Textual or Qt, so it is not a claim about pixels.
+text canvas rather than through a live renderer, so it is not a claim about pixels.
 
 Studio reports a size warning only where the view declares one. `surfaces.tui`
 is read by Studio alone; no renderer enforces it, so a minimum width, height, or
@@ -183,7 +183,7 @@ descriptor now derives editor metadata from the same Pydantic/source JSON
 Schema used by the compiler. `Literal` and enumerated values become dropdowns—
 for example `fields.id.type`, view `kind`, `on_delete`, write ownership and
 editor kinds—and Boolean values use a true/false selector. These choices are
-not copied into the Textual adapter, so future Qt, Web and AI clients can reuse
+not copied into the Textual adapter, so Web and AI clients can reuse
 the same contract. Richer numeric controls, path/reference selectors, help text
 and conditional-property hints remain planned.
 
@@ -298,7 +298,7 @@ restores a valid candidate.
 
 Transferring an unmatched last field between columns is deferred until the
 portable layout model defines an explicit empty-cell/span concept. The resolved
-contract remains UI-independent so a later Qt or Web designer can reuse it.
+contract remains UI-independent so a later Web designer can reuse it.
 
 ## Web view designer
 

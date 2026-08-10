@@ -103,22 +103,22 @@ rules are enforced through the shared services as well as reflected in the TUI
 and OpenAPI contract.
 The shared `presentation/defaults.yaml` navigation groups Invoices under Sales
 and Customers/Products under Master Data. Textual uses its order and labels in
-the compact workspace selector; Qt renders a grouped sidebar and preserves each
-visited workspace's query, loaded rows, selection, and personal columns.
-Capability-inaccessible items are omitted. Customer and Product forms support
+the compact workspace selector; the Web shell renders responsive grouped
+navigation and preserves each visited workspace's query, loaded rows,
+selection, and personal columns. Capability-inaccessible items are omitted. Customer and Product forms support
 secured create/edit operations. Customer and Product
 lookups also expose **New** (Ctrl+N) when authorized; the nested form uses
 **Save & Select**, preserving the unsaved invoice and applying Product defaults.
-The Qt Invoice editor follows the same metadata and API contract. Its line table
-sits above the Line Details fields, Add/Apply/Remove change the local draft,
-Product lookup applies Description and Unit Price through the server, and line
-plus Invoice totals preview before one ETag-protected nested save. Customer and
-Product lookup windows both support authorized **Save & Select**.
-If another process saves the same record first, Qt reloads it into the shared
-three-way Original/Current/Your draft review. Genuine overlaps require an
-explicit Current/Mine decision; applying the plan reopens a current ETag-backed
-form for review and normal validation. Invoice lines are treated as one
-collection conflict unit in this first safe implementation.
+The Web Invoice editor follows the same metadata and API contract.
+Add/Apply/Remove change the local draft, Product lookup applies Description and
+Unit Price through the server, and line plus Invoice totals preview before one
+ETag-protected nested save. Customer and Product lookups both support
+authorized **Save & Select**.
+If another process saves the same record first, the renderer reloads it into
+the shared three-way Original/Current/Your draft review. Genuine overlaps
+require an explicit Current/Mine decision; applying the plan reopens a current
+ETag-backed form for review and normal validation. Invoice lines are treated as
+one collection conflict unit in this first safe implementation.
 The compiled `actions: [cancel, save, post]` order adds **Post invoice** only
 for an authenticated capability. Its enabled state follows the local
 `enabled_when` expression. Invoking it saves changed lines first, then sends the
@@ -134,17 +134,15 @@ exposes **Preview Invoice**. Both use the secured renderer-neutral document and
 offer server-generated CSV, standalone HTML, and PDF downloads. Report queries,
 criteria, permission expressions, and database configuration remain on the
 server.
-The Qt list exposes one **Open** action rather than separate View/Edit/Preview
+The Web list exposes one **Open** action rather than separate View/Edit/Preview
 modes. The opened form uses the same YAML-defined two-column header as Textual;
 status and capabilities determine whether fields, Save, and Post are enabled.
-Its bottom-left **Previous** and **Next** controls follow the active secured
-browse order; **Page Up** and **Page Down** invoke them from the keyboard. They
-update the existing dialog in place, load another opaque cursor batch when
+Its **Previous** and **Next** controls follow the active secured browse order.
+They update the open form in place, load another opaque cursor batch when
 needed, and require a changed draft to be saved or cancelled before navigation.
-For a report-authorized role, **Preview PDF** builds `sales.invoice`, writes a
-unique GUI-session file under the operating system temporary directory, and
-opens the system viewer. The GUI never receives a report query or database
-connection.
+For a report-authorized role, **Preview Invoice** builds `sales.invoice` and
+offers it as a controlled download. The renderer never receives a report query
+or database connection.
 The browse search applies incrementally to invoice numbers. The filter selector
 exposes **Draft invoices** and **High-value invoices** from view metadata, and
 the sort selector or eligible column headers toggle secured ascending and
@@ -180,10 +178,7 @@ return partial totals if its declared 500-row source limit is exceeded; narrow
 criteria or revise the reviewed metadata before using a larger operational
 dataset.
 
-The Qt Invoice list exposes the same report as **Posted Sales Summary** when
-the authenticated session permits it. Qt builds it through FastAPI outside the
-GUI thread and opens a native preview with CSV, HTML, and PDF export. The
-summary uses its fixed server-side metadata query, not the list's currently
+The summary uses its fixed server-side metadata query, not the list's currently
 loaded or filtered rows.
 
 Running an application may also execute its fixed `runtime.py` file. That file

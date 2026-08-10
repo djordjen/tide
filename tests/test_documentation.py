@@ -109,10 +109,11 @@ def test_ci_uses_the_certified_python_baseline_without_duplicate_branch_runs() -
         "pull_request": {"branches": ["main"]},
     }
     job = workflow["jobs"]["test"]
-    assert [entry["os"] for entry in job["strategy"]["matrix"]["include"]] == [
-        "ubuntu-latest",
-        "windows-latest",
-    ]
+    # A plain os list, not `include` with per-entry extras. The two jobs used
+    # to install different environments so the Qt suite could run on Windows
+    # only; with that renderer gone they run the same tests, and two jobs
+    # reporting two different counts is what made a green run hard to read.
+    assert job["strategy"]["matrix"] == {"os": ["ubuntu-latest", "windows-latest"]}
     assert job["name"] == "Python 3.11 / ${{ matrix.os }}"
     setup = next(
         step

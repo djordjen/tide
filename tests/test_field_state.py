@@ -87,7 +87,6 @@ def test_an_action_label_humanizes_like_every_other_name() -> None:
     "module_path, attribute",
     [
         ("tide.api.server", "_action_state"),
-        ("tide.qt.presenter", "_action_state"),
         ("tide.tui.form", "_action_state"),
     ],
 )
@@ -102,7 +101,7 @@ def test_every_renderer_gates_an_action_through_one_implementation(
 
 @pytest.mark.parametrize(
     "module_path",
-    ["tide.api.server", "tide.qt.presenter", "tide.tui.form"],
+    ["tide.api.server", "tide.tui.form"],
 )
 def test_every_renderer_locks_a_field_through_one_implementation(
     module_path: str,

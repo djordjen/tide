@@ -124,7 +124,7 @@ application-owned Faker profile and the real secured services.
 - Customer and Product browse/edit/delete workspaces and create-enabled
   lookups; **implemented with permission/action visibility and confirmation**
 - transactional Invoice/InvoiceLine master-detail editing; **implemented for
-  Textual and Qt**
+  Textual and Web**
 - selectable in-memory or SQLAlchemy runtime persistence, with explicit managed
   schema creation and legacy no-DDL behavior;
 - deterministic, empty-database-only Faker development seeding;
@@ -139,44 +139,23 @@ application-owned Faker profile and the real secured services.
   browse text; **implemented**; Windows Terminal/xterm/SSH and reduced/no-color
   release certification remain;
 - server-side sorting, seamless incremental cursor loading, search, and named
-  filters; **implemented for Textual and Qt browse**
-- movable Qt columns, best-fit/reset controls, and per-principal local
-  width/order persistence; **implemented**; privileged designer publishing of
-  shared metadata defaults remains deferred
-- metadata-driven flat Product/Customer create and update forms through the
-  authenticated Qt API client; **implemented**
-- Qt Invoice-header create/update with a compiled, searchable multi-column
-  Customer lookup and authorized nested **Save & Select** creation;
-  **implemented**
-- Qt InvoiceLine Add/Apply/Remove, Product lookup and server-owned selection
-  defaults, nested Product **Save & Select**, computed total previews, and
-  ETag-protected nested Invoice save; **implemented**
-- Qt three-way stale-edit review with Original/Current/Draft values, explicit
-  Current/Mine overlap choices, safe rebase into a fresh ETag-backed form, and
-  workflow-lock reevaluation; **implemented**
-- Qt metadata/capability-driven Post Invoice action with draft-aware
-  `enabled_when`, save-before-action ETag chaining, idempotency, recovery after
-  a saved-draft action failure, and secured refresh; **implemented**
-- Qt metadata/capability-gated Invoice report preview over the server-built
-  `ReportDocument`, with background PDF rendering to a GUI-session temporary
-  directory and system-viewer launch; **implemented**
-- Qt capability-gated parameterless summary-report loading through FastAPI,
-  native `ReportDocument` preview, and controlled CSV/HTML/PDF export;
-  **implemented**; runtime parameter editors remain deferred
-- Qt detail-form Previous/Next navigation in current secured browse order,
-  including background cursor-boundary fetch, list selection synchronization,
-  in-place dialog refresh, Page Up/Page Down shortcuts, first/last state, and
-  unsaved-draft protection; **implemented**
+  filters; **implemented for Textual and Web browse**
 - compiler-validated shared application navigation in presentation YAML,
-  capability filtering, Textual selector ordering, and a grouped Qt shell with
-  lazily retained per-view workspace state and `--view` deep links;
+  capability filtering, Textual selector ordering, and `--view` deep links;
   **implemented**, including the authenticated Web presentation projection
   and browser shell
 - renderer-neutral form-layout resolution for ordered YAML rows, groups,
   collections, tabs, actions, and field visibility, consumed by Textual and
-  Qt; plus one Qt/Web **Open** path whose form controls follow capability and
+  Web; plus an **Open** path whose form controls follow capability and
   workflow state; **implemented**, including Web detail collections and
   current-query Previous/Next navigation
+- a PySide6 desktop renderer reached full Invoice editing, lookups, conflict
+  review, actions, and report preview, and was **retired on 2026-08-10**. It
+  was remote-only, so it was never an offline story; it made every parity
+  feature a third implementation; and the Web shell surpassed it on both
+  appearance and flexibility. What it forced into existence -- the presentation
+  manifest, renderer-neutral form layout, the shared field-state contract, and
+  batched reference displays -- is core and stays. See the decision log.
 - basic secured printable invoice with TUI preview, HTML, and PDF;
   **implemented**
 - opt-in REST list/get/create/update/delete and domain-action routes plus OpenAPI;
@@ -204,12 +183,7 @@ an invoice entirely by keyboard or mouse.
   facades for browse, lookups, drafts, nested commits, concurrency, and
   actions; **implemented**
 - secured renderer-neutral remote report transport with Textual preview and
-  local CSV/HTML/PDF export, plus native Qt record and parameterless-summary
-  preview/export; **implemented**
-- first read-only PySide6 browse and compiled record-detail dialog over the
-  typed remote client/session contract, with no local database dependency;
-  **implemented with a model-backed incremental list, background opaque-cursor
-  fetching, and seamless scroll loading; editing/actions remain later work**
+  local CSV/HTML/PDF export; **implemented**
 - runtime MCP schema/record/audit resources, structured query tools, CRUD
   mutations, and opt-in domain actions; **implemented with authenticated
   stateless Streamable HTTP, explicit metadata exposure, RFC 9728 metadata,
@@ -260,7 +234,7 @@ an invoice entirely by keyboard or mouse.
   post-action state refresh; **Web record/summary report preview and controlled
   CSV/HTML/PDF export are implemented** through the server-built
   renderer-neutral document and authorized export routes
-- executable renderer acceptance matrix for shared TUI/Qt/Web semantics;
+- executable renderer acceptance matrix for shared TUI/Web semantics;
   **implemented** with a versioned YAML matrix, a compiled Invoicing golden
   contract resolved through each renderer's own entry point, and Python
   evidence links resolved by importing the named test rather than matching its
@@ -367,7 +341,7 @@ Deeper report design and developer-MCP editing remain later Milestone 7 work.
   plan: Company/Contact reference model, editor/viewer roles, idempotent Archive
   action, deterministic demo and Faker data, exact artifact-regeneration check,
   temporary-workspace approval/apply test, managed SQL storage, and shared
-  TUI/Qt/Web resolution; **implemented as `applications/contacts`**
+  TUI/Web resolution; **implemented as `applications/contacts`**
 - headless DesignerService and command model; **implemented with semantic
   document references, bounded typed property/order/sequence commands and
   atomic command batches**

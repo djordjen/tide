@@ -207,7 +207,6 @@ def test_the_windows_shortcut_names_no_flag_the_cli_has_retired() -> None:
     accepted = (
         declared("serve")
         | declared("run")
-        | declared("gui")
         | declared("studio")
         | declared("db", "seed")
         | declared("db", "check")

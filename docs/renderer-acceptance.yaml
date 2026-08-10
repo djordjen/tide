@@ -4,8 +4,6 @@ reference_application: applications/invoicing
 renderers:
   tui:
     label: Textual TUI
-  qt:
-    label: Qt GUI
   web:
     label: React Web
 
@@ -78,12 +76,6 @@ capabilities:
           - path: tests/test_tui.py
             selector: test_textual_workspace_switches_to_customer_management
             runner: python
-      qt:
-        status: covered
-        evidence:
-          - path: tests/test_qt_widgets.py
-            selector: test_qt_application_navigation_preserves_visited_workspace_state
-            runner: python-gui
       web:
         status: covered
         evidence:
@@ -101,15 +93,6 @@ capabilities:
           - path: tests/test_tui.py
             selector: test_textual_invoice_browse_incrementally_loads_on_scroll
             runner: python
-      qt:
-        status: covered
-        evidence:
-          - path: tests/test_qt.py
-            selector: test_qt_browse_formats_incremental_cursor_batches
-            runner: python
-          - path: tests/test_qt_widgets.py
-            selector: test_qt_widget_adapter_incrementally_loads_the_server_list
-            runner: python-gui
       web:
         status: covered
         evidence:
@@ -126,12 +109,6 @@ capabilities:
         evidence:
           - path: tests/test_tui.py
             selector: test_textual_form_renders_portable_tabs_and_action_bar_order
-            runner: python
-      qt:
-        status: covered
-        evidence:
-          - path: tests/test_qt.py
-            selector: test_qt_detail_uses_form_groups_and_nested_inline_collection
             runner: python
       web:
         status: covered
@@ -150,15 +127,6 @@ capabilities:
           - path: tests/test_tui.py
             selector: test_textual_posted_invoice_is_readonly
             runner: python
-      qt:
-        status: covered
-        evidence:
-          - path: tests/test_qt_widgets.py
-            selector: test_qt_invoice_poster_gets_a_read_only_action_form
-            runner: python-gui
-          - path: tests/test_qt.py
-            selector: test_qt_invoice_conflict_treats_lines_as_one_unit_and_honors_new_locks
-            runner: python
       web:
         status: covered
         evidence:
@@ -176,15 +144,6 @@ capabilities:
           - path: tests/test_tui.py
             selector: test_textual_workspace_switches_to_customer_management
             runner: python
-      qt:
-        status: covered
-        evidence:
-          - path: tests/test_qt.py
-            selector: test_qt_flat_product_form_uses_defaults_writable_fields_and_etag
-            runner: python
-          - path: tests/test_qt_widgets.py
-            selector: test_qt_flat_product_form_creates_and_updates_through_api
-            runner: python-gui
       web:
         status: covered
         evidence:
@@ -201,12 +160,6 @@ capabilities:
         evidence:
           - path: tests/test_tui.py
             selector: test_textual_invoice_edit_saves_header_and_line_transactionally
-            runner: python
-      qt:
-        status: covered
-        evidence:
-          - path: tests/test_qt.py
-            selector: test_qt_browse_formats_incremental_cursor_batches
             runner: python
       web:
         status: covered
@@ -228,15 +181,6 @@ capabilities:
           - path: tests/test_tui.py
             selector: test_textual_form_focuses_columns_and_enter_advances
             runner: python
-      qt:
-        status: covered
-        evidence:
-          - path: tests/test_qt_widgets.py
-            selector: test_qt_widget_adapter_incrementally_loads_the_server_list
-            runner: python-gui
-          - path: tests/test_qt_widgets.py
-            selector: test_qt_flat_product_form_creates_and_updates_through_api
-            runner: python-gui
       web:
         status: covered
         evidence:
@@ -254,12 +198,6 @@ capabilities:
       tui:
         status: not_applicable
         note: Terminal columns use application metadata and responsive terminal sizing; direct drag resizing is not a TUI interaction.
-      qt:
-        status: covered
-        evidence:
-          - path: tests/test_qt_widgets.py
-            selector: test_qt_column_layout_is_personal_and_resettable
-            runner: python-gui
       web:
         status: covered
         evidence:
@@ -277,12 +215,6 @@ capabilities:
           - path: tests/test_tui.py
             selector: test_textual_lookup_creates_product_and_preserves_invoice_draft
             runner: python
-      qt:
-        status: covered
-        evidence:
-          - path: tests/test_qt_widgets.py
-            selector: test_qt_invoice_customer_lookup_search_create_and_select
-            runner: python-gui
       web:
         status: covered
         evidence:
@@ -300,12 +232,6 @@ capabilities:
           - path: tests/test_tui.py
             selector: test_textual_invoice_edit_saves_header_and_line_transactionally
             runner: python
-      qt:
-        status: covered
-        evidence:
-          - path: tests/test_qt_widgets.py
-            selector: test_qt_invoice_line_editor_applies_product_defaults_and_total
-            runner: python-gui
       web:
         status: covered
         evidence:
@@ -323,12 +249,6 @@ capabilities:
           - path: tests/test_tui.py
             selector: test_textual_stale_edit_rebases_only_non_conflicting_draft_fields
             runner: python
-      qt:
-        status: covered
-        evidence:
-          - path: tests/test_qt_widgets.py
-            selector: test_qt_stale_product_edit_opens_three_way_review_and_rebase
-            runner: python-gui
       web:
         status: covered
         evidence:
@@ -346,12 +266,6 @@ capabilities:
           - path: tests/test_tui.py
             selector: test_textual_invoice_post_uses_registered_action_and_audit
             runner: python
-      qt:
-        status: covered
-        evidence:
-          - path: tests/test_qt_widgets.py
-            selector: test_qt_invoice_post_saves_lines_then_runs_the_secured_action
-            runner: python-gui
       web:
         status: covered
         evidence:
@@ -369,12 +283,6 @@ capabilities:
           - path: tests/test_tui.py
             selector: test_textual_invoice_report_preview_and_exports
             runner: python
-      qt:
-        status: covered
-        evidence:
-          - path: tests/test_qt_widgets.py
-            selector: test_qt_record_report_previews_and_exports_remote_document
-            runner: python-gui
       web:
         status: covered
         evidence:

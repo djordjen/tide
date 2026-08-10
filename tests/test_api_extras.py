@@ -29,13 +29,16 @@ ROOT = Path(__file__).parents[1]
 
 # Installed with `--extra dev` for the test run and so never blocked here.
 TOOLING = frozenset({"build", "mypy", "pytest", "pytest-cov", "pytest-xdist", "ruff", "types-pyyaml"})
-# Extras deliberately outside `dev`: PySide6 is installed only on the Windows
-# CI job, and pyodbc needs a system driver no runner is guaranteed to have.
-OUTSIDE_DEV = frozenset({"pyside6-essentials", "pyodbc"})
+# The one extra deliberately outside `dev`: pyodbc needs a system driver that
+# no runner is guaranteed to have. PySide6 was the other, and left with the Qt
+# renderer -- both CI jobs now install the same environment. This assertion is
+# what caught the stale entry when the `gui` extra went, which is the whole
+# reason an exception list has to be asserted rather than written down.
+OUTSIDE_DEV = frozenset({"pyodbc"})
 # Where a distribution and its import name differ. Anything not listed is
 # imported under its own lowercased name, and `test_every_extra_has_a_module`
 # fails on a package this does not know how to name.
-IMPORT_NAMES = {"pyjwt": "jwt", "pyside6-essentials": "PySide6"}
+IMPORT_NAMES = {"pyjwt": "jwt"}
 
 
 def extras() -> dict[str, list[Requirement]]:
@@ -53,7 +56,8 @@ def module_name(requirement: Requirement) -> str:
 
 # Derived rather than listed. The hand-written version had ten entries and the
 # extras had eleven packages: PySide6 was never blocked, so a subprocess that
-# imported it would have passed on the one CI job that has it installed.
+# imported it would have passed on the one CI job that had it installed. That
+# package is gone now, but the derivation is why the next one cannot repeat it.
 EVERY_EXTRA = tuple(
     sorted(
         {
@@ -194,9 +198,9 @@ def test_the_dev_extra_still_covers_every_extra_it_stands_in_for() -> None:
 def test_the_block_list_names_every_extra_including_the_awkward_ones() -> None:
     """`EVERY_EXTRA` is derived, so this is what says the derivation is right.
 
-    `PyJWT` imports as `jwt` and `PySide6-Essentials` as `PySide6`; a plain
-    lowercased distribution name blocks neither, and a package this cannot name
-    is a package the harness above silently fails to block.
+    `PyJWT` imports as `jwt`; a plain lowercased distribution name blocks
+    neither it nor any future package whose import name differs, and a package
+    this cannot name is a package the harness above silently fails to block.
     """
 
     packages = {
@@ -206,7 +210,7 @@ def test_the_block_list_names_every_extra_including_the_awkward_ones() -> None:
         for requirement in requirements
     }
 
-    assert {"jwt", "PySide6"} <= set(EVERY_EXTRA)
+    assert "jwt" in set(EVERY_EXTRA)
     assert len(EVERY_EXTRA) == len(packages)
     # No exception may outlive the package that needed it.
     assert set(IMPORT_NAMES) <= packages

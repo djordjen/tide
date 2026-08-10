@@ -311,7 +311,7 @@ securely**, returns to the application after provider authentication, restores
 the browser session after a refresh, and ends the local session through the
 existing **Disconnect** action.
 
-Remote TUI, Qt, REST, and MCP clients continue to use OIDC bearer tokens. The
+Remote TUI, REST, and MCP clients continue to use OIDC bearer tokens. The
 browser cookie is a same-origin Web transport and is not accepted by hosted
 MCP authentication.
 

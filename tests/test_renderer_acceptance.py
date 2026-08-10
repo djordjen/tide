@@ -1,6 +1,6 @@
 """The renderer acceptance matrix, checked so that it can fail.
 
-``docs/renderer-acceptance.yaml`` claims three renderers resolve one compiled
+``docs/renderer-acceptance.yaml`` claims both renderers resolve one compiled
 contract identically. Three things have to hold for that claim to mean anything,
 and each has its own group of tests here:
 
@@ -10,10 +10,9 @@ and each has its own group of tests here:
   contract.
 
 The last group is what catches drift. Every resolver below goes through the
-adapter's own code -- ``TideApp`` for the TUI, ``QtBrowseController`` for Qt,
-``build_presentation_manifest`` for the Web -- rather than through a shared
-helper this file picked, so a renderer that quietly forks its own layout
-resolution stops matching.
+adapter's own code -- ``TideApp`` for the TUI, ``build_presentation_manifest``
+for the Web -- rather than through a shared helper this file picked, so a
+renderer that quietly forks its own layout resolution stops matching.
 
 The checks are written as plain functions taking a matrix or a resolution so the
 final group of tests can feed them deliberately broken input and prove they
@@ -27,7 +26,6 @@ import importlib
 from pathlib import Path
 import re
 import sys
-from types import SimpleNamespace
 from typing import Any, Iterator
 
 import pytest
@@ -44,8 +42,6 @@ from tide.presentation import (
     field_alignment,
     form_layout_sections,
 )
-from tide.qt import QtBrowseController
-from tide.qt.presenter import QtDetailGroup
 from tide.runtime import Channel, Principal, RequestContext
 from tide.services import ActionService, RecordsService
 from tide.sessions import RecordSession
@@ -57,17 +53,15 @@ from tide.tui.table import table_label
 ROOT = Path(__file__).parents[1]
 MATRIX_PATH = ROOT / "docs" / "renderer-acceptance.yaml"
 VALID_STATUSES = {"covered", "partial", "planned", "not_applicable"}
-VALID_RUNNERS = {"python", "python-gui", "web"}
-PYTHON_RUNNERS = {"python", "python-gui"}
+VALID_RUNNERS = {"python", "web"}
+PYTHON_RUNNERS = {"python"}
 
 # Which parts of the recorded contract each renderer can be asked for without a
-# display. Qt resolves navigation inside its widget layer, which needs a live
-# QApplication; test_qt_widgets.py covers it there. The TUI offers every browse
-# view in one Select, so it resolves an ordered view list rather than groups.
+# display. The TUI offers every browse view in one Select, so it resolves an
+# ordered view list rather than groups.
 CONTRACT_COVERAGE = {
     "shared": ("navigation", "browse", "forms"),
     "tui": ("navigation_views", "browse", "forms"),
-    "qt": ("browse", "forms"),
     "web": ("navigation", "browse", "forms", "reports"),
 }
 
@@ -172,7 +166,7 @@ def test_the_parity_check_refuses_a_regressed_cell() -> None:
     capability = next(
         item for item in broken["capabilities"] if item["tier"] == "parity"
     )
-    capability["renderers"]["qt"] = {"status": "partial", "note": "regressed"}
+    capability["renderers"]["tui"] = {"status": "partial", "note": "regressed"}
 
     with pytest.raises(AssertionError, match="not covered by every renderer"):
         _check_parity_coverage(broken)
@@ -251,7 +245,7 @@ def test_the_contract_check_refuses_a_renderer_that_stops_resolving(
 def _check_matrix_structure(matrix: dict[str, Any]) -> None:
     assert matrix["schema_version"] == "0.1"
     renderer_names = tuple(matrix["renderers"])
-    assert renderer_names == ("tui", "qt", "web")
+    assert renderer_names == ("tui", "web")
 
     capabilities = matrix["capabilities"]
     identifiers = [item["id"] for item in capabilities]
@@ -477,34 +471,6 @@ def _tui_resolution(model: Any, contract: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _qt_resolution(model: Any, contract: dict[str, Any]) -> dict[str, Any]:
-    client = _QtLayoutClient()
-    session = _qt_session(model, role=_contract_role(contract))
-
-    browse = {}
-    for view_name in contract["browse"]:
-        controller = QtBrowseController(model, client, session, view_name=view_name)
-        browse[view_name] = {
-            "columns": [column.name for column in controller.columns],
-            "alignments": {
-                column.name: column.alignment for column in controller.columns
-            },
-        }
-
-    forms = {}
-    for view_name in contract["forms"]:
-        controller = QtBrowseController(
-            model,
-            client,
-            session,
-            view_name=_browse_view_for(model, model.views[view_name].entity),
-            form_view_name=view_name,
-        )
-        forms[view_name] = {"sections": _qt_sections(controller.load_detail(1))}
-
-    return {"browse": browse, "forms": forms}
-
-
 def _web_resolution(model: Any, contract: dict[str, Any]) -> dict[str, Any]:
     exposures = rest_exposures(model, allowed_operations=REST_OPERATIONS)
     manifest = build_presentation_manifest(
@@ -549,7 +515,6 @@ def _web_resolution(model: Any, contract: dict[str, Any]) -> dict[str, Any]:
 _RESOLVERS = {
     "shared": _shared_resolution,
     "tui": _tui_resolution,
-    "qt": _qt_resolution,
     "web": _web_resolution,
 }
 
@@ -609,29 +574,6 @@ def _tui_sections(screen: RecordEditScreen) -> list[dict[str, Any]]:
     return result
 
 
-def _qt_sections(detail: Any) -> list[dict[str, Any]]:
-    result: list[dict[str, Any]] = []
-    for section in detail.sections:
-        if isinstance(section, QtDetailGroup):
-            result.append(
-                {
-                    "kind": "group",
-                    "label": section.label,
-                    "rows": [[field.name for field in row] for row in section.rows],
-                }
-            )
-            continue
-        result.append(
-            {
-                "kind": "collection",
-                "label": section.label,
-                "collection": section.name,
-                "columns": [column.name for column in section.columns],
-            }
-        )
-    return result
-
-
 def _web_sections(form: Any) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for section in form.sections:
@@ -658,25 +600,6 @@ def _web_sections(form: Any) -> list[dict[str, Any]]:
 # --- renderer scaffolding -------------------------------------------------
 
 
-class _QtLayoutClient:
-    """Answer the Qt presenter with empty records.
-
-    The reference contract records layout, not data, and an empty record still
-    resolves every group, row, and inline column.
-    """
-
-    def get_record(self, entity_name: str, identity: Any) -> Any:
-        return SimpleNamespace(values={})
-
-
-def _browse_view_for(model: Any, entity_name: str) -> str:
-    return next(
-        view.name
-        for view in model.views.values()
-        if view.kind == "browse" and view.entity == entity_name
-    )
-
-
 def _contract_role(contract: dict[str, Any]) -> str:
     """Every contract states its own role; there is no default.
 
@@ -689,24 +612,6 @@ def _contract_role(contract: dict[str, Any]) -> str:
     role = contract.get("role")
     assert role, "the contract must name the role its renderers resolve as"
     return str(role)
-
-
-def _qt_session(model: Any, *, role: str) -> TideSessionInfo:
-    return TideSessionInfo(
-        application=model.name,
-        application_version=model.version,
-        schema_version=model.schema_version,
-        authentication="renderer-acceptance",
-        principal="acceptance:qt",
-        roles=(role,),
-        entities={
-            name: TideEntityCapabilities(
-                operations=("list", "get"),
-                readable_fields=tuple(entity.fields),
-            )
-            for name, entity in model.entities.items()
-        },
-    )
 
 
 def _web_session(

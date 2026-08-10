@@ -9,7 +9,7 @@ requests the secured invoice report.
 The runnable client is
 [`examples/invoicing_api_client.py`](../examples/invoicing_api_client.py). It
 uses TIDE's typed `TideApiClient`, which is the same boundary used by the remote
-Textual client and is suitable for a future Qt adapter. A generic web or mobile
+Textual client and is suitable for any later Python adapter. A generic web or mobile
 client can instead generate its own client from the same OpenAPI document.
 
 ## 1. Start the isolated API
@@ -129,7 +129,7 @@ that ignores the capability contract still receives HTTP 403 `forbidden` from
 the server. Missing or incorrect bearer tokens receive HTTP 401
 `unauthorized`.
 
-This is why a Qt, web, or third-party client can change presentation without
+This is why a web or third-party client can change presentation without
 reimplementing business security. UI visibility is a convenience; the same
 rules are enforced again in the FastAPI application services.
 

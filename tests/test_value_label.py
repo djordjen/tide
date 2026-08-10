@@ -1,9 +1,9 @@
 """One transform names a stored value, and every renderer reaches for that one.
 
-`str(value).replace("_", " ").title()` was written out twelve times across Qt,
-Textual, reporting and the studios. They agreed, which is what made it easy to
-leave alone -- and is exactly how the field-label transform looked before one
-copy met a camelCase field name and started disagreeing with the other six.
+`str(value).replace("_", " ").title()` was written out twelve times across the
+renderers, reporting and the studios. They agreed, which is what made it easy
+to leave alone -- and is exactly how the field-label transform looked before
+one copy met a camelCase field name and started disagreeing with the other six.
 Two of these twelve had already drifted the same way.
 """
 
@@ -22,9 +22,10 @@ def _consumers() -> tuple[str, ...]:
     """Every module that displays a stored choice value, found not listed.
 
     A hand-kept list goes stale the moment a renderer is split into more
-    modules: `tide.qt.app` stayed here after the code that called this moved
-    to `tide.qt.form`, so the guard was asking a module about a function it no
-    longer contained. Deriving it means the guard follows the code.
+    modules -- the entry stays behind pointing at the module the code left, so
+    the guard asks about a function that is no longer there and passes. It also
+    goes stale when a whole renderer is retired. Deriving it means the guard
+    follows the code in both directions.
     """
 
     modules = []
@@ -47,7 +48,7 @@ def test_the_guard_still_has_something_to_guard() -> None:
     """A derived list that quietly emptied would pass everything below."""
 
     families = {name.split(".")[1] for name in CONSUMERS}
-    assert {"qt", "reporting", "tui"} <= families, CONSUMERS
+    assert {"reporting", "tui"} <= families, CONSUMERS
 
 
 @pytest.mark.parametrize("module_name", CONSUMERS)
@@ -58,8 +59,6 @@ def test_every_renderer_names_the_one_implementation(module_name: str) -> None:
     that for months. What has to hold is that there is one function.
     """
 
-    if module_name.startswith("tide.qt"):
-        pytest.importorskip("PySide6")
     module = importlib.import_module(module_name)
 
     assert module.value_label is value_label

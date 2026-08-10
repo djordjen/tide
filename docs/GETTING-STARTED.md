@@ -253,86 +253,8 @@ Both commands securely prompt for the printed token. The remote TUI receives
 no database URL: browse, lookup, mutation, report, concurrency, and action calls
 all pass through FastAPI and the server-side services.
 
-The first native Qt proof uses that same server. With `api-demo` still running,
-open another terminal and run:
-
-```powershell
-.\start.bat gui
-```
-
-Paste the same token to open the metadata-driven application shell. Its
-**Sales** and **Master Data** groups expose the capability-allowed Invoice,
-Customer, and Product workspaces declared in `presentation/defaults.yaml`.
-Switching workspaces keeps each visited list's query, loaded records, selection,
-and personal columns intact. Invoice is selected initially. Select a row
-and use **Open**, double-click, or press **Enter**. The same YAML-defined
-two-column form opens for editable and read-only records; field, Save, and Post
-states follow permissions and Invoice status. Reaching the bottom automatically
-appends the next secured server batch; there are no page-navigation buttons.
-Inside an existing-record form, **Previous** and **Next** at bottom left move
-through that current searched/filtered/sorted list; **Page Up** and **Page
-Down** invoke the same actions. Next also crosses a cursor batch boundary
-automatically. The dialog remains in place while its data and workflow state
-update; save or cancel a changed draft before navigating.
-
-For an editable draft Invoice, the Customer editor opens the compiled
-`crm.Customer.lookup` as a searchable
-multi-column dialog. Search matches code, name, or email through FastAPI; select
-a result, or use **New** / Ctrl+N when authorized. The nested Customer form ends
-with **Save & Select**, returning the new identity to the preserved Invoice
-draft.
-
-The Lines section follows `sales.InvoiceLine.inline_edit`: its table fills the
-available height, the metadata-ordered Line Details fields sit below it, and
-**Add line**, **Apply line**, and **Remove line** stay at bottom left. Product
-uses its own multi-column lookup and may create a missing Product through
-**Save & Select**. Selection asks FastAPI to copy Description and Unit Price;
-enter Quantity and use **Apply line** to preview line Total and Invoice Total.
-The final **Save** sends one sanitized nested Invoice payload with the observed
-ETag.
-
-To see the concurrency safeguard, open the same Product or draft Invoice in two
-GUI instances, edit it in both, and save the first. Saving the second opens a
-three-way **Original / Current / Your draft** review. Choose Current or Mine for
-each genuine overlap, or reload the server version. **Apply Resolution** opens
-a fresh form on the latest ETag so you can inspect the result before pressing
-Save; the review dialog never writes or silently overwrites the other edit.
-
-For the action path, edit a draft Invoice that has at least one valid line.
-**Post invoice** is disabled while the line collection is empty and after the
-Invoice is posted. With a valid draft, click it instead of Save. Qt first saves
-any changed header/lines, then calls the secured Post action with the returned
-ETag and an idempotency key. The dialog closes and the refreshed browse row
-shows Posted. If posting fails after the draft save, the saved form reopens
-with the server message so it can be corrected safely.
-
-Inside an opened Invoice, choose **Preview PDF** to build its authorized report
-through FastAPI. Qt writes the returned renderer-neutral document to a unique
-file in the operating system's temporary directory and opens the system PDF
-viewer. The temporary session directory is cleaned up later instead of filling
-`output\reports`. Roles without the report capability do not see the button.
-
-From the Invoice list, choose **Posted Sales Summary**. Qt asks FastAPI to build
-the existing parameterless `sales.summary` report over authorized posted
-invoices, then opens the returned renderer-neutral document in a native table.
-Use **Export CSV**, **Export HTML**, or **Export PDF** as needed. This report
-uses its reviewed metadata query and is independent of the current list search,
-filter, and loaded cursor batches. Roles without `sales.summary` capability do
-not see the action.
-
-The Product and Customer forms are available from **Master Data** in the same
-window. These shortcuts remain convenient direct startup links:
-
-```powershell
-.\start.bat gui-products
-.\start.bat gui-customers
-```
-
-Use **New** or select a row and use **Open**. These dialogs follow compiled form
-rows, writable-field capabilities, required fields, Boolean controls, regex
-masks, and exact Decimal input. Save calls FastAPI in the background and
-refreshes the secured list; the GUI never receives a database URL. See the
-[Qt GUI prototype](QT-GUI.md) for the exact current scope.
+The browser renderer uses that same server; see [Web UI](WEB-UI.md) for the
+full journey, including editing, lookups, actions, and report preview.
 
 To inspect the generated OpenAPI document without starting a server:
 

@@ -33,16 +33,12 @@ if /I "%~1"=="studio" goto studio
 if /I "%~1"=="api-demo" goto api_demo
 if /I "%~1"=="mcp-demo" goto mcp_demo
 if /I "%~1"=="web-demo" goto web_demo
-if /I "%~1"=="gui" goto gui
-if /I "%~1"=="gui-products" goto gui_products
-if /I "%~1"=="gui-customers" goto gui_customers
 if /I "%~1"=="contacts-demo" goto contacts_demo
 if /I "%~1"=="contacts-viewer-demo" goto contacts_viewer_demo
 if /I "%~1"=="contacts-studio" goto contacts_studio
 if /I "%~1"=="contacts-api-demo" goto contacts_api_demo
 if /I "%~1"=="contacts-mcp-demo" goto contacts_mcp_demo
 if /I "%~1"=="contacts-web-demo" goto contacts_web_demo
-if /I "%~1"=="contacts-gui" goto contacts_gui
 if /I "%~1"=="help" goto help
 if not "%~1"=="" goto unknown
 
@@ -180,27 +176,6 @@ echo Sign in with your local %APP_LABEL% username and password.
 call npm --prefix web run dev:app -- --app %APP_ID% %APP_REPORT%
 goto finish
 
-:gui
-call :use_application "%~2"
-if errorlevel 1 goto finish
-:run_gui
-call :read_api_token
-if errorlevel 1 goto finish
-uv run --extra gui %APP_REPORT% tide gui applications/%APP_ID% --api-url http://127.0.0.1:8000 %APP_GUI_VIEW%
-goto finish
-
-:gui_products
-call :use_application invoicing
-if errorlevel 1 goto finish
-set "APP_GUI_VIEW=--view catalog.Product.browse"
-goto run_gui
-
-:gui_customers
-call :use_application invoicing
-if errorlevel 1 goto finish
-set "APP_GUI_VIEW=--view crm.Customer.browse"
-goto run_gui
-
 rem --- Documented spellings kept working. `contacts-demo` is `demo contacts`;
 rem --- a third application needs no entries here to be runnable.
 
@@ -234,18 +209,12 @@ call :use_application contacts
 if errorlevel 1 goto finish
 goto run_web_demo
 
-:contacts_gui
-call :use_application contacts
-if errorlevel 1 goto finish
-goto run_gui
-
 rem --- One block per application. This is the only place an application is
 rem --- named, and the only edit a new one needs.
 
 :use_application
 set "APP_ID=%~1"
 if "%APP_ID%"=="" set "APP_ID=invoicing"
-set "APP_GUI_VIEW="
 if /I "%APP_ID%"=="invoicing" goto app_invoicing
 if /I "%APP_ID%"=="contacts" goto app_contacts
 echo Unknown application: %APP_ID%
@@ -341,11 +310,8 @@ echo   start.bat studio [application]       Inspect and edit metadata in memory
 echo   start.bat api-demo [application]     Start the REST API with demo data
 echo   start.bat mcp-demo [application]     Start REST plus secured runtime MCP
 echo   start.bat web-demo [application]     Start the Web renderer with demo data
-echo   start.bat gui [application]          Start the Qt client for api-demo
 echo   Example: start.bat web-demo contacts
 echo.
-echo   start.bat gui-products Start the editable Qt Product browser
-echo   start.bat gui-customers Start the editable Qt Customer browser
 echo   start.bat contacts-demo and the other contacts-* names remain as
 echo     aliases for the same command with "contacts" as the application
 echo   start.bat help   Show this help

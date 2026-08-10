@@ -23,15 +23,12 @@ and testable by a new developer.
 - [AI-assisted generation tutorial](AI-GENERATION-TUTORIAL.md): connect local
   ChatGPT/Codex to developer MCP, propose and preview a structured application,
   then cross the separate explicit local approval boundary;
-- [Qt GUI prototype](QT-GUI.md): install and run the native application shell,
-  navigation, server-mode browse, editing, actions, and report preview through
-  the secured remote API boundary;
 - [Web UI](WEB-UI.md): run, build, test, and understand the first generic
   React shell, server-mode browse grid, personal layouts, shared-metadata
   record detail, Customer/Product create/update forms, Invoice Customer/Product
   lookups, nested **Save & Select**, and transactional Invoice line drafts;
 - [Renderer acceptance matrix](RENDERER-ACCEPTANCE.md): review the executable
-  Textual/Qt/Web parity baseline and the explicitly deferred Web gaps;
+  Textual/Web parity baseline and the explicitly deferred Web gaps;
 - [Windows quick start](WINDOWS-QUICKSTART.md): `start.bat` modes and local
   setup;
 - focused reference and architecture documents listed in the

@@ -47,7 +47,7 @@ shared read-only security policy:
 .\start.bat contacts-viewer-demo
 ```
 
-## Studio, Web, Qt, REST, and MCP
+## Studio, Web, REST, and MCP
 
 Open the same application metadata in Studio:
 
@@ -63,17 +63,6 @@ Run the browser renderer with framework-owned local username/password sign-in:
 
 The first run creates a separate local Contacts identity store and securely
 prompts for the `admin` password.
-
-For Qt, keep the API running in one terminal and start the GUI in another:
-
-```powershell
-.\start.bat contacts-api-demo
-.\start.bat contacts-gui
-```
-
-Paste the API token printed by the first command. The GUI receives neither the
-database URL nor raw permission rules; all reads, writes, and actions return to
-the FastAPI service boundary.
 
 To inspect the generated OpenAPI document without starting a server:
 

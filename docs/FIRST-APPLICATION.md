@@ -4,7 +4,7 @@ This tutorial follows the checked-in
 [Contacts application](../applications/contacts/README.md), TIDE Framework's
 compact second application. It demonstrates Companies, Contacts, a reference
 lookup, two roles, one workflow action, demo/Faker data, and the same compiled
-presentation contract in TUI, Qt, and Web.
+presentation contract in TUI and Web.
 
 Unlike the richer Invoicing reference, Contacts starts from a structured
 generation plan. The plan is checked in at
@@ -61,7 +61,7 @@ are also explicit; omitting a mutation permission never makes it unrestricted.
 
 The six documents under [`views/crm`](../applications/contacts/views/crm/)
 define browse columns, search fields, lookup columns, and two-column form rows.
-TUI, Qt, and Web interpret that same semantic ordering. Renderer-specific
+TUI and Web interpret that same semantic ordering. Renderer-specific
 measurements do not rewrite the application YAML.
 
 Contact is marked as the default browse, while the compiler's useful fallback
@@ -112,12 +112,10 @@ paths are:
 .\start.bat contacts-studio
 .\start.bat contacts-web-demo
 .\start.bat contacts-api-demo
-.\start.bat contacts-gui
 .\start.bat contacts-mcp-demo
 ```
 
-Qt is an API client, so keep `contacts-api-demo` running while starting
-`contacts-gui`. Web starts its API automatically and uses a separate TIDE-owned
+Web starts its API automatically and uses a separate TIDE-owned
 username/password store. OpenAPI documents the generated REST contract but
 does not authorize a caller or bypass service security.
 

@@ -64,11 +64,14 @@ def test_preview_refuses_a_dependency_cycle(line_entity) -> None:
         preview_computed_fields(cyclic, {"quantity": Decimal("1"), "unit_price": Decimal("1")})
 
 
-def test_both_renderers_preview_through_the_shared_helper() -> None:
-    """Two byte-identical copies existed; neither may come back."""
+def test_the_renderer_previews_through_the_shared_helper() -> None:
+    """Two byte-identical copies existed; neither may come back.
 
-    from tide.qt import presenter
+    One of the two left with the Qt renderer. The guard stays on the survivor
+    because what it forbids is a renderer growing its own copy, and the Web
+    shell computes nothing locally -- the server owns the recomputation.
+    """
+
     from tide.tui import form
 
-    assert presenter._preview_computed_fields is preview_computed_fields
     assert form._preview_computed_fields is preview_computed_fields

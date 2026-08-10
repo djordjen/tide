@@ -75,7 +75,7 @@ The compiler resolves this into immutable `NavigationGroup` and
 `NavigationItem` values inside `ApplicationModel`. An item label may override
 the entity label; otherwise it is derived from that entity. Renderers consume
 the normalized values, intersect them with authenticated list capabilities,
-and remove empty groups. Textual, Qt, and future Web therefore share the same
+and remove empty groups. Textual and Web therefore share the same
 portable navigation without treating menu visibility as authorization.
 
 ## Database ownership modes
@@ -318,7 +318,7 @@ status:
 
 The compiler validates these expressions and every adapter consumes the same
 normalized model. `RecordsService` enforces the rule again on commit, so a TUI,
-future Qt client, REST endpoint, or MCP tool cannot bypass a disabled editor.
+later renderer, REST endpoint, or MCP tool cannot bypass a disabled editor.
 
 A reference may copy secured target values into writable draft fields when a
 record is selected:

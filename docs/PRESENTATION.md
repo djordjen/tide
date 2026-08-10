@@ -98,14 +98,14 @@ The compiler rejects empty groups, invalid labels, unknown/non-browse views,
 and duplicates with `TIDE249`.
 
 Renderers intersect this definition with the authenticated principal's list
-capabilities and remove empty groups. Qt renders the result as a grouped
-application sidebar and lazily keeps each visited workspace alive, preserving
-its query, loaded records, selection, and per-view column settings. Textual's
-compact workspace selector uses the same item order and labels. `--view`
-remains a deep-link/startup override; an accessible view omitted from explicit
-navigation is made reachable for that launch without changing YAML. Future Web
-navigation must consume this same normalized contract rather than interpreting
-the source independently.
+capabilities and remove empty groups. The Web shell renders the result as
+responsive grouped navigation and keeps each visited workspace alive,
+preserving its query, loaded records, selection, and per-view column settings.
+Textual's compact workspace selector uses the same item order and labels.
+`--view` remains a deep-link/startup override; an accessible view omitted from
+explicit navigation is made reachable for that launch without changing YAML.
+Any later renderer must consume this same normalized contract rather than
+interpreting the source independently.
 
 Remote renderers receive the safe browse subset at
 `GET /api/v1/_tide/presentation`. The versioned manifest contains only
@@ -118,14 +118,14 @@ FastAPI rechecks every subsequent request. Raw YAML, expressions, credentials,
 and hidden or inaccessible metadata are not transferred to the renderer.
 
 For browse views, `page_size` is the bounded server fetch batch, not a
-requirement to expose page-navigation controls. Textual and Qt fill the visible
-list, retain already loaded rows, and request the next opaque cursor batch near
-the scroll boundary. Sorting, filtering, searching, switching views, or
+requirement to expose page-navigation controls. Textual and the Web grid fill
+the visible list, retain already loaded rows, and request the next opaque
+cursor batch near the scroll boundary. Sorting, filtering, searching, switching views, or
 refreshing starts a new secured cursor sequence.
 
-Qt existing-record forms may expose **Previous** and **Next** without
-reintroducing page navigation. Qt maps Page Up and Page Down to those actions
-at dialog scope. Adjacency is resolved from the current browse query's loaded
+Existing-record forms may expose **Previous** and **Next** without
+reintroducing page navigation, with Page Up and Page Down mapped to those
+actions at form scope. Adjacency is resolved from the current browse query's loaded
 identities; moving forward from its last loaded row requests the next opaque
 cursor batch and then opens the adjacent identity through the authenticated
 record API. The renderer replaces values, editability, actions,
@@ -135,8 +135,9 @@ rejects navigation while its supported draft differs from the original. These
 controls are navigation affordances, not authorization or storage paths.
 
 The compiled browse column order remains the portable default shared by every
-renderer. Qt and Web may layer a local personal order and widths over that
-default, keyed by application, view, and authenticated principal. Dragging a
+renderer. A renderer may layer a local personal order and widths over that
+default. The Web grid does, keyed by application, view, and authenticated
+principal. Dragging a
 heading or resizing a divider updates only that renderer's local settings; it
 never edits YAML, changes another user's layout, or alters the TUI/default.
 Stored layouts use stable field names, so known columns survive metadata
@@ -151,42 +152,35 @@ Publishing a changed shared default is a distinct privileged designer action.
 It must use the compiler-validated Designer service and approved YAML save
 boundary rather than promoting a personal GUI setting implicitly.
 
-The first editable Qt form tranche was deliberately limited to flat forms. It
-uses compiled group/row placement, traverses the left field column before the
-right with Tab or Enter, distinguishes read-only fields, and chooses Boolean,
-choice, numeric-mask, regex-mask, and ordinary text editors from field
-metadata. Session capabilities are only advisory control visibility: create
-and update requests still go through FastAPI, where permissions, row rules,
-normalization, uniqueness, validation, and concurrency remain authoritative.
-Blocking form loads and saves run outside the GUI thread, and updates send the
-observed strong ETag when the entity defines one. The later contracts below add
-references, transactional collections, conflict review, and form-domain
-actions.
+An editable form uses compiled group/row placement, distinguishes read-only
+fields, and chooses Boolean, choice, numeric-mask, regex-mask, and ordinary
+text editors from field metadata. Session capabilities are only advisory
+control visibility: create and update requests still go through FastAPI, where
+permissions, row rules, normalization, uniqueness, validation, and concurrency
+remain authoritative. Updates send the observed strong ETag when the entity
+defines one.
 
-The next Qt tranche extends that form contract to compiler-approved reference
-lookups. A reference must opt into `editor: lookup` and resolve a lookup view
-whose target is list-accessible to the authenticated principal. Qt renders its
-readable columns, debounces search across the declared search fields, and
-performs each typed query outside the GUI thread. Choosing a row does not
-assign it locally: Qt calls the shared reference-selection endpoint so
-`on_select` defaults, field-write authorization, and protected source values
-remain server-owned.
+A reference must opt into `editor: lookup` and resolve a lookup view whose
+target is list-accessible to the authenticated principal. The renderer shows
+its readable columns and debounces search across the declared search fields.
+Choosing a row does not assign it locally: the renderer calls the shared
+reference-selection endpoint so `on_select` defaults, field-write
+authorization, and protected source values remain server-owned.
 
 When the reference configuration declares `allow_create: true`, resolves a
-target form, and the session advertises target create access, **New** opens that
-same metadata-driven Qt form. **Save & Select** commits the referenced record
+target form, and the session advertises target create access, **New** opens
+that same metadata-driven form. **Save & Select** commits the referenced record
 independently and then applies its identity to the still-unsaved parent draft.
 Invoice editing uses this contract for Customer and for Product inside
 InvoiceLine.
 
-The Qt inline-collection contract resolves the collection field, target entity,
+The inline-collection contract resolves the collection field, target entity,
 inline view, table columns, editor rows, actions, nested draft operations, and
-writable fields. The InvoiceLine table takes flexible height above the Line
-Details fields; the editor follows metadata row placement with column-first
-focus order, and Add/Apply/Remove remain explicit local-draft operations.
-Product selection goes through the shared server reference-selection endpoint,
-so Description and Unit Price assignments use the same authorization and
-`on_select` semantics as Textual and API clients.
+writable fields. The editor follows metadata row placement, and
+Add/Apply/Remove remain explicit local-draft operations. Product selection goes
+through the shared server reference-selection endpoint, so Description and Unit
+Price assignments use the same authorization and `on_select` semantics as
+Textual and API clients.
 
 Applying a line evaluates stored computed fields locally for a non-authoritative
 line/Invoice total preview. Final Save applies the selected line, includes
@@ -194,8 +188,8 @@ existing nested identities, and filters inverse, computed, read-only, protected,
 and unknown fields before one ETag-protected parent mutation. The application
 service remains authoritative for normalization, validation, recomputation,
 row/field policy, concurrency, and the transaction. If nested draft capability
-is absent, Qt keeps the collection visible but read-only rather than bypassing
-the server contract.
+is absent, the renderer keeps the collection visible but read-only rather than
+bypassing the server contract.
 
 Textual consumes the resolved browse action list rather than inventing a
 separate toolbar contract. `delete` is shown only when it is present in that
@@ -218,34 +212,34 @@ Field permissions and `immutable_when` are reevaluated against the current
 record before rebasing, so a concurrent workflow transition cannot carry an
 edit into a newly read-only field. The user reviews and saves the resulting
 form through normal validation. The same contract works with local and
-HTTP-backed services and is now rendered by both Textual and Qt.
+HTTP-backed services and is rendered by both Textual and the Web shell.
 
-Qt reacts to the typed API `stale_version` error by re-reading the current
-secured record and passing the same field set to that comparer. Its modal table
-shows Original, Current, Your draft, and Resolution columns. A complete plan
-reopens a new metadata-driven form with the current ETag; the dialog itself
-never retries or writes. Current-only values win automatically, draft-only
+A remote renderer reacts to the typed API `stale_version` error by re-reading
+the current secured record and passing the same field set to that comparer. Its
+review surface shows Original, Current, Your draft, and Resolution columns. A
+complete plan reopens a new metadata-driven form with the current ETag; the
+review itself never retries or writes. Current-only values win automatically, draft-only
 values are carried when still writable, and every overlap requires an explicit
 Current/Mine choice. Nested lines are intentionally one collection conflict
 unit until TIDE defines stable row identity and ordering semantics for a safe
 child-level merge.
 
-Qt form-domain actions are the intersection of the compiled form action order,
+Form-domain actions are the intersection of the compiled form action order,
 entity action definitions, and the authenticated session capability list.
 `visible_when` and `enabled_when` are reevaluated against the current local
 draft for responsive controls, but remain advisory: FastAPI authorizes and
 validates execution again. The first rendered action is Invoice **Post**.
 
-When an action is invoked, Qt applies the selected collection row and validates
-the draft. A changed create/update draft is committed first; the action request
-then carries the ETag returned by that commit and a unique `qt:` idempotency
-key. If the save succeeds but the action fails, the saved form is reopened with
+When an action is invoked, the renderer applies the selected collection row
+and validates the draft. A changed create/update draft is committed first; the
+action request then carries the ETag returned by that commit and a unique
+per-attempt idempotency key. If the save succeeds but the action fails, the saved form is reopened with
 its current ETag and the failure message. A stale failure enters the same
 three-way review contract rather than introducing last-write-wins behavior.
 
 Form `layout` is a shared semantic contract, not a renderer hint. One
 renderer-neutral resolver produces ordered group rows, collections, tabs,
-actions, and hidden-field decisions for Textual, Qt, and Web. A row such as
+actions, and hidden-field decisions for Textual and Web. A row such as
 `[number, invoice_date]`
 therefore means the same visual pairing everywhere. Surface-specific metadata
 may control measurements, but it may not independently regroup fields.
@@ -278,30 +272,29 @@ the target independently and applies it to the preserved parent draft.
 
 An editable Web collection requires the same compiler-resolved inline view,
 writable parent collection field, readable child identity, target nested
-create/update capability, and writable child fields as the desktop renderer.
+create/update capability, and writable child fields as the terminal renderer.
 The safe projection includes ordered editor groups and Add/Apply/Remove actions,
 but no workflow or computed expressions. Product selection uses the same
 server reference-selection operation, while the full child replacement is
 sent only in one ETag-protected parent mutation. Computed line and Invoice
-totals are authoritative after that save. Domain actions and conflict
-resolution remain read-only until their own reviewed contracts are implemented.
+totals are authoritative after that save. Domain actions and three-way
+conflict resolution follow the shared contracts described above.
 
-Qt record reports follow the same renderer-neutral boundary as Textual. The
+Record reports follow the same renderer-neutral boundary in every renderer. The
 active entity's record report is visible only when it is REST-exposed and
 present in the authenticated session capabilities. FastAPI builds and
-authorizes the `ReportDocument`; Qt renders it to a unique GUI-session file
-under the operating system's temporary directory on a worker thread, then asks
-the system PDF viewer to open it. Report metadata and permissions remain
-authoritative across renderers.
+authorizes the `ReportDocument`; the renderer presents it and offers the shared
+controlled export writers. Report metadata and permissions remain authoritative
+across renderers.
 
-Qt parameterless summary reports use the same boundary. A summary action is
+Parameterless summary reports use the same boundary. A summary action is
 available only when the report belongs to the active entity, is REST-exposed,
 has no declared parameters, and appears in the authenticated session
-capabilities. The server builds the full authorized `ReportDocument` outside
-the GUI thread; Qt displays its detail table and offers the shared controlled
-CSV, HTML, and PDF writers. Current browse search/filter/cursor state does not
-silently alter the report's declared query. Parameter-entry controls remain a
-separate later contract.
+capabilities. The server builds the full authorized `ReportDocument`; the
+renderer displays its detail table and offers the shared controlled CSV, HTML,
+and PDF writers. Current browse search/filter/cursor state does not silently
+alter the report's declared query. Parameter-entry controls remain a separate
+later contract.
 
 Named presets capture recurring patterns such as `standard_browse`,
 `standard_form`, and `master_detail`.

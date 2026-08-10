@@ -90,31 +90,26 @@ standalone HTML, or an A4 PDF with shared field formats. A second bounded
 posted-sales report groups authorized invoices by Customer/Currency and
 calculates invoice count and Decimal sales totals.
 
-### Qt client
+### Qt client (retired 2026-08-10)
 
-The optional Qt client now provides cursor-backed browse/search/sort,
-per-principal column layouts, a shared-YAML grouped application sidebar with
-retained per-view workspace state, Invoice detail, metadata-driven
-Customer/Product forms, and Invoice-header create/update over the typed FastAPI
-client. Reference
-metadata drives a debounced multi-column Customer lookup; authorized users may
-open the compiled Customer form and return through **Save & Select** without
-losing the Invoice draft. Qt mutation controls follow session capabilities,
-preserve Decimal values and ETag preconditions, and run network work outside
-the GUI thread. InvoiceLine Add/Apply/Remove, Product lookup defaults, nested
-Product creation, line/Invoice total previews, and sanitized nested saves now
-use the same compiled inline metadata and FastAPI boundary. Stale Qt edits now
-reuse the shared three-way comparison: the dialog shows Original, Current, and
-Your draft, requires Current/Mine choices for genuine overlaps, and reopens a
-fresh ETag-backed form for review before the next save.
+This renderer was removed. It is recorded here because it existed for most of
+the project's life and shaped several contracts that remain; see the decision
+log for why it went and what was kept. Everything below is past tense.
 
-Qt now also renders the compiled, capability-gated Post action. Its
-`enabled_when` state follows the current line draft; invoking it first saves any
-changes, then posts with the returned ETag and a unique idempotency key. A
-post failure after that save reopens the saved version for correction. The
-Invoice list also exposes the authorized parameterless Posted Sales Summary;
-Qt loads its server-built document in the background and provides native
-preview plus controlled CSV, HTML, and PDF export.
+The optional PySide6 client reached full parity on the reference application
+over the typed FastAPI client, with no local database dependency: cursor-backed
+browse, search and sort; per-principal column layouts; a shared-YAML grouped
+sidebar with retained per-view workspace state; metadata-driven Customer,
+Product and Invoice forms; debounced multi-column lookups with authorized
+nested **Save & Select**; transactional InvoiceLine drafts; three-way
+Original/Current/Draft conflict review; the capability-gated Post action with
+save-before-action ETag chaining and idempotency; and record plus summary
+report preview with controlled CSV, HTML and PDF export.
+
+It was removed on 2026-08-10, in one commit of roughly 10,000 lines. The
+contracts it forced into existence stayed: the versioned presentation manifest,
+renderer-neutral form-layout resolution, the shared field-state and three-way
+conflict contracts, and batched reference displays on `QueryPage`.
 
 ### Web renderer
 
@@ -178,9 +173,9 @@ artifacts are compared byte-for-byte with a fresh no-write candidate, while the
 real approval/apply boundary is exercised only in a temporary workspace.
 Application-owned deterministic demo and Faker providers support Companies,
 Contacts, references, editor/viewer roles, and an idempotent Archive action.
-The same browse/form contract is resolved through shared, Textual, Qt, and Web
+The same browse/form contract is resolved through shared, Textual, and Web
 entry points, and the service workflow is certified against both in-memory and
-managed SQLAlchemy storage. Windows shortcuts expose its TUI, Studio, Web, Qt,
+managed SQLAlchemy storage. Windows shortcuts expose its TUI, Studio, Web,
 REST, and runtime-MCP surfaces.
 The generic seed command now requires an explicit application `--role`; the
 remaining Invoicing-specific `sales_clerk` default was removed, and the Windows

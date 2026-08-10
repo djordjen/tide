@@ -114,7 +114,7 @@ payloads. Missing, stale, null, and protected values are distinct states.
 The shared `compare_record_conflict()` contract classifies each permitted field
 with a three-way Original/Current/Draft comparison: changed only in the draft,
 changed only in current storage, changed to the same value, or genuinely
-conflicting. It contains no persistence or Textual dependency, so Qt/Web
+conflicting. It contains no persistence or Textual dependency, so Web
 clients can render the same semantics later.
 
 `resolve_record_conflict()` validates explicit Current/Draft choices only for

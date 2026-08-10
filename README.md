@@ -12,8 +12,8 @@
 TIDE is a proposed open-source, metadata-driven runtime and development
 environment for database-oriented business applications. Its first-class
 client is a keyboard-first, mouse-aware terminal interface that can run
-locally or through SSH. REST, MCP, reports, Qt, and the Web UI use the
-same application services, permissions, validation, and transaction model.
+locally or through SSH. REST, MCP, reports, and the Web UI use the same
+application services, permissions, validation, and transaction model.
 
 TIDE takes inspiration from:
 
@@ -76,7 +76,7 @@ in-memory one, and `tide serve` requires a development bearer token of at least
 
 The smaller generated [Contacts application](applications/contacts/README.md)
 is the second portability proof. On Windows, `start.bat contacts-demo` runs it
-immediately; its README also covers Studio, Web, Qt, REST, runtime MCP, and
+immediately; its README also covers Studio, Web, REST, runtime MCP, and
 persistent Faker data.
 
 [Getting started](docs/GETTING-STARTED.md) walks through the demo TUI, the
@@ -94,7 +94,6 @@ empty directory. On Windows, `start.bat` wraps each of these.
 | Databases | SQLite for development; SQL Server as the first multi-user target, certified by an opt-in live suite; PostgreSQL later |
 | Terminal client | Browse, forms, master-detail, lookups, three-way conflict review, reports |
 | Web UI | The same journeys in React, plus deep links and TIDE-owned sign-in |
-| Qt client | Prototype: browse, forms, lookups, actions, reports |
 | REST + OpenAPI | Generated from the model; only explicitly exposed operations |
 | MCP | Authenticated resources and tools over the same services |
 | Reports | Secured documents with CSV, standalone HTML, and PDF export |
@@ -153,8 +152,8 @@ wheel.
 ## Built on
 
 Python, Textual, SQLAlchemy and Alembic, Pydantic, FastAPI, the official Python
-MCP SDK, React and TypeScript, optional PySide6, standard-library HTML plus
-optional ReportLab for PDF, and pytest. These are adapters around TIDE's
+MCP SDK, React and TypeScript, standard-library HTML plus optional ReportLab
+for PDF, and pytest. These are adapters around TIDE's
 application core, not the definition of the core itself; see
 [Architecture](docs/ARCHITECTURE.md) for where the boundary runs.
 
@@ -170,7 +169,7 @@ The ones worth reading first:
   [Metadata contract v0.1](docs/METADATA-V0.md)
 - [Security](docs/SECURITY.md) and [Threat model](docs/THREAT-MODEL.md)
 - [REST API and MCP](docs/API-AND-MCP.md)
-- [Web UI](docs/WEB-UI.md) and [Qt GUI prototype](docs/QT-GUI.md)
+- [Web UI](docs/WEB-UI.md)
 - [Roadmap](docs/ROADMAP.md), [Decision log](docs/DECISIONS.md), and
   [Changelog](CHANGELOG.md)
 
