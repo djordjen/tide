@@ -15,24 +15,54 @@ machine that never had them.
 
 from __future__ import annotations
 
+from pathlib import Path
 import subprocess
 import sys
 import textwrap
+import tomllib
 
+from packaging.requirements import Requirement
 import pytest
 
 
-EVERY_EXTRA = (
-    "alembic",
-    "faker",
-    "fastapi",
-    "httpx",
-    "jwt",
-    "mcp",
-    "pyodbc",
-    "reportlab",
-    "textual",
-    "uvicorn",
+ROOT = Path(__file__).parents[1]
+
+# Installed with `--extra dev` for the test run and so never blocked here.
+TOOLING = frozenset({"build", "mypy", "pytest", "pytest-cov", "pytest-xdist", "ruff", "types-pyyaml"})
+# Extras deliberately outside `dev`: PySide6 is installed only on the Windows
+# CI job, and pyodbc needs a system driver no runner is guaranteed to have.
+OUTSIDE_DEV = frozenset({"pyside6-essentials", "pyodbc"})
+# Where a distribution and its import name differ. Anything not listed is
+# imported under its own lowercased name, and `test_every_extra_has_a_module`
+# fails on a package this does not know how to name.
+IMPORT_NAMES = {"pyjwt": "jwt", "pyside6-essentials": "PySide6"}
+
+
+def extras() -> dict[str, list[Requirement]]:
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    return {
+        name: [Requirement(entry) for entry in entries]
+        for name, entries in data["project"]["optional-dependencies"].items()
+    }
+
+
+def module_name(requirement: Requirement) -> str:
+    package = requirement.name.lower()
+    return IMPORT_NAMES.get(package, package)
+
+
+# Derived rather than listed. The hand-written version had ten entries and the
+# extras had eleven packages: PySide6 was never blocked, so a subprocess that
+# imported it would have passed on the one CI job that has it installed.
+EVERY_EXTRA = tuple(
+    sorted(
+        {
+            module_name(requirement)
+            for name, requirements in extras().items()
+            if name != "dev"
+            for requirement in requirements
+        }
+    )
 )
 
 
@@ -110,3 +140,74 @@ def test_the_oidc_adapter_still_says_what_it_needs() -> None:
     result = _run(("httpx",), "import tide.api.browser_auth")
     assert result.returncode != 0
     assert "No module named 'httpx'" in result.stderr
+
+
+def test_the_dev_extra_still_covers_every_extra_it_stands_in_for() -> None:
+    """`uv sync --extra dev` is the whole test environment, assembled by hand.
+
+    It is a union of nine other extras kept in step by copying, so a new
+    dependency or a moved version bound goes quietly missing and the suite
+    stops exercising a path everyone believes it covers. Checked in both
+    directions: nothing an extra declares may be absent from `dev`, and
+    nothing in `dev` may be there without being either a tool or some extra's.
+    """
+
+    declared = extras()
+    dev = {requirement.name.lower(): requirement for requirement in declared["dev"]}
+    elsewhere = {
+        requirement.name.lower()
+        for name, requirements in declared.items()
+        if name != "dev"
+        for requirement in requirements
+    }
+
+    missing = []
+    for name, requirements in sorted(declared.items()):
+        if name == "dev":
+            continue
+        for requirement in requirements:
+            package = requirement.name.lower()
+            if package in OUTSIDE_DEV:
+                continue
+            held = dev.get(package)
+            if held is None:
+                missing.append(f"{name}: {requirement} is absent from dev")
+            elif held.specifier != requirement.specifier:
+                missing.append(f"{name}: {requirement}, but dev pins {held}")
+            elif not requirement.extras <= held.extras:
+                missing.append(f"{name}: {requirement}, but dev has {held}")
+
+    assert missing == []
+
+    unexplained = sorted(
+        requirement.name
+        for requirement in declared["dev"]
+        if requirement.name.lower() not in TOOLING
+        and requirement.name.lower() not in elsewhere
+    )
+    assert unexplained == []
+
+    for package in sorted(OUTSIDE_DEV):
+        assert package not in dev, f"{package} is in dev now; drop it from OUTSIDE_DEV"
+
+
+def test_the_block_list_names_every_extra_including_the_awkward_ones() -> None:
+    """`EVERY_EXTRA` is derived, so this is what says the derivation is right.
+
+    `PyJWT` imports as `jwt` and `PySide6-Essentials` as `PySide6`; a plain
+    lowercased distribution name blocks neither, and a package this cannot name
+    is a package the harness above silently fails to block.
+    """
+
+    packages = {
+        requirement.name.lower()
+        for name, requirements in extras().items()
+        if name != "dev"
+        for requirement in requirements
+    }
+
+    assert {"jwt", "PySide6"} <= set(EVERY_EXTRA)
+    assert len(EVERY_EXTRA) == len(packages)
+    # No exception may outlive the package that needed it.
+    assert set(IMPORT_NAMES) <= packages
+    assert OUTSIDE_DEV <= packages
