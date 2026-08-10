@@ -11,8 +11,8 @@ the integrity of Python business handlers.
 ## Trust boundaries
 
 Untrusted input crosses boundaries through YAML/JSON projects, TUI fields,
-REST requests, MCP tools, imports, report parameters/resources, and custom
-Python modules. Adapters, designers, and AI agents are not trusted to enforce
+REST requests, MCP tools, rows written into a database TIDE does not own,
+report parameters/resources, and custom Python modules. Adapters, designers, and AI agents are not trusted to enforce
 authorization; application services are the enforcement boundary.
 
 ## Initial threats and controls
@@ -49,6 +49,7 @@ authorization; application services are the enforcement boundary.
 | Candidate smoke test reaches real data or commands | Fresh in-memory repository/services only; no configured database or external command; explicit result flags; bounded entity/action/report counts and relationship depth |
 | AI source changes applied without informed consent | Proposal/base/candidate fingerprints, exact artifacts and diff, isolated compilation/static/runtime checks, actual absent-destination checks, a candidate-bound challenge typed through the local CLI, regeneration/revalidation, exclusive apply lock, same-filesystem staged publication, and an approval/artifact receipt; developer MCP remains no-write |
 | Generated audit timestamp forgery | Fixed transition templates use the server UTC clock and ignore caller payload for generated stamps |
+| Rows reaching the database without passing TIDE's validation | Accepted, because TIDE does not own every database it reads. Authorization is unaffected: entity, row, and field policies are evaluated on read regardless of who wrote the row. Validation is not — `_validate_entity` runs on write, so a stored value outside a choice list, past a maximum, or failing an edit mask is returned as it is. Correctness of directly loaded rows is the operator's responsibility. A state field holding a value no transition names has no enabled action, so the action layer fails closed |
 
 ## Non-goals for v0.1
 

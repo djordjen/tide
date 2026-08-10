@@ -30,8 +30,9 @@ the `immutable_when` of every ordinarily writable field; it checks stamp
 targets rather than writing them, and refuses a declared state no transition
 reaches. That last check found one: `sales.Invoice` declared `cancelled` with
 no action producing it, while the demo data seeded a record already in it, so
-the reference application gained the `cancel` action that makes the state
-reachable. The generated Contacts application emits the block from its plan
+the reference application gained the `void` action that makes the state
+reachable -- `void` and not `cancel`, because the form action bar owns that
+name and an entity may no longer take it (`TIDE276`). The generated Contacts application emits the block from its plan
 instead of a hand-written guard string.
 
 The headless runtime adds secured record/query/action services, a repository

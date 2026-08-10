@@ -281,7 +281,11 @@ the same services.
   REST, with safe protected logging; **implemented for domain-action lifecycle
   events and successful root create/update/delete changes; collection-detail,
   retention, purge, and broader MCP/report/export audit remain**;
-- import and controlled export;
+- controlled export; **implemented for reports as authorized CSV/HTML/PDF
+  routes**. Bulk import is **deferred on 2026-08-10**: TIDE reads databases it
+  does not own, so rows already arrive through the database itself, and the
+  loading tools an operator has do not need a metadata framework in front of
+  them. See the decision log for what that costs;
 - deployment configuration, SSH guidance, and container packaging.
 - process-only liveness plus dependency-aware persistence/durable-state
   readiness with safe 200/503 responses; **implemented**;

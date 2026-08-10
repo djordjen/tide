@@ -2,10 +2,15 @@
 
 ## Unified enforcement
 
-TUI, web, REST, MCP, reports, imports, exports, and background operations use
+TUI, web, REST, MCP, reports, exports, and background operations use
 the same authorization services. Presentation adapters may hide unavailable
 commands for usability, but security is enforced again in application
 services.
+
+Rows written directly to the database -- by another application that owns the
+schema, or by an operator loading data -- do not pass through these services at
+all. TIDE authorizes and validates what it reads and writes, not what the
+database already contains; see the threat model.
 
 An action permission is independent from the entity update permission. A
 principal may be allowed to post an invoice through the reviewed domain action
@@ -36,7 +41,7 @@ TIDE distinguishes:
 - action execution;
 - navigation and view access;
 - report execution;
-- import and export;
+- export;
 - administrative and model-development capabilities.
 
 Roles grant permission identifiers or policies; model fields should reference
