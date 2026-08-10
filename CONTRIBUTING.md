@@ -29,10 +29,29 @@ python -m venv .venv
 python -m pip install -e ".[dev]"
 python -m pytest
 tide model validate applications/invoicing
+tide model validate applications/contacts
 ```
 
-Python 3.11 and later are supported. Pull requests should keep the invoicing
-fixture valid and add a negative fixture when introducing a new diagnostic.
+Python 3.11 and later are supported. Pull requests should keep both application
+fixtures valid and add a negative fixture when introducing a new diagnostic.
+
+## Writing documentation
+
+A command inside a `bash`, `powershell`, `sh`, `shell`, `console` or `pwsh`
+fence is one a reader will copy, so `tests/test_launcher_contracts.py` resolves
+every `tide` invocation in one against the real argument parser. An invented
+subcommand or a retired flag fails the suite. This is not hypothetical:
+`tide api describe` sat under "Useful commands" without ever existing, and the
+Windows shortcut passed `--customers` for weeks after the CLI replaced it.
+
+A command TIDE does not have yet belongs in a `text` fence, which is already how
+this project marks illustrations and expected output. `docs/ROADMAP.md` sketches
+the CLI it is growing towards, and `docs/APPLICATION-MODEL.md` a migration
+workflow with no apply path; both explain themselves in the surrounding prose,
+but prose does not travel with a copy-paste, so the fence has to say it too.
+
+The check covers `tide` only — `uv`, `npm` and `git` lines in the same blocks
+are on you.
 
 ## Compatibility discipline
 
