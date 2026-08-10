@@ -11,7 +11,7 @@ from textual.containers import Horizontal
 from textual.pilot import Pilot
 from textual.widgets import Button, DataTable, Input, Select, Static, TextArea, Tree
 
-from textual_support import wait_until
+from textual_support import press_button, wait_until
 from tide.cli import main
 from tide.development import DesignerDocumentReference, StudioError, StudioService
 from tide.tui import StudioApp
@@ -1345,11 +1345,12 @@ def test_textual_studio_swaps_adds_and_removes_view_fields_in_memory() -> None:
                 in app.query_one("#source-preview", TextArea).text
             )
 
-            await pilot.click("#undo-edit")
-            await pilot.pause()
-            await pilot.click("#undo-edit")
-            await pilot.pause()
-            await pilot.click("#undo-edit")
+            # `press_button`, not `pilot.click`: a button ignores a click while
+            # its press animation is still running, so repeated clicks on one
+            # button need the wait. See `textual_support.press_button`.
+            await press_button(pilot, "#undo-edit")
+            await press_button(pilot, "#undo-edit")
+            await press_button(pilot, "#undo-edit")
             await pilot.pause()
             assert not app.state.dirty
 
@@ -1559,9 +1560,8 @@ def test_textual_studio_manages_tabs_and_action_order_in_memory() -> None:
             assert "+  - cancel" in action_diff
             assert "+  - post" in action_diff
 
-            await pilot.click("#undo-edit")
-            await pilot.pause()
-            await pilot.click("#undo-edit")
+            await press_button(pilot, "#undo-edit")
+            await press_button(pilot, "#undo-edit")
             await pilot.pause()
             assert not app.state.dirty
 
