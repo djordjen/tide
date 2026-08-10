@@ -5,6 +5,11 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .coverage
+# One data file per worker while `pytest -n 4 --cov` runs. A finished run
+# combines and removes them; a killed or interrupted one does not, and
+# `.coverage` on its own does not match `.coverage.<host>.<pid>.<random>`.
+# Deliberately not `.coverage*`, which would also swallow a `.coveragerc`.
+.coverage.*
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/

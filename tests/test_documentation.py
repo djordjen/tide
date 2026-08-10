@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import subprocess
 from urllib.parse import unquote
 
 import pytest
@@ -40,6 +41,43 @@ def test_documentation_local_links_resolve(document: Path) -> None:
             missing.append(raw_target)
 
     assert missing == []
+
+
+def test_what_the_ci_test_command_leaves_behind_is_ignored() -> None:
+    """Making CI parallel changed the artifacts it produces.
+
+    `pytest -n 4 --cov` writes one coverage data file per worker, named
+    `.coverage.<host>.<pid>.<random>`. A run that finishes combines and removes
+    them; one that is killed does not, and the ignore rule was the exact name
+    `.coverage`, which matches none of them. The same per-file-list shape as
+    the identity stores, arriving the moment the workers did.
+    """
+
+    fragments = (
+        ".coverage",
+        ".coverage.a-machine.pid14432.XdMXKjtx.HNQIp837rWOh",
+    )
+    checked = subprocess.run(
+        ["git", "check-ignore", *fragments],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert set(checked.stdout.split()) == set(fragments)
+
+    # A `.coverage*` glob would cover the above and quietly hide a config file
+    # somebody adds later, so the pattern has to stay narrower than that.
+    configuration = subprocess.run(
+        ["git", "check-ignore", ".coveragerc"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert configuration.returncode == 1, configuration.stdout
 
 
 def test_invoicing_walkthrough_references_current_contract() -> None:
