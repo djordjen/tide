@@ -11,7 +11,7 @@ With `uv`:
 ```bash
 uv sync --extra dev
 uv run pytest
-uv run ruff check src tests applications
+uv run ruff check .
 uv run tide model validate applications/invoicing
 uv run tide model validate applications/contacts
 ```

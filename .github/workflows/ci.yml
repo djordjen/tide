@@ -38,10 +38,13 @@ jobs:
       # file on one worker, so nothing has to stop assuming its own ordering.
       # Measured at 1.96x with coverage; four repeat runs found no flakes.
       - run: uv run python -m pytest --cov --cov-report=term-missing -n 4 --dist loadfile
-      # Whole directories, not a hand-maintained file list: the second
-      # application arrived with four unlinted Python files because the list
-      # named only `applications/invoicing/actions.py`.
-      - run: uv run ruff check src tests applications
+      # The repository, not a hand-maintained list of directories. The list
+      # named files first -- and the second application arrived with four
+      # unlinted ones because it said `applications/invoicing/actions.py`. It
+      # then named directories, and `tools/` and `examples/` arrived unlinted
+      # for the same reason. Ruff honours `.gitignore`, so `.` is every Python
+      # file this repository actually owns.
+      - run: uv run ruff check .
       - run: uv run mypy
       - run: uv run tide model validate applications/invoicing
       - run: uv run tide model validate applications/contacts
