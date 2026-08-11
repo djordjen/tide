@@ -6,6 +6,12 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { TideDisplayValue } from "@/components/tide-display-value"
 import type { TideApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import {
+  fieldCellClass,
+  fieldLabelRowClass,
+  fieldLabelTextClass,
+  readOnlyValueClass,
+} from "./form-field"
 import type {
   TideFormPresentation,
   TidePresentationFormCollection,
@@ -53,19 +59,9 @@ export function DetailGroup({
               const field = form.fields[name]
               const fieldWritable = writable.has(name)
               return (
-                <div
-                  key={name}
-                  className={cn(
-                    "min-w-0 rounded-xl border px-3.5 py-3",
-                    fieldWritable
-                      ? "bg-background"
-                      : "border-border/75 bg-muted/35",
-                  )}
-                >
-                  <div className="mb-1.5 flex items-center justify-between gap-2">
-                    <span className="truncate text-xs font-medium text-muted-foreground">
-                      {field.label}
-                    </span>
+                <div key={name} className={fieldCellClass}>
+                  <div className={fieldLabelRowClass}>
+                    <span className={fieldLabelTextClass}>{field.label}</span>
                     {!fieldWritable ? (
                       <LockKeyhole
                         className="size-3 text-muted-foreground/55"
@@ -79,7 +75,7 @@ export function DetailGroup({
                     record={record}
                     wrap
                     className={cn(
-                      "min-h-5 text-sm",
+                      readOnlyValueClass,
                       field.alignment === "right" &&
                         "text-right tabular-nums",
                     )}

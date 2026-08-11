@@ -63,7 +63,11 @@ database.
   is numbered by, so the widget carries no application's field names or
   vocabulary;
 - clearly distinguished workflow-locked and writable fields, based on safe
-  per-record state evaluated by the server;
+  per-record state evaluated by the server. A writable field is an input; a
+  locked one is the value as text. Neither is wrapped in a card: a field spends
+  at most 24px above its control on a label and gap, which a Playwright check
+  measures in both renderers rather than trusting, because jsdom computes no
+  layout;
 - Previous/Next navigation in the current secured browse order, including
   cursor-boundary loading and Page Up/Page Down shortcuts;
 - capability-gated **New** and **Save** workflows for flat scalar Customer and

@@ -138,13 +138,26 @@ turning the second request into a false expiry. Windows identity-file ACLs are
 granted to the process token's SID rather than the mutable `USERNAME`
 environment value, and access is checked after hardening.
 
+Form fields are no longer cards. Each one used to be a bordered, padded box
+around its control — 84px of row to show a 36px input — so a thirteen-field
+invoice was taller than a 1440×900 screen and its lines collection sat
+permanently below the fold. A field now spends 24px on its label and gap and
+nothing on packaging: the same invoice went from about 640px of rows to 424px,
+and the collection plus the line editor beneath it are visible without
+scrolling. A writable field is an input and a locked one is text, which is a
+plainer read-only signal than a filled box and costs no height. The rule was
+written twice, in the editable and read-only renderers; it is now one module
+both import.
+
 `docs/WEB-UI.md` carries the current feature list.
 
 Seven Playwright journeys run against a real `tide serve` hosting the built
 bundle at its own origin: password sign-in, browsing, a record's nested lines,
 create/edit/reload, drafting an Invoice through both lookups and posting it,
 report preview and export, and a two-tab stale-edit conflict. They replaced a
-single smoke test against a static copy of `dist/`.
+single smoke test against a static copy of `dist/`. An eighth check measures
+form density in a browser, through both a draft and a posted invoice so that
+each renderer is covered.
 
 ### Machine interfaces and AI-assisted generation
 

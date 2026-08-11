@@ -40,6 +40,11 @@ import {
   type TideFormErrors,
 } from "@/lib/form-draft"
 import { cn } from "@/lib/utils"
+import {
+  fieldCellClass,
+  fieldLabelClass,
+  readOnlyValueClass,
+} from "./form-field"
 
 interface RecordFormEditorProps {
   api: TideApi
@@ -134,17 +139,7 @@ function EditorGroup({
               const field = form.fields[name]
               const editable = editableFields.has(name)
               return (
-                <div
-                  key={name}
-                  className={cn(
-                    "min-w-0 rounded-xl border px-3.5 py-3",
-                    editable
-                      ? "bg-background"
-                      : "border-border/75 bg-muted/35",
-                    errors[name] &&
-                      "border-destructive/60 ring-2 ring-destructive/10",
-                  )}
-                >
+                <div key={name} className={fieldCellClass}>
                   {editable ? (
                     <FieldEditor
                       api={api}
@@ -161,15 +156,13 @@ function EditorGroup({
                     />
                   ) : (
                     <>
-                      <p className="mb-1.5 truncate text-xs font-medium text-muted-foreground">
-                        {field.label}
-                      </p>
+                      <p className={fieldLabelClass}>{field.label}</p>
                       <TideDisplayValue
                         api={api}
                         column={field}
                         record={record}
                         wrap
-                        className="min-h-5 text-sm"
+                        className={readOnlyValueClass}
                       />
                     </>
                   )}
@@ -266,7 +259,7 @@ function FieldEditor({
     <div>
       <label
         htmlFor={id}
-        className="mb-1.5 block truncate text-xs font-medium text-muted-foreground"
+        className={fieldLabelClass}
       >
         {field.label}
         {field.required ? (
@@ -395,7 +388,7 @@ function ReferenceEditor({
     <div>
       <label
         htmlFor={id}
-        className="mb-1.5 block truncate text-xs font-medium text-muted-foreground"
+        className={fieldLabelClass}
       >
         {field.label}
         {field.required ? (
