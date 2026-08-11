@@ -257,7 +257,14 @@ class DesignerSaveService:
                 backup = backup_root.joinpath(*relative.parts)
                 backup.parent.mkdir(parents=True, exist_ok=True)
                 self._assert_artifact_base(target, artifact)
-                shutil.copystat(target, candidate, follow_symlinks=False)
+                # Permissions carry over to the replacement; timestamps must
+                # not. `copystat` copies mtime as well as the mode, which left
+                # a saved file looking untouched to anything that trusts a
+                # stat cache -- git compares size and mtime before it compares
+                # content, so reordering a row through Studio produced a file
+                # of the same length and the same timestamp, and `git status`
+                # reported a clean tree over a real edit.
+                shutil.copymode(target, candidate, follow_symlinks=False)
                 replacement = _Replacement(artifact.path, target, backup)
                 journal = journal.model_copy(
                     update={

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+import os
 from pathlib import Path
 import shutil
 from typing import Any
@@ -756,6 +757,39 @@ def test_studio_structural_view_change_uses_the_same_save_boundary(
     assert (project / result.receipt_path).is_file()
 
 
+def test_a_saved_source_does_not_keep_the_modification_time_it_replaced(
+    tmp_path: Path,
+) -> None:
+    """A Designer save has to look like a change to everything downstream.
+
+    The replacement inherited the target's stat so its permissions would
+    survive, and `copystat` carries mtime along with the mode. Git compares
+    size and mtime before it compares content, so a saved file whose length
+    did not change looked untouched: `git status` reported a clean tree after
+    a real edit. Found by reordering `[posted_at, posted_by, version]` to
+    `[posted_at, version, posted_by]` through Studio -- same bytes, same
+    length, same timestamp, and no sign anything had happened.
+    """
+
+    project = shutil.copytree(INVOICING, tmp_path / "invoicing")
+    target = project / "models" / "sales" / "invoice.yaml"
+    stale = 1_600_000_000  # 2020-09-13, comfortably before this checkout
+    os.utime(target, (stale, stale))
+
+    service = StudioService(project)
+    service.set_property(
+        DesignerDocumentReference(kind="entity", name="sales.Invoice"),
+        ("label",),
+        "Saved invoices",
+    )
+    review = service.prepare_save()
+    service.save(review, review.preparation.approval_prompt)
+
+    assert target.stat().st_mtime > stale, (
+        "the saved file still carries the timestamp of the file it replaced"
+    )
+
+
 def test_studio_service_reviews_and_saves_through_the_approved_boundary(
     tmp_path: Path,
 ) -> None:
@@ -1169,6 +1203,11 @@ def test_textual_studio_reviews_and_explicitly_saves_a_candidate(
     invoice_file = project / "models" / "sales" / "invoice.yaml"
     app = StudioApp(StudioService(project))
 
+    def receipts() -> tuple[Path, ...]:
+        return tuple((project / ".tide" / "designer").glob("*.json"))
+
+    existing = set(receipts())
+
     async def exercise() -> None:
         async with app.run_test(size=(140, 44)) as pilot:
             await pilot.pause()
@@ -1219,8 +1258,10 @@ def test_textual_studio_reviews_and_explicitly_saves_a_candidate(
             assert "label: Studio saved invoices" in invoice_file.read_text(
                 encoding="utf-8"
             )
-            receipts = tuple((project / ".tide" / "designer").glob("*.json"))
-            assert len(receipts) == 1
+            # What this save wrote, not what the directory holds. The project
+            # is copied from the checked-in application, so anyone who has run
+            # Studio against it locally brings their own receipts along.
+            assert len(set(receipts()) - existing) == 1
 
     asyncio.run(exercise())
 

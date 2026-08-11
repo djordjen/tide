@@ -256,8 +256,12 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
                 ["number", "invoice_date"],
                 ["status", "currency"],
                 ["customer", "total"],
-                ["posted_at"],
-                ["version"],
+                # `posted_by` is a field this principal cannot read, so the
+                # row it shared with `posted_at` used to arrive half empty and
+                # `version` came alone behind it. Ordering the authored row
+                # `[posted_at, version, posted_by]` pairs the two fields that
+                # are visible and leaves the invisible one to be dropped whole.
+                ["posted_at", "version"],
             ],
             "tab": None,
         }

@@ -24,7 +24,7 @@ layout:
 
   - group: Posting
     rows:
-      - [posted_at, posted_by, version]
+      - [posted_at, version, posted_by]
 
 fields:
   customer:

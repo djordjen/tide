@@ -36,8 +36,8 @@ reference_contract:
             - [number, invoice_date]
             - [status, currency]
             - [customer, total]
-            - [posted_at, posted_by]
-            - [version]
+            - [posted_at, version]
+            - [posted_by]
         - kind: collection
           label: Lines
           collection: lines

@@ -29,6 +29,13 @@ tmp/
 .tide/*auth*.sqlite3*
 # Credentials the end-to-end journeys create for one run.
 .tide/e2e-credentials.json
+# Receipts and journals a Designer save leaves beside the project it wrote to,
+# which for a checked-in application means inside `applications/<name>/`. Both
+# rules above are anchored at this file, so neither reached there: using Studio
+# on the reference application produced untracked content in the application
+# tree, which is the same one-`git add -A`-away shape as the identity stores.
+# `**/` rather than a path, because a fourth application must not need an edit.
+**/.tide/designer/
 
 # Web renderer build and test artifacts
 web/node_modules/

@@ -149,6 +149,14 @@ plainer read-only signal than a filled box and costs no height. The rule was
 written twice, in the editable and read-only renderers; it is now one module
 both import.
 
+A Designer save no longer leaves the file carrying the timestamp of the file
+it replaced. Permissions still carry over; `shutil.copystat` was copying mtime
+with them, and git compares size and mtime before content — so a save that did
+not change a file's length was invisible to `git status`, to `git diff`, and
+even to `git add`. Found by reordering a row through Studio and finding a
+clean tree afterwards. Receipts a save writes beside a checked-in application
+are now ignored as `**/.tide/designer/`.
+
 `docs/WEB-UI.md` carries the current feature list.
 
 Seven Playwright journeys run against a real `tide serve` hosting the built
