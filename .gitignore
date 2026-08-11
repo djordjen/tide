@@ -37,6 +37,16 @@ tmp/
 # `**/` rather than a path, because a fourth application must not need an edit.
 **/.tide/designer/
 
+# Claude Design sync: staged converter scripts, generated bundle, machine
+# state. The durable inputs under `.design-sync/` -- config.json, NOTES.md,
+# conventions.md, previews/, overrides/ -- are committed; everything below is
+# regenerated per run or per clone.
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules
+
 # Web renderer build and test artifacts
 web/node_modules/
 web/.npm-cache/

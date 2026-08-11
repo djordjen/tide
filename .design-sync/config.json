@@ -1,0 +1,15 @@
+{
+  "projectId": "82bc2b58-e86c-4f82-b235-326e9b36044b",
+  "shape": "package",
+  "pkg": "@tide-framework/web",
+  "globalName": "TideWeb",
+  "srcDir": "src/components/ui",
+  "tsconfig": "tsconfig.app.json",
+  "buildCmd": "npm run build && cp dist/assets/index-*.css dist/ds-styles.css",
+  "cssEntry": "dist/ds-styles.css",
+  "readmeHeader": ".design-sync/conventions.md",
+  "overrides": {
+    "DropdownMenu": { "cardMode": "single", "primaryStory": "RecordActions" },
+    "Tooltip": { "cardMode": "single", "primaryStory": "FieldHint" }
+  }
+}
