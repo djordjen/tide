@@ -13,5 +13,11 @@
     "strict": true,
     "types": ["node"]
   },
-  "include": ["vite.config.ts", "playwright.config.ts", "tests/e2e/**/*.ts"]
+  "include": [
+    "vite.config.ts",
+    "playwright.config.ts",
+    "playwright.screenshots.config.ts",
+    "tests/e2e/**/*.ts",
+    "tests/screenshots/**/*.ts"
+  ]
 }

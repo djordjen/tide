@@ -5,10 +5,12 @@ largest of the three by far -- 106 invocations a reader is invited to copy --
 and the only one where the runtime is a person, who gets an argparse error
 rather than a failing build.
 
-Two Node scripts under `web/` independently compose a `tide serve` command
-line: the Playwright launcher and the dev-server runner. Merging them was
-considered and refused -- most of each file is different work -- so the
-duplication stands, and these are what make it safe.
+Three Node scripts under `web/` independently compose a `tide serve` command
+line: the Playwright launcher, the dev-server runner, and the screenshot
+launcher. Merging them was considered and refused -- most of each file is
+different work -- so the duplication stands, and these are what make it safe.
+The third arrived after the first two, and the check that reads them is a
+search rather than a list, because a fourth must not need an edit here.
 
 A retired or renamed flag is the failure this catches. It would not be caught
 by the launchers' own tests: `--print` asserts the string the launcher was
@@ -40,6 +42,31 @@ ROOT = Path(__file__).parents[1]
 WEB = ROOT / "web"
 DEV_LAUNCHER = WEB / "scripts" / "dev-app.mjs"
 E2E_LAUNCHER = WEB / "tests" / "e2e" / "tide-server.mjs"
+
+
+def _web_launchers() -> tuple[Path, ...]:
+    """Every Node script under `web/` that spells out a `tide serve`.
+
+    `os.walk` with `node_modules` pruned from the descent, not `rglob` with it
+    filtered from the results: the design-sync setup puts a junction at
+    `web/node_modules/@tide-framework/web` pointing back at `web/`, so anything
+    that walks in first and filters after recurses until Windows refuses the
+    path. Filtering the output is not the same as not looking.
+    """
+
+    found: list[Path] = []
+    for directory, names, files in os.walk(WEB):
+        names[:] = [name for name in names if name != "node_modules"]
+        found.extend(
+            path
+            for name in files
+            if name.endswith(".mjs")
+            and '"serve"' in (path := Path(directory) / name).read_text(encoding="utf-8")
+        )
+    return tuple(sorted(found))
+
+
+LAUNCHERS = _web_launchers()
 
 DOCUMENTS = sorted(
     {
@@ -159,20 +186,37 @@ def test_the_dev_launcher_composes_a_command_tide_serve_accepts() -> None:
     assert passed <= declared("serve"), sorted(passed - declared("serve"))
 
 
-def test_the_e2e_launcher_names_no_flag_the_cli_has_retired() -> None:
-    """Read statically: this one has no dry run, and adding one to Playwright's
-    launcher would mean restructuring the setup order it documents at length.
+def test_every_web_launcher_is_found() -> None:
+    """The search that finds them has to be checked, or an empty one passes.
 
-    It invokes two subcommands, so the check is against their union. That is
-    coarser than the dev runner's -- it would not notice a `serve` flag being
-    passed to `create-user` -- but a *retired* flag, the drift this exists for,
-    still has nowhere to hide.
+    `LAUNCHERS` is a search, so a launcher that moves stays covered and a new
+    one is covered on arrival. The failure it cannot see is itself: a search
+    that matches nothing makes every parametrized case below vacuous.
+    """
+
+    assert {path.name for path in LAUNCHERS} == {
+        "dev-app.mjs",
+        "tide-server.mjs",
+        "api-server.mjs",
+    }
+
+
+@pytest.mark.parametrize("launcher", LAUNCHERS, ids=lambda path: path.name)
+def test_no_web_launcher_names_a_flag_the_cli_has_retired(launcher: Path) -> None:
+    """Read statically: only the dev runner has a dry run, and adding one to
+    Playwright's launcher would mean restructuring the setup order it documents
+    at length.
+
+    Checked against the union of the subcommands any of them invoke. That is
+    coarser than the dev runner's own test -- it would not notice a `serve`
+    flag being passed to `create-user` -- but a *retired* flag, the drift this
+    exists for, still has nowhere to hide.
     """
 
     accepted = declared("serve") | declared("auth", "create-user") | CONCURRENTLY | OWN
-    passed = mentioned(E2E_LAUNCHER)
+    passed = mentioned(launcher)
 
-    assert passed, E2E_LAUNCHER
+    assert passed, launcher
     assert passed <= accepted, sorted(passed - accepted)
 
 
@@ -182,6 +226,11 @@ def test_both_launchers_still_agree_on_how_the_server_authenticates() -> None:
     Both stand up a server behind a TIDE-owned identity store. If one is moved
     to a different auth mechanism or store flag and the other is not, the two
     stop testing and demonstrating the same product.
+
+    Named rather than globbed, unlike the check above, because the third
+    launcher is deliberately the odd one out: `api-server.mjs` runs the quick
+    start's bearer-token server, which sends no browser security headers, and
+    that difference is the whole reason Swagger UI renders under it.
     """
 
     shared = {"--auth", "--local-auth-store", "--port", "--demo"}
