@@ -1882,3 +1882,151 @@ def test_textual_studio_quits_but_not_over_an_open_yaml_edit(
             assert not app.is_running
 
     asyncio.run(exercise())
+
+
+# 80x24, 100x30 and 140x40 are the sizes this repository certifies. Every
+# Studio test above runs at 120x36 or wider, which is why none of them saw
+# what the two below assert.
+CERTIFIED_TERMINAL_SIZES = ((80, 24), (100, 30), (140, 40))
+
+
+@pytest.mark.parametrize(("columns", "rows"), CERTIFIED_TERMINAL_SIZES)
+def test_the_view_field_table_fits_the_terminals_studio_is_certified_for(
+    columns: int,
+    rows: int,
+) -> None:
+    """The panel that reorders a view's fields has to show which field it is.
+
+    It declared 79 columns of content against the 10 the layout gave it at
+    100x30 -- a fixed 48-wide side panel beside a `1fr` table in a 63-wide
+    details pane -- so all four rows of `catalog.Product.browse` rendered as
+    the same truncated `Table c`. `Track` alone took 22 of those columns while
+    repeating identically down each contiguous run, and was itself truncated:
+    `Line editor · right column / Line details` is 41 characters.
+
+    The data was right and the layout was not, which is the failure a pilot
+    test at 140x44 cannot see.
+    """
+
+    app = StudioApp(StudioService(INVOICING))
+
+    async def exercise() -> None:
+        async with app.run_test(size=(columns, rows)) as pilot:
+            await pilot.pause()
+            await _select_view(pilot, app, "sales.InvoiceLine.inline_edit")
+            table = app.query_one("#view-field-table", DataTable)
+
+            labels = [str(column.label) for column in table.columns.values()]
+            assert "Field" in labels, "the field name is the one column that must survive"
+            assert table.virtual_size.width <= table.scrollable_content_region.width, (
+                f"{labels} needs {table.virtual_size.width} columns and has "
+                f"{table.scrollable_content_region.width}"
+            )
+            if columns >= 100:
+                # Fitting is not the same as being worth reading. Side by side
+                # at 100x30 the table fits two columns and stacked it fits
+                # four, and both satisfy the assertion above -- so state the
+                # floor, or the stacking this depends on can be removed with
+                # every test still green.
+                assert "Type" in labels, (
+                    "reordering a field you cannot see the type of is guesswork"
+                )
+            if columns >= 140:
+                assert "Origin" in labels, (
+                    "provenance is the reason to read this table at all; the widest "
+                    "certified terminal has room for it"
+                )
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize(("columns", "rows"), CERTIFIED_TERMINAL_SIZES)
+def test_the_studio_toolbar_stays_on_screen_when_a_view_is_selected(
+    columns: int,
+    rows: int,
+) -> None:
+    """Diagnostics, Edit YAML and Save candidate exist only on this toolbar.
+
+    Selecting a view reveals a 22-row structure panel inside a details pane
+    that scrolls, which put the toolbar at y=40 -- below the fold of a 30-row
+    terminal *and* of a 40-row one, because the pane's virtual height is a
+    fixed 51 rows that does not depend on the terminal's. Scrolling reached
+    it, and "scrollable compact layouts" is the documented answer for content;
+    a toolbar is not content. `Diagnostics` and `Edit YAML` have no key
+    binding, so the only route to them was discovering that a pane scrolls.
+    """
+
+    app = StudioApp(StudioService(INVOICING))
+
+    async def exercise() -> None:
+        async with app.run_test(size=(columns, rows)) as pilot:
+            await pilot.pause()
+            await _select_view(pilot, app, "sales.Invoice.edit")
+            toolbar = app.query_one("#studio-toolbar", Horizontal)
+
+            assert toolbar.region.width > 0
+            assert toolbar.region.y + toolbar.region.height <= rows, (
+                f"toolbar at y={toolbar.region.y} height={toolbar.region.height} "
+                f"in a {rows}-row terminal"
+            )
+
+    asyncio.run(exercise())
+
+
+def test_the_view_structure_title_names_the_track_of_the_selected_field() -> None:
+    """`Track` leaves the row and becomes the heading beside the table.
+
+    Move up, Move down and the two swaps all act within a track, so the track
+    of the *selected* field is what a person needs while pressing them --
+    which a per-row cell repeated down a contiguous run states four times and
+    a heading states once. The heading it replaces was the constant string
+    "Resolved TUI structure", which told nobody anything.
+    """
+
+    app = StudioApp(StudioService(INVOICING))
+
+    async def exercise() -> None:
+        async with app.run_test(size=(140, 40)) as pilot:
+            await pilot.pause()
+            await _select_view(pilot, app, "sales.InvoiceLine.inline_edit")
+            title = app.query_one("#view-structure-title", Static)
+            table = app.query_one("#view-field-table", DataTable)
+
+            table.move_cursor(row=list(app._view_field_rows).index(
+                _view_field_key(app, "columns:quantity")
+            ))
+            await pilot.pause()
+            assert "Table columns" in str(title.content)
+
+            table.move_cursor(row=list(app._view_field_rows).index(
+                _view_field_key(app, "layout-left:product")
+            ))
+            await pilot.pause()
+            assert "Line editor · left column" in str(title.content)
+            assert "Line details" in str(title.content)
+
+    asyncio.run(exercise())
+
+
+def test_view_field_columns_drop_the_least_useful_first() -> None:
+    """Which columns fit is arithmetic, so it is tested as arithmetic.
+
+    Driving a pilot at four widths to discover the same thing costs four
+    Textual apps and tells you less: this says what the priority order *is*.
+    """
+
+    from tide.tui.studio.app import view_field_columns
+
+    assert [column.label for column in view_field_columns(200)] == [
+        "Field",
+        "#",
+        "Type",
+        "Origin",
+        "Label",
+    ]
+    assert [column.label for column in view_field_columns(34)] == ["Field", "#", "Type"]
+    assert [column.label for column in view_field_columns(20)] == ["Field"]
+    # Narrower than one column still yields one: a table with no columns shows
+    # no rows, and "too narrow" is better expressed by truncation than by a
+    # panel that silently empties.
+    assert [column.label for column in view_field_columns(1)] == ["Field"]

@@ -405,7 +405,11 @@ Deeper report design and developer-MCP editing remain later Milestone 7 work.
 - Studio usability and semantic hardening; **implemented with live/preview
   parity for hidden browse, form, and collection placements, scrollable compact
   layouts, a usable YAML minimum height, and visible fail-closed explanations
-  for invalid view candidates**;
+  for invalid view candidates**; **2026-08-11**: Studio's own layout now fits
+  80×24, 100×30 and 140×40 — the structure table drops columns in priority
+  order, `Track` became the heading beside it, the panel stacks below 125
+  columns, and the action toolbar is docked. The property inspector at 80×24
+  still puts its Value and Mode columns off the right edge;
 - developer MCP designer tools;
 - browser page canvas for report design.
 

@@ -250,6 +250,19 @@ live browse/form runtime, compact terminals scroll instead of clipping tools,
 and invalid view candidates retain an explanation while designer actions fail
 closed.
 
+Studio's own layout now fits the terminals the rest of the TUI is certified
+for. Its view-structure table asked for a fixed 79 columns and was given ten
+at 100×30, so every row of a browse view rendered as the same truncated
+`Table c`; it now takes the columns that fit, most useful first — field name,
+position, type, origin, label — and `Track` leaves the row for the heading
+beside the table, where it names the selected field's track once instead of
+repeating it down a contiguous run. Below 125 columns the table and its side
+panel stack rather than splitting a pane too narrow for both. The action
+toolbar is docked, so selecting a view no longer pushes Diagnostics, Edit YAML
+and Save candidate past the bottom of the screen — which "compact terminals
+scroll instead of clipping tools" above did not in fact cover, because a
+toolbar is not content and two of those buttons have no key binding.
+
 Studio sessions now reuse the compiled evaluation and semantic document index
 for an unchanged candidate fingerprint. The cache is bounded by the same
 history limit as undo/redo, candidate mutations refresh only the affected

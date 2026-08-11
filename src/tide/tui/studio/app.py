@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import re
-from typing import Literal, TypeVar
+from typing import Literal, NamedTuple, TypeVar
 
+from textual import events
 from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -42,6 +43,62 @@ from .save import StudioSaveScreen
 
 
 _WidgetT = TypeVar("_WidgetT", bound=Widget)
+
+
+class ViewFieldColumn(NamedTuple):
+    """One column of the view-structure table, with the width its data needs."""
+
+    label: str
+    key: str
+    width: int
+
+
+# Priority order, most useful first. The field name is what the table is for.
+# The position says what Move up and Move down will do. Type and origin are
+# the resolved information no single source file holds -- `view overlay`
+# against an entity default is the reason to read this panel instead of the
+# YAML -- and the label is derivable from the name, so it goes first.
+#
+# `Track` is deliberately absent. It repeated identically down each contiguous
+# run, spent 22 columns doing so, and was truncated even at the widest
+# certified terminal: `Line editor · right column / Line details` is 41
+# characters. It is the heading beside the table now.
+_VIEW_FIELD_COLUMNS = (
+    ViewFieldColumn("Field", "field", 14),
+    ViewFieldColumn("#", "position", 3),
+    ViewFieldColumn("Type", "type", 10),
+    ViewFieldColumn("Origin", "origin", 12),
+    ViewFieldColumn("Label", "label", 14),
+)
+
+# `DataTable` pads every cell by one cell on each side.
+_CELL_PADDING = 2
+
+# Side by side, the view-structure panel wants the 34-column document tree, a
+# 48-column side panel, and enough left over for the field table to be worth
+# reading. Narrower than this the two stack instead. `browse` uses its own
+# threshold in `tui/app.py`: the number belongs to a layout, not to a
+# terminal, and these are different layouts.
+_SIDE_BY_SIDE_MINIMUM_WIDTH = 125
+
+
+def view_field_columns(available: int) -> tuple[ViewFieldColumn, ...]:
+    """Return the columns that fit `available` cells, most useful first.
+
+    Always at least one. A `DataTable` with no columns renders no rows at all,
+    so a terminal too narrow even for the field name is better served by a
+    truncated name than by a panel that silently empties.
+    """
+
+    chosen = [_VIEW_FIELD_COLUMNS[0]]
+    used = _VIEW_FIELD_COLUMNS[0].width + _CELL_PADDING
+    for column in _VIEW_FIELD_COLUMNS[1:]:
+        cost = column.width + _CELL_PADDING
+        if used + cost > available:
+            break
+        used += cost
+        chosen.append(column)
+    return tuple(chosen)
 
 
 class StudioApp(App[None]):
@@ -118,6 +175,30 @@ class StudioApp(App[None]):
         border: round $accent;
     }
 
+    /* A 48-column side panel beside a `1fr` table leaves the table ten cells
+       in a 63-wide details pane. Below the width where both fit, they stack
+       and the table gets the full pane. */
+    Screen.compact-terminal #view-structure {
+        layout: vertical;
+        height: auto;
+    }
+
+    Screen.compact-terminal #view-field-table {
+        height: 10;
+    }
+
+    Screen.compact-terminal #view-structure-side {
+        width: 1fr;
+        height: auto;
+        margin-left: 0;
+        margin-top: 1;
+    }
+
+    Screen.compact-terminal #view-structure-preview {
+        height: auto;
+        min-height: 4;
+    }
+
     #view-structure-title {
         height: 2;
         padding: 0 1;
@@ -152,6 +233,14 @@ class StudioApp(App[None]):
     #property-editor, #studio-toolbar {
         height: 3;
         padding: 0 1;
+    }
+
+    /* Docked, so it keeps its place when the details pane scrolls. Selecting
+       a view adds a structure panel that pushed this off the bottom of every
+       certified terminal, and `Diagnostics` and `Edit YAML` are reachable
+       nowhere else. */
+    #studio-toolbar {
+        dock: bottom;
     }
 
     #property-value {
@@ -356,17 +445,18 @@ class StudioApp(App[None]):
         properties.add_column("Value", key="value")
         properties.add_column("Mode", key="mode", width=10)
         properties.cursor_type = "row"
-        view_fields = self.query_one("#view-field-table", DataTable)
-        view_fields.add_column("Track", key="track", width=22)
-        view_fields.add_column("#", key="position", width=4)
-        view_fields.add_column("Field", key="field", width=18)
-        view_fields.add_column("Label", key="label")
-        view_fields.add_column("Type", key="type", width=12)
-        view_fields.add_column("Origin", key="origin", width=18)
-        view_fields.cursor_type = "row"
+        # The view-structure columns are chosen against the width the layout
+        # actually gives the table, which is not known until it is displayed.
+        self.query_one("#view-field-table", DataTable).cursor_type = "row"
         self._populate_tree()
         self._select_first_document()
         self.query_one("#studio-tree", Tree).focus()
+
+    def on_resize(self, event: events.Resize) -> None:
+        self.screen.set_class(
+            event.size.width < _SIDE_BY_SIDE_MINIMUM_WIDTH, "compact-terminal"
+        )
+        self.call_after_refresh(self._sync_view_field_columns)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "apply-property":
@@ -801,33 +891,60 @@ class StudioApp(App[None]):
             preferred_group = local_groups[0].key
         group_selector.value = preferred_group or Select.NULL
         group_selector.display = structure.kind in {"form", "inline_edit"}
+        self.query_one("#view-structure", Horizontal).display = True
+        self._populate_view_field_table(structure)
+        self.query_one("#view-structure-preview", Static).update(
+            _view_structure_preview(structure)
+        )
+        self._sync_view_field_controls()
+        # The panel was hidden until a moment ago, so the width its table ends
+        # up with is only known after the next layout. Fit the columns to it
+        # then rather than to the zero it reports now.
+        self.call_after_refresh(self._sync_view_field_columns)
+
+    def _populate_view_field_table(self, structure: StudioViewStructure) -> None:
+        table = self.query_one("#view-field-table", DataTable)
+        table.clear(columns=True)
+        self._view_field_rows.clear()
+        self.query_one("#view-structure-title", Static).update("Resolved TUI structure")
+        columns = view_field_columns(self._view_field_table_width())
+        for column in columns:
+            table.add_column(column.label, key=column.key, width=column.width)
         selected_row = 0
         for index, field in enumerate(structure.fields):
             row_key = f"view-field-{index}"
             self._view_field_rows[row_key] = field
-            table.add_row(
-                (
-                    f"{field.track_label} / {field.source_group}"
-                    if field.source_group
-                    else field.track_label
-                ),
-                str(field.position + 1),
-                field.name,
-                field.label,
-                field.field_type,
-                field.origin,
-                key=row_key,
-            )
+            cells = {
+                "field": field.name,
+                "position": str(field.position + 1),
+                "type": field.field_type,
+                "origin": field.origin,
+                "label": field.label,
+            }
+            table.add_row(*(cells[column.key] for column in columns), key=row_key)
             if field.key == self._selected_view_field_key:
                 selected_row = index
-        self.query_one("#view-structure", Horizontal).display = True
-        self.query_one("#view-structure-preview", Static).update(
-            _view_structure_preview(structure)
-        )
         if structure.fields:
             table.move_cursor(row=selected_row)
             self._select_view_field(f"view-field-{selected_row}")
-        self._sync_view_field_controls()
+
+    def _view_field_table_width(self) -> int:
+        table = self._panel_widget("#view-field-table", DataTable)
+        return 0 if table is None else table.scrollable_content_region.width
+
+    def _sync_view_field_columns(self) -> None:
+        """Re-fit the view-structure columns to the width the layout gave them."""
+
+        structure = self.view_structure
+        table = self._panel_widget("#view-field-table", DataTable)
+        if structure is None or table is None or not table.display:
+            return
+        wanted = tuple(column.key for column in view_field_columns(
+            self._view_field_table_width()
+        ))
+        if wanted == tuple(str(key.value) for key in table.columns):
+            return
+        self._populate_view_field_table(structure)
 
     def _panel_widget(
         self,
@@ -860,6 +977,17 @@ class StudioApp(App[None]):
             return
         self.selected_view_field = selected
         self._selected_view_field_key = selected.key
+        title = self._panel_widget("#view-structure-title", Static)
+        if title is not None:
+            # Move up, Move down and the two swaps all act within one track,
+            # so the selected field's track is what a person needs while
+            # pressing them -- stated once here rather than repeated down a
+            # column of identical cells.
+            title.update(
+                f"{selected.track_label} / {selected.source_group}"
+                if selected.source_group
+                else selected.track_label
+            )
         group_selector = self._panel_widget("#view-field-group-choice", Select)
         if group_selector is not None and selected.source_group_key is not None and any(
             group.key == selected.source_group_key
