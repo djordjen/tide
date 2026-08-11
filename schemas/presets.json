@@ -1,0 +1,45 @@
+{
+  "$defs": {
+    "PresetSource": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "browse",
+            "form",
+            "lookup",
+            "inline_edit"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "settings": {
+          "additionalProperties": true,
+          "title": "Settings",
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "PresetSource",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "presets": {
+      "additionalProperties": {
+        "$ref": "#/$defs/PresetSource"
+      },
+      "title": "Presets",
+      "type": "object"
+    }
+  },
+  "required": [
+    "presets"
+  ],
+  "title": "PresetDocumentSource",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

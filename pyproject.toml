@@ -56,6 +56,7 @@ dev = [
     "fastapi>=0.116,<1",
     "Faker>=37.4,<38",
     "httpx>=0.28,<1",
+    "jsonschema>=4.25,<5",
     "mcp>=1.28,<2",
     "mypy>=1.18,<2",
     "PyJWT[crypto]>=2.10,<3",

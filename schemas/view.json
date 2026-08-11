@@ -1,0 +1,157 @@
+{
+  "$defs": {
+    "FilterSource": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "criteria": {
+          "title": "Criteria",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "criteria"
+      ],
+      "title": "FilterSource",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "view": {
+      "title": "View",
+      "type": "string"
+    },
+    "entity": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Entity"
+    },
+    "kind": {
+      "anyOf": [
+        {
+          "enum": [
+            "browse",
+            "form",
+            "lookup",
+            "inline_edit"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Kind"
+    },
+    "base": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Base"
+    },
+    "mode": {
+      "default": "overlay",
+      "enum": [
+        "overlay",
+        "replace"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "extends": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Extends"
+    },
+    "settings": {
+      "additionalProperties": true,
+      "title": "Settings",
+      "type": "object"
+    },
+    "fields": {
+      "additionalProperties": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Fields",
+      "type": "object"
+    },
+    "columns": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Columns",
+      "type": "array"
+    },
+    "search": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Search",
+      "type": "array"
+    },
+    "filters": {
+      "additionalProperties": {
+        "$ref": "#/$defs/FilterSource"
+      },
+      "title": "Filters",
+      "type": "object"
+    },
+    "layout": {
+      "default": [],
+      "items": {},
+      "title": "Layout",
+      "type": "array"
+    },
+    "actions": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Actions",
+      "type": "array"
+    },
+    "surfaces": {
+      "additionalProperties": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Surfaces",
+      "type": "object"
+    }
+  },
+  "required": [
+    "view"
+  ],
+  "title": "ViewSource",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

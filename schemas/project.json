@@ -1,0 +1,132 @@
+{
+  "$defs": {
+    "ApplicationSource": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "ApplicationSource",
+      "type": "object"
+    },
+    "DatabaseSource": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "default": "managed",
+          "enum": [
+            "managed",
+            "legacy"
+          ],
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "title": "DatabaseSource",
+      "type": "object"
+    },
+    "PathSetSource": {
+      "additionalProperties": false,
+      "properties": {
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Paths",
+          "type": "array"
+        }
+      },
+      "required": [
+        "paths"
+      ],
+      "title": "PathSetSource",
+      "type": "object"
+    },
+    "PresentationPathsSource": {
+      "additionalProperties": false,
+      "properties": {
+        "defaults": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Defaults"
+        },
+        "formats": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Formats"
+        },
+        "presets": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Presets",
+          "type": "array"
+        }
+      },
+      "title": "PresentationPathsSource",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "application": {
+      "$ref": "#/$defs/ApplicationSource"
+    },
+    "database": {
+      "$ref": "#/$defs/DatabaseSource"
+    },
+    "model": {
+      "$ref": "#/$defs/PathSetSource"
+    },
+    "views": {
+      "$ref": "#/$defs/PathSetSource"
+    },
+    "presentation": {
+      "$ref": "#/$defs/PresentationPathsSource"
+    },
+    "reports": {
+      "$ref": "#/$defs/PathSetSource"
+    },
+    "security": {
+      "$ref": "#/$defs/PathSetSource"
+    }
+  },
+  "required": [
+    "schema_version",
+    "application",
+    "model"
+  ],
+  "title": "ProjectSource",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

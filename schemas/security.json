@@ -1,0 +1,138 @@
+{
+  "$defs": {
+    "FieldPolicySource": {
+      "additionalProperties": false,
+      "properties": {
+        "entity": {
+          "title": "Entity",
+          "type": "string"
+        },
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "read": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Read"
+        },
+        "write": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Write"
+        }
+      },
+      "required": [
+        "entity",
+        "field"
+      ],
+      "title": "FieldPolicySource",
+      "type": "object"
+    },
+    "RoleSource": {
+      "additionalProperties": false,
+      "properties": {
+        "grants": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Grants",
+          "type": "array"
+        }
+      },
+      "title": "RoleSource",
+      "type": "object"
+    },
+    "RowPolicySource": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "entity": {
+          "title": "Entity",
+          "type": "string"
+        },
+        "operations": {
+          "items": {
+            "enum": [
+              "list",
+              "read",
+              "create",
+              "update",
+              "delete"
+            ],
+            "type": "string"
+          },
+          "title": "Operations",
+          "type": "array"
+        },
+        "criteria": {
+          "title": "Criteria",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "entity",
+        "operations",
+        "criteria"
+      ],
+      "title": "RowPolicySource",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "permissions": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Permissions",
+      "type": "array"
+    },
+    "roles": {
+      "additionalProperties": {
+        "$ref": "#/$defs/RoleSource"
+      },
+      "title": "Roles",
+      "type": "object"
+    },
+    "row_policies": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/RowPolicySource"
+      },
+      "title": "Row Policies",
+      "type": "array"
+    },
+    "field_policies": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/FieldPolicySource"
+      },
+      "title": "Field Policies",
+      "type": "array"
+    }
+  },
+  "title": "SecurityDocumentSource",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

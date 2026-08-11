@@ -142,10 +142,21 @@ def _view_explain(arguments: argparse.Namespace) -> int:
     return 0
 
 
-def _model_schema(arguments: argparse.Namespace) -> int:
-    schema = SCHEMA_TYPES[arguments.kind].model_json_schema(by_alias=True)
+def schema_document(kind: str) -> str:
+    """The exact text `tide model schema` writes.
+
+    A caller that regenerates the checked-in `schemas/` files has to produce
+    the same bytes, so the stamp, the indent and the trailing newline live
+    here rather than in each caller.
+    """
+
+    schema = SCHEMA_TYPES[kind].model_json_schema(by_alias=True)
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-    text = json.dumps(schema, indent=2) + "\n"
+    return json.dumps(schema, indent=2) + "\n"
+
+
+def _model_schema(arguments: argparse.Namespace) -> int:
+    text = schema_document(arguments.kind)
     if arguments.output:
         arguments.output.write_text(text, encoding="utf-8")
     else:

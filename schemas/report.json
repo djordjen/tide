@@ -1,0 +1,429 @@
+{
+  "$defs": {
+    "ParameterSource": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "string",
+            "integer",
+            "decimal",
+            "boolean",
+            "date",
+            "datetime"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "default": {
+          "default": null,
+          "title": "Default"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "ParameterSource",
+      "type": "object"
+    },
+    "QuerySource": {
+      "additionalProperties": false,
+      "properties": {
+        "criteria": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Criteria"
+        },
+        "sort": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Sort",
+          "type": "array"
+        }
+      },
+      "title": "QuerySource",
+      "type": "object"
+    },
+    "ReportAggregateSource": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "function": {
+          "enum": [
+            "count",
+            "sum"
+          ],
+          "title": "Function",
+          "type": "string"
+        },
+        "field": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Field"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Format"
+        }
+      },
+      "required": [
+        "name",
+        "function"
+      ],
+      "title": "ReportAggregateSource",
+      "type": "object"
+    },
+    "ReportBandsSource": {
+      "additionalProperties": false,
+      "properties": {
+        "report_header": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ReportContentSource"
+          },
+          "title": "Report Header",
+          "type": "array"
+        },
+        "record_header": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ReportContentSource"
+          },
+          "title": "Record Header",
+          "type": "array"
+        },
+        "detail": {
+          "$ref": "#/$defs/ReportDetailSource"
+        },
+        "report_footer": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ReportContentSource"
+          },
+          "title": "Report Footer",
+          "type": "array"
+        },
+        "page_footer": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ReportContentSource"
+          },
+          "title": "Page Footer",
+          "type": "array"
+        }
+      },
+      "required": [
+        "detail"
+      ],
+      "title": "ReportBandsSource",
+      "type": "object"
+    },
+    "ReportContentSource": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
+        "field": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Field"
+        },
+        "expression": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expression"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Format"
+        },
+        "style": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Style"
+        }
+      },
+      "title": "ReportContentSource",
+      "type": "object"
+    },
+    "ReportDetailSource": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "columns": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Columns",
+          "type": "array"
+        }
+      },
+      "required": [
+        "source",
+        "columns"
+      ],
+      "title": "ReportDetailSource",
+      "type": "object"
+    },
+    "ReportExposureSource": {
+      "additionalProperties": false,
+      "properties": {
+        "rest": {
+          "default": false,
+          "title": "Rest",
+          "type": "boolean"
+        },
+        "mcp": {
+          "default": false,
+          "title": "Mcp",
+          "type": "boolean"
+        }
+      },
+      "title": "ReportExposureSource",
+      "type": "object"
+    },
+    "ReportGroupSource": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Format"
+        }
+      },
+      "required": [
+        "field"
+      ],
+      "title": "ReportGroupSource",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "report": {
+      "title": "Report",
+      "type": "string"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "entity": {
+      "title": "Entity",
+      "type": "string"
+    },
+    "kind": {
+      "default": "record",
+      "enum": [
+        "record",
+        "summary"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "permission": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Permission"
+    },
+    "unrestricted": {
+      "default": false,
+      "title": "Unrestricted",
+      "type": "boolean"
+    },
+    "expose": {
+      "$ref": "#/$defs/ReportExposureSource"
+    },
+    "parameters": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ParameterSource"
+      },
+      "title": "Parameters",
+      "type": "object"
+    },
+    "query": {
+      "$ref": "#/$defs/QuerySource"
+    },
+    "bands": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReportBandsSource"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "group_by": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ReportGroupSource"
+      },
+      "title": "Group By",
+      "type": "array"
+    },
+    "aggregates": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ReportAggregateSource"
+      },
+      "title": "Aggregates",
+      "type": "array"
+    },
+    "row_limit": {
+      "anyOf": [
+        {
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Row Limit"
+    }
+  },
+  "required": [
+    "report",
+    "title",
+    "entity"
+  ],
+  "title": "ReportSource",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

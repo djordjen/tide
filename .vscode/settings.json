@@ -1,0 +1,19 @@
+{
+  "//": "Metadata authoring happens in your editor; `tide studio` inspects the resolved model. These schemas are exported from the same Pydantic sources the compiler loads (`tide model schema <kind>`) and are checked against every application YAML by tests/test_source_schema.py. Requires the redhat.vscode-yaml extension.",
+  "yaml.schemas": {
+    "./schemas/project.json": ["applications/*/tide.yaml"],
+    "./schemas/entity.json": ["applications/*/models/**/*.yaml"],
+    "./schemas/view.json": ["applications/*/views/**/*.yaml"],
+    "./schemas/report.json": ["applications/*/reports/**/*.yaml"],
+    "./schemas/security.json": ["applications/*/security/**/*.yaml"],
+    "./schemas/defaults.json": ["applications/*/presentation/defaults.yaml"],
+    "./schemas/formats.json": ["applications/*/presentation/formats.yaml"],
+    "./schemas/presets.json": ["applications/*/presentation/presets.yaml"]
+  },
+  "yaml.validate": true,
+  "yaml.completion": true,
+  "yaml.hover": true,
+  "files.associations": {
+    "tide.yaml": "yaml"
+  }
+}

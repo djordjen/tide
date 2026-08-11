@@ -1,0 +1,19 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "formats": {
+      "additionalProperties": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Formats",
+      "type": "object"
+    }
+  },
+  "required": [
+    "formats"
+  ],
+  "title": "FormatsSource",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

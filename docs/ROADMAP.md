@@ -15,7 +15,10 @@ checked candidate previews.
 - living architecture documentation and decision log;
 - Python package, CLI, configuration, and test skeleton;
 - initial typed source metadata models;
-- explicit source-schema version, JSON Schema export, and stable diagnostic codes;
+- explicit source-schema version, JSON Schema export, and stable diagnostic
+  codes; **2026-08-11**: the eight schemas are checked in under `schemas/` and
+  wired to VS Code, so authoring application YAML in an editor validates and
+  completes against the real contract;
 - project/file discovery;
 - basic Textual application shell;
 - SQLite connection;

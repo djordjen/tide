@@ -250,6 +250,17 @@ live browse/form runtime, compact terminals scroll instead of clipping tools,
 and invalid view candidates retain an explanation while designer actions fail
 closed.
 
+Authoring metadata in an ordinary editor is now the documented path. The eight
+exported JSON Schemas are checked in under `schemas/`, `.vscode/settings.json`
+maps every application path to the right one, and any editor with JSON Schema
+support can read the same files. Wiring it up found that the `transition` block
+advertised `from` as a list while the loader also accepts a scalar — the
+spelling both applications use — so an editor would have marked every action in
+the repository invalid; the export now describes the accepted input. Three
+tests hold it there: a checked-in schema must equal a fresh export, the
+editor's globs must classify exactly what each `tide.yaml` declares, and every
+checked-in document must validate against the schema it maps to.
+
 Studio's own layout now fits the terminals the rest of the TUI is certified
 for. Its view-structure table asked for a fixed 79 columns and was given ten
 at 100×30, so every row of a browse view rendered as the same truncated

@@ -1,0 +1,1141 @@
+{
+  "$defs": {
+    "ActionExposureSource": {
+      "additionalProperties": false,
+      "properties": {
+        "rest": {
+          "default": false,
+          "title": "Rest",
+          "type": "boolean"
+        },
+        "mcp": {
+          "default": false,
+          "title": "Mcp",
+          "type": "boolean"
+        }
+      },
+      "title": "ActionExposureSource",
+      "type": "object"
+    },
+    "ActionSource": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "shortcut": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shortcut"
+        },
+        "enabled_when": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabled When"
+        },
+        "visible_when": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Visible When"
+        },
+        "permission": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Permission"
+        },
+        "unrestricted": {
+          "default": false,
+          "title": "Unrestricted",
+          "type": "boolean"
+        },
+        "execute": {
+          "title": "Execute",
+          "type": "string"
+        },
+        "expose": {
+          "$ref": "#/$defs/ActionExposureSource"
+        },
+        "idempotent": {
+          "default": false,
+          "title": "Idempotent",
+          "type": "boolean"
+        },
+        "audit": {
+          "default": true,
+          "title": "Audit",
+          "type": "boolean"
+        },
+        "transition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TransitionSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "label",
+        "execute"
+      ],
+      "title": "ActionSource",
+      "type": "object"
+    },
+    "ComputedSource": {
+      "additionalProperties": false,
+      "properties": {
+        "expression": {
+          "title": "Expression",
+          "type": "string"
+        },
+        "materialization": {
+          "default": "virtual",
+          "enum": [
+            "virtual",
+            "stored",
+            "database"
+          ],
+          "title": "Materialization",
+          "type": "string"
+        }
+      },
+      "required": [
+        "expression"
+      ],
+      "title": "ComputedSource",
+      "type": "object"
+    },
+    "EditMaskSource": {
+      "additionalProperties": false,
+      "properties": {
+        "regex": {
+          "minLength": 1,
+          "title": "Regex",
+          "type": "string"
+        }
+      },
+      "required": [
+        "regex"
+      ],
+      "title": "EditMaskSource",
+      "type": "object"
+    },
+    "EntityExposureSource": {
+      "additionalProperties": false,
+      "properties": {
+        "tui": {
+          "default": false,
+          "title": "Tui",
+          "type": "boolean"
+        },
+        "rest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RestExposureSource"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "default": false,
+          "title": "Rest"
+        },
+        "mcp": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/McpExposureSource"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "default": false,
+          "title": "Mcp"
+        }
+      },
+      "title": "EntityExposureSource",
+      "type": "object"
+    },
+    "EntityPermissionsSource": {
+      "additionalProperties": false,
+      "properties": {
+        "list": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "List"
+        },
+        "read": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Read"
+        },
+        "create": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Create"
+        },
+        "update": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Update"
+        },
+        "delete": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Delete"
+        },
+        "audit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Audit"
+        }
+      },
+      "title": "EntityPermissionsSource",
+      "type": "object"
+    },
+    "EntityStorageSource": {
+      "additionalProperties": false,
+      "properties": {
+        "table": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Table"
+        },
+        "schema": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Schema"
+        },
+        "migration_id": {
+          "anyOf": [
+            {
+              "minLength": 3,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Migration Id"
+        },
+        "renamed_from": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PreviousTableSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "EntityStorageSource",
+      "type": "object"
+    },
+    "FieldSource": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "string",
+            "integer",
+            "decimal",
+            "boolean",
+            "date",
+            "datetime",
+            "choice",
+            "reference",
+            "collection"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "help": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Help"
+        },
+        "primary_key": {
+          "default": false,
+          "title": "Primary Key",
+          "type": "boolean"
+        },
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "unique": {
+          "default": false,
+          "title": "Unique",
+          "type": "boolean"
+        },
+        "readonly": {
+          "default": false,
+          "title": "Readonly",
+          "type": "boolean"
+        },
+        "searchable": {
+          "default": false,
+          "title": "Searchable",
+          "type": "boolean"
+        },
+        "concurrency_token": {
+          "default": false,
+          "title": "Concurrency Token",
+          "type": "boolean"
+        },
+        "length": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Length"
+        },
+        "precision": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Precision"
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scale"
+        },
+        "minimum": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minimum"
+        },
+        "maximum": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maximum"
+        },
+        "default": {
+          "default": null,
+          "title": "Default"
+        },
+        "default_factory": {
+          "anyOf": [
+            {
+              "const": "today",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Factory"
+        },
+        "server_default": {
+          "default": null,
+          "title": "Server Default"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Format"
+        },
+        "edit_mask": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/EditMaskSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Edit Mask"
+        },
+        "choices": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Choices",
+          "type": "array"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "column": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Column"
+        },
+        "storage": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Storage"
+        },
+        "migration_id": {
+          "anyOf": [
+            {
+              "minLength": 3,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Migration Id"
+        },
+        "renamed_from": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Renamed From"
+        },
+        "inverse": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inverse"
+        },
+        "on_delete": {
+          "anyOf": [
+            {
+              "enum": [
+                "restrict",
+                "cascade",
+                "set_null"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "On Delete"
+        },
+        "lookup_view": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lookup View"
+        },
+        "on_select": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SelectionSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "order_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Order By"
+        },
+        "cascade": {
+          "default": [],
+          "items": {
+            "enum": [
+              "create",
+              "update",
+              "delete"
+            ],
+            "type": "string"
+          },
+          "title": "Cascade",
+          "type": "array"
+        },
+        "orphan_delete": {
+          "default": false,
+          "title": "Orphan Delete",
+          "type": "boolean"
+        },
+        "computed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComputedSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "write": {
+          "default": "normal",
+          "enum": [
+            "normal",
+            "action_only",
+            "system"
+          ],
+          "title": "Write",
+          "type": "string"
+        },
+        "immutable_when": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Immutable When"
+        },
+        "generated_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Generated By"
+        },
+        "audit": {
+          "default": "changes",
+          "enum": [
+            "none",
+            "changes",
+            "values"
+          ],
+          "title": "Audit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "FieldSource",
+      "type": "object"
+    },
+    "FilterSource": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "criteria": {
+          "title": "Criteria",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "criteria"
+      ],
+      "title": "FilterSource",
+      "type": "object"
+    },
+    "McpExposureSource": {
+      "additionalProperties": false,
+      "properties": {
+        "resources": {
+          "default": [],
+          "items": {
+            "enum": [
+              "schema",
+              "record",
+              "audit"
+            ],
+            "type": "string"
+          },
+          "title": "Resources",
+          "type": "array"
+        },
+        "tools": {
+          "default": [],
+          "items": {
+            "enum": [
+              "search",
+              "create",
+              "update",
+              "delete"
+            ],
+            "type": "string"
+          },
+          "title": "Tools",
+          "type": "array"
+        }
+      },
+      "title": "McpExposureSource",
+      "type": "object"
+    },
+    "PreviousTableSource": {
+      "additionalProperties": false,
+      "properties": {
+        "table": {
+          "minLength": 1,
+          "title": "Table",
+          "type": "string"
+        },
+        "schema": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Schema"
+        }
+      },
+      "required": [
+        "table"
+      ],
+      "title": "PreviousTableSource",
+      "type": "object"
+    },
+    "RestExposureSource": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "operations": {
+          "default": [],
+          "items": {
+            "enum": [
+              "list",
+              "get",
+              "create",
+              "update",
+              "delete"
+            ],
+            "type": "string"
+          },
+          "title": "Operations",
+          "type": "array"
+        }
+      },
+      "title": "RestExposureSource",
+      "type": "object"
+    },
+    "SelectionAssignmentSource": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "minLength": 1,
+          "title": "From",
+          "type": "string"
+        },
+        "overwrite": {
+          "default": "always",
+          "enum": [
+            "always",
+            "when_blank"
+          ],
+          "title": "Overwrite",
+          "type": "string"
+        }
+      },
+      "required": [
+        "from"
+      ],
+      "title": "SelectionAssignmentSource",
+      "type": "object"
+    },
+    "SelectionSource": {
+      "additionalProperties": false,
+      "properties": {
+        "assign": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SelectionAssignmentSource"
+          },
+          "title": "Assign",
+          "type": "object"
+        }
+      },
+      "required": [
+        "assign"
+      ],
+      "title": "SelectionSource",
+      "type": "object"
+    },
+    "TransitionSource": {
+      "additionalProperties": false,
+      "description": "The one place an action's effect on a state field is declared.\n\n`from`/`to` name states of a `choice` field the workflow owns, and the\ncompiler derives the action's state guard from `from`. `locks_record`\nsays that arriving at `to` freezes the ordinarily writable fields, which\nis what four copies of `immutable_when: \"status != 'draft'\"` used to say\nby hand. `stamp` names the fields the handler records the transition in;\nthe compiler checks them rather than writing them, so the handler stays\nthe only thing that mutates a record.",
+      "properties": {
+        "field": {
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "From"
+        },
+        "to": {
+          "minLength": 1,
+          "title": "To",
+          "type": "string"
+        },
+        "locks_record": {
+          "default": false,
+          "title": "Locks Record",
+          "type": "boolean"
+        },
+        "stamp": {
+          "additionalProperties": {
+            "enum": [
+              "now",
+              "principal"
+            ],
+            "type": "string"
+          },
+          "title": "Stamp",
+          "type": "object"
+        }
+      },
+      "required": [
+        "field",
+        "from",
+        "to"
+      ],
+      "title": "TransitionSource",
+      "type": "object"
+    },
+    "ValidationSource": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "assert": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assert"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "When"
+        },
+        "handler": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Handler"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "fields": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Fields",
+          "type": "array"
+        },
+        "run": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Run",
+          "type": "array"
+        },
+        "severity": {
+          "default": "error",
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ],
+          "title": "Severity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "message"
+      ],
+      "title": "ValidationSource",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "entity": {
+      "title": "Entity",
+      "type": "string"
+    },
+    "label": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Label"
+    },
+    "record_label": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Record Label"
+    },
+    "display": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Display"
+    },
+    "storage": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EntityStorageSource"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "search_fields": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Search Fields",
+      "type": "array"
+    },
+    "expose": {
+      "$ref": "#/$defs/EntityExposureSource"
+    },
+    "permissions": {
+      "$ref": "#/$defs/EntityPermissionsSource"
+    },
+    "presentation": {
+      "additionalProperties": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "propertyNames": {
+        "enum": [
+          "browse",
+          "form",
+          "lookup",
+          "inline_edit"
+        ]
+      },
+      "title": "Presentation",
+      "type": "object"
+    },
+    "fields": {
+      "additionalProperties": {
+        "$ref": "#/$defs/FieldSource"
+      },
+      "title": "Fields",
+      "type": "object"
+    },
+    "validations": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ValidationSource"
+      },
+      "title": "Validations",
+      "type": "array"
+    },
+    "actions": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ActionSource"
+      },
+      "title": "Actions",
+      "type": "object"
+    },
+    "filters": {
+      "additionalProperties": {
+        "$ref": "#/$defs/FilterSource"
+      },
+      "title": "Filters",
+      "type": "object"
+    }
+  },
+  "required": [
+    "entity",
+    "fields"
+  ],
+  "title": "EntitySource",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

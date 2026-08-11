@@ -129,11 +129,45 @@ model before a renderer or data adapter can use it. See the
 [application model](APPLICATION-MODEL.md) and
 [metadata v0.1 reference](METADATA-V0.md) for the accepted contract.
 
+## Author YAML in your editor
+
+YAML is the authoring format, and an ordinary editor is the best place to write
+it. `tide model schema` exports a JSON Schema for each source kind from the
+same Pydantic models the compiler loads, and all eight are checked in under
+`schemas/`, so a fresh clone needs no build step.
+
+VS Code is wired up already: `.vscode/settings.json` maps each application path
+to its schema, so with the
+[YAML extension](https://marketplace.visualstudio.com/items?itemName=redhat.vscode-yaml)
+installed you get property completion, enumerated values for `type:`, `kind:`
+and `on_delete:`, and an inline error on an unknown key — against the real
+contract rather than a copy of it. Any editor with JSON Schema support can read
+the same files. Regenerate one with:
+
+```bash
+uv run tide model schema entity --output schemas/entity.json
+```
+
+`tests/test_source_schema.py` holds this honest in three directions: a
+checked-in schema must equal a fresh export, the editor's globs must classify
+exactly the files each application's `tide.yaml` declares, and every checked-in
+document must validate against the schema it is mapped to. The last of those is
+not theoretical — it found the `transition` block advertising `from` as a list
+when the loader also accepts a plain string, which is how both applications
+write it.
+
+Schema validation is not the compiler. It checks one document's shape; `tide
+model validate` checks references, expressions, permissions, and everything
+that spans files.
+
 ## Open TIDE Studio
 
-Studio provides a structured application tree, schema-aware property editors,
-view-layout tools, searchable syntax-colored YAML, validation, exact diffs,
-undo/redo, and an approval-bound save workflow.
+Studio shows the **resolved** model, which no editor can: a view with its
+presets and overlays merged, where each field came from, and how the result
+looks to a chosen role at a chosen terminal size. It also provides a structured
+application tree, typed property editors, view-layout tools, searchable
+syntax-colored YAML, validation, exact diffs, undo/redo, and an approval-bound
+save workflow.
 
 ```powershell
 .\start.bat studio

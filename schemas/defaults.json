@@ -1,0 +1,86 @@
+{
+  "$defs": {
+    "NavigationGroupSource": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/NavigationItemSource"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "label",
+        "items"
+      ],
+      "title": "NavigationGroupSource",
+      "type": "object"
+    },
+    "NavigationItemSource": {
+      "additionalProperties": false,
+      "properties": {
+        "view": {
+          "title": "View",
+          "type": "string"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        }
+      },
+      "required": [
+        "view"
+      ],
+      "title": "NavigationItemSource",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "browse": {
+      "additionalProperties": true,
+      "title": "Browse",
+      "type": "object"
+    },
+    "form": {
+      "additionalProperties": true,
+      "title": "Form",
+      "type": "object"
+    },
+    "lookup": {
+      "additionalProperties": true,
+      "title": "Lookup",
+      "type": "object"
+    },
+    "inline_edit": {
+      "additionalProperties": true,
+      "title": "Inline Edit",
+      "type": "object"
+    },
+    "navigation": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/NavigationGroupSource"
+      },
+      "title": "Navigation",
+      "type": "array"
+    }
+  },
+  "title": "PresentationDefaultsSource",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

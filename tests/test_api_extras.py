@@ -28,7 +28,21 @@ import pytest
 ROOT = Path(__file__).parents[1]
 
 # Installed with `--extra dev` for the test run and so never blocked here.
-TOOLING = frozenset({"build", "mypy", "pytest", "pytest-cov", "pytest-xdist", "ruff", "types-pyyaml"})
+TOOLING = frozenset(
+    {
+        "build",
+        # Validates the exported JSON Schema against every checked-in application
+        # YAML. A test tool, not a runtime dependency: TIDE loads YAML through
+        # Pydantic and never reads its own JSON Schema back.
+        "jsonschema",
+        "mypy",
+        "pytest",
+        "pytest-cov",
+        "pytest-xdist",
+        "ruff",
+        "types-pyyaml",
+    }
+)
 # The one extra deliberately outside `dev`: pyodbc needs a system driver that
 # no runner is guaranteed to have. PySide6 was the other, and left with the Qt
 # renderer -- both CI jobs now install the same environment. This assertion is

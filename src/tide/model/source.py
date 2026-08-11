@@ -7,7 +7,7 @@ immutable runtime model in :mod:`tide.compiler.normalized`.
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Any, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -208,7 +208,11 @@ class TransitionSource(SourceModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
 
-    @field_validator("from_", mode="before")
+    @field_validator(
+        "from_",
+        mode="before",
+        json_schema_input_type=Union[str, tuple[str, ...]],
+    )
     @classmethod
     def one_or_more_states(cls, value: Any) -> Any:
         """`from: draft` and `from: [draft, held]` both name a set of states.
@@ -217,6 +221,12 @@ class TransitionSource(SourceModel):
         carried several, and flattened them into `status in [...]` -- which the
         expression language does not accept, so that branch could only ever
         produce a model that refused to compile.
+
+        `json_schema_input_type` is what tells `tide model schema` that the
+        scalar form is accepted. Without it the export describes the validated
+        type -- a list -- and an editor pointed at the schema rejects every
+        `from: draft` in this repository, which is how both applications write
+        it.
         """
 
         return (value,) if isinstance(value, str) else value
