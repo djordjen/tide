@@ -327,6 +327,36 @@ the optional migration adapter verifies that artifact and renders dialect SQL
 without a database connection. TIDE still cannot apply it. See
 [Schema migrations](docs/MIGRATIONS.md).
 
+### Documentation and screenshots
+
+The README shows all three visible surfaces rather than only the terminal:
+browse, editor and lookup from the Textual client, browse and record editor
+from the Web UI, the generated OpenAPI description, and Studio editing a view.
+
+Every one of them is generated. `tools/capture_screenshots.py` drives the real
+`TideApp` and `StudioApp` through the same headless pilot the Textual suites
+use and exports the SVGs; `npm run screenshots` in `web/` stands up the server
+the end-to-end journeys use, signs in through it, and writes the PNGs. The
+first set, captured by hand in July, had no way to make another and had gone
+six weeks stale. Neither command runs in CI: both write into the working tree.
+
+Capturing the API description found that it cannot be read in a browser under
+the configuration the Web UI documentation describes. `tide serve --auth local`
+sends `script-src 'self'`, and FastAPI's Swagger UI is a CDN script tag plus an
+inline initialiser, so `/docs` returns 200 and renders an empty page. The
+existing exposure tests assert the status code, which is true either way. The
+screenshot is therefore taken against the quick start's bearer-token server,
+which sends no browser security headers; a fix is not yet chosen, because every
+option trades the policy, a vendored copy of Swagger UI, or the CDN against
+each other.
+
+`tests/test_launcher_contracts.py` finds the Node scripts that compose a
+`tide serve` by searching `web/` rather than by naming them, so the third one
+was covered on arrival. It walks with `node_modules` pruned from the descent:
+the design-sync setup leaves a junction inside it pointing back at `web/`, and
+a recursive glob that filters the results instead of the walk recurses until
+Windows refuses the path.
+
 ### Not yet
 
 Shared encrypted multi-worker browser sessions, provider-wide logout, trusted

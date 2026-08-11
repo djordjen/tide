@@ -27,10 +27,16 @@ It deliberately avoids editable generated code, implicit framework magic, and
 deep abstraction hierarchies. Application structure is declarative; complex
 business behavior remains ordinary Python.
 
-## TUI preview
+## What it looks like
 
-These captures come from the real Textual client running the bundled invoicing
-application with deterministic demo data. Select an image to open it full size.
+One compiled application, seen through its clients. Every capture below is the
+bundled invoicing application with its deterministic demo data, taken from the
+running product: the terminal ones exported from the real Textual client, the
+browser ones driven through Playwright against `tide serve`. MCP is the fourth
+interface and the one with nothing to photograph. Select an image to open it
+full size.
+
+### Terminal
 
 [![TIDE invoice browser](docs/images/tide-invoice-browser.svg)](docs/images/tide-invoice-browser.svg)
 
@@ -52,6 +58,39 @@ application with deterministic demo data. Select an image to open it full size.
     </td>
   </tr>
 </table>
+
+### Web
+
+The same model, the same services, the same permissions, rendered by React
+instead of by Textual. Sign-in is TIDE's own; the browse below is paged and
+incremental, and every customer name in it arrived with the page rather than
+costing a request.
+
+[![TIDE Web UI invoice browse](docs/images/tide-web-invoices.png)](docs/images/tide-web-invoices.png)
+
+Forms are generated from the view, not hand-built, and are deliberately dense:
+a field is a label and a control. What a principal may write, and which actions
+are offered, come from the compiled model and are re-checked server-side.
+
+[![TIDE Web UI invoice editor](docs/images/tide-web-invoice.png)](docs/images/tide-web-invoice.png)
+
+### REST
+
+Only what the metadata exposes. `sales.Invoice` asks for `list`, `get`,
+`create` and `update`, so the generated description offers those and no delete;
+`post` and `void` are endpoints of their own because the model declares them as
+actions, rather than a status field a client is trusted to set.
+
+[![Generated OpenAPI description for the invoice endpoints](docs/images/tide-api-docs.png)](docs/images/tide-api-docs.png)
+
+### Studio
+
+Inspect and edit the compiled model with no database in the picture: the
+resolved view, where each field came from, and its layout. Edits are applied to
+an in-memory candidate, and no source file is written without an explicit
+approval.
+
+[![TIDE Studio editing a view](docs/images/tide-studio.svg)](docs/images/tide-studio.svg)
 
 ## Quick start
 

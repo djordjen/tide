@@ -53,6 +53,33 @@ but prose does not travel with a copy-paste, so the fence has to say it too.
 The check covers `tide` only — `uv`, `npm` and `git` lines in the same blocks
 are on you.
 
+## Screenshots
+
+The images in `docs/images/` are generated, not collected. Nothing verifies
+them — a screenshot is the one kind of documentation that cannot be compiled,
+link-checked, or run — so the only defence against a stale one is that
+replacing it costs a command:
+
+```bash
+uv run python tools/capture_screenshots.py
+```
+
+```bash
+npm run build && npm run screenshots
+```
+
+The first drives the real Textual client and Studio headlessly and writes the
+SVGs. The second, from `web/`, stands up the same server the end-to-end
+journeys use, signs in through it, and writes the PNGs; it needs the built
+renderer, which is what the `npm run build` in front of it is for. Neither runs
+in CI, because both write into the working tree.
+
+Regenerate after any change a reader would see, and look at what came out: the
+capture waits for the screen it wants, but nothing checks that the screen is
+worth showing. Sizes are chosen per capture and are part of the source — a
+capture widened past what GitHub renders is legible in the file and unreadable
+on the page.
+
 ## Compatibility discipline
 
 - Unknown metadata properties are errors; do not silently accept misspellings.
