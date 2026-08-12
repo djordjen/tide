@@ -262,3 +262,29 @@ test("browses and opens a record without touching the mouse", async ({
     page.getByRole("heading", { level: 1, name: /INV-2026-0002/ }),
   ).toBeVisible()
 })
+
+test("names the tab after the screen and wears a mark", async ({ page }) => {
+  // Every screen used to be `TIDE Framework`, so two tabs of one application
+  // were indistinguishable and the history was a column of identical entries.
+  await page.goto("/")
+  await expect(page).toHaveTitle("TIDE Framework")
+
+  await signIn(page)
+  await expect(page).toHaveTitle("Invoices · TIDE Invoicing")
+
+  await page.getByRole("row", { name: /INV-2026-0002/ }).click()
+  await page.getByRole("button", { name: "Open" }).click()
+  await expect(page).toHaveTitle("Invoice — INV-2026-0002 · TIDE Invoicing")
+
+  await page.goBack()
+  await expect(page).toHaveTitle("Invoices · TIDE Invoicing")
+
+  // Served as an image, not swallowed by the SPA catch-all that answers an
+  // unknown path with `index.html` -- which is what `/favicon.ico` still gets
+  // and is why the icon is declared rather than guessed at.
+  const icon = page.locator('link[rel="icon"]')
+  await expect(icon).toHaveAttribute("href", "/favicon.svg")
+  const served = await page.request.get("/favicon.svg")
+  expect(served.status()).toBe(200)
+  expect(served.headers()["content-type"]).toContain("image/svg+xml")
+})

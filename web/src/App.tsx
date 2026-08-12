@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query"
 
 import { AppShell } from "@/components/app-shell"
 import { ConnectionScreen } from "@/components/connection-screen"
+import { SHELL_TITLE, useDocumentTitle } from "@/lib/document-title"
 import { TideApi, TideApiError } from "@/lib/api"
 import type {
   TideBrowserAuthenticationInfo,
@@ -92,6 +93,11 @@ export default function App() {
       setIdentityError("Your session has ended. Please sign in again.")
     })
   }, [connected, queryClient])
+
+  // Named after the shell, not after whatever record was open when the
+  // session ended: a sign-in form under an invoice number is a lie about what
+  // is on screen.
+  useDocumentTitle(connected ? null : SHELL_TITLE)
 
   if (!connected) {
     return (

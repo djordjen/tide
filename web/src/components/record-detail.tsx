@@ -58,6 +58,7 @@ import {
   type TideConflictChoice,
   type TideRecordConflict,
 } from "@/lib/conflicts"
+import { documentTitle, useDocumentTitle } from "@/lib/document-title"
 import { formatRecordDisplay } from "@/lib/format"
 import {
   changedMutationPayload,
@@ -82,6 +83,7 @@ import { cn } from "@/lib/utils"
 
 interface RecordDetailProps {
   api: TideApi
+  application: string
   view: TideBrowsePresentation
   form: TideFormPresentation
   forms: TidePresentationManifest["forms"]
@@ -147,6 +149,7 @@ class RecordActionExecutionError extends Error {
 
 export function RecordDetail({
   api,
+  application,
   view,
   form,
   forms,
@@ -862,6 +865,15 @@ export function RecordDetail({
             record?._tide?.actions?.[action.name]?.visible === true,
         )
       : []
+  // One derivation, used by the heading and by the browser tab. Two would be
+  // one thing said twice, which in this repository means one of them drifting.
+  const heading =
+    mode === "create"
+      ? `New ${form.label}`
+      : `${form.label} — ${display || String(identity)}`
+
+  // While this is mounted the tab is its to name; the browse yields.
+  useDocumentTitle(documentTitle(heading, application))
 
   return (
     <main className="flex min-h-0 flex-1 flex-col p-4 md:p-6">
@@ -869,9 +881,7 @@ export function RecordDetail({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="truncate text-2xl font-semibold tracking-tight">
-              {mode === "create"
-                ? `New ${form.label}`
-                : `${form.label} — ${display || String(identity)}`}
+              {heading}
             </h1>
             <Badge variant="outline">
               {mode === "create"

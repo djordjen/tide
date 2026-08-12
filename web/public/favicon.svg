@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="TIDE">
+  <!-- The mark the application shell already wears: lucide's waves glyph on a
+       rounded square in TIDE's primary blue, which is oklch(0.55 0.18 246) in
+       `index.css` and is written here as its sRGB equivalent because a favicon
+       is rendered outside the page and inherits none of its tokens. -->
+  <rect width="32" height="32" rx="8" fill="#0075d2"/>
+  <g fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6 10.5q3.3 2.6 6.6 0t6.6 0 6.8 0"/>
+    <path d="M6 16.5q3.3 2.6 6.6 0t6.6 0 6.8 0"/>
+    <path d="M6 22.5q3.3 2.6 6.6 0t6.6 0 6.8 0"/>
+  </g>
+</svg>

@@ -180,6 +180,22 @@ came back inside the viewport and `Preview Invoice` printed across `Next`.
 the screen, and no two controls on top of each other. 375px is the supported
 floor, because the Web UI is the only surface a phone can run.
 
+The browser tab now says which screen it is showing. It read `TIDE Framework`
+on the sign-in form, on a browse and on an open record alike, so two tabs of
+one application were indistinguishable and the history was a column of
+identical entries. It is now `<screen> · <application>`, most specific first
+because a tab truncates from the right, and the record's half is the same
+string its heading renders rather than a second derivation of it. The browse
+yields while a record is open, so there is one writer and no restore-on-unmount
+to get the ordering wrong. The shell name lives in `index.html` and in
+`SHELL_TITLE`, which is a duplicate that cannot be removed -- the document
+needs a title before any script runs -- so a test asserts the two agree.
+
+There is also a favicon, an SVG carrying the mark the sidebar already wears.
+The journey asserts the served content type, because the SPA catch-all answers
+an unknown path with `index.html` and would have made a missing icon look
+present.
+
 `docs/WEB-UI.md` carries the current feature list.
 
 Seven Playwright journeys run against a real `tide serve` hosting the built

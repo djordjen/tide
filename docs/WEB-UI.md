@@ -48,6 +48,12 @@ database.
   back button; a named view is checked against the manifest rather than
   trusted, and leaving a view closes the record that belonged to it;
 - light and dark themes;
+- a browser tab named after the screen it shows — `Invoices · TIDE Invoicing`,
+  or `Invoice — INV-2026-0002 · TIDE Invoicing` — most specific first, because
+  a tab truncates from the right. The record's half is the same string its
+  heading shows rather than a second derivation of it, and the shell puts its
+  own name back when a session ends. An SVG icon carries the same mark as the
+  sidebar;
 - server-side search, named filters, sorting, and opaque-cursor loading;
 - automatic incremental loading near the bottom of the visible grid;
 - row virtualization, so loaded records do not all become DOM elements;

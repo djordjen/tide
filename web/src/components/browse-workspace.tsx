@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
+import { documentTitle, useDocumentTitle } from "@/lib/document-title"
 import { useUrlParameter } from "@/lib/url-state"
 import { TideApiError, type TideApi } from "@/lib/api"
 import type {
@@ -246,6 +247,14 @@ export function BrowseWorkspace({
         ? new TideApiError("The records could not be loaded.")
         : null
 
+  // `null` while a record is open: `RecordDetail` names the tab then, and two
+  // writers would only be something for the ordering to get wrong.
+  useDocumentTitle(
+    activeIdentity === null && !creating
+      ? documentTitle(view.label, application)
+      : null,
+  )
+
   return (
     <>
     <main
@@ -444,6 +453,7 @@ export function BrowseWorkspace({
     {(activeIdentity !== null || creating) && form ? (
       <RecordDetail
         api={api}
+        application={application}
         view={view}
         form={form}
         forms={forms}
