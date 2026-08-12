@@ -55,6 +55,10 @@ database.
   **Reset app layout**;
 - personal column order and widths scoped by application, principal, and view;
 - row selection plus one **Open** path through button, double-click, or Enter;
+- a browse grid that is one tab stop rather than one per row: the selected row
+  owns it, Up/Down move it, Home and End reach the ends of what is loaded, and
+  moving it selects, so **Open** and the record pane follow the keyboard the
+  same way they follow a click;
 - stable in-place record detail without closing or repositioning the shell;
 - renderer-neutral form rows, groups, tabs, and inline collections projected
   from the same compiled YAML layout used by Textual;

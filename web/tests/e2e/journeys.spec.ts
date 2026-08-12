@@ -230,3 +230,35 @@ test("refuses a stale save and offers the change for review", async ({
   )
   await expect(page.getByRole("button", { name: "Save" })).toBeDisabled()
 })
+
+test("browses and opens a record without touching the mouse", async ({
+  page,
+}) => {
+  await signIn(page)
+  await expect(page.getByRole("row", { name: /INV-2026-0001/ })).toBeVisible()
+
+  // The grid costs one tab stop, not one per visible row. Tabbing from the
+  // last column header has to land on a row and the next Tab has to leave the
+  // rows entirely -- with eight rendered rows the old behaviour spent eight
+  // stops here, and a browse of any size spent one per rendered row.
+  await page.getByRole("button", { name: "Total" }).focus()
+  await page.keyboard.press("Tab")
+  const first = page.getByRole("row", { name: /INV-2026-0001/ })
+  await expect(first).toBeFocused()
+  await page.keyboard.press("Tab")
+  await expect(page.locator('[role="row"]:focus')).toHaveCount(0)
+
+  await first.focus()
+
+  await page.keyboard.press("ArrowDown")
+  const second = page.getByRole("row", { name: /INV-2026-0002/ })
+  await expect(second).toBeFocused()
+  // Moving the caret selects, so `Open` and the record pane follow the
+  // keyboard rather than the last click.
+  await expect(second).toHaveAttribute("aria-selected", "true")
+
+  await page.keyboard.press("Enter")
+  await expect(
+    page.getByRole("heading", { level: 1, name: /INV-2026-0002/ }),
+  ).toBeVisible()
+})

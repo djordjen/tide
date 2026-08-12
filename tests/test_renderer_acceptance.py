@@ -333,16 +333,28 @@ def _resolve_python_evidence(path: Path, selector: str) -> Any:
     return resolved
 
 
-def _resolve_web_evidence(path: Path, selector: str) -> None:
-    """Match a vitest name in the source.
+WEB_TEST_ROOTS = (
+    # vitest collects from `web/src`, Playwright from `web/tests/e2e`. Both
+    # declare a case as `test("name", …)`, so one matcher reads either; the
+    # roots are what stop a pointer drifting to a file neither collects.
+    # `web/tests/screenshots` is deliberately absent: those write images and
+    # are not run by `npm run test:e2e`, so they prove nothing.
+    ("web", "src"),
+    ("web", "tests", "e2e"),
+)
 
-    Vitest owns these and the Python suite cannot ask it what ran, so this stays
-    a source match -- the one evidence class the matrix still takes on trust.
-    Requiring the file to sit under ``web/src`` at least stops a pointer drifting
-    to somewhere vitest never collects.
+
+def _resolve_web_evidence(path: Path, selector: str) -> None:
+    """Match a vitest or Playwright name in the source.
+
+    Neither collector can be asked from Python what it ran, so this stays a
+    source match -- the one evidence class the matrix still takes on trust.
     """
 
-    assert path.is_relative_to((ROOT / "web" / "src").resolve())
+    assert any(
+        path.is_relative_to(ROOT.joinpath(*root).resolve())
+        for root in WEB_TEST_ROOTS
+    ), f"renderer evidence is not somewhere vitest or Playwright collects: {path}"
     pattern = r"(?:it|test)\(\s*[\"']" + re.escape(selector) + r"[\"']\s*,"
     assert re.search(pattern, path.read_text(encoding="utf-8"), flags=re.MULTILINE), (
         f"renderer evidence does not resolve: {path.name}::{selector}"

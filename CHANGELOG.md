@@ -157,6 +157,17 @@ even to `git add`. Found by reordering a row through Studio and finding a
 clean tree afterwards. Receipts a save writes beside a checked-in application
 are now ignored as `**/.tide/designer/`.
 
+The browse grid is one tab stop instead of one per row. Every rendered row
+carried `tabIndex={0}` and no key moved between them, so a keyboard user paid a
+tab stop per visible row and — because the list is virtualized — could not
+reach a row outside the rendered window at all. It now follows the ARIA grid
+pattern: the selected row owns the tab stop, Up/Down move it, Home and End
+reach the ends of what is loaded, and moving it selects, so `Open` and the
+record pane follow the caret the way they already follow a click. The tab stop
+is derived from the selection rather than stored beside it, so the two cannot
+disagree. Found by driving the built renderer from the keyboard; every unit
+test and journey passed with it broken.
+
 `docs/WEB-UI.md` carries the current feature list.
 
 Seven Playwright journeys run against a real `tide serve` hosting the built
@@ -166,6 +177,10 @@ report preview and export, and a two-tab stale-edit conflict. They replaced a
 single smoke test against a static copy of `dist/`. An eighth check measures
 form density in a browser, through both a draft and a posted invoice so that
 each renderer is covered.
+
+A ninth drives the browse from the keyboard alone -- tab in, arrow down, Enter
+-- and asserts that one more Tab leaves the rows, which is the claim jsdom
+cannot make and the one the roving tab stop exists for.
 
 ### Machine interfaces and AI-assisted generation
 
@@ -362,3 +377,8 @@ Windows refuses the path.
 Shared encrypted multi-worker browser sessions, provider-wide logout, trusted
 reverse proxies, richer report parameters/group bands, and broader
 lookup-query capabilities remain roadmap work.
+
+The Web UI is not yet usable on a phone, which matters because it is the only
+surface that runs on one. At 375px the record action bar places its four
+buttons past the right edge of the viewport with nothing to scroll to them.
+Tablet width is sound. See the decision log for the requirement.

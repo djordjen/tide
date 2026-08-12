@@ -191,6 +191,31 @@ capabilities:
             selector: opens a shared-layout detail and navigates without replacing the shell
             runner: web
 
+  - id: browse_grid_keyboard_traversal
+    tier: parity
+    description: The browse grid is one tab stop, arrow keys move the selection within it, and Enter opens the selected record.
+    renderers:
+      tui:
+        status: covered
+        note: Textual's DataTable owns the focus ring and the arrow keys; the test drives the browse from the keyboard alone.
+        evidence:
+          - path: tests/test_tui.py
+            selector: test_textual_invoice_edit_saves_header_and_line_transactionally
+            runner: python
+      web:
+        status: covered
+        note: A roving tabindex, added 2026-08-12. Before it every rendered row carried tabIndex 0 and no key moved between them.
+        evidence:
+          - path: web/src/App.grid-keyboard.test.tsx
+            selector: gives the grid one tab stop and moves it with the arrow keys
+            runner: web
+          - path: web/src/App.grid-keyboard.test.tsx
+            selector: moves the tab stop to the row a click selected
+            runner: web
+          - path: web/tests/e2e/journeys.spec.ts
+            selector: browses and opens a record without touching the mouse
+            runner: web
+
   - id: personal_column_layout
     tier: roadmap
     description: Personal resize/order state remains separate from application YAML defaults.

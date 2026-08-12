@@ -197,6 +197,63 @@ export function TideDataGrid({
   const virtualRows = virtualizer.getVirtualItems()
   const lastVirtualIndex = virtualRows.at(-1)?.index ?? -1
 
+  // One tab stop for the whole grid, on the selected row -- the ARIA grid
+  // pattern, and the only one that works here. Giving every row `tabIndex={0}`
+  // spent a tab stop per visible row, and since the list is virtualized the
+  // rows outside the rendered window had no node to reach at all.
+  //
+  // Derived from the selection rather than held beside it: moving the caret
+  // selects, exactly as clicking a row does, so a second piece of state would
+  // only be something for the two to disagree about.
+  const rows = table.getRowModel().rows
+  const selectedIndex = useMemo(
+    () =>
+      selectedIdentity === null || selectedIdentity === undefined
+        ? -1
+        : rows.findIndex(
+            (row) =>
+              String(row.original[view.identity_field]) ===
+              String(selectedIdentity),
+          ),
+    [rows, selectedIdentity, view.identity_field],
+  )
+  const activeIndex = selectedIndex >= 0 ? selectedIndex : 0
+  const pendingFocus = useRef<number | null>(null)
+
+  const moveActiveRow = useCallback(
+    (index: number) => {
+      const target = Math.max(0, Math.min(index, rows.length - 1))
+      const row = rows[target]
+      if (!row || target === activeIndex) {
+        return
+      }
+      // Focus is applied by the effect below rather than here: the target may
+      // be outside the rendered window, in which case it has no node until
+      // the scroll this schedules has produced one.
+      pendingFocus.current = target
+      virtualizer.scrollToIndex(target)
+      onSelect(row.original)
+    },
+    [activeIndex, onSelect, rows, virtualizer],
+  )
+
+  // No dependency list on purpose: this has to run on whichever render first
+  // materializes the row, which is one or two after the key press when the
+  // grid had to scroll to reach it. The ref makes every other run a no-op.
+  useEffect(() => {
+    const index = pendingFocus.current
+    if (index === null) {
+      return
+    }
+    const node = scrollRef.current?.querySelector<HTMLElement>(
+      `[data-row-index="${index}"]`,
+    )
+    if (node) {
+      pendingFocus.current = null
+      node.focus()
+    }
+  })
+
   useEffect(() => {
     if (
       hasMore &&
@@ -528,7 +585,8 @@ export function TideDataGrid({
                 <div
                   key={row.id}
                   role="row"
-                  tabIndex={0}
+                  data-row-index={virtualRow.index}
+                  tabIndex={virtualRow.index === activeIndex ? 0 : -1}
                   aria-selected={selected}
                   aria-rowindex={virtualRow.index + 1}
                   className={cn(
@@ -547,6 +605,22 @@ export function TideDataGrid({
                     if (event.key === "Enter") {
                       event.preventDefault()
                       onOpen(row.original)
+                    } else if (event.key === "ArrowDown") {
+                      event.preventDefault()
+                      moveActiveRow(virtualRow.index + 1)
+                    } else if (event.key === "ArrowUp") {
+                      event.preventDefault()
+                      moveActiveRow(virtualRow.index - 1)
+                    } else if (event.key === "Home") {
+                      event.preventDefault()
+                      moveActiveRow(0)
+                    } else if (event.key === "End") {
+                      // The last row loaded, not the last row there is: an
+                      // incremental browse only knows what it has fetched, and
+                      // arriving here asks for the next page the same way
+                      // scrolling to the bottom does.
+                      event.preventDefault()
+                      moveActiveRow(rows.length - 1)
                     }
                   }}
                 >
