@@ -38,7 +38,11 @@ database.
 
 ## What is implemented
 
-- responsive application shell with grouped, capability-filtered navigation;
+- responsive application shell with grouped, capability-filtered navigation,
+  which below the sidebar's breakpoint collapses into one workspace select.
+  **375px is the supported floor and is checked**: the Web UI is the only TIDE
+  surface a phone can run, since the terminal client cannot, so a layout that
+  holds only at desk widths is a defect rather than a trade-off;
 - the open view and the open record in the address bar as `?view=` and
   `?record=`, so a screen can be linked to, survives a refresh, and answers the
   back button; a named view is checked against the manifest rather than
@@ -259,15 +263,25 @@ npm run test:e2e
 ```
 
 `check` runs TypeScript plus Vitest unit/component tests, all against stubbed
-responses. `test:e2e` runs six journeys against the real stack: Playwright
+responses. `test:e2e` runs the journeys against the real stack: Playwright
 starts `tide serve --demo --auth local --web-root web/dist`, creates a local
 account for that run, and drives the built bundle through password sign-in,
 browsing, opening a record with its nested lines, creating and editing a
 Customer, drafting an Invoice through both lookups and posting it, previewing
-and exporting the summary report, and a two-tab stale-edit conflict. It
-therefore needs the Python side of TIDE on the path (`uv sync --extra api
---extra report`) and a current `npm run build`. CI runs all of these against
-one supported Node version alongside the Python 3.11 framework suite.
+and exporting the summary report, a two-tab stale-edit conflict, and a browse
+traversed from the keyboard alone. It therefore needs the Python side of TIDE
+on the path (`uv sync --extra api --extra report`) and a current
+`npm run build`. CI runs all of these against one supported Node version
+alongside the Python 3.11 framework suite.
+
+Two of the checks exist because jsdom computes no layout, so the unit suite
+cannot see either property: `form-density.spec.ts` measures what a field
+spends above its control, and `mobile.spec.ts` drives a 375x812 viewport and
+asserts that no control leaves the screen **and** that no two overlap. The
+second half of that is not redundant. The first attempt at the action bar
+brought every button back inside the viewport and printed `Preview Invoice`
+across `Next`; a control that is on screen and unclickable is no better than
+one that is off it.
 
 ## Current boundary and next slice
 

@@ -81,6 +81,14 @@ _CELL_PADDING = 2
 # terminal, and these are different layouts.
 _SIDE_BY_SIDE_MINIMUM_WIDTH = 125
 
+_UNLAID_RETRY_LIMIT = 4
+"""How many refreshes the column fit may wait for a width before giving up.
+
+Four rather than one because the panel is shown, populated and measured across
+separate refreshes, and rather than unbounded because a details pane that is
+genuinely zero-wide would otherwise reschedule for as long as it is on screen.
+"""
+
 
 def view_field_columns(available: int) -> tuple[ViewFieldColumn, ...]:
     """Return the columns that fit `available` cells, most useful first.
@@ -329,6 +337,7 @@ class StudioApp(App[None]):
         self._search_matches: list[tuple[tuple[int, int], tuple[int, int]]] = []
         self._search_match_index = -1
         self._source_editing = False
+        self._view_field_relayouts = 0
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -939,9 +948,21 @@ class StudioApp(App[None]):
         table = self._panel_widget("#view-field-table", DataTable)
         if structure is None or table is None or not table.display:
             return
-        wanted = tuple(column.key for column in view_field_columns(
-            self._view_field_table_width()
-        ))
+        available = self._view_field_table_width()
+        if available <= 0:
+            # Displayed is not the same as laid out. `call_after_refresh` can
+            # run before the table has a region, and `view_field_columns(0)`
+            # returns the one column that always survives -- which the
+            # comparison below then finds already in place and accepts, so a
+            # width read too early became the answer for the life of the
+            # selection. Ask again after the next refresh instead. Bounded,
+            # because a panel that is genuinely zero-wide must not spin.
+            if self._view_field_relayouts < _UNLAID_RETRY_LIMIT:
+                self._view_field_relayouts += 1
+                self.call_after_refresh(self._sync_view_field_columns)
+            return
+        self._view_field_relayouts = 0
+        wanted = tuple(column.key for column in view_field_columns(available))
         if wanted == tuple(str(key.value) for key in table.columns):
             return
         self._populate_view_field_table(structure)

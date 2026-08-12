@@ -1155,8 +1155,21 @@ export function RecordDetail({
         ) : null}
       </div>
 
-      <footer className="mt-4 flex shrink-0 items-center justify-between gap-4">
-        <div>
+      {/* Wraps. Unwrapped, the two groups shared one unbreakable line: at
+          375px the actions were laid out from 249px to 416px and clipped
+          rather than scrolled, so `Cancel`, `Save`, `Preview` and the domain
+          actions could not be reached by any means -- while the document
+          reported no horizontal overflow at all, which is why nothing that
+          asks the page how wide it is had ever noticed.
+
+          Letting the groups shrink is not enough on its own and was the first
+          thing tried: it brings the buttons back inside the viewport and
+          prints them across each other. They need a second line, so the
+          navigation group takes `min-w-0` to give the wrap somewhere to
+          happen, and the actions keep `ml-auto` to stay right-aligned once
+          they have a line of their own. */}
+      <footer className="mt-4 flex shrink-0 flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           {mode === "update" ? (
             <div className="flex items-center gap-2">
               <Button
@@ -1183,7 +1196,7 @@ export function RecordDetail({
             </div>
           ) : null}
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           {editorActive ? (
             <>
               <Button

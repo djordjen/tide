@@ -254,7 +254,12 @@ export function BrowseWorkspace({
         activeIdentity === null && !creating ? "flex" : "hidden",
       )}
     >
-      <div className="mb-5 flex shrink-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+      <div
+        // Named so the phone-width check can measure the browse chrome without
+        // measuring the grid, which scrolls horizontally on purpose.
+        data-tide-toolbar
+        className="mb-5 flex shrink-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between"
+      >
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-semibold tracking-tight">

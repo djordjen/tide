@@ -168,6 +168,18 @@ is derived from the selection rather than stored beside it, so the two cannot
 disagree. Found by driving the built renderer from the keyboard; every unit
 test and journey passed with it broken.
 
+The record action bar survives a phone. Its two groups shared one unbreakable
+line, so at 375px the actions were laid out from 249px to 416px and clipped
+rather than scrolled: `Cancel`, `Save`, `Preview` and the domain actions could
+not be reached by any means, while the document reported no horizontal
+overflow at all -- which is why nothing that asks the page how wide it is had
+ever noticed. The footer now wraps. Letting the groups shrink instead was the
+first attempt and is recorded because it is the instructive one: every button
+came back inside the viewport and `Preview Invoice` printed across `Next`.
+`mobile.spec.ts` therefore asserts both properties at 375x812 -- nothing off
+the screen, and no two controls on top of each other. 375px is the supported
+floor, because the Web UI is the only surface a phone can run.
+
 `docs/WEB-UI.md` carries the current feature list.
 
 Seven Playwright journeys run against a real `tide serve` hosting the built
@@ -310,6 +322,16 @@ and Save candidate past the bottom of the screen — which "compact terminals
 scroll instead of clipping tools" above did not in fact cover, because a
 toolbar is not content and two of those buttons have no key binding.
 
+The view-structure table no longer settles for one column. Its fit is
+scheduled with `call_after_refresh`, and a refresh is not a layout: the table
+can be displayed and still measure zero, `view_field_columns(0)` returns the
+one column that always survives, and the fit then compared that against a
+table already holding exactly it and returned early -- so a width read too
+early became the answer for the life of the selection. It now asks again, up
+to four refreshes, and treats zero as "not yet" rather than as an answer.
+Surfaced as a one-run-in-five flake at whichever certified size lost the race;
+reproduced deterministically by forcing the first two measurements to zero.
+
 Studio sessions now reuse the compiled evaluation and semantic document index
 for an unchanged candidate fingerprint. The cache is bounded by the same
 history limit as undo/redo, candidate mutations refresh only the affected
@@ -378,7 +400,3 @@ Shared encrypted multi-worker browser sessions, provider-wide logout, trusted
 reverse proxies, richer report parameters/group bands, and broader
 lookup-query capabilities remain roadmap work.
 
-The Web UI is not yet usable on a phone, which matters because it is the only
-surface that runs on one. At 375px the record action bar places its four
-buttons past the right edge of the viewport with nothing to scroll to them.
-Tablet width is sound. See the decision log for the requirement.

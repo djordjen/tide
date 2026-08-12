@@ -34,8 +34,13 @@ export async function signIn(page: Page): Promise<void> {
   await page.getByLabel("Username").fill(username)
   await page.getByLabel("Password").fill(password)
   await page.getByRole("button", { name: "Sign in" }).click()
+  // Either shell counts as arrival. Below the sidebar's breakpoint the same
+  // navigation collapses into one workspace select, so a journey run at phone
+  // width would otherwise wait for a landmark that is deliberately absent.
   await expect(
-    page.getByRole("navigation", { name: "Application navigation" }),
+    page
+      .getByRole("navigation", { name: "Application navigation" })
+      .or(page.getByRole("combobox", { name: "Current workspace" })),
   ).toBeVisible()
 }
 

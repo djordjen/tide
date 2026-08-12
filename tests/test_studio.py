@@ -1981,6 +1981,53 @@ def test_the_view_field_table_fits_the_terminals_studio_is_certified_for(
     asyncio.run(exercise())
 
 
+def test_the_view_field_table_refits_after_a_measurement_taken_before_layout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A width read before the panel is laid out must not become the answer.
+
+    `_sync_view_field_columns` is scheduled with `call_after_refresh`, and a
+    refresh is not a layout: the table can be displayed and still measure zero.
+    `view_field_columns(0)` returns the one column that always survives, which
+    the sync then compared against a table already holding exactly that and
+    returned early -- so the width it never re-read stayed wrong for the life
+    of the selection, and the person got a single `Field` column on a terminal
+    with room for five.
+
+    Seen as a flake first: the real test above failed about one run in five,
+    at whichever size lost the race that time. Deterministic here because the
+    first measurement is forced to zero rather than waited for.
+    """
+
+    app = StudioApp(StudioService(INVOICING))
+    unlaid = {"remaining": 2}
+    measure = StudioApp._view_field_table_width
+
+    def before_layout(self: StudioApp) -> int:
+        if unlaid["remaining"] > 0:
+            unlaid["remaining"] -= 1
+            return 0
+        return measure(self)
+
+    monkeypatch.setattr(StudioApp, "_view_field_table_width", before_layout)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(140, 40)) as pilot:
+            await pilot.pause()
+            await _select_view(pilot, app, "sales.InvoiceLine.inline_edit")
+            table = app.query_one("#view-field-table", DataTable)
+            await _wait_until(
+                pilot,
+                lambda: len(table.columns) > 1,
+            )
+
+            labels = [str(column.label) for column in table.columns.values()]
+            assert unlaid["remaining"] == 0, "the zero measurement was never taken"
+            assert labels[:3] == ["Field", "#", "Type"], labels
+
+    asyncio.run(exercise())
+
+
 @pytest.mark.parametrize(("columns", "rows"), CERTIFIED_TERMINAL_SIZES)
 def test_the_studio_toolbar_stays_on_screen_when_a_view_is_selected(
     columns: int,
