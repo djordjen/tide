@@ -106,7 +106,7 @@ it("creates and updates a flat metadata form through the secured API", async () 
 
   await user.click(await screen.findByRole("button", { name: "New" }))
   expect(
-    screen.getByRole("heading", { name: "New Product" }),
+    await screen.findByRole("heading", { name: "New Product" }),
   ).toBeInTheDocument()
   expect(screen.getByRole("checkbox", { name: "Active" })).toBeChecked()
 

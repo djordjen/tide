@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -18,8 +20,6 @@ import {
   X,
 } from "lucide-react"
 
-import { RecordDetail } from "@/components/record-detail"
-import { ReportPreview } from "@/components/report-preview"
 import { TideDataGrid } from "@/components/tide-data-grid"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -48,6 +48,25 @@ import type {
 } from "@/lib/contracts"
 import { isEditableForm } from "@/lib/form-draft"
 import { cn } from "@/lib/utils"
+
+/**
+ * Loaded when a record is opened, not when the application is.
+ *
+ * The record screen is the larger half of this renderer -- the form editor,
+ * the editable collection, the three-way conflict review and the reference
+ * lookup all hang off it -- and none of it is on the path to the first screen
+ * a person sees. Everything shipped in one 563 kB chunk before this, so
+ * signing in paid for the editor whether or not anything was ever opened.
+ *
+ * Both are already rendered conditionally, which is what makes this a change
+ * of import rather than of structure.
+ */
+const RecordDetail = lazy(async () => ({
+  default: (await import("@/components/record-detail")).RecordDetail,
+}))
+const ReportPreview = lazy(async () => ({
+  default: (await import("@/components/report-preview")).ReportPreview,
+}))
 
 interface BrowseWorkspaceProps {
   api: TideApi
@@ -451,6 +470,7 @@ export function BrowseWorkspace({
       />
     </main>
     {(activeIdentity !== null || creating) && form ? (
+      <Suspense fallback={<RecordChunkLoading />}>
       <RecordDetail
         api={api}
         application={application}
@@ -494,15 +514,34 @@ export function BrowseWorkspace({
           setPreviewRequest({ report, identity: activeIdentity })
         }
       />
+      </Suspense>
     ) : null}
     {previewRequest ? (
-      <ReportPreview
-        api={api}
-        report={previewRequest.report}
-        identity={previewRequest.identity}
-        onClose={() => setPreviewRequest(null)}
-      />
+      <Suspense fallback={null}>
+        <ReportPreview
+          api={api}
+          report={previewRequest.report}
+          identity={previewRequest.identity}
+          onClose={() => setPreviewRequest(null)}
+        />
+      </Suspense>
     ) : null}
     </>
+  )
+}
+
+/**
+ * What the record screen looks like for the moment its chunk is in flight.
+ *
+ * Deliberately the shape of the screen rather than a spinner, and deliberately
+ * not `DetailSkeleton` -- that lives in the chunk being waited for, so
+ * importing it here would put back what the split just took out.
+ */
+function RecordChunkLoading() {
+  return (
+    <main className="flex min-h-0 flex-1 flex-col gap-4 p-4 md:p-6">
+      <div className="h-8 w-72 max-w-full animate-pulse rounded-lg bg-muted" />
+      <div className="min-h-0 flex-1 animate-pulse rounded-2xl bg-muted/60" />
+    </main>
   )
 }

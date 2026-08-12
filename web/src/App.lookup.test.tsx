@@ -709,7 +709,9 @@ it("previews secured record and summary reports and downloads controlled exports
   const summaryDialog = await screen.findByRole("dialog", {
     name: "Posted Sales Summary",
   })
-  expect(within(summaryDialog).getByText("4,610.00")).toBeInTheDocument()
+  expect(
+    await within(summaryDialog).findByText("4,610.00"),
+  ).toBeInTheDocument()
   await user.click(
     within(summaryDialog).getByRole("button", {
       name: "Download CSV",

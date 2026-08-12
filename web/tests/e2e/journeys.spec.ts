@@ -288,3 +288,45 @@ test("names the tab after the screen and wears a mark", async ({ page }) => {
   expect(served.status()).toBe(200)
   expect(served.headers()["content-type"]).toContain("image/svg+xml")
 })
+
+test("does not report a cold load as a failure", async ({ page }) => {
+  const failures: string[] = []
+  page.on("response", (response) => {
+    if (response.status() >= 400) {
+      failures.push(`${response.status()} ${new URL(response.url()).pathname}`)
+    }
+  })
+
+  await page.goto("/")
+  await expect(
+    page.getByRole("heading", { name: "Sign in to your application" }),
+  ).toBeVisible()
+
+  // The shell asks whether this browser is already signed in. It is not, and
+  // that is an answer rather than a refusal: anyone opening the console on a
+  // page where nothing has gone wrong should find it empty.
+  expect(failures).toEqual([])
+})
+
+// A ceiling, not a target. The entry chunk was 563 kB when everything shipped
+// together; splitting the shell and the record screen out took it to ~331 kB,
+// and this leaves room to grow without letting the split quietly come undone —
+// one static import of `app-shell` or `record-detail` puts it all back.
+const ENTRY_CHUNK_BUDGET_BYTES = 420_000
+
+test("does not block the first paint on the whole application", async ({
+  page,
+}) => {
+  const html = await (await page.request.get("/")).text()
+  const entry = /<script[^>]+type="module"[^>]+src="([^"]+)"/.exec(html)?.[1]
+  expect(entry, "index.html references a module entry").toBeTruthy()
+
+  // What a browser must download before it can run anything at all. The rest
+  // arrives in its own time: the shell while the sign-in form is being read,
+  // the record screen when a record is opened.
+  const bytes = (await (await page.request.get(entry!)).body()).length
+  expect(
+    bytes,
+    `${entry} is ${Math.round(bytes / 1000)} kB of render-blocking JavaScript`,
+  ).toBeLessThan(ENTRY_CHUNK_BUDGET_BYTES)
+})

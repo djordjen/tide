@@ -707,9 +707,21 @@ def build_fastapi_app(
             tags=["TIDE"],
             summary="Current browser session",
             response_model=TideBrowserSessionInfo,
-            responses=_documented_errors(401),
+            responses={
+                204: {"description": "This browser has no session"},
+                **_documented_errors(401),
+            },
         )
-        def browser_session(request: Request) -> TideBrowserSessionInfo:
+        def browser_session(request: Request) -> Any:
+            # No cookie is an answer, not a refusal. Every cold load of the Web
+            # UI asks this endpoint whether the browser is already signed in,
+            # and answering 401 put a red line in the console of a page where
+            # nothing had gone wrong and nobody had tried anything. 401 is kept
+            # for a cookie that was presented and rejected, which is a real
+            # failure and worth seeing -- and which was indistinguishable from
+            # this one until now, to the console and to the client alike.
+            if request.cookies.get(browser_auth.session_cookie_name) is None:
+                return Response(status_code=204)
             access = _browser_session_access(request, browser_auth)
             return TideBrowserSessionInfo(csrf_token=access.csrf_token)
 

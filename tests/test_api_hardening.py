@@ -38,6 +38,8 @@ ROOT = Path(__file__).parents[1]
 INVOICING = ROOT / "applications" / "invoicing"
 TOKEN = "tide-development-token-that-is-long-enough"
 PASSWORD = "correct horse battery staple"
+# The response model requires 32 characters, as a CSRF token should have.
+CSRF = "browser-session-csrf-token-long-enough"
 SELF = "'self'"
 
 
@@ -418,6 +420,62 @@ def _headers(scheme: str = "https") -> httpx.Headers:
 
     asyncio.run(exercise())
     return captured[0]
+
+
+def test_asking_whether_a_browser_has_a_session_is_not_a_failed_attempt() -> None:
+    """No cookie is an answer, not a refusal.
+
+    Every cold load of the Web UI asks this endpoint whether the browser is
+    already signed in, and every cold load answered 401 -- so the first thing
+    anyone opening the console saw was a red line, on a page where nothing had
+    gone wrong and nobody had tried anything. 204 is what "you have none" looks
+    like; 401 is kept for a cookie that was presented and rejected, which is a
+    real failure and worth seeing.
+
+    The two cases were indistinguishable before this, to the console and to the
+    client alike.
+    """
+
+    from tide.api.browser_auth import BrowserSessionAccess
+
+    class _Sessions:
+        authentication_mode = "password"
+        secure_cookie = False
+        session_cookie_name = "tide_session"
+        session_lifetime_seconds = 60
+
+        def authenticate_session(self, session_id: str | None) -> Any:
+            if session_id == "live":
+                return BrowserSessionAccess(
+                    Principal("local:clerk", roles=frozenset({"sales_clerk"})),
+                    CSRF,
+                )
+            return None
+
+        def end_session(self, session_id: str | None) -> None:
+            del session_id
+
+    app = _app(browser_auth=_Sessions())
+    path = "/api/v1/_tide/browser-auth/session"
+
+    async def exercise() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as client:
+            none = await client.get(path)
+            stale = await client.get(path, cookies={"tide_session": "expired"})
+            live = await client.get(path, cookies={"tide_session": "live"})
+
+        assert none.status_code == 204, "no cookie is not an authorization failure"
+        assert none.content == b""
+        assert stale.status_code == 401, (
+            "a cookie that was presented and rejected is a real failure"
+        )
+        assert live.status_code == 200
+        assert live.json()["csrf_token"] == CSRF
+
+    asyncio.run(exercise())
 
 
 def _app(**kwargs: Any) -> Any:

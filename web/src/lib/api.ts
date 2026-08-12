@@ -232,7 +232,11 @@ export class TideApi {
         "The TIDE application server could not be reached.",
       )
     }
-    if (response.status === 401) {
+    // 204 is "this browser has no session", 401 is "the cookie it sent was
+    // rejected". Both mean sign in again; they are separated so that a cold
+    // load is not reported as a failure by the console, the server log and
+    // anything watching either.
+    if (response.status === 204 || response.status === 401) {
       return null
     }
     if (!response.ok) {

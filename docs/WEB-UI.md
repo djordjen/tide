@@ -47,6 +47,11 @@ database.
   `?record=`, so a screen can be linked to, survives a refresh, and answers the
   back button; a named view is checked against the manifest rather than
   trusted, and leaving a view closes the record that belonged to it;
+- a split bundle: the sign-in page loads 331 kB of JavaScript rather than 563,
+  because the application shell and the record screen are fetched separately.
+  The shell is fetched while the sign-in form is being read, so the split costs
+  no visible wait; a Playwright check holds the entry chunk under a ceiling,
+  since one static import would put it all back;
 - light and dark themes;
 - a browser tab named after the screen it shows — `Invoices · TIDE Invoicing`,
   or `Invoice — INV-2026-0002 · TIDE Invoicing` — most specific first, because

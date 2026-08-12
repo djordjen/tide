@@ -196,6 +196,24 @@ The journey asserts the served content type, because the SPA catch-all answers
 an unknown path with `index.html` and would have made a missing icon look
 present.
 
+Asking whether a browser already has a session is no longer answered as a
+failure. `GET /_tide/browser-auth/session` returned 401 when no cookie was
+presented at all, which is what every cold load of the Web UI does, so the
+first thing anyone opening the console found was a red line on a page where
+nothing had gone wrong and nobody had tried anything -- and the server log
+carried the same. It now answers 204, and keeps 401 for a cookie that was
+presented and rejected, which is a real failure and worth seeing. The two were
+indistinguishable before, to the console and to the client alike.
+
+The bundle is split. Everything shipped in one 563 kB chunk, so reading the
+sign-in form meant downloading the data grid, the form editor, the editable
+collection, the conflict review and the report preview first. The entry is now
+331 kB: the shell is a 179 kB chunk, the record screen 49 kB, the report
+preview 7 kB. The shell is fetched while the sign-in form is on screen rather
+than when it is submitted, so the split buys a smaller first paint without
+paying for it with a blank frame. A journey holds the entry under a stated
+ceiling, because a single static import would quietly undo all of it.
+
 `docs/WEB-UI.md` carries the current feature list.
 
 Seven Playwright journeys run against a real `tide serve` hosting the built

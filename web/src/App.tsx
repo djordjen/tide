@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react"
+import { lazy, Suspense, useEffect, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 
-import { AppShell } from "@/components/app-shell"
 import { ConnectionScreen } from "@/components/connection-screen"
 import { SHELL_TITLE, useDocumentTitle } from "@/lib/document-title"
 import { TideApi, TideApiError } from "@/lib/api"
@@ -9,6 +8,18 @@ import type {
   TideBrowserAuthenticationInfo,
   TideConnection,
 } from "@/lib/contracts"
+
+/**
+ * The shell, the grid and everything they pull in are for people who have
+ * signed in. A visitor reading the sign-in form should not have to download
+ * the data grid first: everything shipped as one 563 kB chunk before this.
+ *
+ * Fetched while the form is on screen rather than when it is submitted -- see
+ * the effect below -- so the split buys a smaller first paint without paying
+ * for it with a blank frame at the moment of arrival.
+ */
+const loadShell = () => import("@/components/app-shell")
+const AppShell = lazy(async () => ({ default: (await loadShell()).AppShell }))
 
 interface ConnectedState {
   api: TideApi
@@ -99,6 +110,14 @@ export default function App() {
   // is on screen.
   useDocumentTitle(connected ? null : SHELL_TITLE)
 
+  useEffect(() => {
+    if (!connected) {
+      // Reading and typing take longer than this request; a failure is not
+      // one, because `lazy` asks again when the shell is really needed.
+      void loadShell().catch(() => undefined)
+    }
+  }, [connected])
+
   if (!connected) {
     return (
       <ConnectionScreen
@@ -113,25 +132,27 @@ export default function App() {
   }
 
   return (
-    <AppShell
-      api={connected.api}
-      connection={connected.connection}
-      onDisconnect={() => {
-        void (async () => {
-          try {
-            await connected.api.logout()
-          } catch (caught) {
-            setIdentityError(
-              caught instanceof TideApiError
-                ? `The server session could not be ended: ${caught.message}`
-                : "The server session could not be ended. Please close this browser tab.",
-            )
-          } finally {
-            queryClient.clear()
-            setConnected(null)
-          }
-        })()
-      }}
-    />
+    <Suspense fallback={null}>
+      <AppShell
+        api={connected.api}
+        connection={connected.connection}
+        onDisconnect={() => {
+          void (async () => {
+            try {
+              await connected.api.logout()
+            } catch (caught) {
+              setIdentityError(
+                caught instanceof TideApiError
+                  ? `The server session could not be ended: ${caught.message}`
+                  : "The server session could not be ended. Please close this browser tab.",
+              )
+            } finally {
+              queryClient.clear()
+              setConnected(null)
+            }
+          })()
+        }}
+      />
+    </Suspense>
   )
 }
