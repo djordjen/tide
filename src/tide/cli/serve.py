@@ -28,7 +28,7 @@ from tide.services import (
     RecordsService,
 )
 
-from .auth import parse_oidc_role_map
+from .auth import parse_oidc_role_map, print_local_store_remedy
 from .storage import open_run_storage
 
 
@@ -456,6 +456,11 @@ def _serve_api(arguments: argparse.Namespace) -> int:
             )
         except ValueError as error:
             print(f"API startup failed: {error}", file=sys.stderr)
+            print_local_store_remedy(
+                arguments.local_auth_store,
+                arguments.project,
+                model,
+            )
             return 1
         browser_auth = authenticator
         identity_summary = (

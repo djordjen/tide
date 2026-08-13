@@ -465,8 +465,17 @@ surface a phone can run. Node moves from "optional, for the MCP Inspector" to a
 stated requirement at the version the renderer needs, every first-run step says
 what it should print, and a closing section names the failures worth
 recognising rather than debugging. One of them had no written prerequisite
-anywhere: `--auth local` reads an identity store and will not create one, and
-the refusal does not mention `tide auth create-user`.
+anywhere: `--auth local` reads an identity store and will not create one.
+
+That refusal now names the command that does. `serve --auth local` and the four
+`tide auth` subcommands that read a store they do not create all answered with
+the path they could not find — the one thing the reader already knew — and the
+remedy existed only inside `start.bat`. All five print it now, along with the
+roles the application defines, since choosing a permission set for someone else
+is not the error message's job. It appears only when the file is genuinely
+absent: "create it" is wrong advice for a store that exists and failed to open
+for some other reason. The subcommands are derived from the parser, so the
+sixth is covered the day it arrives.
 
 `tests/test_documentation.py` now checks the output a document promises against
 the compiler that produces it, and pins which surfaces `serve` provides. The

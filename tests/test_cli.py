@@ -376,6 +376,155 @@ def test_api_export_openapi_reports_invalid_base_path(capsys) -> None:
     )
 
 
+def _auth_commands_that_read_a_store() -> dict[str, frozenset[str]]:
+    """`tide auth` subcommands taking a `--store` they do not create, and their flags.
+
+    Derived from the parser rather than listed, so a sixth local-identity
+    command is covered the day it is added -- which is the failure mode the
+    remedy itself exists to answer, one level up. The flags come from the same
+    place, because they differ per subcommand and a hand-written set here would
+    drift exactly as the command list would.
+    """
+
+    import argparse
+
+    from tide.cli.main import _create_parser
+
+    def children(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
+        for action in parser._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                return dict(action.choices)
+        return {}
+
+    authentication = children(_create_parser())["auth"]
+    found = {}
+    for name, command in children(authentication).items():
+        options = frozenset(
+            option
+            for action in command._actions
+            for option in action.option_strings
+            if option.startswith("--")
+        )
+        # `create-user` is the one that initializes the store, so it is the
+        # answer rather than a caller of it.
+        if name != "create-user" and "--store" in options:
+            found[name] = options
+    return found
+
+
+AUTH_COMMANDS_READING_A_STORE = _auth_commands_that_read_a_store()
+
+
+def test_the_store_reading_auth_commands_are_found() -> None:
+    """A scan that found nothing would make the parametrized test vacuous."""
+
+    assert sorted(AUTH_COMMANDS_READING_A_STORE) == [
+        "disable-user",
+        "enable-user",
+        "set-password",
+        "set-roles",
+    ]
+
+
+@pytest.mark.parametrize("command", sorted(AUTH_COMMANDS_READING_A_STORE))
+def test_a_local_command_names_the_command_that_creates_a_missing_store(
+    command: str,
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    """The path is not the answer; one command is, and it went unwritten.
+
+    Every local-identity command except `create-user` reads a store it will not
+    create, and said so by printing the path it could not find. The remedy was
+    recorded nowhere but `start.bat`, so a reader outside Windows had to infer
+    a subcommand, a flag and a role from an error that mentioned none of them.
+    """
+
+    monkeypatch.setenv("TIDE_TEST_LOCAL_PASSWORD", "a-long-enough-password")
+    missing = tmp_path / "absent-auth.sqlite3"
+    options = AUTH_COMMANDS_READING_A_STORE[command]
+
+    result = main(
+        [
+            "auth",
+            command,
+            str(INVOICING),
+            "--store",
+            str(missing),
+            *(["--username", "admin"] if "--username" in options else []),
+            *(
+                ["--password-env", "TIDE_TEST_LOCAL_PASSWORD"]
+                if "--password-env" in options
+                else []
+            ),
+            *(["--role", "auditor"] if "--role" in options else []),
+        ]
+    )
+    errors = capsys.readouterr().err
+
+    assert result == 1
+    assert "local identity store is not initialized" in errors
+    assert "tide auth create-user" in errors
+    assert f"--store {missing}" in errors
+    # Choosing a role for someone is a security decision, so the remedy names
+    # what the application defines and lets the reader pick.
+    assert "auditor" in errors and "sales_clerk" in errors
+
+
+def test_serve_names_the_command_that_creates_a_missing_store(
+    capsys,
+    tmp_path: Path,
+) -> None:
+    """The same wall, on the path a new reader actually walks into it."""
+
+    missing = tmp_path / "absent-auth.sqlite3"
+
+    result = main(
+        [
+            "serve",
+            str(INVOICING),
+            "--demo",
+            "--auth",
+            "local",
+            "--local-auth-store",
+            str(missing),
+        ]
+    )
+    errors = capsys.readouterr().err
+
+    assert result == 1
+    assert "local identity store is not initialized" in errors
+    assert "tide auth create-user" in errors
+    assert f"--store {missing}" in errors
+
+
+def test_an_existing_store_that_fails_for_another_reason_gets_no_remedy(
+    capsys,
+    tmp_path: Path,
+) -> None:
+    """"Create it" is wrong advice for a store that is already there."""
+
+    present = tmp_path / "present-auth.sqlite3"
+    present.write_text("not a SQLite database", encoding="utf-8")
+
+    result = main(
+        [
+            "serve",
+            str(INVOICING),
+            "--demo",
+            "--auth",
+            "local",
+            "--local-auth-store",
+            str(present),
+        ]
+    )
+    errors = capsys.readouterr().err
+
+    assert result == 1
+    assert "tide auth create-user" not in errors
+
+
 def test_api_check_server_requires_token_environment(monkeypatch, capsys) -> None:
     monkeypatch.delenv("MISSING_TIDE_API_TOKEN", raising=False)
 

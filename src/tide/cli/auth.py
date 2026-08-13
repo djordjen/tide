@@ -197,6 +197,38 @@ def _add_local_user_arguments(
         )
 
 
+def print_local_store_remedy(
+    store_path: Path | str,
+    project: str,
+    model: ApplicationModel,
+) -> None:
+    """Name the command that creates the identity store, when that is what failed.
+
+    Every local-identity command except `create-user` reads a store it will not
+    create, and `serve --auth local` is the one a new reader meets first. All of
+    them refused with the path they could not find, which is the one piece of
+    information the reader already had; the answer is a subcommand, a flag and a
+    role, and it was written down nowhere outside the Windows shortcut.
+
+    Only when the file is genuinely absent -- "create it" is wrong advice for a
+    store that exists and failed to open for some other reason.
+    """
+
+    if Path(store_path).expanduser().resolve().is_file():
+        return
+    print(
+        f"Create it with: tide auth create-user {project} "
+        f"--store {store_path} --username admin --role <role>",
+        file=sys.stderr,
+    )
+    if model.roles:
+        # Naming one would be choosing a permission set for someone else.
+        print(
+            f"Roles {model.name} defines: {', '.join(sorted(model.roles))}",
+            file=sys.stderr,
+        )
+
+
 def _auth_create_user(arguments: argparse.Namespace) -> int:
     model = compile_project(arguments.project)
     unknown_roles = sorted(set(arguments.role).difference(model.roles))
@@ -255,6 +287,7 @@ def _auth_set_password(arguments: argparse.Namespace) -> int:
         store.set_password(username, password)
     except (LocalAuthenticationError, ValueError) as error:
         print(f"Local password update failed: {error}", file=sys.stderr)
+        print_local_store_remedy(arguments.store, arguments.project, model)
         return 1
     print(f"Updated the password for local user {username!r}.")
     return 0
@@ -272,6 +305,7 @@ def _auth_disable_user(arguments: argparse.Namespace) -> int:
         store.set_enabled(username, arguments.enabled)
     except (LocalAuthenticationError, ValueError) as error:
         print(f"Local user update failed: {error}", file=sys.stderr)
+        print_local_store_remedy(arguments.store, arguments.project, model)
         return 1
     if arguments.enabled:
         print(f"Enabled local user {username!r}.")
@@ -305,6 +339,7 @@ def _auth_set_roles(arguments: argparse.Namespace) -> int:
         roles = store.set_roles(username, arguments.role)
     except (LocalAuthenticationError, ValueError) as error:
         print(f"Local role update failed: {error}", file=sys.stderr)
+        print_local_store_remedy(arguments.store, arguments.project, model)
         return 1
     print(f"Local user {username!r} now holds: {', '.join(sorted(roles))}.")
     return 0
