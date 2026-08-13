@@ -6,6 +6,13 @@ from tide.data.backup import (
     create_sqlite_backup,
     verify_sqlite_backup,
 )
+from tide.data.inspection import (
+    InspectedEntity,
+    InspectionProposal,
+    SkippedObject,
+    inspect_schema,
+    render_project,
+)
 from tide.data.memory import InMemoryRepository
 from tide.data.migrations import (
     MigrationChange,
@@ -89,6 +96,11 @@ __all__ = [
     "sequence_name",
     "create_sqlite_backup",
     "generate_revision",
+    "InspectedEntity",
+    "InspectionProposal",
+    "inspect_schema",
+    "render_project",
+    "SkippedObject",
     "propose_migration",
     "render_revision_sql",
     "verify_sqlite_backup",

@@ -17,6 +17,8 @@ from tide.data import (
     SQLAlchemyRepository,
     create_sqlite_backup,
     generate_revision,
+    inspect_schema,
+    render_project,
     propose_migration,
     render_revision_sql,
     verify_sqlite_backup,
@@ -62,6 +64,52 @@ def add_database_commands(commands: argparse._SubParsersAction[argparse.Argument
         ),
     )
     database_check.set_defaults(handler=_db_check, create_schema=False)
+    database_inspect = database_commands.add_parser(
+        "inspect",
+        help="propose legacy application metadata from an existing schema",
+    )
+    database_inspect.add_argument(
+        "--database-env",
+        nargs="?",
+        const="TIDE_DATABASE_URL",
+        required=True,
+        metavar="NAME",
+        help=(
+            "read the SQLAlchemy database URL from environment variable NAME "
+            "(default name: TIDE_DATABASE_URL)"
+        ),
+    )
+    database_inspect.add_argument(
+        "--schema",
+        metavar="NAME",
+        help="reflect this database schema (default: the connection's default)",
+    )
+    database_inspect.add_argument(
+        "--table",
+        action="append",
+        default=[],
+        metavar="NAME",
+        dest="tables",
+        help="reflect only this table; repeat for several (default: all)",
+    )
+    database_inspect.add_argument(
+        "--namespace",
+        default="legacy",
+        metavar="NAME",
+        help="entity name prefix when the tables have no schema (default: legacy)",
+    )
+    database_inspect.add_argument(
+        "--application",
+        default="Legacy Application",
+        metavar="NAME",
+        help="application name to write into the proposed tide.yaml",
+    )
+    database_inspect.add_argument(
+        "--output",
+        metavar="DIRECTORY",
+        help="write the proposal into DIRECTORY (default: print it)",
+    )
+    database_inspect.set_defaults(handler=_db_inspect)
     database_diff = database_commands.add_parser(
         "diff",
         help="produce a deterministic read-only schema migration proposal",
@@ -313,6 +361,66 @@ def _db_check(arguments: argparse.Namespace) -> int:
         return 0
     finally:
         storage.dispose()
+
+
+def _db_inspect(arguments: argparse.Namespace) -> int:
+    environment_name = arguments.database_env
+    database_url = os.environ.get(environment_name)
+    if not database_url:
+        print(
+            "Database inspection failed: environment variable "
+            f"{environment_name!r} is not set",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        proposal = inspect_schema(
+            database_url,
+            schema=arguments.schema,
+            namespace=arguments.namespace,
+            tables=tuple(arguments.tables),
+        )
+    except TideRuntimeError as error:
+        print(f"Database inspection failed: {error}", file=sys.stderr)
+        return 1
+
+    documents = render_project(proposal, application=arguments.application)
+    # Everything the inspector declined goes to stderr, so redirecting the
+    # proposal to a file still leaves the reader holding the list of what is
+    # missing from it.
+    for skipped in proposal.skipped:
+        print(f"Not proposed -- {skipped}", file=sys.stderr)
+
+    if arguments.output is None:
+        for path in sorted(documents):
+            print(f"# {path}")
+            print(documents[path])
+        return 0 if proposal.entities else 1
+
+    destination = Path(arguments.output)
+    existing = sorted(
+        path for path in documents if (destination / path).exists()
+    )
+    if existing:
+        print(
+            "Database inspection failed: refusing to overwrite "
+            f"{', '.join(existing)} in {destination}",
+            file=sys.stderr,
+        )
+        return 1
+    for path, text in documents.items():
+        target = destination / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    print(
+        f"Proposed {len(proposal.entities)} entit"
+        f"{'y' if len(proposal.entities) == 1 else 'ies'} in {destination}; "
+        f"{len(proposal.skipped)} object(s) not proposed. "
+        "Review the files, then: tide model validate "
+        f"{destination}"
+    )
+    return 0 if proposal.entities else 1
 
 
 def _db_diff(arguments: argparse.Namespace) -> int:

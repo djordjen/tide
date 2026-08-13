@@ -1,6 +1,6 @@
 # Legacy Databases
 
-**Status: Initial compiler and SQLAlchemy Core adapter implemented.**
+**Status: Compiler, SQLAlchemy Core adapter and schema inspection implemented.**
 
 Legacy mode lets a TIDE application use tables owned by another product or
 team without changing their structure. It is intended for existing databases,
@@ -122,9 +122,14 @@ schema when TIDE should own those tables.
 ## Initial compatibility boundary
 
 Schema v0.1 still requires one declared primary-key field per entity. Composite
-keys, database-generated key strategies, writable database views, stored
-procedure mappings, trigger-driven refresh, and unusual vendor types need
-explicit contracts before they can be claimed as supported.
+keys, writable database views, stored procedure mappings, trigger-driven
+refresh, and vendor types beyond the table above need explicit contracts before
+they can be claimed as supported. `tide db inspect` names the tables it skipped
+for these reasons rather than proposing something that would not work.
+
+Database-generated keys are supported for the two shapes that arise in
+practice: an identity column, whose value is read back after the insert, and a
+`uuid` key with a declared `server_default`.
 
 The adapter and no-DDL behavior are currently proven live with SQLite.
 Microsoft SQL Server is the first additional target: schema and query
@@ -138,6 +143,85 @@ Policy-aware collection hydration uses bound target-row predicates and performs
 no DDL. Multiple-collection policies remain outside the implemented production
 boundary.
 
-A later `tide db inspect` command may propose TIDE metadata from an existing
-schema. Generated proposals will remain reviewable source files and will never
-change the inspected database.
+## Adopting an existing schema
+
+Explicit mapping is the right rule and it is also the reason adopting a large
+schema by hand is tedious enough to stop people trying. `tide db inspect`
+turns one reflection pass into reviewable source files:
+
+```bash
+export TIDE_DATABASE_URL='sqlite+pysqlite:///./legacy.db'
+uv run tide db inspect --database-env --output ./legacy-crm --application "Legacy CRM"
+```
+
+The URL comes from the environment, never from the command line, like every
+other `tide db` command. `--schema` selects a schema, `--table` repeats to
+narrow the reflection, and without `--output` the proposal is printed instead
+of written.
+
+It proposes one entity per table, mapping each column explicitly:
+
+```yaml
+entity: legacy.CustomerMaster
+storage: {table: CUSTOMER_MASTER}
+display: display_name
+fields:
+  customer_no: {type: integer, primary_key: true, column: CUSTOMER_NO}
+  display_name: {type: string, length: 120, required: true, column: DISPLAY_NAME}
+  credit_limit: {type: decimal, precision: 12, scale: 2, column: CREDIT_LIMIT}
+  is_active: {type: boolean, required: true, column: IS_ACTIVE}
+  owner_employee_no: {type: reference, target: legacy.EmployeeMaster, storage: OWNER_EMPLOYEE_NO, on_delete: restrict}
+```
+
+What it cannot map it reports on stderr rather than guessing, so redirecting
+the proposal still leaves you holding the list of what is missing from it:
+
+```text
+Not proposed -- NOTE_LOG: table declares no primary key
+Not proposed -- ORDER_LINE: composite primary key (ORDER_NO, LINE_NO); schema v0.1 maps one key column
+```
+
+The output is a starting point, not an application: it carries no views, no
+security and no `on_delete` judgement beyond `restrict`, which is the safe
+default rather than an observation about the data. Read it, then:
+
+```bash
+uv run tide model validate ./legacy-crm
+```
+
+A proposal that compiles is not yet a proposal that fits, so the test covering
+this runs `validate_schema()` against the same database the metadata was read
+from. That is the property worth having: a model that compiles but does not
+match its source schema would be worse than no model, because it looks
+finished.
+
+Inspection is read-only in the strongest sense the adapter offers -- connect,
+reflect, disconnect -- and a test asserts that no statement it issues begins
+with `CREATE`, `ALTER`, `DROP`, `INSERT`, `UPDATE` or `DELETE`. It also refuses
+to overwrite files a previous run produced, so a second inspection cannot
+discard hand edits.
+
+## Vendor types
+
+Two SQL Server spellings are mapped rather than treated as foreign:
+
+| Column type | Field |
+|---|---|
+| `money` | `decimal` precision 19, scale 4 |
+| `smallmoney` | `decimal` precision 10, scale 4 |
+| `uniqueidentifier` | `uuid` |
+
+`money` is a storage type, not a semantic one, so it stays out of portable
+metadata: the same YAML still deploys against SQLite. The capacities are stated
+in one place that both the inspector and `validate_schema()` read, so a
+proposal cannot suggest a decimal that validation would then reject. A field
+wider than the column still fails -- `decimal` with scale 6 does not fit a
+money column, and the check says so.
+
+`uuid` is a declared field type because a GUID key needs to reach both
+supported dialects from one declaration: `UNIQUEIDENTIFIER` on SQL Server,
+`CHAR(32)` on SQLite. TIDE generates the key itself before the insert, so a
+master-detail write can point child rows at a parent that does not exist yet.
+A field declaring a `server_default` defers to the database instead, which is
+how a legacy `NEWSEQUENTIALID()` column keeps its sequential keys and the
+clustered index that random values would fragment.

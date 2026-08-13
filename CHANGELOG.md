@@ -422,6 +422,23 @@ the optional migration adapter verifies that artifact and renders dialect SQL
 without a database connection. TIDE still cannot apply it. See
 [Schema migrations](docs/MIGRATIONS.md).
 
+`tide db inspect` proposes legacy application metadata from an existing schema:
+one entity per table, every column mapped explicitly, foreign keys as
+references. It is read-only — a test asserts no statement it issues begins with
+`CREATE`, `ALTER`, `DROP`, `INSERT`, `UPDATE` or `DELETE` — writes reviewable
+source files rather than hidden state, refuses to overwrite a previous run, and
+reports what it could not map instead of guessing. A table with a composite or
+absent primary key is named as skipped, with the reason. See
+[Legacy databases](docs/LEGACY-DATABASES.md#adopting-an-existing-schema).
+
+Two SQL Server spellings now map onto TIDE types. `money` and `smallmoney`
+satisfy a `decimal` field at their fixed capacities of 19,4 and 10,4; before
+this, any legacy table with a money column failed `validate_schema()` and the
+application refused to start. A `uuid` field type maps to `UNIQUEIDENTIFIER` on
+SQL Server and `CHAR(32)` on SQLite, so a GUID can be a primary key; TIDE
+generates the value before the insert unless the field declares a
+`server_default`, which leaves a legacy `NEWSEQUENTIALID()` column alone.
+
 ### Documentation and screenshots
 
 The README shows all three visible surfaces rather than only the terminal:
