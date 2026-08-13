@@ -93,7 +93,10 @@ limited to its dependency-free list/get contract.
 `tide serve` exposes `/health/live` and `/health/ready` always, and `/docs`,
 `/redoc` and `/openapi.json` when the API description is enabled — on by
 default for a loopback bind, off otherwise, and set either way with `--docs` or
-`--no-docs`. The description names every exposed entity, field and action along
+`--no-docs`. `/docs` is TIDE's own page over vendored Swagger UI assets, so it
+renders under TIDE's security headers and needs no network; `/redoc` is
+FastAPI's, still loads from a CDN, and is therefore blank whenever TIDE owns
+identities and sends `script-src 'self'`. The description names every exposed entity, field and action along
 with the `x-tide` runtime configuration, so it follows the same rule as
 development authentication: useful on the machine you are building on, not
 something a networked deployment publishes because nobody said otherwise. It is

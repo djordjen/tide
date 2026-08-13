@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url"
 import { expect, test } from "@playwright/test"
 
 import { signIn } from "../e2e/session"
-import { API_ORIGIN } from "./api"
 
 /**
  * Capture the Web UI and the generated API description for the documentation.
@@ -51,21 +50,15 @@ test("invoice browse and the generated record editor", async ({ page }) => {
 })
 
 test("generated OpenAPI description", async ({ page }) => {
-  // Swagger UI is a script tag pointing at a public CDN, so this page is the
-  // one capture whose readiness is not TIDE's to control. Minutes, not the
-  // default seconds.
-  test.setTimeout(180_000)
   // Shorter than the others: one entity's generated operations are the
   // subject, and the schema catalogue below them is not.
   await page.setViewportSize({ width: VIEWPORT.width, height: 540 })
 
-  // The quick start's server, not the journeys': `/docs` is served on both
-  // because they bind to loopback, but only this one renders. See
-  // `api-server.mjs`.
-  await page.goto(`${API_ORIGIN}/docs`)
-  await expect(page.locator(".opblock").first()).toBeVisible({
-    timeout: 120_000,
-  })
+  // The journeys' server. It used to take one of its own, because TIDE's
+  // browser security headers refused FastAPI's CDN-hosted Swagger UI and this
+  // page came out blank; the assets are TIDE's own now.
+  await page.goto("/docs")
+  await expect(page.locator(".opblock").first()).toBeVisible()
 
   // Open on the operations the model generated, not on the health checks and
   // the `_tide` routes that happen to sort first. `boundingBox` rather than

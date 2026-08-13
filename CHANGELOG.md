@@ -214,6 +214,30 @@ than when it is submitted, so the split buys a smaller first paint without
 paying for it with a blank frame. A journey holds the entry under a stated
 ceiling, because a single static import would quietly undo all of it.
 
+`/docs` renders under TIDE's own security headers, because TIDE now serves
+Swagger UI rather than pointing at a CDN. FastAPI's page is a CDN script tag, a
+CDN stylesheet, a CDN favicon and an inline initialiser, and `script-src 'self'`
+— sent on every response whenever TIDE owns identities — refused all four, so
+the page answered 200 and drew nothing under exactly the configuration
+`docs/WEB-UI.md` describes. The exposure tests asserted the status code and
+were green throughout.
+
+swagger-ui-dist 5.32.13 is vendored at `src/tide/api/swagger_ui/`, Apache-2.0,
+with `PROVENANCE.md` recording the version, sizes and checksums; the assets are
+served from the application under `/_tide/docs-assets/`, registered only when
+the description is, so they are withheld with the document they draw. The
+initialiser is a generated same-origin file rather than an inline block, which
+is what lets `'self'` cover it without a hash or `unsafe-inline`. **No security
+header changed**, and a Playwright journey now loads the page under the real
+headers and fails on any CSP refusal — which is the layer the status-code tests
+could not reach. The page also needs no network: the CDN was taking 14.6s where
+this was found, and answers not at all on an isolated machine.
+
+`/redoc` is still FastAPI's, still CDN-hosted, and therefore still blank under
+those headers. A second vendored megabyte for a second view of the same
+document did not look worth it; the decision log says so rather than leaving
+the asymmetry to be discovered.
+
 `docs/WEB-UI.md` carries the current feature list.
 
 Seven Playwright journeys run against a real `tide serve` hosting the built
@@ -411,15 +435,10 @@ the end-to-end journeys use, signs in through it, and writes the PNGs. The
 first set, captured by hand in July, had no way to make another and had gone
 six weeks stale. Neither command runs in CI: both write into the working tree.
 
-Capturing the API description found that it cannot be read in a browser under
-the configuration the Web UI documentation describes. `tide serve --auth local`
-sends `script-src 'self'`, and FastAPI's Swagger UI is a CDN script tag plus an
-inline initialiser, so `/docs` returns 200 and renders an empty page. The
-existing exposure tests assert the status code, which is true either way. The
-screenshot is therefore taken against the quick start's bearer-token server,
-which sends no browser security headers; a fix is not yet chosen, because every
-option trades the policy, a vendored copy of Swagger UI, or the CDN against
-each other.
+Capturing the API description found that it could not be read in a browser
+under the configuration the Web UI documentation describes, and for a while the
+capture used a second server without browser security headers to work around
+it. That is fixed below, and the second server is gone.
 
 `tests/test_launcher_contracts.py` finds the Node scripts that compose a
 `tide serve` by searching `web/` rather than by naming them, so the third one

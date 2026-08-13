@@ -5,12 +5,14 @@ largest of the three by far -- 106 invocations a reader is invited to copy --
 and the only one where the runtime is a person, who gets an argparse error
 rather than a failing build.
 
-Three Node scripts under `web/` independently compose a `tide serve` command
-line: the Playwright launcher, the dev-server runner, and the screenshot
-launcher. Merging them was considered and refused -- most of each file is
-different work -- so the duplication stands, and these are what make it safe.
-The third arrived after the first two, and the check that reads them is a
-search rather than a list, because a fourth must not need an edit here.
+Two Node scripts under `web/` independently compose a `tide serve` command
+line: the Playwright launcher and the dev-server runner. Merging them was
+considered and refused -- most of each file is different work -- so the
+duplication stands, and these are what make it safe. A third existed briefly,
+for the screenshot capture, and went when `/docs` stopped needing a server
+without browser security headers to render in. The check that reads them is a
+search rather than a list, so both its arrival and its departure were noticed
+by this file rather than remembered.
 
 A retired or renamed flag is the failure this catches. It would not be caught
 by the launchers' own tests: `--print` asserts the string the launcher was
@@ -197,7 +199,6 @@ def test_every_web_launcher_is_found() -> None:
     assert {path.name for path in LAUNCHERS} == {
         "dev-app.mjs",
         "tide-server.mjs",
-        "api-server.mjs",
     }
 
 
@@ -227,10 +228,9 @@ def test_both_launchers_still_agree_on_how_the_server_authenticates() -> None:
     to a different auth mechanism or store flag and the other is not, the two
     stop testing and demonstrating the same product.
 
-    Named rather than globbed, unlike the check above, because the third
-    launcher is deliberately the odd one out: `api-server.mjs` runs the quick
-    start's bearer-token server, which sends no browser security headers, and
-    that difference is the whole reason Swagger UI renders under it.
+    Both are named here rather than globbed, unlike the check above, because
+    this asserts a property of these two specifically -- that the pair stays in
+    step -- and not one every launcher must have.
     """
 
     shared = {"--auth", "--local-auth-store", "--port", "--demo"}

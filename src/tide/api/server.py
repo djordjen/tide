@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import asdict, dataclass
+import json
 from decimal import Decimal, InvalidOperation
 import logging
 from pathlib import Path as FileSystemPath
@@ -26,7 +27,7 @@ from fastapi import (
     Security,
 )
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict
 from starlette.staticfiles import StaticFiles
@@ -111,6 +112,54 @@ SERVER_OPERATIONS = REST_OPERATIONS
 _RUNTIME_LOGGER = logging.getLogger("tide.runtime")
 _BROWSER_CSRF_HEADER = "X-TIDE-CSRF"
 _BROWSER_LOGIN_HEADER = "X-TIDE-LOGIN"
+
+SWAGGER_UI_DIRECTORY = FileSystemPath(__file__).parent / "swagger_ui"
+SWAGGER_UI_ASSETS = {
+    "swagger-ui-bundle.js": "text/javascript",
+    "swagger-ui.css": "text/css",
+}
+SWAGGER_INITIALIZER = "swagger-initializer.js"
+"""Swagger UI, vendored, and the file that starts it.
+
+`swagger_ui/PROVENANCE.md` records the version and its checksums. It is here
+rather than on a CDN because TIDE sends `script-src 'self'` whenever it owns
+identities, and the alternative to hosting the assets is trusting a third-party
+origin on a page that carries a session cookie. Hosting them also means `/docs`
+works with no network at all.
+"""
+
+
+def _swagger_initializer(openapi_url: str) -> str:
+    return (
+        "window.ui = SwaggerUIBundle({\n"
+        f"  url: {json.dumps(openapi_url)},\n"
+        '  dom_id: "#swagger-ui",\n'
+        "  deepLinking: true,\n"
+        "  showExtensions: true,\n"
+        "  showCommonExtensions: true,\n"
+        "  presets: [SwaggerUIBundle.presets.apis],\n"
+        '  layout: "BaseLayout",\n'
+        "})\n"
+    )
+
+
+def _swagger_ui_html(*, title: str, assets_path: str) -> str:
+    return (
+        "<!DOCTYPE html>\n"
+        '<html lang="en">\n'
+        "  <head>\n"
+        '    <meta charset="utf-8" />\n'
+        '    <meta name="viewport" content="width=device-width, initial-scale=1" />\n'
+        f"    <title>{title}</title>\n"
+        f'    <link rel="stylesheet" href="{assets_path}/swagger-ui.css" />\n'
+        "  </head>\n"
+        "  <body>\n"
+        '    <div id="swagger-ui"></div>\n'
+        f'    <script src="{assets_path}/swagger-ui-bundle.js"></script>\n'
+        f'    <script src="{assets_path}/{SWAGGER_INITIALIZER}"></script>\n'
+        "  </body>\n"
+        "</html>\n"
+    )
 
 
 class TideEmptyActionPayload(BaseModel):
@@ -289,7 +338,12 @@ def build_fastapi_app(
             "TIDE application server. Every request is authenticated and "
             "reauthorized through the application service layer."
         ),
-        docs_url="/docs" if docs else None,
+        # `/docs` is served below rather than by FastAPI, which points Swagger
+        # UI at a CDN and initialises it from an inline script -- neither of
+        # which survives the `script-src 'self'` this sends whenever it owns
+        # identities. `/redoc` is left as FastAPI builds it and is therefore
+        # still CDN-dependent; see the decision log.
+        docs_url=None,
         redoc_url="/redoc" if docs else None,
         openapi_url="/openapi.json" if docs else None,
     )
@@ -552,6 +606,48 @@ def build_fastapi_app(
             application=model.name,
             version=model.version,
         )
+
+    if docs:
+        assets_path = f"{base_path.rstrip('/')}/_tide/docs-assets"
+
+        @app.get(
+            f"{assets_path}/{{asset}}",
+            include_in_schema=False,
+        )
+        def swagger_ui_asset(asset: str) -> Response:
+            """Serve Swagger UI from TIDE rather than from a CDN.
+
+            Registered only when the description is, so the assets are
+            withheld with the document they draw. Same-origin is the whole
+            point: it is what lets the page work under the security headers
+            the renderer needs, instead of asking for an exception to them.
+            """
+
+            if asset == SWAGGER_INITIALIZER:
+                # Generated rather than shipped, so it cannot name a schema URL
+                # this application does not serve. A file and not an inline
+                # block, because `'self'` covers a file and covering a block
+                # would need `unsafe-inline` or a hash of a string FastAPI owns.
+                return Response(
+                    content=_swagger_initializer(app.openapi_url or ""),
+                    media_type="text/javascript",
+                )
+            if asset not in SWAGGER_UI_ASSETS:
+                raise HTTPException(status_code=404, detail={"error": "not_found"})
+            return FileResponse(
+                SWAGGER_UI_DIRECTORY / asset,
+                media_type=SWAGGER_UI_ASSETS[asset],
+            )
+
+        @app.get("/docs", include_in_schema=False)
+        def swagger_ui_page() -> Response:
+            return Response(
+                content=_swagger_ui_html(
+                    title=f"{model.name} API",
+                    assets_path=assets_path,
+                ),
+                media_type="text/html",
+            )
 
     browser_auth_path = f"{base_path.rstrip('/')}/_tide/browser-auth"
     browser_login_path = f"{browser_auth_path}/login"

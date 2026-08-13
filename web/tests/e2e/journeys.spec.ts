@@ -330,3 +330,36 @@ test("does not block the first paint on the whole application", async ({
     `${entry} is ${Math.round(bytes / 1000)} kB of render-blocking JavaScript`,
   ).toBeLessThan(ENTRY_CHUNK_BUDGET_BYTES)
 })
+
+test("renders its own API description under its own security headers", async ({
+  page,
+}) => {
+  const refused: string[] = []
+  page.on("console", (message) => {
+    if (/Content Security Policy/i.test(message.text())) {
+      refused.push(message.text().slice(0, 120))
+    }
+  })
+  const failed: string[] = []
+  page.on("requestfailed", (request) => failed.push(request.url()))
+
+  // This server owns identities, so it sends `script-src 'self'`. FastAPI's
+  // Swagger UI is a CDN script tag plus an inline initialiser, and every part
+  // of it was refused here: `/docs` answered 200 and drew nothing, which the
+  // status-code tests were happy with. TIDE serves the assets itself now.
+  await page.goto("/docs")
+  await expect(page.locator(".opblock").first()).toBeVisible()
+  await expect(page.getByText("/api/v1/invoices").first()).toBeVisible()
+
+  expect(refused, "nothing on this page may need an exception to the CSP").toEqual(
+    [],
+  )
+  expect(failed).toEqual([])
+
+  // Same-origin, so it works with no network at all -- which is also what
+  // makes it load in a test that has none.
+  const external = page.locator(
+    'script[src^="http"], link[rel="stylesheet"][href^="http"]',
+  )
+  await expect(external).toHaveCount(0)
+})
