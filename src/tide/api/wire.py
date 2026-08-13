@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from typing import Any, Mapping
+from uuid import UUID
 
 from tide.runtime.errors import QueryFieldError
 from tide.api.contracts import TideAuditEvent, TideAuditFieldChange
@@ -123,6 +124,10 @@ def coerce_identity(
         return str(value)
     if field_type == "decimal":
         return value if isinstance(value, Decimal) else Decimal(str(value))
+    if field_type == "uuid":
+        # A malformed identity in a URL is a bad request, not a server fault,
+        # which is the distinction between the ValueError and the TypeError.
+        return value if isinstance(value, UUID) else UUID(str(value))
     raise TypeError
 
 
@@ -189,6 +194,10 @@ def decode_wire_value(
         from datetime import datetime
 
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if field_type == "uuid":
+        if not isinstance(value, str):
+            raise TypeError
+        return UUID(value)
     if field_type == "integer":
         if not isinstance(value, int) or isinstance(value, bool):
             raise TypeError

@@ -6,6 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 from decimal import Decimal
+from uuid import UUID
 from enum import StrEnum
 import json
 import math
@@ -391,6 +392,8 @@ def _canonical_value(value: Any) -> list[Any]:
         return ["datetime", value.isoformat()]
     if isinstance(value, date):
         return ["date", value.isoformat()]
+    if isinstance(value, UUID):
+        return ["uuid", str(value)]
     if isinstance(value, Mapping):
         if not all(isinstance(key, str) for key in value):
             raise TypeError("action mappings require string keys")
@@ -428,6 +431,8 @@ def _restore_value(value: Any) -> Any:
         return datetime.fromisoformat(payload)
     if tag == "date" and isinstance(payload, str):
         return date.fromisoformat(payload)
+    if tag == "uuid" and isinstance(payload, str):
+        return UUID(payload)
     if tag == "mapping" and isinstance(payload, list):
         if not all(
             isinstance(item, list) and len(item) == 2 and isinstance(item[0], str)

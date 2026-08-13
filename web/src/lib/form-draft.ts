@@ -10,6 +10,9 @@ import type {
 export type TideFormDraft = Record<string, unknown>
 export type TideFormErrors = Record<string, string>
 
+// Every scalar type the form can put on screen. A type missing here does not
+// degrade one field -- `isEditableForm` requires all of them, so one unknown
+// type makes the whole record uneditable in the browser.
 const EDITABLE_SCALAR_TYPES = new Set([
   "boolean",
   "choice",
@@ -19,6 +22,7 @@ const EDITABLE_SCALAR_TYPES = new Set([
   "integer",
   "reference",
   "string",
+  "uuid",
 ])
 
 export function isEditableForm(form: TideFormPresentation): boolean {

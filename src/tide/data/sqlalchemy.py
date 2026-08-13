@@ -25,6 +25,7 @@ from sqlalchemy import (
     String,
     Table,
     Unicode,
+    Uuid,
     and_,
     case,
     create_engine,
@@ -1387,6 +1388,10 @@ def _sql_type(model: ApplicationModel, field: NormalizedField) -> TypeEngine[Any
         return Date()
     if field_type == "datetime":
         return DateTime(timezone=True)
+    if field_type == "uuid":
+        # UNIQUEIDENTIFIER on SQL Server, CHAR(32) on SQLite: one declared type
+        # reaching both supported dialects is the point of having it.
+        return Uuid()
     if field_type == "choice":
         length = metadata.get("length") or max(
             (len(choice) for choice in metadata.get("choices", ())), default=255

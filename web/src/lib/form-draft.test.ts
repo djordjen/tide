@@ -11,6 +11,7 @@ import {
   collectionDraftRows,
   collectionEditorForm,
   formDraft,
+  isEditableForm,
   mutationPayload,
   newCollectionDraft,
   normalizeNumericDraft,
@@ -125,6 +126,22 @@ describe("metadata-driven form drafts", () => {
     expect(
       referenceSelectionDraft(invoiceLineForm, formDraft(invoiceLineForm)),
     ).toEqual({ taxable: false })
+  })
+})
+
+describe("editable form types", () => {
+  it("does not lock a whole record out of editing over a uuid key", () => {
+    // isEditableForm is all-or-nothing: one unrecognised type takes the edit
+    // action away from every field on the record, not just its own.
+    const guidForm: TideFormPresentation = {
+      ...productForm,
+      fields: {
+        id: field({ name: "id", label: "Id", field_type: "uuid" }),
+        name: field({ name: "name", label: "Name" }),
+      },
+    }
+
+    expect(isEditableForm(guidForm)).toBe(true)
   })
 })
 

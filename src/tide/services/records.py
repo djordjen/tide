@@ -9,7 +9,7 @@ from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 import re
 from typing import Any, Callable, Mapping, Sequence
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from tide.compiler.expressions import PARAMETER_PATTERN, evaluate_expression
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity
@@ -736,6 +736,8 @@ class RecordsService:
         if input_issues:
             raise ValidationFailed(input_issues)
         self._apply_generators(entity, values, context)
+        if session.is_new:
+            self._assign_generated_identity(entity, values)
         self._compute_entity(entity.name, values)
         derived_issues = self._coerce_values(entity.name, values)
         if derived_issues:
@@ -1110,6 +1112,31 @@ class RecordsService:
                 if generator is None:
                     raise RuntimeError(f"no generator registered for {reference}")
                 values[field_name] = generator(values, context, self.repository)
+
+    def _assign_generated_identity(
+        self, entity: NormalizedEntity, values: dict[str, Any]
+    ) -> None:
+        """Give a new record its uuid key here, before anything is written.
+
+        An integer key is allocated by the database and read back afterwards,
+        but a uuid needs no round trip -- and having it up front is what lets a
+        master-detail write point child rows at a parent row that does not
+        exist yet.
+
+        A field declaring a ``server_default`` is deferring to the database's
+        own generator instead. That is how a legacy ``NEWSEQUENTIALID()``
+        column keeps its sequential keys, and with them the clustered index
+        that random values would fragment, so that one is left alone and read
+        back like an integer.
+        """
+
+        field = entity.field(_primary_key(entity))
+        if field.metadata.get("type") != "uuid":
+            return
+        if field.metadata.get("server_default") is not None:
+            return
+        if values.get(field.name) is None:
+            values[field.name] = uuid4()
 
     def _compute_entity(self, entity_name: str, values: dict[str, Any]) -> None:
         entity = self.model.entity(entity_name)
@@ -1668,6 +1695,8 @@ def _coerce_scalar(field_type: str, value: Any) -> tuple[Any, bool]:
         return value, isinstance(value, date) and not isinstance(value, datetime)
     if field_type == "datetime":
         return value, isinstance(value, datetime)
+    if field_type == "uuid":
+        return value, isinstance(value, UUID)
     return value, True
 
 

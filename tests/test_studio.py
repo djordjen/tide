@@ -5,7 +5,7 @@ from collections.abc import Callable
 import os
 from pathlib import Path
 import shutil
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 from textual.containers import Horizontal
@@ -15,6 +15,7 @@ from textual.widgets import Button, DataTable, Input, Select, Static, TextArea, 
 from textual_support import press_button, wait_until
 from tide.cli import main
 from tide.development import DesignerDocumentReference, StudioError, StudioService
+from tide.model.source import FieldType
 from tide.tui import StudioApp
 from tide.tui.studio import (
     StudioGroupsScreen,
@@ -79,17 +80,10 @@ def test_studio_service_builds_semantic_tree_without_writing_sources() -> None:
         item for item in invoice.properties if item.path == ("fields", "id", "type")
     )
     assert field_type.editor == "choice"
-    assert field_type.choices == (
-        "string",
-        "integer",
-        "decimal",
-        "boolean",
-        "date",
-        "datetime",
-        "choice",
-        "reference",
-        "collection",
-    )
+    # Derived from the contract rather than restated: Studio offers whatever
+    # the metadata declares, and a list written out again here would only ever
+    # record how many types existed the day it was written.
+    assert field_type.choices == get_args(FieldType)
     primary_key = next(
         item
         for item in invoice.properties

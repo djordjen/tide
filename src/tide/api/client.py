@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+from uuid import UUID
 import re
 from typing import Any, Mapping
 from urllib.parse import quote, urlsplit
@@ -947,6 +948,10 @@ def _decode_field(
         if not isinstance(value, str):
             raise TypeError
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if field_type == "uuid":
+        if not isinstance(value, str):
+            raise TypeError
+        return UUID(value)
     if field_type == "integer" and (
         not isinstance(value, int) or isinstance(value, bool)
     ):

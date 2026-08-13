@@ -335,6 +335,7 @@
             "boolean",
             "date",
             "datetime",
+            "uuid",
             "choice",
             "reference",
             "collection"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from uuid import UUID
 from difflib import unified_diff
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
@@ -1357,6 +1358,9 @@ def _sample_scalar(
         return date(2026, 1, 15)
     if field_type == "datetime":
         return datetime(2026, 1, 15, 12, 0, tzinfo=timezone.utc)
+    if field_type == "uuid":
+        # Fixed, not uuid4(): these fixtures are compared run to run.
+        return UUID("2b1f7a44-0000-4000-8000-000000000001")
     if field_type == "choice":
         choices = tuple(metadata.get("choices", ()))
         if not choices:

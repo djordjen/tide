@@ -7,7 +7,7 @@ immutable runtime model in :mod:`tide.compiler.normalized`.
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any, Literal, Union
+from typing import Any, Literal, Union, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -93,10 +93,21 @@ FieldType = Literal[
     "boolean",
     "date",
     "datetime",
+    "uuid",
     "choice",
     "reference",
     "collection",
 ]
+
+# Every type above that holds one value of its own. `reference` borrows the
+# type of the primary key it points at and `collection` is navigation, so both
+# are excluded -- and every layer that dispatches on a field type should be
+# reachable from this tuple rather than from a list written out again.
+SCALAR_FIELD_TYPES: tuple[str, ...] = tuple(
+    field_type
+    for field_type in get_args(FieldType)
+    if field_type not in {"reference", "collection"}
+)
 
 
 class SelectionAssignmentSource(SourceModel):

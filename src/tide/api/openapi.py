@@ -14,6 +14,7 @@ from decimal import Decimal
 import re
 from types import MappingProxyType
 from typing import Annotated, Any, ForwardRef, Literal, Mapping
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 from pydantic.json_schema import models_json_schema
@@ -440,6 +441,8 @@ def _scalar_annotation(field: NormalizedField) -> Any:
         annotation = date
     elif field_type == "datetime":
         annotation = datetime
+    elif field_type == "uuid":
+        annotation = UUID
     else:
         raise ValueError(f"unsupported API field type {field_type!r}")
     if constraints:

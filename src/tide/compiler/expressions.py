@@ -472,7 +472,15 @@ def _field_type(field_type: str, target: str | None) -> str:
 
 
 def _normalized_type(value: str) -> str:
-    return {"choice": "string", "datetime": "datetime", "boolean": "boolean"}.get(value, value)
+    # A uuid reads as a string in expressions so a policy can compare an
+    # identity with a literal or a principal attribute; it has no arithmetic
+    # or ordering meaning of its own that an expression could use.
+    return {
+        "choice": "string",
+        "uuid": "string",
+        "datetime": "datetime",
+        "boolean": "boolean",
+    }.get(value, value)
 
 
 def _collection_item(value: str) -> str:

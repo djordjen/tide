@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 import re
 from typing import Any, Mapping
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from textual import events
 from textual.app import ComposeResult
@@ -1457,6 +1457,8 @@ def _editor_value(field: NormalizedField, editor: Editor) -> Any:
             return int(raw)
         if field_type == "decimal":
             return Decimal(raw.replace(",", "."))
+        if field_type == "uuid":
+            return UUID(raw)
     except ValueError:
         return raw
     except InvalidOperation:
