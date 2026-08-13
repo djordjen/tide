@@ -447,6 +447,33 @@ the design-sync setup leaves a junction inside it pointing back at `web/`, and
 a recursive glob that filters the results instead of the walk recurses until
 Windows refuses the path.
 
+The Quick start opens one surface and finishes it, then names the others one
+command at a time. It was six commands in a single block, two of which run
+until stopped, so a reader pasting the block never reached the last two; the
+fourth exited 1 without `TIDE_API_TOKEN`, which no document showed how to
+produce on any platform but Windows; and the paragraph beneath it said that
+command made the Web UI and MCP "available from the same process", when both
+answer 404 until asked for with `--web-root` and `--mcp`. Four surfaces and
+Studio are photographed directly above it, and exactly one of them had a
+command that worked.
+
+`docs/GETTING-STARTED.md` gives the Web UI a section of its own. It had none:
+fifty lines covering sign-in, editing, lookups and report preview sat inside a
+127-line section titled "Run REST and OpenAPI locally", so a reader scanning
+the headings for the browser UI concluded it was not covered — on the one
+surface a phone can run. Node moves from "optional, for the MCP Inspector" to a
+stated requirement at the version the renderer needs, every first-run step says
+what it should print, and a closing section names the failures worth
+recognising rather than debugging. One of them had no written prerequisite
+anywhere: `--auth local` reads an identity store and will not create one, and
+the refusal does not mention `tide auth create-user`.
+
+`tests/test_documentation.py` now checks the output a document promises against
+the compiler that produces it, and pins which surfaces `serve` provides. The
+command check beside it resolves every documented `tide` invocation against the
+real parser and stayed green through all of the above, because nothing that was
+wrong was wrong in the syntax.
+
 ### Not yet
 
 Shared encrypted multi-worker browser sessions, provider-wide logout, trusted

@@ -53,6 +53,15 @@ but prose does not travel with a copy-paste, so the fence has to say it too.
 The check covers `tide` only — `uv`, `npm` and `git` lines in the same blocks
 are on you.
 
+That check reads syntax, so `tests/test_documentation.py` reads the rest. A
+`Model is valid:` line inside a `text` fence must be a line the compiler
+actually prints, counts included; and the claim that `tide serve` alone is REST
+and the description is held by asserting that `--web-root` and `--mcp` default
+to off and that nothing answers `/` without them. Both exist because the README
+promised for months that one `serve` command also brought the Web UI and MCP,
+and every check in the repository agreed with it. If you write what a command
+will print, print it first and paste what came back.
+
 ## Screenshots
 
 The images in `docs/images/` are generated, not collected. Nothing verifies

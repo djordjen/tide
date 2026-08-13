@@ -99,29 +99,99 @@ permits 3.11 or later; newer interpreters are best-effort rather than part of
 the required CI matrix.
 
 ```bash
+git clone https://github.com/djordjen/tide.git
+cd tide
 uv sync --extra dev
-uv run tide model validate applications/invoicing
-uv run tide run applications/invoicing --demo
-uv run tide serve applications/invoicing --demo
-uv run tide model validate applications/contacts
-uv run pytest
 ```
 
-`tide run` opens the terminal client against the bundled invoicing application.
-`tide serve` puts the same application behind FastAPI, with the Web UI and MCP
-available from the same process. Neither needs a database: `--demo` seeds an
-in-memory one, and `tide serve` requires a development bearer token of at least
-32 characters in `TIDE_API_TOKEN` and binds to loopback.
+Compile the bundled invoicing application. Nothing is running yet — this is the
+compiler alone, and it is the quickest way to know the checkout is sound:
 
-The smaller generated [Contacts application](applications/contacts/README.md)
-is the second portability proof. On Windows, `start.bat contacts-demo` runs it
-immediately; its README also covers Studio, Web, REST, runtime MCP, and
-persistent Faker data.
+```bash
+uv run tide model validate applications/invoicing
+```
 
-[Getting started](docs/GETTING-STARTED.md) walks through the demo TUI, the
-[Web UI](docs/WEB-UI.md), Studio, REST/OpenAPI, MCP, and optionally SQL Server.
+```text
+Model is valid: TIDE Invoicing 0.1.0 (4 entities, 9 views, 2 reports, 0 warning(s)).
+```
+
+Now open it. No database is involved: `--demo` seeds an in-memory one from the
+application's own sample records, and closing the process discards every
+change. Press `q` to quit; the footer lists the other keys.
+
+```bash
+uv run tide run applications/invoicing --demo
+```
+
+On Windows, `start.bat demo` is the same command with the environment prepared.
+
+### The other surfaces
+
+The same compiled application, the same services, the same permissions. These
+are alternatives rather than steps, and each runs until you stop it.
+
+**Web UI** — the only surface a phone can run. Needs Node.js 20 or later.
+Create the sign-in account once; it lives in a TIDE-owned SQLite file, separate
+from the application's own data. The command prompts for a password and stores
+no plaintext:
+
+```bash
+uv run tide auth create-user applications/invoicing \
+  --store .tide/local-auth.sqlite3 --username admin \
+  --role sales_clerk --role auditor
+```
+
+```bash
+cd web && npm ci && npm run dev:demo
+```
+
+**Studio** — inspect and edit the resolved model with no database in the
+picture. No source file is written without an explicit approval:
+
+```bash
+uv run tide studio applications/invoicing
+```
+
+**REST and the generated API description** — `serve` binds to loopback and
+requires a development bearer token of at least 32 characters:
+
+```bash
+export TIDE_API_TOKEN=$(uv run python -c "import secrets; print(secrets.token_urlsafe(32))")
+uv run tide serve applications/invoicing --demo
+```
+
+Open <http://127.0.0.1:8000/docs>, choose **Authorize**, and paste that token.
+The description is served from TIDE's own files, so it works offline and under
+TIDE's own content-security policy. In PowerShell, set the variable with
+`$env:TIDE_API_TOKEN = ...`, or run `start.bat api-demo`, which generates and
+prints one.
+
+**MCP** — the same server with the read-only runtime MCP surface mounted:
+
+```bash
+uv run tide serve applications/invoicing --demo --mcp
+```
+
+**A second application** — `applications/invoicing` is a reference application,
+not part of the runtime. The smaller generated
+[Contacts application](applications/contacts/README.md) is the portability
+proof, and every command above accepts it in place of `invoicing`:
+
+```bash
+uv run tide run applications/contacts --demo
+```
+
+`serve` on its own is REST and the API description: it gains the Web UI only
+when given `--web-root` pointing at a build, and MCP only when given `--mcp`.
+The Web command above sidesteps that by starting the API and the Vite
+development server side by side; [Web UI](docs/WEB-UI.md) covers building the
+renderer and hosting it from the one process instead.
+
+[Getting started](docs/GETTING-STARTED.md) walks through each of these in turn,
+with what to expect on screen and what to do when a step does not work.
 [Build your first TIDE application](docs/FIRST-APPLICATION.md) starts from an
-empty directory. On Windows, `start.bat` wraps each of these.
+empty directory instead. On Windows, `start.bat` wraps every command above; run
+`start.bat help` for the list.
 
 ## What is implemented
 
