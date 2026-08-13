@@ -417,3 +417,67 @@ def test_sql_server_persists_shared_query_cursor(
         assert persisted["token_hash"] == hashlib.sha256(token.encode()).hexdigest()
     finally:
         store.metadata.drop_all(store.engine)
+
+
+def _money_probe_project(tmp_path: Path) -> Path:
+    """A legacy application mapping one decimal field onto one money column."""
+
+    project = tmp_path / "money-probe"
+    (project / "models").mkdir(parents=True)
+    (project / "tide.yaml").write_text(
+        """schema_version: "0.1"
+application: {name: Money Probe, version: 0.1.0}
+database: {mode: legacy}
+model: {paths: [models]}
+""",
+        encoding="utf-8",
+    )
+    (project / "models" / "payment.yaml").write_text(
+        """entity: probe.Payment
+storage: {table: TIDE_MONEY_PROBE}
+display: reference
+fields:
+  id:        {type: integer, primary_key: true, column: PAYMENT_NO}
+  reference: {type: string, length: 40, required: true, column: PAYMENT_REF}
+  amount:    {type: decimal, precision: 19, scale: 4, required: true, column: AMOUNT}
+""",
+        encoding="utf-8",
+    )
+    return project
+
+
+def test_a_decimal_field_round_trips_through_a_money_column(tmp_path: Path) -> None:
+    """A money column is only a decimal if a Decimal survives the round trip.
+
+    The offline check in `test_sqlserver_dialect.py` proves the reflected type
+    is accepted and measured. Only a live server shows what the driver returns,
+    which is the half that decides whether the amount is still the amount.
+    """
+
+    assert SQLSERVER_URL is not None
+    repository = SQLAlchemyRepository(
+        compile_project(_money_probe_project(tmp_path)), SQLSERVER_URL
+    )
+    stored = Decimal("12345678901234.5678")
+    try:
+        with repository.engine.begin() as connection:
+            connection.exec_driver_sql(
+                "CREATE TABLE TIDE_MONEY_PROBE ("
+                "PAYMENT_NO INT NOT NULL PRIMARY KEY, "
+                "PAYMENT_REF NVARCHAR(40) NOT NULL, "
+                "AMOUNT MONEY NOT NULL)"
+            )
+
+        repository.validate_schema()
+        repository.seed(
+            "probe.Payment",
+            [{"id": 1, "reference": "PROBE-1", "amount": stored}],
+        )
+
+        payment = repository.all("probe.Payment")[0]
+        assert isinstance(payment["amount"], Decimal)
+        assert payment["amount"] == stored, "the money column did not return what it stored"
+    finally:
+        with repository.engine.begin() as connection:
+            connection.exec_driver_sql("DROP TABLE IF EXISTS TIDE_MONEY_PROBE")
+        repository.dispose()

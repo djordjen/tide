@@ -3,8 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, Numeric
 from sqlalchemy.dialects import mssql
+from sqlalchemy.dialects.mssql import base as mssql_base
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 from tide import compile_project
@@ -134,6 +135,72 @@ def test_keyset_boundary_compiles_to_sql_server_top_and_bound_predicates(
     assert "CRM_CUSTOMER.ID >" in sql
     assert "ACME LTD" not in sql
     assert "ACME Ltd" in compiled.params.values()
+
+
+def _reflected_money_types() -> dict[str, type]:
+    """The types SQL Server reflection actually produces for money columns.
+
+    Read from the dialect's own registry rather than named here, so a rename
+    inside SQLAlchemy fails the guard below instead of quietly testing nothing.
+    """
+
+    found = {
+        name: mssql_base.ischema_names[name]
+        for name in ("money", "smallmoney")
+        if name in mssql_base.ischema_names
+    }
+    assert set(found) == {"money", "smallmoney"}, (
+        "SQL Server reflection no longer maps both money spellings; "
+        f"found {sorted(found)}"
+    )
+    return found
+
+
+def test_a_decimal_field_accepts_a_sql_server_money_column() -> None:
+    """money is how SQL Server spells a fixed-scale decimal, not a foreign type.
+
+    `MONEY` does not subclass `Numeric` -- it descends straight from
+    `TypeEngine` with its own affinity -- so nothing about the ordinary numeric
+    comparison recognises it without being told.
+    """
+
+    for name, money_type in _reflected_money_types().items():
+        assert sqlalchemy_adapter._types_compatible(
+            Numeric(precision=12, scale=2), money_type(), "mssql"
+        ), f"a decimal field should map onto a {name} column"
+
+
+@pytest.mark.parametrize(
+    ("column", "precision", "scale", "expected"),
+    [
+        ("money", 19, 4, None),
+        ("money", 12, 2, None),
+        ("money", 19, 6, "scale 4 is smaller than required scale 6"),
+        ("money", 24, 4, "precision 19 is smaller than required precision 24"),
+        ("smallmoney", 10, 4, None),
+        ("smallmoney", 12, 2, "precision 10 is smaller than required precision 12"),
+    ],
+)
+def test_a_decimal_wider_than_its_money_column_is_still_rejected(
+    column: str, precision: int, scale: int, expected: str | None
+) -> None:
+    """Accepting the type must not mean accepting any capacity.
+
+    A money column is fixed at 19,4 (10,4 for smallmoney) and the reflected
+    type carries neither number, so the capacity check is blind to it until the
+    capacities are supplied.
+    """
+
+    issue = sqlalchemy_adapter._type_capacity_issue(
+        Numeric(precision=precision, scale=scale),
+        _reflected_money_types()[column](),
+    )
+
+    if expected is None:
+        assert issue is None, f"decimal({precision},{scale}) fits {column}: {issue}"
+    else:
+        assert issue is not None, f"decimal({precision},{scale}) does not fit {column}"
+        assert expected in issue
 
 
 def test_missing_pyodbc_reports_the_installable_sql_server_extra(

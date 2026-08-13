@@ -37,6 +37,7 @@ from sqlalchemy import (
     select,
     update,
 )
+from sqlalchemy.dialects import mssql
 from sqlalchemy.engine import Connection, Engine, URL, make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import StaticPool
@@ -1549,9 +1550,30 @@ def _has_default(column: Mapping[str, Any]) -> bool:
     ) or bool(column.get("autoincrement"))
 
 
+# SQL Server money columns are decimals with a capacity the type object does
+# not carry: reflection yields a MONEY with no precision and no scale, so the
+# ordinary numeric checks can neither recognise it nor measure it. Stating the
+# fixed capacities once lets both checks below judge a money column exactly as
+# they judge any other decimal, rather than each learning about it separately.
+_FIXED_CAPACITY_TYPES: tuple[tuple[type[TypeEngine[Any]], int, int], ...] = (
+    (mssql.MONEY, 19, 4),
+    (mssql.SMALLMONEY, 10, 4),
+)
+
+
+def _as_comparable(actual: TypeEngine[Any]) -> TypeEngine[Any]:
+    """Restate a vendor type as the general type whose capacity it matches."""
+
+    for vendor_type, precision, scale in _FIXED_CAPACITY_TYPES:
+        if isinstance(actual, vendor_type):
+            return Numeric(precision=precision, scale=scale)
+    return actual
+
+
 def _types_compatible(
     expected: TypeEngine[Any], actual: TypeEngine[Any], dialect: str
 ) -> bool:
+    actual = _as_comparable(actual)
     if isinstance(expected, String):
         return isinstance(actual, String)
     if isinstance(expected, Numeric):
@@ -1574,6 +1596,7 @@ def _types_compatible(
 def _type_capacity_issue(
     expected: TypeEngine[Any], actual: TypeEngine[Any]
 ) -> str | None:
+    actual = _as_comparable(actual)
     if isinstance(expected, String) and isinstance(actual, String):
         if expected.length and actual.length and actual.length < expected.length:
             return (
