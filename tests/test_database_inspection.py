@@ -14,7 +14,11 @@ from tide.cli import main
 from tide.compiler.normalized import ApplicationModel
 from tide.data import SQLAlchemyRepository, inspect_schema, render_project
 from tide.data import inspection
-from tide.data.inspection import InspectionProposal
+from tide.data.inspection import (
+    MAX_COLLECTION_CHAIN,
+    InspectionProposal,
+    synthesize_collections,
+)
 
 LEGACY_DDL = (
     "CREATE TABLE EMPLOYEE_MASTER ("
@@ -359,13 +363,45 @@ def test_two_keys_from_one_table_become_two_differently_named_collections(
         for name, field in depot.fields.items()
         if field.metadata["type"] == "collection"
     }
+    # DEPOT.PARENT_DEPOT_NO points at DEPOT: a collection there is hydrated
+    # into itself for ever, so it is declined rather than proposed.
     assert collections == {
         "route_leg_origin_no": "origin_no",
         "route_leg_destination_no": "destination_no",
-        "depot": "parent_depot_no",
     }
     for name in collections:
         assert f"legacy.Depot.{name}.inline" in model.views
+
+    _, declined = synthesize_collections(inspect_schema(paired_url).entities)
+    assert [(item.name, "without end" in item.reason) for item in declined] == [
+        ("legacy.Depot.parent_depot_no", True)
+    ]
+
+
+def test_a_collection_chain_hydration_cannot_follow_is_declined(
+    tmp_path: Path,
+) -> None:
+    """Too deep is not slower, it is a list that returns nothing at all.
+
+    Collections load eagerly, and past `RelationshipLoadPlan.max_depth` the
+    repository raises `RelationshipExpansionLimit` rather than truncating --
+    so one chain too long breaks the browse for the entity at its head.
+    """
+
+    depth = MAX_COLLECTION_CHAIN + 1
+    statements = ["CREATE TABLE T0 (ID INTEGER PRIMARY KEY, NAME VARCHAR(20))"]
+    statements += [
+        f"CREATE TABLE T{index} (ID INTEGER PRIMARY KEY, "
+        f"PARENT_ID INTEGER REFERENCES T{index - 1}(ID))"
+        for index in range(1, depth + 1)
+    ]
+    proposal = inspect_schema(_database(tmp_path, "chain.db", tuple(statements)))
+    owned, declined = synthesize_collections(proposal.entities)
+
+    hops = sum(len(items) for items in owned.values())
+    assert hops == MAX_COLLECTION_CHAIN, owned
+    assert [item.name for item in declined] == [f"legacy.T{depth}.parent_id"]
+    assert f"{MAX_COLLECTION_CHAIN} hops" in declined[0].reason
 
 
 def test_a_runnable_proposal_opens_in_the_tui_over_real_rows(

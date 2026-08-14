@@ -431,6 +431,8 @@ reports what it could not map instead of guessing. A table with a composite or
 absent primary key is named as skipped, with the reason. See
 [Legacy databases](docs/LEGACY-DATABASES.md#adopting-an-existing-schema).
 
+A synthesized collection is declined, and named on stderr, when it would point an entity at itself, close a cycle, or put a record further from a list than hydration follows. Collections load eagerly with no cycle guard, and past `RelationshipLoadPlan.max_depth` the repository raises `RelationshipExpansionLimit` instead of truncating -- so one over-long chain returns an empty browse rather than a slow one. The reference itself always survives; only the turned-around collection is declined.
+
 `--runnable` also turns every reference around: the entity a foreign key points
 at gets a `collection`, an `inline_edit` view and a section on its form, so a
 record shows what points at it. A table pointed at twice, or one pointing at

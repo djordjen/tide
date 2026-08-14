@@ -23,6 +23,7 @@ from tide.data import (
     render_project,
     propose_migration,
     render_revision_sql,
+    synthesize_collections,
     verify_sqlite_backup,
 )
 from tide.runtime import Channel, Principal, RequestContext, TideRuntimeError
@@ -458,6 +459,9 @@ def _db_inspect(arguments: argparse.Namespace) -> int:
         print(f"Not proposed -- {skipped}", file=sys.stderr)
     for demoted in proposal.demoted:
         print(f"Reference dropped -- {demoted}", file=sys.stderr)
+    if arguments.runnable:
+        for declined in synthesize_collections(proposal.entities)[1]:
+            print(f"Collection not proposed -- {declined}", file=sys.stderr)
 
     if arguments.output is None:
         for path in sorted(documents):

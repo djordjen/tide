@@ -13,7 +13,7 @@ it reports rather than guesses.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields as dataclass_fields
 import fnmatch
 import re
 from typing import Any
@@ -22,14 +22,17 @@ from sqlalchemy import Boolean, Date, DateTime, Integer, Numeric, String, Uuid, 
 from sqlalchemy.engine import Engine
 from sqlalchemy.sql.type_api import TypeEngine
 
+from .repository import RelationshipLoadPlan
 from .sqlalchemy import _as_comparable, _create_engine
 
 __all__ = [
     "DemotedReference",
+    "InspectedCollection",
     "InspectedEntity",
     "InspectionProposal",
     "SkippedObject",
     "inspect_schema",
+    "synthesize_collections",
     "render_project",
 ]
 
@@ -571,7 +574,9 @@ def render_project(
     because a model that compiles is not the same thing as an application.
     """
 
-    collections = _synthesized_collections(proposal.entities) if runnable else {}
+    collections = (
+        synthesize_collections(proposal.entities)[0] if runnable else {}
+    )
     children = {entity.name: entity for entity in proposal.entities}
     documents: dict[str, str] = {}
     for entity in proposal.entities:
@@ -634,14 +639,28 @@ def _list_view(entity: InspectedEntity, kind: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _synthesized_collections(
-    entities: tuple[InspectedEntity, ...],
-) -> dict[str, tuple[InspectedCollection, ...]]:
-    """Turn every proposed reference around and name it from the other end.
+#: How many collection hops hydration will make before it refuses. Read from
+#: the load plan rather than restated, because a proposal that exceeds it does
+#: not degrade -- `RelationshipExpansionLimit` fails the whole list, so a
+#: browse over the entity at the top of too long a chain shows nothing at all.
+MAX_COLLECTION_CHAIN: int = next(
+    int(item.default)
+    for item in dataclass_fields(RelationshipLoadPlan)
+    if item.name == "max_depth" and isinstance(item.default, int)
+)
 
-    Naming a collection after the child alone collides the moment a child
-    points at the same parent twice -- two keys into one table, or a table
-    that points at itself -- so a repeated child keeps the key in its name.
+
+def synthesize_collections(
+    entities: tuple[InspectedEntity, ...],
+) -> tuple[dict[str, tuple[InspectedCollection, ...]], tuple[SkippedObject, ...]]:
+    """Turn every proposed reference around, as far as hydration can follow.
+
+    Collections are loaded eagerly and with no cycle guard, so the graph these
+    make has to stay a shallow DAG: an entity pointing at itself would recurse
+    forever, and a chain longer than the load plan follows fails the list
+    rather than truncating it. What cannot be turned around is returned rather
+    than dropped, because a missing tab is not something a reader would think
+    to look for.
     """
 
     incoming: dict[str, list[tuple[str, str]]] = {}
@@ -649,19 +668,56 @@ def _synthesized_collections(
         for field_name, target in child.references:
             incoming.setdefault(target, []).append((child.name, field_name))
 
+    edges: dict[str, set[str]] = {entity.name: set() for entity in entities}
     owned: dict[str, tuple[InspectedCollection, ...]] = {}
+    declined: list[SkippedObject] = []
     for entity in entities:
-        arrivals = incoming.get(entity.name, ())
-        if not arrivals:
+        accepted: list[tuple[str, str]] = []
+        for child_name, inverse in incoming.get(entity.name, ()):
+            origin = f"{child_name}.{inverse}"
+            if child_name == entity.name:
+                declined.append(
+                    SkippedObject(
+                        origin,
+                        "a collection of its own entity would be hydrated "
+                        "into itself without end",
+                    )
+                )
+                continue
+            if _reaches(edges, child_name, entity.name):
+                declined.append(
+                    SkippedObject(
+                        origin,
+                        f"a collection here would close a cycle back to "
+                        f"{entity.name}",
+                    )
+                )
+                continue
+            edges[entity.name].add(child_name)
+            if _longest_chain(edges) > MAX_COLLECTION_CHAIN:
+                edges[entity.name].discard(child_name)
+                declined.append(
+                    SkippedObject(
+                        origin,
+                        "a collection here would put a record more than "
+                        f"{MAX_COLLECTION_CHAIN} hops from a list that loads it",
+                    )
+                )
+                continue
+            accepted.append((child_name, inverse))
+
+        if not accepted:
             continue
+        # Naming a collection after the child alone collides the moment a child
+        # points at the same parent twice, so a repeated child keeps its key.
         repeated = {
             candidate
-            for candidate in {name for name, _ in arrivals}
-            if sum(name == candidate for name, _ in arrivals) > 1
+            for candidate in {name for name, _ in accepted}
+            if sum(name == candidate for name, _ in accepted) > 1
         }
         used = {name for name, _ in entity.fields}
         collections: list[InspectedCollection] = []
-        for child_name, inverse in arrivals:
+        for child_name, inverse in accepted:
             base = _snake(child_name.split(".")[-1])
             name = _field_name(
                 f"{base}_{inverse}" if child_name in repeated else base, used
@@ -671,7 +727,36 @@ def _synthesized_collections(
                 InspectedCollection(entity.name, name, child_name, inverse)
             )
         owned[entity.name] = tuple(collections)
-    return owned
+    return owned, tuple(declined)
+
+
+def _reaches(edges: dict[str, set[str]], start: str, goal: str) -> bool:
+    stack, seen = [start], set()
+    while stack:
+        node = stack.pop()
+        if node == goal:
+            return True
+        if node in seen:
+            continue
+        seen.add(node)
+        stack.extend(edges.get(node, ()))
+    return False
+
+
+def _longest_chain(edges: dict[str, set[str]]) -> int:
+    """The most collection hops any list would make. The graph is acyclic."""
+
+    memo: dict[str, int] = {}
+
+    def downstream(node: str) -> int:
+        if node not in memo:
+            memo[node] = max(
+                (1 + downstream(child) for child in edges.get(node, ())),
+                default=0,
+            )
+        return memo[node]
+
+    return max((downstream(node) for node in edges), default=0)
 
 
 def _edit_view(

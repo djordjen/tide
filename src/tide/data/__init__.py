@@ -8,11 +8,13 @@ from tide.data.backup import (
 )
 from tide.data.inspection import (
     DemotedReference,
+    InspectedCollection,
     InspectedEntity,
     InspectionProposal,
     SkippedObject,
     inspect_schema,
     render_project,
+    synthesize_collections,
 )
 from tide.data.memory import InMemoryRepository
 from tide.data.migrations import (
@@ -99,6 +101,8 @@ __all__ = [
     "generate_revision",
     "DemotedReference",
     "InspectedEntity",
+    "synthesize_collections",
+    "InspectedCollection",
     "InspectionProposal",
     "inspect_schema",
     "render_project",

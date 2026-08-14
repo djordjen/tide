@@ -311,6 +311,26 @@ intermediate tables carry their own surrogate key, so schema v0.1 maps them as
 ordinary entities with two references — and the collection synthesized from
 each reference is what puts them on both parents' forms.
 
+Collections are loaded eagerly and with no cycle guard, so the graph they make
+has to stay a shallow acyclic one. Three shapes are declined and named on
+stderr rather than proposed:
+
+```text
+Collection not proposed -- legacy.EquipmentInstance.replacedby: a collection of its own entity would be hydrated into itself without end
+```
+
+| Declined | Because |
+|---|---|
+| a table pointing at itself | the collection would be hydrated into itself for ever |
+| a key closing a cycle back to the owner | the same, one hop further out |
+| a chain longer than `RelationshipLoadPlan.max_depth` | past it the repository raises `RelationshipExpansionLimit` |
+
+The last one is not a slow list, it is an empty one: hydration refuses rather
+than truncating, so a single over-long chain breaks the browse for the entity
+at its head. The limit is read from the load plan rather than restated here.
+The reference itself always survives — only the collection turned around from
+it is declined, so nothing is lost from the record that holds the key.
+
 **The Textual form renders the first collection only.** Its record screen
 resolves one collection and builds the table, line editor and action bar
 around it; the others are declared, exposed and served, and the Web UI shows
