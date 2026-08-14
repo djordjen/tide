@@ -16,6 +16,13 @@ import {
 import { TideDisplayValue } from "@/components/tide-display-value"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import { TideApiError, type TideApi } from "@/lib/api"
 import type {
@@ -237,6 +244,13 @@ function FieldEditor({
           {field.label}
         </label>
         <div className="flex min-h-9 items-center">
+          {/* The one editor still drawn from a bare element. `ui/input.tsx`
+              is text-shaped -- full width, 36px tall, padded for a caret --
+              and a tick box is none of those; shadcn draws this from a
+              separate Radix primitive that is not vendored here. A native
+              checkbox is also the one control a screen reader and a phone
+              both already handle perfectly, so it is left until a Checkbox
+              is wanted for its own sake rather than for the tally. */}
           <input
             id={id}
             data-tide-editor
@@ -275,59 +289,45 @@ function FieldEditor({
       </label>
       {field.values?.length ? (
         // A captioned field keeps its stored type. An option value is a
-        // string, as every DOM option value is, so the picked one is looked
-        // up rather than passed on -- handing the server "2" for an integer
-        // column would be a different value from the 2 it declared.
-        <select
+        // string, as every option value in a listbox is, so the picked one is
+        // looked up rather than passed on -- handing the server "2" for an
+        // integer column would be a different value from the 2 it declared.
+        <PickerEditor
           id={id}
-          data-tide-editor
-          className={editorClass(error)}
-          value={String(value ?? "")}
-          disabled={disabled}
+          label={field.label}
+          value={value}
+          options={field.values.map((item) => ({
+            key: String(item.value),
+            label: item.label,
+            pick: () => onChange(item.value),
+          }))}
           required={field.required}
-          aria-invalid={Boolean(error)}
-          aria-describedby={describedBy}
-          onChange={(event) =>
-            onChange(
-              field.values.find(
-                (item) => String(item.value) === event.target.value,
-              )?.value ?? null,
-            )
-          }
-          onKeyDown={moveOnEnter}
-        >
-          {!field.required ? <option value="">None</option> : null}
-          {field.values.map((item) => (
-            <option key={String(item.value)} value={String(item.value)}>
-              {item.label}
-            </option>
-          ))}
-        </select>
+          disabled={disabled}
+          error={error}
+          describedBy={describedBy}
+          onClear={() => onChange(null)}
+        />
       ) : field.field_type === "choice" ? (
-        <select
+        <PickerEditor
           id={id}
-          data-tide-editor
-          className={editorClass(error)}
-          value={String(value ?? "")}
-          disabled={disabled}
+          label={field.label}
+          value={value}
+          options={field.choices.map((choice) => ({
+            key: choice,
+            label: choice.replace(/[_-]+/g, " "),
+            pick: () => onChange(choice),
+          }))}
           required={field.required}
-          aria-invalid={Boolean(error)}
-          aria-describedby={describedBy}
-          onChange={(event) => onChange(event.target.value)}
-          onKeyDown={moveOnEnter}
-        >
-          {!field.required ? <option value="">None</option> : null}
-          {field.choices.map((choice) => (
-            <option key={choice} value={choice}>
-              {choice.replace(/[_-]+/g, " ")}
-            </option>
-          ))}
-        </select>
+          disabled={disabled}
+          error={error}
+          describedBy={describedBy}
+          onClear={() => onChange(null)}
+        />
       ) : (
-        <input
+        <Input
           id={id}
           data-tide-editor
-          className={editorClass(error)}
+          className={errorClass(error)}
           type={inputType(field)}
           inputMode={
             field.field_type === "decimal"
@@ -435,7 +435,7 @@ function ReferenceEditor({
       <div className="flex min-w-0 gap-2">
         <div
           className={cn(
-            "flex h-9 min-w-0 flex-1 items-center rounded-md border bg-background px-3 text-sm",
+            "flex h-9 min-w-0 flex-1 items-center rounded-lg border border-input bg-background px-3 text-sm shadow-xs",
             error && "border-destructive/65",
           )}
           aria-live="polite"
@@ -1005,11 +1005,17 @@ function FieldMessage({
   ) : null
 }
 
-function editorClass(error?: string): string {
-  return cn(
-    "h-9 w-full rounded-md border bg-background px-3 text-sm outline-none transition-shadow placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-60",
-    error && "border-destructive/65 focus:border-destructive",
-  )
+/**
+ * What an editor in error looks like -- and nothing else.
+ *
+ * This used to restate the whole control surface, a second copy of what
+ * `ui/input.tsx` already carries, and the two had drifted: `rounded-md`
+ * against `rounded-lg`, `focus` against `focus-visible`, one with a shadow
+ * and one without. Every editor now wears the code-owned surface and adds
+ * only this.
+ */
+function errorClass(error?: string): string {
+  return cn(error && "border-destructive/65 focus-visible:border-destructive")
 }
 
 function inputType(field: TidePresentationFormField): string {
@@ -1020,6 +1026,90 @@ function inputType(field: TidePresentationFormField): string {
     return "datetime-local"
   }
   return "text"
+}
+
+/**
+ * One picker for both kinds of closed set: `choice` members and `values` codes.
+ *
+ * They differ only in what a chosen option is worth -- a string literal for
+ * one, the declared code with its own type for the other -- so each option
+ * carries the assignment rather than the component deciding by field type.
+ *
+ * Two contracts the rest of the form relies on are kept by hand here, because
+ * a listbox is a button and a popup rather than an element the browser drives:
+ *
+ * `data-tide-editor` marks it as a stop in the Enter traversal and as a
+ * control the density journey measures, so it goes on the trigger -- the part
+ * that occupies the row.
+ *
+ * Enter is claimed by the listbox while it is open, which is right: it picks.
+ * Moving to the next field on Enter therefore only applies while it is closed,
+ * and is done on the trigger's own handler rather than through `moveOnEnter`,
+ * which would fight the popup for the key.
+ */
+function PickerEditor({
+  id,
+  label,
+  value,
+  options,
+  required,
+  disabled,
+  error,
+  describedBy,
+  onClear,
+}: {
+  id: string
+  label: string
+  value: unknown
+  options: readonly { key: string; label: string; pick: () => void }[]
+  required: boolean
+  disabled: boolean
+  error?: string
+  describedBy?: string
+  onClear: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const selected = value === null || value === undefined ? "" : String(value)
+  const NONE = "__tide_none__"
+  return (
+    <Select
+      open={open}
+      onOpenChange={setOpen}
+      value={selected === "" ? undefined : selected}
+      disabled={disabled}
+      onValueChange={(picked) => {
+        if (picked === NONE) {
+          onClear()
+          return
+        }
+        options.find((option) => option.key === picked)?.pick()
+      }}
+    >
+      <SelectTrigger
+        id={id}
+        data-tide-editor
+        aria-label={label}
+        aria-invalid={Boolean(error)}
+        aria-describedby={describedBy}
+        className={cn(error && "border-destructive/65")}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !open) {
+            moveOnEnter(event)
+          }
+        }}
+      >
+        <SelectValue placeholder={required ? "Select…" : "None"} />
+      </SelectTrigger>
+      <SelectContent>
+        {!required ? <SelectItem value={NONE}>None</SelectItem> : null}
+        {options.map((option) => (
+          <SelectItem key={option.key} value={option.key}>
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
 }
 
 function moveOnEnter(event: KeyboardEvent<HTMLElement>) {

@@ -128,6 +128,8 @@ conflict contracts, and batched reference displays on `QueryPage`.
 
 A reference picker showed the literal word `uniqueid` where the record's display value belonged. `display: uniqueid` compiles to a template with no placeholder, meaning the name of the field to show, and the two web formatters resolving the same declaration disagreed about that: one substituted `{braces}` only and returned everything else verbatim. Both now read one rule. Field labels are 14px and wrap instead of 12px and truncating, which was sized for a label stacked above its control; the colour was already 5.6:1 on the light card and 6.4:1 on the dark one.
 
+The closed-set field editor is a code-owned `Select` rather than a native one, so its popup is styled like the rest of the application. The general scalar editor now uses the vendored `Input`, whose styling it had been carrying a drifted second copy of. A boolean is still a native tick box and the phone navigation is still a native select, both for stated reasons.
+
 Form fields put the label beside the control from 768px up, and stack it above below that. A label above doubles the vertical space a record needs -- the same budget the field cards used to waste -- and a form is read down its value column, which is how the terminal renderer already draws one. A Playwright journey measures it at 1440px and at 375px, because jsdom computes no layout.
 
 The Web renderer uses TIDE-owned username/password sign-in by default, backed

@@ -87,6 +87,13 @@ database.
   at most 24px above its control on a label and gap, which a Playwright check
   measures in both renderers rather than trusting, because jsdom computes no
   layout;
+- code-owned controls for every editor one exists for. A closed set — a
+  `choice` field, or one captioned by `values:` — is a vendored `Select` rather
+  than a native one, so its popup wears the application's own surface instead
+  of the operating system's. Two exceptions are deliberate and marked where
+  they are: the boolean tick box, which `Input` is the wrong shape for, and the
+  phone navigation switcher, where a native select opens the platform's own
+  picker;
 - the field label beside its control rather than above it, from 768px up, and
   stacked below that because a phone has no second column to give it. A label
   above doubles the vertical space a record needs, which is the same budget the

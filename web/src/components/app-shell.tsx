@@ -183,6 +183,12 @@ export function AppShell({
         <header className="flex h-17 shrink-0 items-center gap-3 border-b bg-background/90 px-4 backdrop-blur md:px-6">
           <Menu className="size-5 text-muted-foreground lg:hidden" />
           <div className="relative min-w-0 flex-1 lg:hidden">
+            {/* Native on purpose, and only below `lg`. This is the phone
+                navigation, where a native select opens the platform's own
+                picker -- a wheel you can thumb -- and a listbox is a
+                scrolling div. It already wears the same surface as the
+                code-owned controls: `appearance-none` plus the chevron
+                beside it, so nothing about it reads as foreign. */}
             <select
               aria-label="Current workspace"
               className="h-9 w-full appearance-none rounded-lg border bg-background pr-9 pl-3 text-sm font-medium outline-none focus:ring-2 focus:ring-ring/25"
