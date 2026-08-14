@@ -44,14 +44,32 @@ export function formatCellValue(
   return String(value)
 }
 
+/**
+ * Resolve one `display:` declaration against a record.
+ *
+ * A declaration is either the name of the field to show -- `display: number`,
+ * `display: uniqueid` -- or a template of `{placeholders}`. Both formatters
+ * below take the same declaration from the same manifest, and only one of
+ * them used to know about the first form: a reference to an entity whose
+ * display is a bare field name rendered the literal word `uniqueid` in every
+ * picker. Both reference applications write `{braces}` or resolve through the
+ * embedded envelope, so nothing exercised the other branch.
+ */
+function applyDisplayTemplate(template: string, record: TideRecord): string {
+  if (!template.includes("{")) {
+    return safeDisplayValue(record[template])
+  }
+  return template.replace(
+    /\{([A-Za-z_][A-Za-z0-9_]*)\}/g,
+    (_, field: string) => safeDisplayValue(record[field]),
+  )
+}
+
 export function formatReferenceDisplay(
   reference: TidePresentationReference,
   record: TideRecord,
 ): string {
-  return reference.display_template.replace(
-    /\{([A-Za-z_][A-Za-z0-9_]*)\}/g,
-    (_, field: string) => safeDisplayValue(record[field]),
-  )
+  return applyDisplayTemplate(reference.display_template, record)
 }
 
 export function formatRecordDisplay(
@@ -62,13 +80,7 @@ export function formatRecordDisplay(
   if (!template) {
     return safeDisplayValue(record[identityField])
   }
-  if (!template.includes("{")) {
-    return safeDisplayValue(record[template])
-  }
-  return template.replace(
-    /\{([A-Za-z_][A-Za-z0-9_]*)\}/g,
-    (_, field: string) => safeDisplayValue(record[field]),
-  )
+  return applyDisplayTemplate(template, record)
 }
 
 export function humanize(value: string): string {

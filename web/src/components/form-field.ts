@@ -14,7 +14,18 @@
  * control and in the message beneath it, so the cell needs no state of its own.
  */
 
-const fieldLabelTextClass = "truncate text-xs font-medium text-muted-foreground"
+/**
+ * 14px, and allowed to wrap.
+ *
+ * It was 12px and truncated, which was sized for a label crammed above its
+ * control where every pixel of height was a pixel the control did not get.
+ * In its own column it can be read at the same size as the value it names,
+ * and a fixed column makes truncation the wrong failure: `Optimisticlockfield`
+ * clipped to `Optimisticloc…` names nothing. Colour is not the problem --
+ * the muted token measures 5.6:1 on the light card and 6.4:1 on the dark one,
+ * both past AA for text this size.
+ */
+const fieldLabelTextClass = "text-sm font-medium text-muted-foreground"
 
 /** The grid cell one field sits in. */
 export const fieldCellClass = "min-w-0"

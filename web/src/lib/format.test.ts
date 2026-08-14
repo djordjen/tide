@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest"
 
-import type { TidePresentationColumn } from "@/lib/contracts"
+import type {
+  TidePresentationColumn,
+  TidePresentationReference,
+} from "@/lib/contracts"
 import {
   formatCellValue,
   formatRecordDisplay,
@@ -71,5 +74,40 @@ it("renders field-name and template record displays safely", () => {
 describe("protected fields", () => {
   it("never renders the supplied raw value", () => {
     expect(formatCellValue(money, "999.99", ["total"])).toBe("Protected")
+  })
+})
+
+describe("a display template with no placeholder", () => {
+  /**
+   * `display: uniqueid` is a field name, not a caption.
+   *
+   * Both formatters resolve the same declaration, and only one of them knew
+   * that: a reference to an entity whose display is a bare field name showed
+   * the literal word `uniqueid` in every picker, while the same declaration
+   * read through `formatRecordDisplay` showed the value. The reference
+   * applications all use `{braces}` or resolve through the embedded envelope,
+   * which is why nothing here saw it.
+   */
+  const reference = {
+    entity: "legacy.Equipment",
+    display_template: "uniqueid",
+  } as TidePresentationReference
+
+  it("names the field to show, in both formatters", () => {
+    const record = { uniqueid: "7F168", oid: 27 }
+
+    expect(formatReferenceDisplay(reference, record)).toBe("7F168")
+    expect(formatRecordDisplay("uniqueid", record, "oid")).toBe("7F168")
+  })
+
+  it("still fills in a template that has placeholders", () => {
+    const braced = {
+      ...reference,
+      display_template: "{uniqueid} - {model}",
+    } as TidePresentationReference
+
+    expect(
+      formatReferenceDisplay(braced, { uniqueid: "7F168", model: "NTP-SRV" }),
+    ).toBe("7F168 - NTP-SRV")
   })
 })

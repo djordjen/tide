@@ -160,15 +160,17 @@ select {
    */
   .tide-field {
     display: grid;
-    grid-template-columns: var(--tide-label-column, 9.5rem) minmax(0, 1fr);
+    grid-template-columns: var(--tide-label-column, 10rem) minmax(0, 1fr);
     align-items: start;
     column-gap: 0.75rem;
   }
 
   .tide-field > :first-child {
     margin-bottom: 0;
-    /* Sits the 12px label on the centre line of a 36px control. */
-    padding-top: 0.625rem;
+    /* Sits the 14px label on the centre line of a 36px control. */
+    padding-top: 0.5rem;
+    /* A long single-word legacy column name breaks rather than overflowing. */
+    overflow-wrap: anywhere;
   }
 
   .tide-field > :not(:first-child) {
