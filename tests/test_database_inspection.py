@@ -68,12 +68,19 @@ def tangled_url(tmp_path: Path) -> str:
 
 
 def _compiled(
-    proposal: InspectionProposal, tmp_path: Path, name: str = "proposed"
+    proposal: InspectionProposal,
+    tmp_path: Path,
+    name: str = "proposed",
+    *,
+    runnable: bool = False,
 ) -> ApplicationModel:
     """Write a proposal out and compile it, the way a reader would."""
 
     project = tmp_path / name
-    for path, text in render_project(proposal, application="Legacy CRM").items():
+    documents = render_project(
+        proposal, application="Legacy CRM", runnable=runnable
+    )
+    for path, text in documents.items():
         target = project / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8")
@@ -197,6 +204,105 @@ def test_an_excluded_pattern_is_left_out_of_the_proposal(legacy_url: str) -> Non
     assert proposal.deselected == ("NOTE_LOG", "ORDER_LINE")
     # Excluding what could never be proposed anyway removes the noise about it.
     assert proposal.skipped == ()
+
+
+@pytest.mark.parametrize(
+    ("table", "expected"),
+    [
+        # A shouted single word reads better folded ...
+        ("CUSTOMER_MASTER", "legacy.CustomerMaster"),
+        ("NOTE_LOG", "legacy.NoteLog"),
+        # ... but a name that already carries its own capitals is a name.
+        ("EquipmentInstance", "legacy.EquipmentInstance"),
+        ("Equipment", "legacy.Equipment"),
+        ("equipment_instance", "legacy.EquipmentInstance"),
+    ],
+)
+def test_an_entity_name_keeps_the_capitals_the_table_name_already_had(
+    table: str, expected: str
+) -> None:
+    assert inspection._entity_name(table, None, "legacy") == expected
+
+
+def test_a_runnable_proposal_is_one_the_tui_can_actually_open(
+    legacy_url: str, tmp_path: Path
+) -> None:
+    """Compiling is not running: without these, every surface shows nothing.
+
+    An entity exposed to no channel with no permissions, in an application
+    with no views and no roles, is a valid model that no renderer can open.
+    """
+
+    proposal = inspect_schema(legacy_url)
+    model = _compiled(proposal, tmp_path, name="runnable", runnable=True)
+
+    assert sorted(model.views) == [
+        "legacy.CustomerMaster.browse",
+        "legacy.CustomerMaster.edit",
+        "legacy.CustomerMaster.lookup",
+        "legacy.EmployeeMaster.browse",
+        "legacy.EmployeeMaster.edit",
+        "legacy.EmployeeMaster.lookup",
+    ]
+    assert sorted(model.roles) == ["operator"]
+
+    customer = model.entity("legacy.CustomerMaster")
+    assert customer.metadata["expose"]["tui"] is True
+    assert customer.metadata["permissions"]["list"] == "legacy.customermaster.list"
+
+    # A reference with no lookup view cannot be picked: the form reports
+    # "No lookup view is configured" and the field is dead.
+    edit = model.views["legacy.CustomerMaster.edit"]
+    configured = edit.data["fields"]["owner_employee_no"]["lookup_view"]
+    assert configured == "legacy.EmployeeMaster.lookup"
+    assert configured in model.views
+
+
+def test_a_runnable_proposal_opens_in_the_tui_over_real_rows(
+    legacy_url: str, tmp_path: Path
+) -> None:
+    """The property `--runnable` promises, asserted where it can be observed.
+
+    `TideApp` raises `application does not define a browse view` on a model
+    that merely compiles, so constructing it is the check that matters.
+    """
+
+    import asyncio
+
+    from sqlalchemy import create_engine
+    from textual.widgets import DataTable
+
+    from tide.data import SQLAlchemyRepository
+    from tide.runtime import Channel, Principal, RequestContext
+    from tide.services import RecordsService
+    from tide.tui import TideApp
+
+    engine = create_engine(legacy_url)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "INSERT INTO CUSTOMER_MASTER VALUES (1001, 'Northwind', 250.00, 1, NULL)"
+        )
+    engine.dispose()
+
+    model = _compiled(inspect_schema(legacy_url), tmp_path, "opened", runnable=True)
+    repository = SQLAlchemyRepository(model, legacy_url)
+    repository.validate_schema()
+    application = TideApp(
+        model,
+        RecordsService(model, repository),
+        RequestContext(
+            principal=Principal("local:probe", roles=frozenset({"operator"})),
+            channel=Channel.TUI,
+        ),
+    )
+
+    async def drive() -> int:
+        async with application.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            return int(application.query_one(DataTable).row_count)
+
+    assert asyncio.run(drive()) == 1
+    repository.dispose()
 
 
 def test_inspection_never_writes_to_the_database_it_read(legacy_url: str) -> None:

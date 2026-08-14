@@ -239,13 +239,48 @@ not one you have to notice:
 Proposed 1 entity in legacy-crm; 0 object(s) not proposed, 1 reference(s) dropped, 3 table(s) not selected. Review the files, then: tide model validate legacy-crm
 ```
 
-The output is a starting point, not an application: it carries no views, no
-security and no `on_delete` judgement beyond `restrict`, which is the safe
-default rather than an observation about the data. Read it, then:
+The output is a starting point, not an application: it carries no `on_delete`
+judgement beyond `restrict`, which is the safe default rather than an
+observation about the data. Read it, then:
 
 ```bash
 uv run tide model validate ./legacy-crm
 ```
+
+## Compiling is not running
+
+A proposal without `--runnable` is metadata. It compiles, and
+`validate_schema()` confirms it matches the database — and no surface can open
+it, because its entities are exposed to no channel, hold no permissions, and
+the application declares no views and no roles. The TUI refuses such a model
+outright with `application does not define a browse view`.
+
+`--runnable` proposes the rest of what an application needs:
+
+```bash
+uv run tide db inspect --database-env --runnable --output ./legacy-crm --application "Legacy CRM"
+```
+
+| Added | Per |
+|---|---|
+| `expose: {tui: true}` and five `permissions` | entity |
+| a `browse`, an `edit` and a `lookup` view | entity |
+| `lookup_view` pointing each reference at its target's lookup view | reference |
+| `security/policies.yaml` granting every permission to one role | application |
+| `views:` and `security:` paths | `tide.yaml` |
+
+The role is `operator` unless `--role` names another. It is granted everything,
+because which operations an account should have is a decision about the
+business rather than something a reflection pass can observe — the permissions
+are declared separately per operation so any of them can be taken away.
+
+The `lookup_view` wiring is not decoration. A reference field without one is
+inert: the form answers `No lookup view is configured for …` and there is no
+way to set the value.
+
+Browse and lookup views carry every field, display column first. A wide legacy
+table makes a wide view, which is easier to read and delete from than a short
+one is to spot the omissions in.
 
 A proposal that compiles is not yet a proposal that fits, so the test covering
 this runs `validate_schema()` against the same database the metadata was read

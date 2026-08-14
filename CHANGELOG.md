@@ -431,6 +431,16 @@ reports what it could not map instead of guessing. A table with a composite or
 absent primary key is named as skipped, with the reason. See
 [Legacy databases](docs/LEGACY-DATABASES.md#adopting-an-existing-schema).
 
+`--runnable` proposes the rest of an application, not just its metadata:
+`expose` and five permissions per entity, a browse/edit/lookup view trio per
+entity with `lookup_view` wired on every reference, and a security policy
+granting one role (`--role`, default `operator`) everything declared. Without
+it the proposal compiles and matches the database but no surface can open it —
+the TUI refuses a model with no browse view. See
+[Compiling is not running](docs/LEGACY-DATABASES.md#compiling-is-not-running).
+An entity name now keeps the capitals its table name already had, so
+`EquipmentInstance` no longer becomes `Equipmentinstance`.
+
 Which tables to adopt is now a choice the command supports. `--table` and
 `--exclude` take exact names or glob patterns, repeat, and match
 case-insensitively and identically on every platform; `--list` reports what

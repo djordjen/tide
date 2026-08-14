@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 from tide.compiler.compiler import compile_project
+from tide.development.generation import SIMPLE_IDENTIFIER
 from tide.data import (
     DatabaseBackupError,
     InspectionProposal,
@@ -112,6 +113,21 @@ def add_database_commands(commands: argparse._SubParsersAction[argparse.Argument
         action="store_true",
         dest="list_tables",
         help="report what would happen to each table and write nothing",
+    )
+    database_inspect.add_argument(
+        "--runnable",
+        action="store_true",
+        help=(
+            "also propose the exposure, permissions, role and views an "
+            "application needs before any surface can open a record"
+        ),
+    )
+    database_inspect.add_argument(
+        "--role",
+        default="operator",
+        metavar="NAME",
+        help="role granted every proposed permission with --runnable "
+        "(default: operator)",
     )
     database_inspect.add_argument(
         "--namespace",
@@ -421,7 +437,20 @@ def _db_inspect(arguments: argparse.Namespace) -> int:
         _print_inspection_listing(proposal, arguments.schema)
         return 0 if proposal.entities else 1
 
-    documents = render_project(proposal, application=arguments.application)
+    if not SIMPLE_IDENTIFIER.fullmatch(arguments.role):
+        print(
+            f"Database inspection failed: role {arguments.role!r} must be a "
+            "simple identifier",
+            file=sys.stderr,
+        )
+        return 1
+
+    documents = render_project(
+        proposal,
+        application=arguments.application,
+        runnable=arguments.runnable,
+        role=arguments.role,
+    )
     # Everything the inspector declined goes to stderr, so redirecting the
     # proposal to a file still leaves the reader holding the list of what is
     # missing from it.

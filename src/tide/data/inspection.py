@@ -71,9 +71,9 @@ class InspectedEntity:
     table: str
     display: str
     fields: tuple[tuple[str, str], ...]
+    references: tuple[tuple[str, str], ...] = ()
 
-    @property
-    def document(self) -> str:
+    def document(self, permissions: dict[str, str] | None = None) -> str:
         storage = (
             f"storage: {{schema: {self.schema}, table: {self.table}}}"
             if self.schema
@@ -83,14 +83,38 @@ class InspectedEntity:
             f"entity: {self.name}",
             storage,
             f"display: {self.display}",
-            "fields:",
-            *(f"  {name}: {declaration}" for name, declaration in self.fields),
         ]
+        if permissions is not None:
+            lines.append("expose: {tui: true}")
+            lines.append("permissions:")
+            lines.extend(
+                f"  {operation}: {permission}"
+                for operation, permission in permissions.items()
+            )
+        lines.append("fields:")
+        lines.extend(f"  {name}: {declaration}" for name, declaration in self.fields)
         return "\n".join(lines) + "\n"
 
     @property
+    def slug(self) -> str:
+        return self.name.split(".")[-1]
+
+    @property
     def filename(self) -> str:
-        return f"{self.name.split('.')[-1].lower()}.yaml"
+        return f"{self.slug.lower()}.yaml"
+
+    @property
+    def column_order(self) -> tuple[str, ...]:
+        """Field names with the display field first, and nothing dropped.
+
+        A wide legacy table makes a wide browse view, which is easier to read
+        and delete from than a short one is to discover the omissions in.
+        """
+
+        names = [name for name, _ in self.fields]
+        if self.display in names:
+            names.insert(0, names.pop(names.index(self.display)))
+        return tuple(names)
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,6 +330,7 @@ def _render_entity(
 
     qualified = f"{plan.schema}.{plan.table}" if plan.schema else plan.table
     fields: list[tuple[str, str]] = []
+    references: list[tuple[str, str]] = []
     demoted: list[DemotedReference] = []
     for field in plan.fields:
         if field.reference is None:
@@ -324,6 +349,7 @@ def _render_entity(
                     f"storage: {field.physical}, on_delete: restrict}}",
                 )
             )
+            references.append((field.name, target))
             continue
         if field.scalar is not None:
             fields.append((field.name, field.scalar))
@@ -347,6 +373,7 @@ def _render_entity(
             table=plan.table,
             display=_display_field(fields, plan.key_name),
             fields=tuple(fields),
+            references=tuple(references),
         ),
         demoted,
     )
@@ -426,8 +453,21 @@ def _camel(name: str) -> str:
     parts = [part for part in re.split(r"[^A-Za-z0-9]+", name) if part]
     if not parts:
         return "Table"
-    joined = "".join(part[:1].upper() + part[1:].lower() for part in parts)
+    joined = "".join(_capitalized(part) for part in parts)
     return joined if joined[:1].isalpha() else f"T{joined}"
+
+
+def _capitalized(part: str) -> str:
+    """Uppercase the first letter, and fold the rest only if it is shouted.
+
+    `CUSTOMER` is a single shouted word and reads better as `Customer`, but
+    `EquipmentInstance` is already a name: lowercasing its tail produces
+    `Equipmentinstance`, which is nobody's idea of the entity.
+    """
+
+    if part.isupper():
+        return part[:1] + part[1:].lower()
+    return part[:1].upper() + part[1:]
 
 
 def _identifier(name: str) -> str:
@@ -445,21 +485,132 @@ def _field_name(physical: str, used: set[str]) -> str:
     return f"{candidate}_{suffix}"
 
 
+#: The entity operations a runnable proposal declares a permission for.
+OPERATIONS: tuple[str, ...] = ("list", "read", "create", "update", "delete")
+
+
 def render_project(
     proposal: InspectionProposal,
     *,
     application: str,
     version: str = "0.1.0",
+    runnable: bool = False,
+    role: str = "operator",
 ) -> dict[str, str]:
-    """The proposal as a path-to-text map, ready to be reviewed and saved."""
+    """The proposal as a path-to-text map, ready to be reviewed and saved.
 
-    documents = {
-        f"models/{entity.filename}": entity.document for entity in proposal.entities
-    }
-    documents["tide.yaml"] = (
-        'schema_version: "0.1"\n'
-        f"application: {{name: {application}, version: {version}}}\n"
-        "database: {mode: legacy}\n"
-        "model: {paths: [models]}\n"
-    )
+    Without `runnable` this is metadata: a model that compiles and matches the
+    database, exposed to nothing and readable by nobody. With it, the proposal
+    also carries what every surface needs before it can open a record -- the
+    channel, the permissions, a role holding them, and a view per entity --
+    because a model that compiles is not the same thing as an application.
+    """
+
+    documents: dict[str, str] = {}
+    for entity in proposal.entities:
+        permissions = _permissions(entity) if runnable else None
+        documents[f"models/{entity.filename}"] = entity.document(permissions)
+        if not runnable:
+            continue
+        stem = entity.filename.removesuffix(".yaml")
+        documents[f"views/{stem}-browse.yaml"] = _list_view(entity, "browse")
+        documents[f"views/{stem}-lookup.yaml"] = _list_view(entity, "lookup")
+        documents[f"views/{stem}-edit.yaml"] = _edit_view(entity)
+
+    manifest = [
+        'schema_version: "0.1"',
+        f"application: {{name: {application}, version: {version}}}",
+        "database: {mode: legacy}",
+        "model: {paths: [models]}",
+    ]
+    if runnable:
+        manifest.append("views: {paths: [views]}")
+        manifest.append("security: {paths: [security]}")
+        documents["security/policies.yaml"] = _security_document(
+            proposal.entities, role
+        )
+    documents["tide.yaml"] = "\n".join(manifest) + "\n"
     return documents
+
+
+def _permissions(entity: InspectedEntity) -> dict[str, str]:
+    """One permission per operation, so any of them can be withheld later."""
+
+    namespace = entity.name.split(".")[0]
+    subject = entity.slug.lower()
+    return {
+        operation: f"{namespace}.{subject}.{operation}" for operation in OPERATIONS
+    }
+
+
+def _list_view(entity: InspectedEntity, kind: str) -> str:
+    lines = [
+        f"view: {entity.name}.{kind}",
+        f"entity: {entity.name}",
+        f"kind: {kind}",
+        "columns:",
+        *(f"- {name}" for name in entity.column_order),
+    ]
+    searchable = tuple(
+        name
+        for name, declaration in entity.fields
+        if declaration.startswith("{type: string")
+    )
+    if searchable:
+        lines.append("search:")
+        lines.extend(f"- {name}" for name in searchable)
+    return "\n".join(lines) + "\n"
+
+
+def _edit_view(entity: InspectedEntity) -> str:
+    """A form over every field, with each reference given its picker.
+
+    A reference field with no `lookup_view` is inert -- the form answers "No
+    lookup view is configured" and there is no way to set the value -- so the
+    lookup views exist to be pointed at from here.
+    """
+
+    lines = [
+        f"view: {entity.name}.edit",
+        f"entity: {entity.name}",
+        "kind: form",
+    ]
+    if entity.references:
+        lines.append("fields:")
+        lines.extend(
+            f"  {name}: {{lookup_view: {target}.lookup}}"
+            for name, target in entity.references
+        )
+    lines.extend(["layout:", f"- group: {entity.slug}", "  rows:"])
+    order = entity.column_order
+    for index in range(0, len(order), 2):
+        row = order[index : index + 2]
+        lines.append(f"  - - {row[0]}")
+        lines.extend(f"    - {name}" for name in row[1:])
+    return "\n".join(lines) + "\n"
+
+
+def _security_document(entities: tuple[InspectedEntity, ...], role: str) -> str:
+    """Every declared permission, granted to one role.
+
+    Granting all of them is the only honest starting point: what an account
+    should be able to do is a decision about the business, not something a
+    reflection pass can observe.
+    """
+
+    permissions = sorted(
+        {
+            permission
+            for entity in entities
+            for permission in _permissions(entity).values()
+        }
+    )
+    lines = [
+        "permissions:",
+        *(f"- {permission}" for permission in permissions),
+        "roles:",
+        f"  {role}:",
+        "    grants:",
+        *(f"    - {permission}" for permission in permissions),
+    ]
+    return "\n".join(lines) + "\n"
