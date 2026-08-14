@@ -11,6 +11,7 @@ from pathlib import Path
 from tide.compiler.compiler import compile_project
 from tide.data import (
     DatabaseBackupError,
+    InspectionProposal,
     MigrationPlanningError,
     RevisionGenerationError,
     RevisionSqlRenderingError,
@@ -88,9 +89,29 @@ def add_database_commands(commands: argparse._SubParsersAction[argparse.Argument
         "--table",
         action="append",
         default=[],
-        metavar="NAME",
+        metavar="PATTERN",
         dest="tables",
-        help="reflect only this table; repeat for several (default: all)",
+        help=(
+            "reflect only tables matching this name or glob pattern such as "
+            "'ERP_*'; repeat for several (default: all)"
+        ),
+    )
+    database_inspect.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        dest="exclude",
+        help=(
+            "leave out tables matching this name or glob pattern; repeat for "
+            "several, applied after --table"
+        ),
+    )
+    database_inspect.add_argument(
+        "--list",
+        action="store_true",
+        dest="list_tables",
+        help="report what would happen to each table and write nothing",
     )
     database_inspect.add_argument(
         "--namespace",
@@ -380,10 +401,25 @@ def _db_inspect(arguments: argparse.Namespace) -> int:
             schema=arguments.schema,
             namespace=arguments.namespace,
             tables=tuple(arguments.tables),
+            exclude=tuple(arguments.exclude),
         )
     except TideRuntimeError as error:
         print(f"Database inspection failed: {error}", file=sys.stderr)
         return 1
+
+    if proposal.unmatched:
+        # Writing the tables that did match would silently deliver less than
+        # was asked for, and the missing ones are the easiest thing to miss.
+        print(
+            "Database inspection failed: no table matches "
+            + ", ".join(repr(pattern) for pattern in proposal.unmatched),
+            file=sys.stderr,
+        )
+        return 1
+
+    if arguments.list_tables:
+        _print_inspection_listing(proposal, arguments.schema)
+        return 0 if proposal.entities else 1
 
     documents = render_project(proposal, application=arguments.application)
     # Everything the inspector declined goes to stderr, so redirecting the
@@ -391,6 +427,8 @@ def _db_inspect(arguments: argparse.Namespace) -> int:
     # missing from it.
     for skipped in proposal.skipped:
         print(f"Not proposed -- {skipped}", file=sys.stderr)
+    for demoted in proposal.demoted:
+        print(f"Reference dropped -- {demoted}", file=sys.stderr)
 
     if arguments.output is None:
         for path in sorted(documents):
@@ -416,11 +454,46 @@ def _db_inspect(arguments: argparse.Namespace) -> int:
     print(
         f"Proposed {len(proposal.entities)} entit"
         f"{'y' if len(proposal.entities) == 1 else 'ies'} in {destination}; "
-        f"{len(proposal.skipped)} object(s) not proposed. "
+        f"{len(proposal.skipped)} object(s) not proposed, "
+        f"{len(proposal.demoted)} reference(s) dropped, "
+        f"{len(proposal.deselected)} table(s) not selected. "
         "Review the files, then: tide model validate "
         f"{destination}"
     )
     return 0 if proposal.entities else 1
+
+
+def _print_inspection_listing(
+    proposal: InspectionProposal,
+    schema: str | None,
+) -> None:
+    """Every table the schema holds and what a real run would do with it.
+
+    This renders the proposal an ordinary run produces rather than deciding
+    again, so the listing cannot describe a selection the run would not make.
+    """
+
+    dispositions: dict[str, str] = {
+        entity.table: f"propose {entity.name} ({len(entity.fields)} fields)"
+        for entity in proposal.entities
+    }
+    prefix = f"{schema}." if schema else ""
+    for skipped in proposal.skipped:
+        name = skipped.name.removeprefix(prefix)
+        # What remains is a bare table name, or a column inside one; a column
+        # note belongs to a row this listing already has.
+        if "." not in name:
+            dispositions[name] = f"skip -- {skipped.reason}"
+    for table in proposal.deselected:
+        dispositions.setdefault(table, "not selected")
+
+    width = max((len(name) for name in dispositions), default=0)
+    for name in sorted(dispositions):
+        print(f"{name.ljust(width)}  {dispositions[name]}")
+    print(
+        f"\n{len(proposal.entities)} of {len(dispositions)} object(s) would be "
+        "proposed. Re-run without --list to write them."
+    )
 
 
 def _db_diff(arguments: argparse.Namespace) -> int:

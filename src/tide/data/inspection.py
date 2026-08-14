@@ -14,6 +14,7 @@ it reports rather than guesses.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import fnmatch
 import re
 from typing import Any
 
@@ -24,6 +25,7 @@ from sqlalchemy.sql.type_api import TypeEngine
 from .sqlalchemy import _as_comparable, _create_engine
 
 __all__ = [
+    "DemotedReference",
     "InspectedEntity",
     "InspectionProposal",
     "SkippedObject",
@@ -37,6 +39,25 @@ class SkippedObject:
     """Something the inspector declined to propose, and why."""
 
     name: str
+    reason: str
+
+    def __str__(self) -> str:
+        return f"{self.name}: {self.reason}"
+
+
+@dataclass(frozen=True, slots=True)
+class DemotedReference:
+    """A foreign key mapped as a plain column because its target is absent.
+
+    Reflecting part of a schema, or one whose neighbour cannot be mapped, must
+    not produce a reference to an entity the proposal does not contain: that
+    model would not compile. The column exists in the database either way and
+    may well be required, so it keeps its physical mapping and loses only the
+    navigation.
+    """
+
+    name: str
+    target: str
     reason: str
 
     def __str__(self) -> str:
@@ -76,6 +97,33 @@ class InspectedEntity:
 class InspectionProposal:
     entities: tuple[InspectedEntity, ...]
     skipped: tuple[SkippedObject, ...]
+    demoted: tuple[DemotedReference, ...] = ()
+    deselected: tuple[str, ...] = ()
+    unmatched: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _FieldPlan:
+    """One reflected column, decided but not yet written out.
+
+    `scalar` is the declaration the column gets on its own; a column that also
+    carries a foreign key keeps both, because whether it can stay a reference
+    is not known until every table has been planned.
+    """
+
+    name: str
+    physical: str
+    scalar: str | None
+    reference: Any | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _EntityPlan:
+    name: str
+    schema: str | None
+    table: str
+    key_name: str
+    fields: tuple[_FieldPlan, ...]
 
 
 def inspect_schema(
@@ -84,40 +132,99 @@ def inspect_schema(
     schema: str | None = None,
     namespace: str = "legacy",
     tables: tuple[str, ...] = (),
+    exclude: tuple[str, ...] = (),
 ) -> InspectionProposal:
-    """Reflect a live schema and propose one legacy entity per usable table."""
+    """Reflect a live schema and propose one legacy entity per usable table.
+
+    `tables` and `exclude` accept exact names or glob patterns. Planning runs
+    over every selected table before anything is written out, so a foreign key
+    is resolved against the entities the proposal will actually contain rather
+    than against the ones the database happens to have.
+    """
 
     engine = bind if isinstance(bind, Engine) else _create_engine(bind)
     owns_engine = not isinstance(bind, Engine)
     try:
         inspector = inspect(engine)
         available = tuple(inspector.get_table_names(schema=schema))
-        wanted = tuple(tables) or available
-        entities: list[InspectedEntity] = []
+        selected, deselected, unmatched = _select(available, tables, exclude)
+
+        plans: list[_EntityPlan] = []
         skipped: list[SkippedObject] = []
-        for table in sorted(wanted):
-            if table not in available:
-                skipped.append(SkippedObject(table, "table does not exist"))
-                continue
-            entity, reasons = _propose_entity(
+        for table in selected:
+            plan, reasons = _plan_entity(
                 inspector, table, schema=schema, namespace=namespace
             )
             skipped.extend(reasons)
-            if entity is not None:
-                entities.append(entity)
-        return InspectionProposal(tuple(entities), tuple(skipped))
+            if plan is not None:
+                plans.append(plan)
+
+        resolved = {(plan.schema, plan.table): plan.name for plan in plans}
+        entities: list[InspectedEntity] = []
+        demoted: list[DemotedReference] = []
+        for plan in plans:
+            entity, losses = _render_entity(plan, resolved)
+            entities.append(entity)
+            demoted.extend(losses)
+
+        return InspectionProposal(
+            tuple(entities),
+            tuple(skipped),
+            tuple(demoted),
+            deselected,
+            unmatched,
+        )
     finally:
         if owns_engine:
             engine.dispose()
 
 
-def _propose_entity(
+def _select(
+    available: tuple[str, ...],
+    tables: tuple[str, ...],
+    exclude: tuple[str, ...],
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    """Split the schema's tables into selected and deselected, plus dead patterns.
+
+    A `tables` pattern nothing matches is returned rather than ignored: a typo
+    would otherwise hand back a smaller project that still looks complete.
+    """
+
+    unmatched = tuple(
+        pattern
+        for pattern in tables
+        if not any(_matches(pattern, name) for name in available)
+    )
+    selected = tuple(
+        name
+        for name in available
+        if (not tables or any(_matches(pattern, name) for pattern in tables))
+        and not any(_matches(pattern, name) for pattern in exclude)
+    )
+    return (
+        tuple(sorted(selected)),
+        tuple(sorted(set(available) - set(selected))),
+        unmatched,
+    )
+
+
+def _matches(pattern: str, name: str) -> bool:
+    """Case-insensitively, and the same way on every platform.
+
+    `fnmatch.fnmatch` folds case according to the host operating system, so it
+    would make one command select different tables on Windows and on Linux.
+    """
+
+    return fnmatch.fnmatchcase(name.casefold(), pattern.casefold())
+
+
+def _plan_entity(
     inspector: Any,
     table: str,
     *,
     schema: str | None,
     namespace: str,
-) -> tuple[InspectedEntity | None, list[SkippedObject]]:
+) -> tuple[_EntityPlan | None, list[SkippedObject]]:
     qualified = f"{schema}.{table}" if schema else table
     skipped: list[SkippedObject] = []
 
@@ -143,30 +250,15 @@ def _propose_entity(
         and len(constraint.get("referred_columns") or ()) == 1
     }
 
-    fields: list[tuple[str, str]] = []
+    fields: list[_FieldPlan] = []
     used: set[str] = set()
     for column in inspector.get_columns(table, schema=schema):
         physical = str(column["name"])
         name = _field_name(physical, used)
-        reference = references.get(physical)
-        if reference is not None and physical not in key_columns:
-            target = _entity_name(
-                str(reference["referred_table"]),
-                reference.get("referred_schema") or schema,
-                namespace,
-            )
-            fields.append(
-                (
-                    name,
-                    f"{{type: reference, target: {target}, "
-                    f"storage: {physical}, on_delete: restrict}}",
-                )
-            )
-            used.add(name)
-            continue
-
-        declaration = _scalar_declaration(column, physical, physical in key_columns)
-        if declaration is None:
+        is_key = physical in key_columns
+        reference = None if is_key else references.get(physical)
+        declaration = _scalar_declaration(column, physical, is_key)
+        if declaration is None and reference is None:
             skipped.append(
                 SkippedObject(
                     f"{qualified}.{physical}",
@@ -181,28 +273,82 @@ def _propose_entity(
                 )
             )
             continue
-        fields.append((name, declaration))
+        fields.append(_FieldPlan(name, physical, declaration, reference))
         used.add(name)
 
     if not fields:
         return None, [*skipped, SkippedObject(qualified, "no column could be mapped")]
 
     key_name = _field_name(str(key_columns[0]), set())
-    if not any(name == key_name for name, _ in fields):
+    if not any(field.name == key_name for field in fields):
         return None, [
             *skipped,
             SkippedObject(qualified, f"primary key column {key_columns[0]} is unmapped"),
         ]
 
     return (
-        InspectedEntity(
+        _EntityPlan(
             name=_entity_name(table, schema, namespace),
             schema=schema,
             table=table,
-            display=_display_field(fields, key_name),
+            key_name=key_name,
             fields=tuple(fields),
         ),
         skipped,
+    )
+
+
+def _render_entity(
+    plan: _EntityPlan,
+    resolved: dict[tuple[str | None, str], str],
+) -> tuple[InspectedEntity, list[DemotedReference]]:
+    """Write one planned entity out, resolving its foreign keys as it goes."""
+
+    qualified = f"{plan.schema}.{plan.table}" if plan.schema else plan.table
+    fields: list[tuple[str, str]] = []
+    demoted: list[DemotedReference] = []
+    for field in plan.fields:
+        if field.reference is None:
+            assert field.scalar is not None  # planning admits nothing else
+            fields.append((field.name, field.scalar))
+            continue
+        referred_table = str(field.reference["referred_table"])
+        target = resolved.get(
+            (field.reference.get("referred_schema") or plan.schema, referred_table)
+        )
+        if target is not None:
+            fields.append(
+                (
+                    field.name,
+                    f"{{type: reference, target: {target}, "
+                    f"storage: {field.physical}, on_delete: restrict}}",
+                )
+            )
+            continue
+        if field.scalar is not None:
+            fields.append((field.name, field.scalar))
+        demoted.append(
+            DemotedReference(
+                f"{qualified}.{field.physical}",
+                referred_table,
+                f"{referred_table} is not in this proposal, so the column is "
+                + (
+                    "mapped without its reference"
+                    if field.scalar is not None
+                    else "unmapped: no field type carries it on its own"
+                ),
+            )
+        )
+
+    return (
+        InspectedEntity(
+            name=plan.name,
+            schema=plan.schema,
+            table=plan.table,
+            display=_display_field(fields, plan.key_name),
+            fields=tuple(fields),
+        ),
+        demoted,
     )
 
 

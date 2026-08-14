@@ -7,6 +7,7 @@ from tide.data.backup import (
     verify_sqlite_backup,
 )
 from tide.data.inspection import (
+    DemotedReference,
     InspectedEntity,
     InspectionProposal,
     SkippedObject,
@@ -96,6 +97,7 @@ __all__ = [
     "sequence_name",
     "create_sqlite_backup",
     "generate_revision",
+    "DemotedReference",
     "InspectedEntity",
     "InspectionProposal",
     "inspect_schema",

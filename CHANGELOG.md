@@ -431,6 +431,18 @@ reports what it could not map instead of guessing. A table with a composite or
 absent primary key is named as skipped, with the reason. See
 [Legacy databases](docs/LEGACY-DATABASES.md#adopting-an-existing-schema).
 
+Which tables to adopt is now a choice the command supports. `--table` and
+`--exclude` take exact names or glob patterns, repeat, and match
+case-insensitively and identically on every platform; `--list` reports what
+each table would become and writes nothing. A `--table` pattern matching no
+table stops the run before any file is written. Foreign keys are resolved
+after every selected table has been planned, so a column pointing outside the
+proposal keeps its physical mapping, loses only its reference, and is reported
+— previously it became a reference to an entity that did not exist, and
+`tide model validate` rejected the result the command had just called
+complete. See
+[Choosing which tables to adopt](docs/LEGACY-DATABASES.md#choosing-which-tables-to-adopt).
+
 Two SQL Server spellings now map onto TIDE types. `money` and `smallmoney`
 satisfy a `decimal` field at their fixed capacities of 19,4 and 10,4; before
 this, any legacy table with a money column failed `validate_schema()` and the

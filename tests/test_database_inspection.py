@@ -11,8 +11,10 @@ from sqlalchemy.dialects import mssql
 
 from tide import compile_project
 from tide.cli import main
+from tide.compiler.normalized import ApplicationModel
 from tide.data import SQLAlchemyRepository, inspect_schema, render_project
 from tide.data import inspection
+from tide.data.inspection import InspectionProposal
 
 LEGACY_DDL = (
     "CREATE TABLE EMPLOYEE_MASTER ("
@@ -33,16 +35,49 @@ LEGACY_DDL = (
     "CREATE TABLE NOTE_LOG (BODY TEXT)",
 )
 
+TANGLED_DDL = (
+    # No field type carries a binary key, so this table cannot be proposed --
+    # and the table below points a foreign key straight at it.
+    "CREATE TABLE ATTACHMENT_STORE (STORE_KEY BLOB PRIMARY KEY, LABEL VARCHAR(40))",
+    "CREATE TABLE CUSTOMER_ATTACHMENT ("
+    "ATTACHMENT_NO INTEGER PRIMARY KEY, "
+    "CAPTION VARCHAR(80) NOT NULL, "
+    "STORE_KEY BLOB, "
+    "FOREIGN KEY (STORE_KEY) REFERENCES ATTACHMENT_STORE(STORE_KEY))",
+)
 
-@pytest.fixture
-def legacy_url(tmp_path: Path) -> str:
-    url = f"sqlite+pysqlite:///{tmp_path / 'legacy.db'}"
+
+def _database(tmp_path: Path, name: str, statements: tuple[str, ...]) -> str:
+    url = f"sqlite+pysqlite:///{tmp_path / name}"
     engine = create_engine(url)
     with engine.begin() as connection:
-        for statement in LEGACY_DDL:
+        for statement in statements:
             connection.exec_driver_sql(statement)
     engine.dispose()
     return url
+
+
+@pytest.fixture
+def legacy_url(tmp_path: Path) -> str:
+    return _database(tmp_path, "legacy.db", LEGACY_DDL)
+
+
+@pytest.fixture
+def tangled_url(tmp_path: Path) -> str:
+    return _database(tmp_path, "tangled.db", TANGLED_DDL)
+
+
+def _compiled(
+    proposal: InspectionProposal, tmp_path: Path, name: str = "proposed"
+) -> ApplicationModel:
+    """Write a proposal out and compile it, the way a reader would."""
+
+    project = tmp_path / name
+    for path, text in render_project(proposal, application="Legacy CRM").items():
+        target = project / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    return compile_project(project)
 
 
 def test_the_proposal_maps_the_database_it_was_read_from(
@@ -54,15 +89,7 @@ def test_the_proposal_maps_the_database_it_was_read_from(
     be worse than no proposal, because it looks finished.
     """
 
-    project = tmp_path / "proposed"
-    for path, text in render_project(
-        inspect_schema(legacy_url), application="Legacy CRM"
-    ).items():
-        target = project / path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text, encoding="utf-8")
-
-    model = compile_project(project)
+    model = _compiled(inspect_schema(legacy_url), tmp_path)
     assert str(model.database["mode"]) == "legacy"
 
     repository = SQLAlchemyRepository(model, legacy_url)
@@ -99,6 +126,77 @@ def test_a_foreign_key_becomes_a_reference_to_the_entity_it_points_at(
     assert "storage: OWNER_EMPLOYEE_NO" in declarations["owner_employee_no"]
     assert declarations["customer_no"].startswith("{type: integer, primary_key: true")
     assert customer.display == "display_name"
+
+
+def test_a_selected_table_never_references_one_the_selection_left_out(
+    legacy_url: str, tmp_path: Path
+) -> None:
+    """Narrowing the reflection must still produce something that compiles.
+
+    CUSTOMER_MASTER holds a foreign key into EMPLOYEE_MASTER. Proposing the
+    first without the second cannot emit a reference to an entity that is not
+    there; the column itself still exists in the database, so it is mapped as
+    the plain column it physically is.
+    """
+
+    proposal = inspect_schema(legacy_url, tables=("CUSTOMER_MASTER",))
+    model = _compiled(proposal, tmp_path)
+
+    assert list(model.entities) == ["legacy.CustomerMaster"]
+    field = model.entity("legacy.CustomerMaster").field("owner_employee_no")
+    assert field.metadata["type"] == "integer"
+    assert field.metadata["column"] == "OWNER_EMPLOYEE_NO"
+
+    demoted = {item.name: item for item in proposal.demoted}
+    assert demoted["CUSTOMER_MASTER.OWNER_EMPLOYEE_NO"].target == "EMPLOYEE_MASTER"
+    assert proposal.deselected == ("EMPLOYEE_MASTER", "NOTE_LOG", "ORDER_LINE")
+
+
+def test_a_reference_to_a_table_that_cannot_be_mapped_is_demoted_too(
+    tangled_url: str, tmp_path: Path
+) -> None:
+    """The same hole opens without any selection at all.
+
+    ATTACHMENT_STORE is keyed by a column no field type carries, so it is not
+    proposed -- and the foreign key pointing at it must not become a reference
+    to an entity the proposal never contained.
+    """
+
+    proposal = inspect_schema(tangled_url)
+    model = _compiled(proposal, tmp_path, name="tangled")
+
+    assert list(model.entities) == ["legacy.CustomerAttachment"]
+    assert proposal.deselected == ()
+    assert (
+        proposal.demoted[0].name == "CUSTOMER_ATTACHMENT.STORE_KEY"
+    ), proposal.demoted
+    assert "ATTACHMENT_STORE" in proposal.demoted[0].reason
+    # A binary column has no field type either, so demotion drops it rather
+    # than inventing one -- and says so instead of leaving a silent gap.
+    assert "store_key" not in dict(proposal.entities[0].fields)
+
+
+def test_a_table_pattern_selects_every_table_it_matches(legacy_url: str) -> None:
+    proposal = inspect_schema(legacy_url, tables=("*_master",))
+
+    assert sorted(entity.table for entity in proposal.entities) == [
+        "CUSTOMER_MASTER",
+        "EMPLOYEE_MASTER",
+    ]
+    assert proposal.deselected == ("NOTE_LOG", "ORDER_LINE")
+    assert proposal.demoted == ()
+
+
+def test_an_excluded_pattern_is_left_out_of_the_proposal(legacy_url: str) -> None:
+    proposal = inspect_schema(legacy_url, exclude=("*_LOG", "ORDER_*"))
+
+    assert sorted(entity.table for entity in proposal.entities) == [
+        "CUSTOMER_MASTER",
+        "EMPLOYEE_MASTER",
+    ]
+    assert proposal.deselected == ("NOTE_LOG", "ORDER_LINE")
+    # Excluding what could never be proposed anyway removes the noise about it.
+    assert proposal.skipped == ()
 
 
 def test_inspection_never_writes_to_the_database_it_read(legacy_url: str) -> None:
@@ -173,6 +271,63 @@ def test_the_command_writes_a_reviewable_project_without_overwriting(
         main(["db", "inspect", "--database-env", "--output", str(destination)]) == 1
     )
     assert "refusing to overwrite" in capsys.readouterr().err
+
+
+def test_a_table_pattern_matching_nothing_fails_before_writing_anything(
+    legacy_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """A typo must not quietly hand back a smaller project than was asked for."""
+
+    monkeypatch.setenv("TIDE_DATABASE_URL", legacy_url)
+    destination = tmp_path / "typo"
+
+    exit_code = main(
+        [
+            "db",
+            "inspect",
+            "--database-env",
+            "--table",
+            "CUSTOMER_MASTER",
+            "--table",
+            "CUSTMER_*",
+            "--output",
+            str(destination),
+        ]
+    )
+
+    assert exit_code == 1
+    assert "CUSTMER_*" in capsys.readouterr().err
+    assert not destination.exists()
+
+
+def test_the_listing_reports_every_table_and_writes_nothing(
+    legacy_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """Choosing tables sensibly means seeing the menu first."""
+
+    monkeypatch.setenv("TIDE_DATABASE_URL", legacy_url)
+    destination = tmp_path / "listed"
+
+    exit_code = main(
+        [
+            "db",
+            "inspect",
+            "--database-env",
+            "--list",
+            "--exclude",
+            "NOTE_LOG",
+            "--output",
+            str(destination),
+        ]
+    )
+
+    assert exit_code == 0
+    assert not destination.exists()
+    listing = capsys.readouterr().out
+    assert "CUSTOMER_MASTER" in listing
+    assert "EMPLOYEE_MASTER" in listing
+    assert "composite primary key" in listing
+    assert "NOTE_LOG" in listing
 
 
 def test_the_command_reports_a_missing_url_variable(

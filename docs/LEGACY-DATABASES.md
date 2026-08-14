@@ -155,9 +155,60 @@ uv run tide db inspect --database-env --output ./legacy-crm --application "Legac
 ```
 
 The URL comes from the environment, never from the command line, like every
-other `tide db` command. `--schema` selects a schema, `--table` repeats to
-narrow the reflection, and without `--output` the proposal is printed instead
-of written.
+other `tide db` command. `--schema` selects a schema, and without `--output`
+the proposal is printed instead of written.
+
+## Choosing which tables to adopt
+
+An existing database usually holds more than one application's worth of
+tables, and TIDE has no business mapping the audit trails, staging tables and
+integration spool of the product that owns the schema. `--list` shows what is
+there and what each table would become, without writing anything:
+
+```bash
+uv run tide db inspect --database-env --list
+```
+
+```text
+CUSTOMER_MASTER  propose legacy.CustomerMaster (5 fields)
+EMPLOYEE_MASTER  propose legacy.EmployeeMaster (2 fields)
+NOTE_LOG         skip -- table declares no primary key
+ORDER_LINE       skip -- composite primary key (ORDER_NO, LINE_NO); schema v0.1 maps one key column
+
+2 of 4 object(s) would be proposed. Re-run without --list to write them.
+```
+
+`--table` and `--exclude` both take an exact name or a glob pattern and both
+repeat, so a schema with a naming convention can be adopted by convention:
+
+```bash
+uv run tide db inspect --database-env --table 'ERP_*' --exclude '*_AUDIT' --list
+```
+
+Patterns match case-insensitively, and identically on every platform —
+`fnmatch` alone would fold case according to the host operating system, which
+would make one command select different tables on Windows and on Linux.
+Exclusions are applied after selection. A `--table` pattern that matches
+nothing stops the command before anything is written, because the alternative
+is a project that is quietly smaller than the one that was asked for:
+
+```text
+Database inspection failed: no table matches 'CUSTMER_*'
+```
+
+Selecting a subset changes what a foreign key can mean. A column pointing at a
+table outside the proposal cannot become a reference — that entity does not
+exist, and the model would not compile — so it keeps its physical mapping and
+loses only the navigation, and the command says which:
+
+```text
+Reference dropped -- CUSTOMER_MASTER.OWNER_EMPLOYEE_NO: EMPLOYEE_MASTER is not in this proposal, so the column is mapped without its reference
+```
+
+The same applies without any selection at all, when the table on the other end
+is one schema v0.1 cannot map. Resolution runs after every selected table has
+been planned, so a foreign key is judged against the entities the proposal will
+actually contain rather than against the tables the database happens to hold.
 
 It proposes one entity per table, mapping each column explicitly:
 
@@ -179,6 +230,13 @@ the proposal still leaves you holding the list of what is missing from it:
 ```text
 Not proposed -- NOTE_LOG: table declares no primary key
 Not proposed -- ORDER_LINE: composite primary key (ORDER_NO, LINE_NO); schema v0.1 maps one key column
+```
+
+The closing summary counts every category, so a run that dropped something is
+not one you have to notice:
+
+```text
+Proposed 1 entity in legacy-crm; 0 object(s) not proposed, 1 reference(s) dropped, 3 table(s) not selected. Review the files, then: tide model validate legacy-crm
 ```
 
 The output is a starting point, not an application: it carries no views, no
