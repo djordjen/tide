@@ -72,6 +72,7 @@ function renderCell(record: TideRecord, getReference: unknown) {
     label: "Customer",
     field_type: "reference",
     alignment: "left",
+    values: [],
     format: null,
     format_options: null,
     target_entity: "crm.Customer",

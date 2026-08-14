@@ -1213,6 +1213,8 @@ def _validate_entities(
                     document,
                     (*field_path, "choices"),
                 )
+            if field.values:
+                _validate_value_map(field, document, field_path, diagnostics)
             if field.type == "decimal":
                 if field.precision == 0:
                     _add(
@@ -1506,6 +1508,58 @@ def _report_computed_cycles(
 
     for field_name in graph:
         visit(field_name)
+
+
+#: The field types a `values:` map may caption. A code stands for something in
+#: the application that wrote it, and only these types carry one: a decimal or
+#: a date is a quantity, and `choice` already names its own members.
+VALUE_MAP_TYPES: dict[str, type] = {
+    "integer": int,
+    "string": str,
+    "boolean": bool,
+}
+
+
+def _validate_value_map(
+    field: FieldSource,
+    document: SourceDocument,
+    field_path: tuple[str | int, ...],
+    diagnostics: list[Diagnostic],
+) -> None:
+    """A value map has to fit the column it captions, and say each code once."""
+
+    expected = VALUE_MAP_TYPES.get(field.type)
+    if expected is None or field.computed is not None:
+        _add(
+            diagnostics,
+            "TIDE277",
+            "a value map requires a stored integer, string or boolean field",
+            document,
+            (*field_path, "values"),
+        )
+        return
+    seen: list[Any] = []
+    for index, item in enumerate(field.values):
+        # `bool` is a subclass of `int`, so an exact type is the only check
+        # that keeps `true` out of an integer map.
+        if type(item.value) is not expected:
+            _add(
+                diagnostics,
+                "TIDE278",
+                f"value {item.value!r} is not {field.type}",
+                document,
+                (*field_path, "values", index, "value"),
+            )
+        elif any(existing == item.value for existing in seen):
+            _add(
+                diagnostics,
+                "TIDE279",
+                f"value {item.value!r} is captioned more than once",
+                document,
+                (*field_path, "values", index, "value"),
+            )
+        else:
+            seen.append(item.value)
 
 
 def _validate_selection_assignments(

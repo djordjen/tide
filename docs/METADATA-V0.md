@@ -196,6 +196,9 @@ An action's `transition` block has its own codes, described under
 | `TIDE273` | a guard written by hand that the transition already derives |
 | `TIDE274` | a declared state no transition reaches and that is not the initial one |
 | `TIDE275` | a stamp target that is missing, ordinarily writable, or the wrong type |
+| `TIDE277` | a value map on something other than a stored integer, string or boolean field |
+| `TIDE278` | a value whose type is not the field's -- `true` in an integer map |
+| `TIDE279` | the same code captioned twice |
 
 `TIDE276` is separate and applies to any action: an entity may not name one
 `cancel` or `save`. A view's `actions:` list mixes domain actions with the form

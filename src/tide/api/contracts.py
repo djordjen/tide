@@ -295,6 +295,15 @@ class TidePresentationReference(BaseModel):
     display_template: str = Field(min_length=1, max_length=512)
 
 
+class TideValueLabel(BaseModel):
+    """One stored code and the text it stands for."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    value: bool | int | str
+    label: str = Field(min_length=1)
+
+
 class TidePresentationColumn(BaseModel):
     """One safe, renderer-neutral browse column in the remote manifest."""
 
@@ -308,6 +317,10 @@ class TidePresentationColumn(BaseModel):
     format_options: TidePresentationFormat | None = None
     target_entity: str | None = None
     reference: TidePresentationReference | None = None
+    # On the column rather than only on the form field: a browse grid shows a
+    # code just as a form does, and a reader who has to translate it in one
+    # place and not the other is worse off than one who translates everywhere.
+    values: tuple[TideValueLabel, ...] = ()
 
 
 class TidePresentationLookup(BaseModel):

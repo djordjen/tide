@@ -18,7 +18,7 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Button, DataTable, Footer, Header, Input, Select, Static
 
-from tide.labels import value_label
+from tide.labels import value_caption, value_label
 from tide.compiler.normalized import (
     ApplicationModel,
     NormalizedEntity,
@@ -1088,6 +1088,9 @@ class TideApp(App[None]):
             return str(value)
         if isinstance(value, bool):
             return "Yes" if value else "No"
+        caption = value_caption(field.metadata, value)
+        if caption is not None:
+            return caption
         if field.metadata["type"] == "choice":
             return value_label(value)
         return str(value)

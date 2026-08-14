@@ -15,6 +15,13 @@ export function formatCellValue(
   if (value === null || value === undefined) {
     return ""
   }
+  // A captioned code is shown as what it stands for. An uncaptioned one
+  // is shown as itself: a legacy column holds values nobody wrote down,
+  // and blanking one hides the only evidence that it is there.
+  const caption = (column.values ?? []).find((item) => item.value === value)
+  if (caption) {
+    return caption.label
+  }
   if (column.field_type === "boolean") {
     return value ? "Yes" : "No"
   }

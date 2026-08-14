@@ -29,7 +29,7 @@ from textual.widgets import (
     TabPane,
 )
 
-from tide.labels import value_label
+from tide.labels import declared_values, value_caption, value_label
 from tide.compiler.normalized import (
     ApplicationModel,
     NormalizedEntity,
@@ -803,6 +803,19 @@ class RecordEditScreen(Screen[Any]):
                 classes="editable-value",
                 compact=True,
             )
+        captioned = declared_values(field.metadata)
+        if captioned:
+            # A captioned field keeps its stored type -- an integer code stays
+            # an integer -- and only offers the codes it declares, which is the
+            # same contract the service boundary enforces behind this.
+            return FormSelect(
+                tuple((caption, code) for code, caption in captioned),
+                value=value if value is not None else Select.NULL,
+                allow_blank=not field.metadata.get("required", False),
+                id=widget_id,
+                classes="editable-value",
+                compact=True,
+            )
         if field_type == "choice":
             options = tuple(
                 (value_label(choice), choice)
@@ -1138,6 +1151,9 @@ class RecordEditScreen(Screen[Any]):
             return value.strftime("%d.%m.%Y")
         if isinstance(value, Decimal) and field.metadata.get("format") == "money":
             return f"{value:,.2f}"
+        caption = value_caption(field.metadata, value)
+        if caption is not None:
+            return caption
         if field.metadata["type"] == "choice":
             return value_label(value)
         return str(value)

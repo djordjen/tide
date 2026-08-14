@@ -203,6 +203,9 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
             },
             "target_entity": None,
             "reference": None,
+            # A column carries its declared codes so a browse grid can show
+            # what one stands for; a total has none.
+            "values": [],
         }
         assert invoice_view["named_filters"] == [
             {
@@ -351,6 +354,7 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
                     "format_options": None,
                     "target_entity": None,
                     "reference": None,
+                    "values": [],
                 },
                 {
                     "name": "name",
@@ -361,6 +365,7 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
                     "format_options": None,
                     "target_entity": None,
                     "reference": None,
+                    "values": [],
                 },
                 {
                     "name": "email",
@@ -371,6 +376,7 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
                     "format_options": None,
                     "target_entity": None,
                     "reference": None,
+                    "values": [],
                 },
             ],
             "search_fields": ["code", "name", "email"],

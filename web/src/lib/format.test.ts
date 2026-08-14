@@ -23,6 +23,7 @@ const money: TidePresentationColumn = {
   },
   target_entity: null,
   reference: null,
+  values: [],
 }
 
 it("formats exact decimal source text without binary float conversion", () => {
@@ -109,5 +110,42 @@ describe("a display template with no placeholder", () => {
     expect(
       formatReferenceDisplay(braced, { uniqueid: "7F168", model: "NTP-SRV" }),
     ).toBe("7F168 - NTP-SRV")
+  })
+})
+
+describe("a captioned code", () => {
+  /**
+   * `values:` says what a stored code stands for without changing what is
+   * stored. A legacy integer column is the case it exists for: XAF and its
+   * kind keep enumeration members in application code, so the database holds
+   * a 2 and nothing in it says "In repair".
+   */
+  const status = {
+    name: "status",
+    label: "Status",
+    field_type: "integer",
+    alignment: "left",
+    format: null,
+    format_options: null,
+    target_entity: null,
+    reference: null,
+    values: [
+      { value: 0, label: "Ordered" },
+      { value: 2, label: "In repair" },
+    ],
+  } as TidePresentationColumn
+
+  it("shows what it stands for", () => {
+    expect(formatCellValue(status, 2)).toBe("In repair")
+  })
+
+  it("shows an uncaptioned code as itself rather than as nothing", () => {
+    // A legacy column holds values nobody wrote down. Blanking one hides the
+    // only evidence that it is there.
+    expect(formatCellValue(status, 7)).toBe("7")
+  })
+
+  it("still withholds a protected field", () => {
+    expect(formatCellValue(status, 2, ["status"])).toBe("Protected")
   })
 })

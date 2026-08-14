@@ -521,6 +521,14 @@
           "title": "Choices",
           "type": "array"
         },
+        "values": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ValueLabelSource"
+          },
+          "title": "Values",
+          "type": "array"
+        },
         "target": {
           "anyOf": [
             {
@@ -1016,6 +1024,37 @@
         "message"
       ],
       "title": "ValidationSource",
+      "type": "object"
+    },
+    "ValueLabelSource": {
+      "additionalProperties": false,
+      "description": "One stored code and the text that stands for it.\n\nA legacy integer column very often carries an enumeration whose member\nnames live in the application that wrote the rows, not in the database.\nThis says what they are without changing what is stored: the column stays\nan integer everywhere -- in SQL, in filters, over REST -- and only what a\nreader sees, and what a writer may choose, comes from here.",
+      "properties": {
+        "value": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Value"
+        },
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "label"
+      ],
+      "title": "ValueLabelSource",
       "type": "object"
     }
   },

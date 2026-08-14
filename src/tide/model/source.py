@@ -6,6 +6,7 @@ immutable runtime model in :mod:`tide.compiler.normalized`.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from decimal import Decimal
 from typing import Any, Literal, Union, get_args
 
@@ -123,6 +124,22 @@ class EditMaskSource(SourceModel):
     regex: str = Field(min_length=1)
 
 
+class ValueLabelSource(SourceModel):
+    """One stored code and the text that stands for it.
+
+    A legacy integer column very often carries an enumeration whose member
+    names live in the application that wrote the rows, not in the database.
+    This says what they are without changing what is stored: the column stays
+    an integer everywhere -- in SQL, in filters, over REST -- and only what a
+    reader sees, and what a writer may choose, comes from here.
+    """
+
+    # `bool` first: it is a subclass of `int`, and a boolean field's map must
+    # not have `true` quietly recorded as `1`.
+    value: bool | int | str
+    label: str = Field(min_length=1)
+
+
 class FieldSource(SourceModel):
     type: FieldType
     label: str | None = None
@@ -144,6 +161,7 @@ class FieldSource(SourceModel):
     format: str | None = None
     edit_mask: str | EditMaskSource | None = None
     choices: tuple[str, ...] = ()
+    values: tuple[ValueLabelSource, ...] = ()
     target: str | None = None
     column: str | None = Field(default=None, min_length=1)
     storage: str | None = None
@@ -167,6 +185,24 @@ class FieldSource(SourceModel):
     def non_negative_dimensions(cls, value: int | None) -> int | None:
         if value is not None and value < 0:
             raise ValueError("must not be negative")
+        return value
+
+    @field_validator("values", mode="before")
+    @classmethod
+    def value_map_pairs(cls, value: Any) -> Any:
+        """Accept a mapping from Python callers; YAML has to write pairs.
+
+        `values: {0: Ordered}` would be the shorter authoring form and the
+        loader refuses it -- `TIDE004`, mapping keys must be strings, so that
+        every node in a document has a path a diagnostic can point at. A pair
+        per line keeps that rule intact and costs one line each, which is the
+        right trade for something written once per legacy column. It is also
+        already the shape this is stored in: JSON has no integer keys either,
+        and every schema export and the presentation manifest go through it.
+        """
+
+        if isinstance(value, Mapping):
+            return [{"value": code, "label": label} for code, label in value.items()]
         return value
 
 

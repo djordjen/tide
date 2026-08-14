@@ -69,6 +69,11 @@ export interface TidePresentationReference {
   display_template: string
 }
 
+export interface TideValueLabel {
+  value: boolean | number | string
+  label: string
+}
+
 export interface TidePresentationColumn {
   name: string
   label: string
@@ -78,6 +83,7 @@ export interface TidePresentationColumn {
   format_options: TidePresentationFormat | null
   target_entity: string | null
   reference: TidePresentationReference | null
+  values: readonly TideValueLabel[]
 }
 
 export interface TidePresentationLookup {

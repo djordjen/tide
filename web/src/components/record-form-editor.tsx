@@ -273,7 +273,37 @@ function FieldEditor({
           </span>
         ) : null}
       </label>
-      {field.field_type === "choice" ? (
+      {field.values?.length ? (
+        // A captioned field keeps its stored type. An option value is a
+        // string, as every DOM option value is, so the picked one is looked
+        // up rather than passed on -- handing the server "2" for an integer
+        // column would be a different value from the 2 it declared.
+        <select
+          id={id}
+          data-tide-editor
+          className={editorClass(error)}
+          value={String(value ?? "")}
+          disabled={disabled}
+          required={field.required}
+          aria-invalid={Boolean(error)}
+          aria-describedby={describedBy}
+          onChange={(event) =>
+            onChange(
+              field.values.find(
+                (item) => String(item.value) === event.target.value,
+              )?.value ?? null,
+            )
+          }
+          onKeyDown={moveOnEnter}
+        >
+          {!field.required ? <option value="">None</option> : null}
+          {field.values.map((item) => (
+            <option key={String(item.value)} value={String(item.value)}>
+              {item.label}
+            </option>
+          ))}
+        </select>
+      ) : field.field_type === "choice" ? (
         <select
           id={id}
           data-tide-editor

@@ -14,6 +14,8 @@ require a new `schema_version`; stable 1.0 compatibility is not yet promised.
 
 ### Compiler and headless runtime
 
+A scalar field may declare `values:`, captioning the codes it stores. A legacy integer column usually carries an enumeration whose member names live in the application that wrote the rows, not in the database; this says what they are without changing what is stored. The column stays an integer in SQL, in filters and over REST, and the map decides two things: a reader sees the caption on every surface, and a writer may only choose a declared code -- refused in `RecordsService`, so it holds for the terminal, the browser, REST and MCP alike. An uncaptioned code is shown as itself rather than blanked, because a legacy column holds values nobody wrote down. The terminal and the browser both offer a dropdown of the captions without the field becoming a `choice`, and `tide db inspect --runnable` names each table's plain integer columns in a comment, since reflection cannot read an enumeration.
+
 Here, "compiler" means a **metadata compiler**, not native executable or Python
 bytecode compilation. It turns an application's YAML into a validated,
 resolved, immutable `ApplicationModel`; production still runs the ordinary

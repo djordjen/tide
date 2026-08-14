@@ -11,6 +11,7 @@ from tide.api.contracts import (
     TideFilterInput,
     TideFormPresentation,
     TidePresentationColumn,
+    TideValueLabel,
     TidePresentationFormAction,
     TidePresentationFormCollection,
     TidePresentationFormField,
@@ -26,6 +27,7 @@ from tide.api.contracts import (
     TideSessionInfo,
 )
 from tide.api.openapi import RestExposure
+from tide.labels import declared_values
 from tide.model.source import RESERVED_ACTION_NAMES
 from tide.compiler.normalized import (
     ApplicationModel,
@@ -809,6 +811,16 @@ def _column_contract(
             exposures,
             base_path=base_path,
         ),
+        values=_value_contract(field),
+    )
+
+
+def _value_contract(field: NormalizedField) -> tuple[TideValueLabel, ...]:
+    """The declared codes, read the one way every surface reads them."""
+
+    return tuple(
+        TideValueLabel(value=code, label=caption)
+        for code, caption in declared_values(field.metadata)
     )
 
 

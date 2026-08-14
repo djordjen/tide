@@ -136,6 +136,7 @@ class InspectedEntity:
                 f"  {operation}: {permission}"
                 for operation, permission in permissions.items()
             )
+        lines.extend(self.value_map_stub)
         lines.append("fields:")
         lines.extend(f"  {name}: {declaration}" for name, declaration in self.fields)
         lines.extend(
@@ -143,6 +144,38 @@ class InspectedEntity:
             for collection in collections
         )
         return "\n".join(lines) + "\n"
+
+    @property
+    def value_map_stub(self) -> tuple[str, ...]:
+        """A commented reminder naming this table's likely enumerations.
+
+        An integer column very often carries one, and reflection cannot read
+        its members: they live in the application that wrote the rows. The
+        candidates are the plain integers -- not the key, which identifies,
+        and not a foreign key, which already points somewhere.
+        """
+
+        candidates = tuple(
+            name
+            for name, declaration in self.fields
+            if declaration.startswith("{type: integer")
+            and "primary_key" not in declaration
+        )
+        if not candidates:
+            return ()
+        return (
+            "# An integer column often stands for an enumeration whose member",
+            "# names live in the application that wrote the rows, not in the",
+            "# database, so reflection cannot read them. Caption one and its",
+            "# labels are shown everywhere and are the only values accepted:",
+            f"#   {candidates[0]}:",
+            "#     type: integer",
+            "#     column: ...",
+            "#     values:",
+            "#     - {value: 0, label: First}",
+            "#     - {value: 1, label: Second}",
+            f"# Candidates here: {', '.join(candidates)}",
+        )
 
     @property
     def slug(self) -> str:

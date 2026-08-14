@@ -30,6 +30,9 @@ LEGACY_DDL = (
     "DISPLAY_NAME VARCHAR(120) NOT NULL, "
     "CREDIT_LIMIT NUMERIC(12,2), "
     "IS_ACTIVE BOOLEAN NOT NULL, "
+    # A plain integer that stands for something: the shape an enumeration
+    # takes in a legacy schema, and indistinguishable from a quantity here.
+    "STANDING_CODE INTEGER, "
     "OWNER_EMPLOYEE_NO INTEGER, "
     "FOREIGN KEY (OWNER_EMPLOYEE_NO) REFERENCES EMPLOYEE_MASTER(EMPLOYEE_NO))",
     # Neither of these can be proposed under schema v0.1.
@@ -426,7 +429,9 @@ def test_a_runnable_proposal_opens_in_the_tui_over_real_rows(
     engine = create_engine(legacy_url)
     with engine.begin() as connection:
         connection.exec_driver_sql(
-            "INSERT INTO CUSTOMER_MASTER VALUES (1001, 'Northwind', 250.00, 1, NULL)"
+            "INSERT INTO CUSTOMER_MASTER "
+            "(CUSTOMER_NO, DISPLAY_NAME, CREDIT_LIMIT, IS_ACTIVE) "
+            "VALUES (1001, 'Northwind', 250.00, 1)"
         )
     engine.dispose()
 
@@ -473,10 +478,13 @@ def test_a_synthesized_collection_renders_inside_the_record_it_belongs_to(
     engine = create_engine(legacy_url)
     with engine.begin() as connection:
         connection.exec_driver_sql(
-            "INSERT INTO EMPLOYEE_MASTER VALUES (7, 'Mira Lang', NULL)"
+            "INSERT INTO EMPLOYEE_MASTER (EMPLOYEE_NO, DISPLAY_NAME) "
+            "VALUES (7, 'Mira Lang')"
         )
         connection.exec_driver_sql(
-            "INSERT INTO CUSTOMER_MASTER VALUES (1001, 'Northwind', 250.00, 1, 7)"
+            "INSERT INTO CUSTOMER_MASTER "
+            "(CUSTOMER_NO, DISPLAY_NAME, CREDIT_LIMIT, IS_ACTIVE, OWNER_EMPLOYEE_NO) "
+            "VALUES (1001, 'Northwind', 250.00, 1, 7)"
         )
     engine.dispose()
 
@@ -505,6 +513,35 @@ def test_a_synthesized_collection_renders_inside_the_record_it_belongs_to(
 
     assert asyncio.run(drive()) == [("RecordEditScreen", 1)]
     repository.dispose()
+
+
+def test_the_proposal_names_the_columns_that_might_be_enumerations(
+    legacy_url: str, tmp_path: Path
+) -> None:
+    """Reflection cannot read an enumeration, so it says so where it would go.
+
+    An integer column very often carries one and its member names live in the
+    application that wrote the rows. Naming the candidates costs a comment;
+    saying nothing leaves a reader looking at `2` with no reason to think it
+    stands for anything.
+    """
+
+    proposal = inspect_schema(legacy_url)
+    documents = render_project(proposal, application="Legacy CRM", runnable=True)
+    customer = documents["models/customermaster.yaml"]
+
+    # The key identifies and a foreign key already points somewhere; neither
+    # is a code standing for a name.
+    assert "values:" in customer
+    candidates = customer.split("# Candidates here: ")[1].split("\n")[0]
+    assert candidates == "standing_code"
+
+    # Commented, so the proposal still compiles exactly as it is.
+    _compiled(proposal, tmp_path, "stubbed", runnable=True)
+
+    # And no reminder at all where there is nothing to caption: EMPLOYEE_MASTER
+    # is a key, a name and a date.
+    assert "# Candidates here: " not in documents["models/employeemaster.yaml"]
 
 
 def test_inspection_never_writes_to_the_database_it_read(legacy_url: str) -> None:

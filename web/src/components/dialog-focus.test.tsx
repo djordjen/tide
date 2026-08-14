@@ -238,6 +238,7 @@ const nameField: TidePresentationFormField = {
   format_options: null,
   target_entity: null,
   reference: null,
+  values: [],
   writable: true,
   required: false,
   help: null,

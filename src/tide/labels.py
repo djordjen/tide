@@ -7,7 +7,9 @@ cannot sit under either of them.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import re
+from typing import Any
 
 _CAMEL_BOUNDARY = re.compile(r"(?<!^)(?=[A-Z])")
 
@@ -50,3 +52,32 @@ def value_label(value: object) -> str:
     """
 
     return str(value).replace("_", " ").title()
+
+
+def declared_values(metadata: Mapping[str, Any]) -> tuple[tuple[Any, str], ...]:
+    """The `(code, caption)` pairs a field declares, or none at all.
+
+    One reader for the whole framework. The boundary refuses an uncaptioned
+    code through it, every renderer shows a caption through it, and the
+    dropdowns are built from it -- which is the arrangement the choice-value
+    transform above arrived at the hard way, after eight copies agreed only by
+    coincidence.
+    """
+
+    return tuple(
+        (item["value"], str(item["label"])) for item in metadata.get("values", ())
+    )
+
+
+def value_caption(metadata: Mapping[str, Any], value: Any) -> str | None:
+    """What a stored code stands for, or None when nothing claims it.
+
+    An uncaptioned code is shown as itself rather than blanked: a legacy
+    column will hold values nobody wrote down, and hiding one loses the only
+    evidence that it is there.
+    """
+
+    for code, caption in declared_values(metadata):
+        if code == value and type(code) is type(value):
+            return caption
+    return None

@@ -27,6 +27,7 @@ from tide.data.repository import (
     SortField,
 )
 from tide.display import display_fields, record_display
+from tide.labels import declared_values
 from tide.runtime.context import RequestContext
 from tide.runtime.errors import (
     AuthorizationError,
@@ -1188,6 +1189,18 @@ class RecordsService:
                 issues.append(ValidationIssue("maximum", f"{field_name} exceeds its maximum", (field_name,)))
             if value is not None and metadata["type"] == "choice" and value not in metadata.get("choices", ()):
                 issues.append(ValidationIssue("choice", f"{field_name} has an invalid choice", (field_name,)))
+            if value is not None and not _value_is_captioned(value, metadata):
+                # A captioned field stores a code that stands for something.
+                # Refusing an uncaptioned one is what makes the map a contract
+                # rather than a display convenience, and it applies on every
+                # surface because it is enforced here.
+                issues.append(
+                    ValidationIssue(
+                        "value",
+                        f"{field_name} is not one of its declared values",
+                        (field_name,),
+                    )
+                )
             if value is not None and metadata["type"] == "decimal":
                 issues.extend(_decimal_shape_issues(field_name, value, metadata))
             edit_mask = metadata.get("edit_mask")
@@ -1698,6 +1711,15 @@ def _coerce_scalar(field_type: str, value: Any) -> tuple[Any, bool]:
     if field_type == "uuid":
         return value, isinstance(value, UUID)
     return value, True
+
+
+def _value_is_captioned(value: Any, metadata: Mapping[str, Any]) -> bool:
+    """True when a field declares no value map, or the code is in it."""
+
+    captions = declared_values(metadata)
+    return not captions or any(
+        code == value and type(code) is type(value) for code, _ in captions
+    )
 
 
 def _decimal_shape_issues(
