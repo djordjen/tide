@@ -8,6 +8,7 @@ import type { TideApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import {
   fieldCellClass,
+  fieldGroupClass,
   fieldLabelRowClass,
   fieldLabelTextClass,
   readOnlyValueClass,
@@ -59,7 +60,10 @@ export function DetailGroup({
               const field = form.fields[name]
               const fieldWritable = writable.has(name)
               return (
-                <div key={name} className={fieldCellClass}>
+                <div
+                  key={name}
+                  className={`${fieldCellClass} ${fieldGroupClass}`}
+                >
                   <div className={fieldLabelRowClass}>
                     <span className={fieldLabelTextClass}>{field.label}</span>
                     {!fieldWritable ? (

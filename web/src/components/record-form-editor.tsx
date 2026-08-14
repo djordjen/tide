@@ -42,6 +42,7 @@ import {
 import { cn } from "@/lib/utils"
 import {
   fieldCellClass,
+  fieldGroupClass,
   fieldLabelClass,
   readOnlyValueClass,
 } from "./form-field"
@@ -139,7 +140,10 @@ function EditorGroup({
               const field = form.fields[name]
               const editable = editableFields.has(name)
               return (
-                <div key={name} className={fieldCellClass}>
+                <div
+                  key={name}
+                  className={cn(fieldCellClass, !editable && fieldGroupClass)}
+                >
                   {editable ? (
                     <FieldEditor
                       api={api}
@@ -226,16 +230,18 @@ function FieldEditor({
 
   if (field.field_type === "boolean") {
     return (
-      <div>
-        <label
-          htmlFor={id}
-          className="flex min-h-9 cursor-pointer items-center gap-2.5 text-sm font-medium"
-        >
+      <div className={fieldGroupClass}>
+        {/* The box belongs in the value column with every other control, so
+            the label is its own element rather than text beside the input. */}
+        <label htmlFor={id} className={fieldLabelClass}>
+          {field.label}
+        </label>
+        <div className="flex min-h-9 items-center">
           <input
             id={id}
             data-tide-editor
             type="checkbox"
-            className="size-4 rounded border-border accent-primary"
+            className="size-4 cursor-pointer rounded border-border accent-primary"
             checked={Boolean(value)}
             disabled={disabled}
             aria-invalid={Boolean(error)}
@@ -243,8 +249,7 @@ function FieldEditor({
             onChange={(event) => onChange(event.target.checked)}
             onKeyDown={moveOnEnter}
           />
-          {field.label}
-        </label>
+        </div>
         <FieldMessage
           field={field}
           error={error}
@@ -256,7 +261,7 @@ function FieldEditor({
   }
 
   return (
-    <div>
+    <div className={fieldGroupClass}>
       <label
         htmlFor={id}
         className={fieldLabelClass}
@@ -385,7 +390,7 @@ function ReferenceEditor({
   const describedBy = error ? errorId : field.help ? helpId : undefined
 
   return (
-    <div>
+    <div className={fieldGroupClass}>
       <label
         htmlFor={id}
         className={fieldLabelClass}

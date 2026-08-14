@@ -19,7 +19,18 @@ const fieldLabelTextClass = "truncate text-xs font-medium text-muted-foreground"
 /** The grid cell one field sits in. */
 export const fieldCellClass = "min-w-0"
 
-/** A plain label above its control. */
+/**
+ * Label and control as one unit, so the label can sit beside the control.
+ *
+ * A label above its control doubles the vertical space a record needs, and a
+ * form is read down the value column: the terminal renderer and the desktop
+ * application this replaces both put the label on the left. The rule itself
+ * lives in `index.css` because it is a media query -- below 768px there is no
+ * room for two columns and the label goes back above.
+ */
+export const fieldGroupClass = "tide-field"
+
+/** A plain label for its control. */
 export const fieldLabelClass = `mb-1 block ${fieldLabelTextClass}`
 
 /** A label that shares its line with something else, such as a lock marker. */

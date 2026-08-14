@@ -124,6 +124,8 @@ conflict contracts, and batched reference displays on `QueryPage`.
 
 ### Web renderer
 
+Form fields put the label beside the control from 768px up, and stack it above below that. A label above doubles the vertical space a record needs -- the same budget the field cards used to waste -- and a form is read down its value column, which is how the terminal renderer already draws one. A Playwright journey measures it at 1440px and at 375px, because jsdom computes no layout.
+
 The Web renderer uses TIDE-owned username/password sign-in by default, backed
 by a separate local identity file rather than application or legacy-database
 tables. The first `start.bat web` or `web-demo` run prompts for the local

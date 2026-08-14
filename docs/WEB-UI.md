@@ -87,6 +87,14 @@ database.
   at most 24px above its control on a label and gap, which a Playwright check
   measures in both renderers rather than trusting, because jsdom computes no
   layout;
+- the field label beside its control rather than above it, from 768px up, and
+  stacked below that because a phone has no second column to give it. A label
+  above doubles the vertical space a record needs, which is the same budget the
+  field cards used to waste and the reason collections fell below the fold; the
+  terminal renderer and the desktop applications this replaces both read down a
+  single value column. One rule in `index.css` covers both renderers, and a
+  Playwright journey asserts the label ends before the control begins at
+  1440px and sits above it at 375px;
 - Previous/Next navigation in the current secured browse order, including
   cursor-boundary loading and Page Up/Page Down shortcuts;
 - capability-gated **New** and **Save** workflows for flat scalar Customer and

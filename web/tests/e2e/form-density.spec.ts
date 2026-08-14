@@ -113,3 +113,57 @@ test("spends its vertical space on controls rather than on packaging", async ({
     `a read-only row shows label and value within ${READ_ONLY_ROW_BUDGET}px`,
   ).toEqual([])
 })
+
+/**
+ * The label beside its control, not above it.
+ *
+ * A label above doubles the rows a record needs, which is the same vertical
+ * budget the field cards used to waste. This is a geometry claim and jsdom
+ * computes none, so it can only be made here — and containment is half a
+ * layout check, so the label is asserted to end before the control begins
+ * rather than merely to be somewhere near it.
+ *
+ * Below 768px there are no two columns to have, and the same fields have to
+ * stack; a phone is the one place this layout must not apply.
+ */
+async function firstLabelledField(page: Page): Promise<{
+  label: { x: number; right: number; y: number; bottom: number }
+  control: { x: number; y: number }
+}> {
+  const group = page.locator(".tide-field", { has: page.locator("[data-tide-editor]") })
+  await group.first().waitFor()
+  const labelBox = await group.first().locator("label").first().boundingBox()
+  const controlBox = await group.first().locator("[data-tide-editor]").first().boundingBox()
+  if (!labelBox || !controlBox) throw new Error("a field has no geometry")
+  return {
+    label: {
+      x: labelBox.x,
+      right: labelBox.x + labelBox.width,
+      y: labelBox.y,
+      bottom: labelBox.y + labelBox.height,
+    },
+    control: { x: controlBox.x, y: controlBox.y },
+  }
+}
+
+test("puts the field label beside its control, and above it on a phone", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await signIn(page)
+  await open(page, /INV-2026-0002/)
+  await expect(page.getByText("Secured editor")).toBeVisible()
+
+  const wide = await firstLabelledField(page)
+  expect(wide.label.right, "the label ends before the control starts").toBeLessThanOrEqual(
+    wide.control.x,
+  )
+  expect(wide.control.y, "and shares its line").toBeLessThan(wide.label.bottom)
+
+  await page.setViewportSize({ width: 375, height: 812 })
+  const narrow = await firstLabelledField(page)
+  expect(narrow.control.y, "on a phone the control is below the label").toBeGreaterThanOrEqual(
+    narrow.label.bottom,
+  )
+  expect(narrow.label.x, "and both start at the same edge").toBeCloseTo(narrow.control.x, 0)
+})

@@ -145,6 +145,35 @@ select {
       minmax(0, 1fr)
     );
   }
+
+  /*
+   * The label beside its control rather than above it. A label above doubles
+   * the rows a record needs and pushes collections below the fold, which is
+   * the same space the field cards cost before them; a form is read down the
+   * value column, and both the terminal renderer and the application this
+   * replaces put the label on the left.
+   *
+   * Everything after the label is forced into the second column, so the error
+   * and help text line up under the control instead of wrapping beneath the
+   * label. Below this width the rule simply does not apply and the label goes
+   * back above, which is the only thing that fits a 375px phone.
+   */
+  .tide-field {
+    display: grid;
+    grid-template-columns: var(--tide-label-column, 9.5rem) minmax(0, 1fr);
+    align-items: start;
+    column-gap: 0.75rem;
+  }
+
+  .tide-field > :first-child {
+    margin-bottom: 0;
+    /* Sits the 12px label on the centre line of a 36px control. */
+    padding-top: 0.625rem;
+  }
+
+  .tide-field > :not(:first-child) {
+    grid-column: 2;
+  }
 }
 
 ::selection {
