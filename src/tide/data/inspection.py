@@ -85,8 +85,18 @@ class InspectedEntity:
             f"display: {self.display}",
         ]
         if permissions is not None:
-            lines.append("expose: {tui: true}")
-            lines.append("permissions:")
+            lines.extend(
+                [
+                    "expose:",
+                    "  tui: true",
+                    "  rest:",
+                    f"    operations: [{', '.join(REST_OPERATIONS)}]",
+                    "  mcp:",
+                    f"    resources: [{', '.join(MCP_RESOURCES)}]",
+                    f"    tools: [{', '.join(MCP_TOOLS)}]",
+                    "permissions:",
+                ]
+            )
             lines.extend(
                 f"  {operation}: {permission}"
                 for operation, permission in permissions.items()
@@ -487,6 +497,14 @@ def _field_name(physical: str, used: set[str]) -> str:
 
 #: The entity operations a runnable proposal declares a permission for.
 OPERATIONS: tuple[str, ...] = ("list", "read", "create", "update", "delete")
+
+#: What a runnable proposal opens on each surface. `runnable` that meant one
+#: surface would not be what the flag says -- and the Web UI in particular is
+#: a REST client, so exposing the TUI alone leaves the browser reading an
+#: application with no routes in it. Every line is deletable afterwards.
+REST_OPERATIONS: tuple[str, ...] = ("list", "get", "create", "update", "delete")
+MCP_RESOURCES: tuple[str, ...] = ("schema", "record")
+MCP_TOOLS: tuple[str, ...] = ("search", "create", "update", "delete")
 
 
 def render_project(

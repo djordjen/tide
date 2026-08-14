@@ -263,11 +263,16 @@ uv run tide db inspect --database-env --runnable --output ./legacy-crm --applica
 
 | Added | Per |
 |---|---|
-| `expose: {tui: true}` and five `permissions` | entity |
+| `expose` for the TUI, REST and MCP, and five `permissions` | entity |
 | a `browse`, an `edit` and a `lookup` view | entity |
 | `lookup_view` pointing each reference at its target's lookup view | reference |
 | `security/policies.yaml` granting every permission to one role | application |
 | `views:` and `security:` paths | `tide.yaml` |
+
+All three surfaces, not just the terminal: the Web UI is a REST client, so an
+application exposed only to the TUI answers 404 to every request the browser
+makes and renders as an empty application. MCP is exposed in the metadata but
+still requires `tide serve --mcp` before anything is served.
 
 The role is `operator` unless `--role` names another. It is granted everything,
 because which operations an account should have is a decision about the

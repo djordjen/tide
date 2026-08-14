@@ -258,6 +258,30 @@ def test_a_runnable_proposal_is_one_the_tui_can_actually_open(
     assert configured in model.views
 
 
+def test_a_runnable_proposal_is_served_by_the_rest_api_the_web_ui_reads(
+    legacy_url: str, tmp_path: Path
+) -> None:
+    """The Web UI is a REST client, so `expose: {tui: true}` renders nothing.
+
+    Asserted against the generated description rather than the `expose`
+    metadata, because the property that matters is whether the routes are
+    there: a server with the entity metadata and no entity routes answers 404
+    to every request the browser makes, and looks like an empty application.
+    """
+
+    from tide.api.openapi import generate_openapi
+
+    model = _compiled(inspect_schema(legacy_url), tmp_path, "served", runnable=True)
+    paths = set(generate_openapi(model)["paths"])
+
+    assert "/api/v1/legacy/customer-master" in paths, sorted(paths)
+    assert "/api/v1/legacy/customer-master/{customer_no}" in paths, sorted(paths)
+    assert "/api/v1/legacy/employee-master" in paths, sorted(paths)
+
+    exposure = model.entity("legacy.CustomerMaster").metadata["expose"]
+    assert exposure["mcp"]["tools"] == ("search", "create", "update", "delete")
+
+
 def test_a_runnable_proposal_opens_in_the_tui_over_real_rows(
     legacy_url: str, tmp_path: Path
 ) -> None:

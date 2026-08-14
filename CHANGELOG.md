@@ -432,9 +432,11 @@ absent primary key is named as skipped, with the reason. See
 [Legacy databases](docs/LEGACY-DATABASES.md#adopting-an-existing-schema).
 
 `--runnable` proposes the rest of an application, not just its metadata:
-`expose` and five permissions per entity, a browse/edit/lookup view trio per
-entity with `lookup_view` wired on every reference, and a security policy
-granting one role (`--role`, default `operator`) everything declared. Without
+`expose` for the TUI, REST and MCP plus five permissions per entity, a
+browse/edit/lookup view trio per entity with `lookup_view` wired on every
+reference, and a security policy granting one role (`--role`, default
+`operator`) everything declared. All three surfaces, because the Web UI is a
+REST client and an application exposed only to the TUI renders empty. Without
 it the proposal compiles and matches the database but no surface can open it —
 the TUI refuses a model with no browse view. See
 [Compiling is not running](docs/LEGACY-DATABASES.md#compiling-is-not-running).
