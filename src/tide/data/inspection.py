@@ -65,6 +65,34 @@ class DemotedReference:
 
 
 @dataclass(frozen=True, slots=True)
+class InspectedCollection:
+    """A foreign key seen from the entity it points at.
+
+    Reflection can only find the half of a relationship that holds the column.
+    Proposing that half alone gives every child a picker and every parent
+    nothing -- no way to see, from a record, what points at it.
+    """
+
+    owner: str
+    name: str
+    target: str
+    inverse: str
+
+    @property
+    def view(self) -> str:
+        # Qualified by the owner: two entities can hold a same-named
+        # collection of the same child, and one view cannot serve both
+        # because each hides a different key.
+        return f"{self.owner}.{self.name}.inline"
+
+    @property
+    def declaration(self) -> str:
+        return (
+            f"{{type: collection, target: {self.target}, inverse: {self.inverse}}}"
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class InspectedEntity:
     name: str
     schema: str | None
@@ -73,7 +101,11 @@ class InspectedEntity:
     fields: tuple[tuple[str, str], ...]
     references: tuple[tuple[str, str], ...] = ()
 
-    def document(self, permissions: dict[str, str] | None = None) -> str:
+    def document(
+        self,
+        permissions: dict[str, str] | None = None,
+        collections: tuple[InspectedCollection, ...] = (),
+    ) -> str:
         storage = (
             f"storage: {{schema: {self.schema}, table: {self.table}}}"
             if self.schema
@@ -103,6 +135,10 @@ class InspectedEntity:
             )
         lines.append("fields:")
         lines.extend(f"  {name}: {declaration}" for name, declaration in self.fields)
+        lines.extend(
+            f"  {collection.name}: {collection.declaration}"
+            for collection in collections
+        )
         return "\n".join(lines) + "\n"
 
     @property
@@ -480,6 +516,17 @@ def _capitalized(part: str) -> str:
     return part[:1].upper() + part[1:]
 
 
+def _snake(name: str) -> str:
+    """`EquipmentInstancesTasks` -> `equipment_instances_tasks`.
+
+    Only synthesized names go through this. A column keeps whatever
+    `_identifier` makes of it, so no existing proposal changes shape.
+    """
+
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", name)
+    return _identifier(re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", "_", spaced))
+
+
 def _identifier(name: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_]+", "_", name).strip("_").lower()
     return cleaned if cleaned[:1].isalpha() else f"s_{cleaned}"
@@ -524,16 +571,23 @@ def render_project(
     because a model that compiles is not the same thing as an application.
     """
 
+    collections = _synthesized_collections(proposal.entities) if runnable else {}
+    children = {entity.name: entity for entity in proposal.entities}
     documents: dict[str, str] = {}
     for entity in proposal.entities:
         permissions = _permissions(entity) if runnable else None
-        documents[f"models/{entity.filename}"] = entity.document(permissions)
+        owned = collections.get(entity.name, ())
+        documents[f"models/{entity.filename}"] = entity.document(permissions, owned)
         if not runnable:
             continue
         stem = entity.filename.removesuffix(".yaml")
         documents[f"views/{stem}-browse.yaml"] = _list_view(entity, "browse")
         documents[f"views/{stem}-lookup.yaml"] = _list_view(entity, "lookup")
-        documents[f"views/{stem}-edit.yaml"] = _edit_view(entity)
+        documents[f"views/{stem}-edit.yaml"] = _edit_view(entity, owned)
+        for collection in owned:
+            documents[f"views/{stem}-{collection.name}-inline.yaml"] = _inline_view(
+                collection, children[collection.target]
+            )
 
     manifest = [
         'schema_version: "0.1"',
@@ -580,7 +634,50 @@ def _list_view(entity: InspectedEntity, kind: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _edit_view(entity: InspectedEntity) -> str:
+def _synthesized_collections(
+    entities: tuple[InspectedEntity, ...],
+) -> dict[str, tuple[InspectedCollection, ...]]:
+    """Turn every proposed reference around and name it from the other end.
+
+    Naming a collection after the child alone collides the moment a child
+    points at the same parent twice -- two keys into one table, or a table
+    that points at itself -- so a repeated child keeps the key in its name.
+    """
+
+    incoming: dict[str, list[tuple[str, str]]] = {}
+    for child in entities:
+        for field_name, target in child.references:
+            incoming.setdefault(target, []).append((child.name, field_name))
+
+    owned: dict[str, tuple[InspectedCollection, ...]] = {}
+    for entity in entities:
+        arrivals = incoming.get(entity.name, ())
+        if not arrivals:
+            continue
+        repeated = {
+            candidate
+            for candidate in {name for name, _ in arrivals}
+            if sum(name == candidate for name, _ in arrivals) > 1
+        }
+        used = {name for name, _ in entity.fields}
+        collections: list[InspectedCollection] = []
+        for child_name, inverse in arrivals:
+            base = _snake(child_name.split(".")[-1])
+            name = _field_name(
+                f"{base}_{inverse}" if child_name in repeated else base, used
+            )
+            used.add(name)
+            collections.append(
+                InspectedCollection(entity.name, name, child_name, inverse)
+            )
+        owned[entity.name] = tuple(collections)
+    return owned
+
+
+def _edit_view(
+    entity: InspectedEntity,
+    collections: tuple[InspectedCollection, ...] = (),
+) -> str:
     """A form over every field, with each reference given its picker.
 
     A reference field with no `lookup_view` is inert -- the form answers "No
@@ -596,7 +693,7 @@ def _edit_view(entity: InspectedEntity) -> str:
     if entity.references:
         lines.append("fields:")
         lines.extend(
-            f"  {name}: {{lookup_view: {target}.lookup}}"
+            f"  {name}: {{editor: lookup, lookup_view: {target}.lookup}}"
             for name, target in entity.references
         )
     lines.extend(["layout:", f"- group: {entity.slug}", "  rows:"])
@@ -605,6 +702,43 @@ def _edit_view(entity: InspectedEntity) -> str:
         row = order[index : index + 2]
         lines.append(f"  - - {row[0]}")
         lines.extend(f"    - {name}" for name in row[1:])
+    for collection in collections:
+        lines.extend(
+            [
+                f"- collection: {collection.name}",
+                f"  view: {collection.view}",
+                "  actions: [add, apply, remove]",
+            ]
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _inline_view(collection: InspectedCollection, child: InspectedEntity) -> str:
+    """The row editor for one collection, minus the key that placed it there.
+
+    The reference tying a row to the record it is already displayed inside
+    carries no information on that screen, and the collection sets it anyway.
+    """
+
+    lines = [
+        f"view: {collection.view}",
+        f"entity: {child.name}",
+        "kind: inline_edit",
+    ]
+    pickers = tuple(
+        (name, target)
+        for name, target in child.references
+        if name != collection.inverse
+    )
+    if pickers:
+        lines.append("fields:")
+        lines.extend(
+            f"  {name}: {{editor: lookup, lookup_view: {target}.lookup}}" for name, target in pickers
+        )
+    lines.append("columns:")
+    lines.extend(
+        f"- {name}" for name in child.column_order if name != collection.inverse
+    )
     return "\n".join(lines) + "\n"
 
 

@@ -465,7 +465,7 @@ class RecordEditScreen(Screen[Any]):
                         with TabPane(label, id=f"form-tab-{tab_index}"):
                             for section in sections:
                                 if section.kind == "collection":
-                                    yield from self._compose_collection_section()
+                                    yield from self._compose_collection_section(section)
                                 else:
                                     if section.rows:
                                         yield from self._compose_record_fields(
@@ -478,7 +478,7 @@ class RecordEditScreen(Screen[Any]):
             else:
                 for section in self.layout_sections:
                     if section.kind == "collection":
-                        yield from self._compose_collection_section()
+                        yield from self._compose_collection_section(section)
                     elif section.rows:
                         yield from self._compose_record_fields(
                             section.rows,
@@ -528,8 +528,17 @@ class RecordEditScreen(Screen[Any]):
                             editable=editable,
                         )
 
-    def _compose_collection_section(self) -> ComposeResult:
+    def _compose_collection_section(
+        self,
+        section: FormLayoutSection,
+    ) -> ComposeResult:
         if self.collection_name is None or self.collection_entity is None:
+            return
+        if section.collection != self.collection_name:
+            # This screen resolves one collection and builds its table, line
+            # editor and action bar around it. Emitting a section for any
+            # other declaration produced a second widget tree under the same
+            # ids -- showing the wrong rows if Textual had allowed it at all.
             return
         yield Static(
             _field_label(self.entity.field(self.collection_name)),

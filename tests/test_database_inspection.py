@@ -67,6 +67,26 @@ def tangled_url(tmp_path: Path) -> str:
     return _database(tmp_path, "tangled.db", TANGLED_DDL)
 
 
+@pytest.fixture
+def paired_url(tmp_path: Path) -> str:
+    """Two keys from one table into another, plus one into its own table."""
+
+    return _database(
+        tmp_path,
+        "paired.db",
+        (
+            "CREATE TABLE DEPOT ("
+            "DEPOT_NO INTEGER PRIMARY KEY, "
+            "NAME VARCHAR(40) NOT NULL, "
+            "PARENT_DEPOT_NO INTEGER REFERENCES DEPOT(DEPOT_NO))",
+            "CREATE TABLE ROUTE_LEG ("
+            "LEG_NO INTEGER PRIMARY KEY, "
+            "ORIGIN_NO INTEGER REFERENCES DEPOT(DEPOT_NO), "
+            "DESTINATION_NO INTEGER REFERENCES DEPOT(DEPOT_NO))",
+        ),
+    )
+
+
 def _compiled(
     proposal: InspectionProposal,
     tmp_path: Path,
@@ -241,6 +261,9 @@ def test_a_runnable_proposal_is_one_the_tui_can_actually_open(
         "legacy.CustomerMaster.edit",
         "legacy.CustomerMaster.lookup",
         "legacy.EmployeeMaster.browse",
+        # The inline editor for the collection turned around from
+        # CUSTOMER_MASTER's foreign key.
+        "legacy.EmployeeMaster.customer_master.inline",
         "legacy.EmployeeMaster.edit",
         "legacy.EmployeeMaster.lookup",
     ]
@@ -251,11 +274,15 @@ def test_a_runnable_proposal_is_one_the_tui_can_actually_open(
     assert customer.metadata["permissions"]["list"] == "legacy.customermaster.list"
 
     # A reference with no lookup view cannot be picked: the form reports
-    # "No lookup view is configured" and the field is dead.
+    # "No lookup view is configured" and the field is dead. Naming the view is
+    # only half of it -- the editor defaults to a select over the first 500
+    # target rows, which cannot hold a legacy table and raises
+    # InvalidSelectValueError outright when the stored key is not among them.
     edit = model.views["legacy.CustomerMaster.edit"]
-    configured = edit.data["fields"]["owner_employee_no"]["lookup_view"]
-    assert configured == "legacy.EmployeeMaster.lookup"
-    assert configured in model.views
+    configured = edit.data["fields"]["owner_employee_no"]
+    assert configured["editor"] == "lookup"
+    assert configured["lookup_view"] == "legacy.EmployeeMaster.lookup"
+    assert configured["lookup_view"] in model.views
 
 
 def test_a_runnable_proposal_is_served_by_the_rest_api_the_web_ui_reads(
@@ -280,6 +307,65 @@ def test_a_runnable_proposal_is_served_by_the_rest_api_the_web_ui_reads(
 
     exposure = model.entity("legacy.CustomerMaster").metadata["expose"]
     assert exposure["mcp"]["tools"] == ("search", "create", "update", "delete")
+
+
+def test_a_reference_becomes_a_collection_on_the_entity_it_points_at(
+    legacy_url: str, tmp_path: Path
+) -> None:
+    """One foreign key is two halves of a relationship, not one.
+
+    Reflection can only see the half that holds the column, so proposing that
+    alone gives every child a picker and every parent nothing -- no way to see
+    what points at a record from the record itself.
+    """
+
+    model = _compiled(inspect_schema(legacy_url), tmp_path, "linked", runnable=True)
+
+    collection = model.entity("legacy.EmployeeMaster").field("customer_master")
+    assert collection.metadata["type"] == "collection"
+    assert collection.metadata["target"] == "legacy.CustomerMaster"
+    assert collection.metadata["inverse"] == "owner_employee_no"
+
+    inline = model.views["legacy.EmployeeMaster.customer_master.inline"]
+    assert inline.entity == "legacy.CustomerMaster"
+    assert inline.kind == "inline_edit"
+    # The key that ties a row to the record it is already inside is noise.
+    assert "owner_employee_no" not in inline.data["columns"]
+
+    layout = model.views["legacy.EmployeeMaster.edit"].data["layout"]
+    section = next(item for item in layout if "collection" in item)
+    assert section["collection"] == "customer_master"
+    assert section["view"] == "legacy.EmployeeMaster.customer_master.inline"
+
+    # A browse view lists columns, and a collection is not one.
+    browse = model.views["legacy.EmployeeMaster.browse"].data["columns"]
+    assert "customer_master" not in browse
+
+
+def test_two_keys_from_one_table_become_two_differently_named_collections(
+    paired_url: str, tmp_path: Path
+) -> None:
+    """Naming a collection after the child alone collides the moment it repeats.
+
+    ROUTE_LEG points at DEPOT twice and DEPOT points at itself, so the owner
+    would otherwise be given three fields called `route_leg` and `depot`.
+    """
+
+    model = _compiled(inspect_schema(paired_url), tmp_path, "paired", runnable=True)
+    depot = model.entity("legacy.Depot")
+
+    collections = {
+        name: field.metadata["inverse"]
+        for name, field in depot.fields.items()
+        if field.metadata["type"] == "collection"
+    }
+    assert collections == {
+        "route_leg_origin_no": "origin_no",
+        "route_leg_destination_no": "destination_no",
+        "depot": "parent_depot_no",
+    }
+    for name in collections:
+        assert f"legacy.Depot.{name}.inline" in model.views
 
 
 def test_a_runnable_proposal_opens_in_the_tui_over_real_rows(
@@ -326,6 +412,62 @@ def test_a_runnable_proposal_opens_in_the_tui_over_real_rows(
             return int(application.query_one(DataTable).row_count)
 
     assert asyncio.run(drive()) == 1
+    repository.dispose()
+
+
+def test_a_synthesized_collection_renders_inside_the_record_it_belongs_to(
+    legacy_url: str, tmp_path: Path
+) -> None:
+    """Where a collection has to appear to be worth proposing: on the form.
+
+    Metadata and a view file prove the documents were written. Only opening
+    the record shows the tab is really there, wired to the right rows.
+    """
+
+    import asyncio
+
+    from sqlalchemy import create_engine
+    from textual.widgets import DataTable
+
+    from tide.data import SQLAlchemyRepository
+    from tide.runtime import Channel, Principal, RequestContext
+    from tide.services import RecordsService
+    from tide.tui import TideApp
+
+    engine = create_engine(legacy_url)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "INSERT INTO EMPLOYEE_MASTER VALUES (7, 'Mira Lang', NULL)"
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO CUSTOMER_MASTER VALUES (1001, 'Northwind', 250.00, 1, 7)"
+        )
+    engine.dispose()
+
+    model = _compiled(inspect_schema(legacy_url), tmp_path, "nested", runnable=True)
+    repository = SQLAlchemyRepository(model, legacy_url)
+    application = TideApp(
+        model,
+        RecordsService(model, repository),
+        RequestContext(
+            principal=Principal("local:probe", roles=frozenset({"operator"})),
+            channel=Channel.TUI,
+        ),
+        view_name="legacy.EmployeeMaster.browse",
+    )
+
+    async def drive() -> list[tuple[str, int]]:
+        async with application.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            application.open_record(7)
+            for _ in range(6):
+                await pilot.pause()
+            return [
+                (type(application.screen).__name__, table.row_count)
+                for table in application.screen.query(DataTable)
+            ]
+
+    assert asyncio.run(drive()) == [("RecordEditScreen", 1)]
     repository.dispose()
 
 

@@ -76,6 +76,116 @@ def _lookup_ready(
     )
 
 
+TWO_COLLECTION_PROJECT: dict[str, str] = {
+    "tide.yaml": (
+        'schema_version: "0.1"\n'
+        "application: {name: Two Collections, version: 0.1.0}\n"
+        "database: {mode: managed}\n"
+        "model: {paths: [models]}\n"
+        "views: {paths: [views]}\n"
+        "security: {paths: [security]}\n"
+    ),
+    "models/parent.yaml": (
+        "entity: demo.Parent\n"
+        "display: name\n"
+        "expose: {tui: true}\n"
+        "permissions: {list: demo.all, read: demo.all, create: demo.all,"
+        " update: demo.all, delete: demo.all}\n"
+        "fields:\n"
+        "  id: {type: integer, primary_key: true}\n"
+        "  name: {type: string, length: 40, required: true}\n"
+        "  firsts: {type: collection, target: demo.Child, inverse: first}\n"
+        "  seconds: {type: collection, target: demo.Child, inverse: second}\n"
+    ),
+    "models/child.yaml": (
+        "entity: demo.Child\n"
+        "display: label\n"
+        "expose: {tui: true}\n"
+        "permissions: {list: demo.all, read: demo.all, create: demo.all,"
+        " update: demo.all, delete: demo.all}\n"
+        "fields:\n"
+        "  id: {type: integer, primary_key: true}\n"
+        "  label: {type: string, length: 40, required: true}\n"
+        "  first: {type: reference, target: demo.Parent, on_delete: cascade}\n"
+        "  second: {type: reference, target: demo.Parent, on_delete: cascade}\n"
+    ),
+    "views/parent-browse.yaml": (
+        "view: demo.Parent.browse\nentity: demo.Parent\nkind: browse\n"
+        "columns:\n- name\n"
+    ),
+    "views/parent-edit.yaml": (
+        "view: demo.Parent.edit\nentity: demo.Parent\nkind: form\n"
+        "layout:\n- group: Parent\n  rows:\n  - - name\n"
+        "- collection: firsts\n  view: demo.Child.firsts.inline\n"
+        "  actions: [add, apply, remove]\n"
+        "- collection: seconds\n  view: demo.Child.seconds.inline\n"
+        "  actions: [add, apply, remove]\n"
+    ),
+    "views/child-firsts-inline.yaml": (
+        "view: demo.Child.firsts.inline\nentity: demo.Child\n"
+        "kind: inline_edit\ncolumns:\n- label\n"
+    ),
+    "views/child-seconds-inline.yaml": (
+        "view: demo.Child.seconds.inline\nentity: demo.Child\n"
+        "kind: inline_edit\ncolumns:\n- label\n"
+    ),
+    "security/policies.yaml": (
+        "permissions:\n- demo.all\nroles:\n  operator:\n    grants:\n    - demo.all\n"
+    ),
+}
+
+
+def test_textual_form_with_two_collections_mounts_instead_of_crashing(
+    tmp_path: Path,
+) -> None:
+    """Two collection sections used to compose one collection twice.
+
+    The screen resolves a single collection and the layout loop emitted a
+    section per declaration, so both carried the id `collection-records` and
+    Textual refused to mount either. Every checked-in application declares at
+    most one collection, which is why nothing here ever saw it -- and a
+    reflected schema reaches two the moment one table is pointed at twice.
+    """
+
+    project = tmp_path / "two"
+    for path, text in TWO_COLLECTION_PROJECT.items():
+        target = project / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+
+    model = compile_project(project)
+    child = {"id": 1, "label": "First child", "first": 1, "second": None}
+    repository = InMemoryRepository()
+    repository.seed(
+        "demo.Parent",
+        ({"id": 1, "name": "Root", "firsts": [child], "seconds": []},),
+    )
+    repository.seed("demo.Child", (child,))
+    app = TideApp(
+        model,
+        RecordsService(model, repository),
+        RequestContext(
+            principal=Principal("demo:user", roles=frozenset({"operator"})),
+            channel=Channel.TUI,
+        ),
+    )
+
+    async def scenario() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.open_record(1)
+            await _wait_until(pilot, lambda: isinstance(app.screen, RecordEditScreen))
+            screen = app.screen
+            assert isinstance(screen, RecordEditScreen)
+            tables = screen.query(DataTable)
+            # One collection is rendered, once: the screen supports one, and
+            # composing the others under the same id is what broke it.
+            assert len(tables) == 1
+            assert tables.first().row_count == 1
+
+    asyncio.run(scenario())
+
+
 def test_textual_invoice_browse_incrementally_loads_on_scroll(monkeypatch) -> None:
     app = _demo_app(page_size=5)
     template = app.records.repository.get("sales.Invoice", 8)

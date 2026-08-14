@@ -431,6 +431,22 @@ reports what it could not map instead of guessing. A table with a composite or
 absent primary key is named as skipped, with the reason. See
 [Legacy databases](docs/LEGACY-DATABASES.md#adopting-an-existing-schema).
 
+`--runnable` also turns every reference around: the entity a foreign key points
+at gets a `collection`, an `inline_edit` view and a section on its form, so a
+record shows what points at it. A table pointed at twice, or one pointing at
+itself, keeps the key in the collection name. This is what makes an XPO-style
+many-to-many table usable, since those carry their own surrogate key and map as
+ordinary entities. References now ask for `editor: lookup`; the default select
+loads the first 500 target rows and raised `InvalidSelectValueError` on a
+stored key outside that window.
+
+A Textual form declaring more than one collection used to crash with
+`Tried to insert 2 widgets with the same ID 'collection-records'` — the screen
+resolves one collection and the layout loop emitted a section per declaration.
+It now renders the one it supports. Both checked-in applications declare at
+most one collection, which is why nothing saw it; a reflected schema reaches
+two as soon as one table is pointed at twice.
+
 `--runnable` proposes the rest of an application, not just its metadata:
 `expose` for the TUI, REST and MCP plus five permissions per entity, a
 browse/edit/lookup view trio per entity with `lookup_view` wired on every

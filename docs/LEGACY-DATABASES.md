@@ -265,7 +265,8 @@ uv run tide db inspect --database-env --runnable --output ./legacy-crm --applica
 |---|---|
 | `expose` for the TUI, REST and MCP, and five `permissions` | entity |
 | a `browse`, an `edit` and a `lookup` view | entity |
-| `lookup_view` pointing each reference at its target's lookup view | reference |
+| `editor: lookup` and `lookup_view` on each reference | reference |
+| a `collection` field, an `inline_edit` view and a form section | reference, seen from the entity it points at |
 | `security/policies.yaml` granting every permission to one role | application |
 | `views:` and `security:` paths | `tide.yaml` |
 
@@ -279,13 +280,42 @@ because which operations an account should have is a decision about the
 business rather than something a reflection pass can observe — the permissions
 are declared separately per operation so any of them can be taken away.
 
-The `lookup_view` wiring is not decoration. A reference field without one is
-inert: the form answers `No lookup view is configured for …` and there is no
-way to set the value.
+The reference wiring is not decoration, and it is two settings rather than one.
+Without `lookup_view` the form answers `No lookup view is configured for …` and
+the value cannot be set at all; without `editor: lookup` the field renders as a
+select over the first 500 rows of the target table, which is both useless on a
+legacy table and fatal — a stored key outside that window raises
+`InvalidSelectValueError` and takes the whole screen down.
 
 Browse and lookup views carry every field, display column first. A wide legacy
 table makes a wide view, which is easier to read and delete from than a short
 one is to spot the omissions in.
+
+## Both halves of a relationship
+
+Reflection finds only the half of a relationship that holds the column, so a
+proposal built from foreign keys alone gives every child a picker and every
+parent nothing — no way to see, from a record, what points at it.
+`--runnable` turns each reference around and gives the entity it points at a
+collection, an inline row editor, and a section on its form. A table pointed
+at twice, or one that points at itself, keeps the key in the name:
+
+```yaml
+equipment_instance_replacedby: {type: collection, target: legacy.EquipmentInstance, inverse: replacedby}
+equipment_instance_replaced: {type: collection, target: legacy.EquipmentInstance, inverse: replaced}
+equipment_instances_tasks: {type: collection, target: legacy.EquipmentInstancesTasks, inverse: equipmentinstances}
+```
+
+This is what makes an XPO- or XAF-style many-to-many table usable. Those
+intermediate tables carry their own surrogate key, so schema v0.1 maps them as
+ordinary entities with two references — and the collection synthesized from
+each reference is what puts them on both parents' forms.
+
+**The Textual form renders the first collection only.** Its record screen
+resolves one collection and builds the table, line editor and action bar
+around it; the others are declared, exposed and served, and the Web UI shows
+them all. Nothing is dropped from the metadata, and the terminal shows one
+until its form screen learns to hold several.
 
 A proposal that compiles is not yet a proposal that fits, so the test covering
 this runs `validate_schema()` against the same database the metadata was read
