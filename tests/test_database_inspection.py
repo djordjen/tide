@@ -19,7 +19,7 @@ from tide.data.inspection import (
     InspectionProposal,
     synthesize_collections,
 )
-from tide.presentation import field_label
+from tide.presentation import field_label, form_layout_sections
 
 LEGACY_DDL = (
     "CREATE TABLE EMPLOYEE_MASTER ("
@@ -267,6 +267,37 @@ def test_a_generated_project_holds_one_naming_convention(pascal_url: str) -> Non
         "list: legacy.equipment_instance.list"
         in documents["models/equipment_instance.yaml"]
     )
+
+
+def test_the_heading_over_a_generated_form_reads_the_way_the_entity_does(
+    pascal_url: str, tmp_path: Path
+) -> None:
+    """The one string on the form that is not derived from a name.
+
+    Every field below it is labelled by `humanize`, so a group left as the slug
+    put `EquipmentInstance` at the top of a column of split labels. It is also
+    the only string here no terminal shows -- a single group renders no heading
+    in Textual -- so the surface that has to be asked is the Web UI.
+
+    Written as a literal rather than left out: a reader is meant to edit these
+    files, and a heading that is only implied cannot be edited.
+    """
+
+    model = _compiled(
+        inspect_schema(pascal_url), tmp_path, name="pascal-heading", runnable=True
+    )
+    view = model.views["legacy.EquipmentInstance.edit"]
+    entity = model.entity(view.entity)
+    sections = form_layout_sections(view, entity)
+
+    assert [
+        section.label for section in sections if section.kind == "group"
+    ] == ["Equipment Instance"]
+
+    # And the same string the navigation entry, the browser tab and the lookup
+    # dialog title already use, rather than a second derivation beside them:
+    # both spend `humanize` on the entity's own name.
+    assert entity.label == "Equipment Instance"
 
 
 def test_a_selected_table_never_references_one_the_selection_left_out(

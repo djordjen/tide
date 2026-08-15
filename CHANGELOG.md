@@ -449,6 +449,12 @@ nothing downstream able to split it again. An acronym still reads poorly
 Everything derived from an entity name is split the same way, so a project no
 longer holds two conventions at once: `legacy.EquipmentInstance` writes
 `models/equipment_instance.yaml` and grants `legacy.equipment_instance.list`.
+The heading over a generated form is humanized rather than snake-cased and
+reads `Equipment Instance`, derived from the same name the compiler labels the
+entity with, so a form cannot disagree with the navigation entry that opened
+it. It was the last unsplit string in a generated project, and the only one no
+terminal renders: a single group draws no heading in Textual, so the Web UI is
+where it showed.
 See [The names it chooses](docs/LEGACY-DATABASES.md#the-names-it-chooses).
 
 A synthesized collection is declined, and named on stderr, when it would point an entity at itself, close a cycle, or put a record further from a list than hydration follows. Collections load eagerly with no cycle guard, and past `RelationshipLoadPlan.max_depth` the repository raises `RelationshipExpansionLimit` instead of truncating -- so one over-long chain returns an empty browse rather than a slow one. The reference itself always survives; only the turned-around collection is declined.

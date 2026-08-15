@@ -258,11 +258,18 @@ Entity names keep their capitals, and everything derived from one is split the
 same way, so a generated project holds one convention rather than two:
 
 ```text
-legacy.EquipmentInstance    entity
+legacy.EquipmentInstance                  entity
 models/equipment_instance.yaml            file
 views/equipment_instance-browse.yaml      view file
 legacy.equipment_instance.list            permission
+Equipment Instance                        heading over the form's fields
 ```
+
+The heading is the one of those a person reads rather than a machine, so it
+is humanized instead of snake-cased, from the same name the compiler labels
+the entity with — the form and the navigation entry that opened it cannot
+then disagree. It is written into the view as a literal, because these files
+exist to be edited and a heading that is only implied cannot be.
 
 What it cannot map it reports on stderr rather than guessing, so redirecting
 the proposal still leaves you holding the list of what is missing from it:

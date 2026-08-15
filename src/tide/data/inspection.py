@@ -22,6 +22,8 @@ from sqlalchemy import Boolean, Date, DateTime, Integer, Numeric, String, Uuid, 
 from sqlalchemy.engine import Engine
 from sqlalchemy.sql.type_api import TypeEngine
 
+from tide.labels import humanize_qualified
+
 from .repository import RelationshipLoadPlan
 from .sqlalchemy import _as_comparable, _create_engine
 
@@ -816,7 +818,14 @@ def _edit_view(
             f"  {name}: {{editor: lookup, lookup_view: {target}.lookup}}"
             for name, target in entity.references
         )
-    lines.extend(["layout:", f"- group: {entity.slug}", "  rows:"])
+    # The heading over the fields, spelled the way the compiler spells the
+    # entity itself, so the form agrees with the navigation entry that opened
+    # it. `_snake` deliberately has no part in it: this is a label rather than
+    # an identifier, and deriving it from the same string the entity label
+    # comes from is what keeps the two from drifting.
+    lines.extend(
+        ["layout:", f"- group: {humanize_qualified(entity.name)}", "  rows:"]
+    )
     order = entity.column_order
     for index in range(0, len(order), 2):
         row = order[index : index + 2]
