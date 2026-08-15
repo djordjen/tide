@@ -183,7 +183,7 @@ class InspectedEntity:
 
     @property
     def filename(self) -> str:
-        return f"{self.slug.lower()}.yaml"
+        return f"{_snake(self.slug)}.yaml"
 
     @property
     def column_order(self) -> tuple[str, ...]:
@@ -649,7 +649,7 @@ def _permissions(entity: InspectedEntity) -> dict[str, str]:
     """One permission per operation, so any of them can be withheld later."""
 
     namespace = entity.name.split(".")[0]
-    subject = entity.slug.lower()
+    subject = _snake(entity.slug)
     return {
         operation: f"{namespace}.{subject}.{operation}" for operation in OPERATIONS
     }

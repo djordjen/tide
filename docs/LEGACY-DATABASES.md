@@ -254,6 +254,16 @@ written, and the proposal is source you own. Renaming the field itself is safe
 too, as long as `column:` stays; `validate_schema()` is what proves the
 mapping, and it reads the column.
 
+Entity names keep their capitals, and everything derived from one is split the
+same way, so a generated project holds one convention rather than two:
+
+```text
+legacy.EquipmentInstance    entity
+models/equipment_instance.yaml            file
+views/equipment_instance-browse.yaml      view file
+legacy.equipment_instance.list            permission
+```
+
 What it cannot map it reports on stderr rather than guessing, so redirecting
 the proposal still leaves you holding the list of what is missing from it:
 
@@ -346,7 +356,7 @@ has to stay a shallow acyclic one. Three shapes are declined and named on
 stderr rather than proposed:
 
 ```text
-Collection not proposed -- legacy.EquipmentInstance.replacedby: a collection of its own entity would be hydrated into itself without end
+Collection not proposed -- legacy.EquipmentInstance.replaced_by: a collection of its own entity would be hydrated into itself without end
 ```
 
 | Declined | Because |

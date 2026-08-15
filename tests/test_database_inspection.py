@@ -66,6 +66,12 @@ PASCAL_DDL = (
     "UniqueID VARCHAR(36), "
     "GCRecord INTEGER, "
     "Manufacturer INTEGER REFERENCES Manufacturer(OID))",
+    # A multi-word entity, so the file it is written to and the permissions it
+    # is granted can be told apart from the flattened forms of both.
+    "CREATE TABLE EquipmentInstance ("
+    "OID INTEGER PRIMARY KEY, "
+    "AssetTag VARCHAR(30) NOT NULL, "
+    "Equipment INTEGER REFERENCES Equipment(OID))",
 )
 
 
@@ -242,6 +248,27 @@ def test_renaming_a_field_leaves_it_bound_to_the_column_it_came_from(
     repository.dispose()
 
 
+def test_a_generated_project_holds_one_naming_convention(pascal_url: str) -> None:
+    """File names and permission subjects read the way the fields beside do.
+
+    All three come from the same entity, so the risk is not that they disagree
+    with each other but that they disagree with everything around them --
+    `models/equipmentinstance.yaml` sitting next to an `equipment_instance`
+    collection field, in one generated project.
+    """
+
+    documents = render_project(
+        inspect_schema(pascal_url), application="XPO Legacy", runnable=True
+    )
+
+    assert "models/equipment_instance.yaml" in documents
+    assert "views/equipment_instance-browse.yaml" in documents
+    assert (
+        "list: legacy.equipment_instance.list"
+        in documents["models/equipment_instance.yaml"]
+    )
+
+
 def test_a_selected_table_never_references_one_the_selection_left_out(
     legacy_url: str, tmp_path: Path
 ) -> None:
@@ -358,7 +385,7 @@ def test_a_runnable_proposal_is_one_the_tui_can_actually_open(
 
     customer = model.entity("legacy.CustomerMaster")
     assert customer.metadata["expose"]["tui"] is True
-    assert customer.metadata["permissions"]["list"] == "legacy.customermaster.list"
+    assert customer.metadata["permissions"]["list"] == "legacy.customer_master.list"
 
     # A reference with no lookup view cannot be picked: the form reports
     # "No lookup view is configured" and the field is dead. Naming the view is
@@ -608,7 +635,7 @@ def test_the_proposal_names_the_columns_that_might_be_enumerations(
 
     proposal = inspect_schema(legacy_url)
     documents = render_project(proposal, application="Legacy CRM", runnable=True)
-    customer = documents["models/customermaster.yaml"]
+    customer = documents["models/customer_master.yaml"]
 
     # The key identifies and a foreign key already points somewhere; neither
     # is a code standing for a name.
@@ -621,7 +648,7 @@ def test_the_proposal_names_the_columns_that_might_be_enumerations(
 
     # And no reminder at all where there is nothing to caption: EMPLOYEE_MASTER
     # is a key, a name and a date.
-    assert "# Candidates here: " not in documents["models/employeemaster.yaml"]
+    assert "# Candidates here: " not in documents["models/employee_master.yaml"]
 
 
 def test_inspection_never_writes_to_the_database_it_read(legacy_url: str) -> None:
@@ -689,7 +716,7 @@ def test_the_command_writes_a_reviewable_project_without_overwriting(
     first = capsys.readouterr()
     assert "Not proposed -- ORDER_LINE" in first.err
     assert (destination / "tide.yaml").is_file()
-    assert (destination / "models" / "customermaster.yaml").is_file()
+    assert (destination / "models" / "customer_master.yaml").is_file()
 
     # A second run must not quietly discard hand edits made after the first.
     assert (
