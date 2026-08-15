@@ -114,6 +114,38 @@ _RUNTIME_LOGGER = logging.getLogger("tide.runtime")
 _BROWSER_CSRF_HEADER = "X-TIDE-CSRF"
 _BROWSER_LOGIN_HEADER = "X-TIDE-LOGIN"
 
+SESSION_ORIGIN_SEPARATOR = "~"
+"""Separates the issuing process from the session identifier in the cookie.
+
+Not a character `secrets.token_urlsafe` can produce, so the split is exact and
+a session identifier never has to be guessed at.
+"""
+
+
+def encode_session_cookie(origin: str | None, session_id: str) -> str:
+    """Stamp a session with its issuing process, where there is one to stamp."""
+
+    if origin is None:
+        return session_id
+    return f"{origin}{SESSION_ORIGIN_SEPARATOR}{session_id}"
+
+
+def split_session_cookie(value: str | None) -> tuple[str | None, str | None]:
+    """Recover the issuing process and the session identifier.
+
+    An unstamped cookie is a session identifier and nothing else: that is a
+    shared deployment, and also anything issued before this existed.
+    """
+
+    if not isinstance(value, str) or not value:
+        return None, None
+    origin, separator, session_id = value.partition(SESSION_ORIGIN_SEPARATOR)
+    if not separator:
+        return None, value
+    return origin, session_id
+
+
+
 SWAGGER_UI_DIRECTORY = FileSystemPath(__file__).parent / "swagger_ui"
 SWAGGER_UI_ASSETS = {
     "swagger-ui-bundle.js": "text/javascript",
@@ -277,6 +309,7 @@ def build_fastapi_app(
     request_body_timeout_seconds: int = DEFAULT_REQUEST_BODY_TIMEOUT_SECONDS,
     web_root: str | FileSystemPath | None = None,
     browser_auth: BrowserAuthenticator | None = None,
+    session_origin: str | None = None,
     docs: bool = False,
 ) -> FastAPI:
     """Build an HTTP adapter over services without granting client database access.
@@ -408,7 +441,7 @@ def build_fastapi_app(
             if principal is None:
                 raise _unauthorized()
         else:
-            access = _browser_session_access(request, browser_auth)
+            access = _browser_session_access(request, browser_auth, session_origin)
             principal = access.principal
             if request.method not in {"GET", "HEAD", "OPTIONS"}:
                 supplied_csrf = request.headers.get(_BROWSER_CSRF_HEADER)
@@ -777,7 +810,7 @@ def build_fastapi_app(
             )
             response.set_cookie(
                 oidc_browser_auth.session_cookie_name,
-                result.session_id,
+                encode_session_cookie(session_origin, result.session_id),
                 max_age=oidc_browser_auth.session_lifetime_seconds,
                 httponly=True,
                 secure=oidc_browser_auth.secure_cookie,
@@ -827,7 +860,7 @@ def build_fastapi_app(
             )
             response.set_cookie(
                 password_browser_auth.session_cookie_name,
-                result.session_id,
+                encode_session_cookie(session_origin, result.session_id),
                 max_age=password_browser_auth.session_lifetime_seconds,
                 httponly=True,
                 secure=password_browser_auth.secure_cookie,
@@ -862,7 +895,7 @@ def build_fastapi_app(
             )
             response.set_cookie(
                 development_browser_auth.session_cookie_name,
-                result.session_id,
+                encode_session_cookie(session_origin, result.session_id),
                 max_age=development_browser_auth.session_lifetime_seconds,
                 httponly=True,
                 secure=development_browser_auth.secure_cookie,
@@ -893,7 +926,7 @@ def build_fastapi_app(
             # this one until now, to the console and to the client alike.
             if request.cookies.get(browser_auth.session_cookie_name) is None:
                 return Response(status_code=204)
-            access = _browser_session_access(request, browser_auth)
+            access = _browser_session_access(request, browser_auth, session_origin)
             return TideBrowserSessionInfo(csrf_token=access.csrf_token)
 
         @app.post(
@@ -904,14 +937,16 @@ def build_fastapi_app(
             responses=_documented_errors(401, 403),
         )
         def browser_logout(request: Request) -> Response:
-            access = _browser_session_access(request, browser_auth)
+            access = _browser_session_access(request, browser_auth, session_origin)
             supplied_csrf = request.headers.get(_BROWSER_CSRF_HEADER)
             if (
                 not isinstance(supplied_csrf, str)
                 or not secrets.compare_digest(supplied_csrf, access.csrf_token)
             ):
                 raise _csrf_failed()
-            session_id = request.cookies.get(browser_auth.session_cookie_name)
+            _, session_id = split_session_cookie(
+                request.cookies.get(browser_auth.session_cookie_name)
+            )
             browser_auth.end_session(session_id)
             response = Response(status_code=204)
             response.delete_cookie(
@@ -2022,14 +2057,37 @@ def _unauthorized() -> HTTPException:
 def _browser_session_access(
     request: Request,
     browser_auth: BrowserAuthenticator | None,
+    session_origin: str | None = None,
 ) -> Any:
     if browser_auth is None:
         raise _unauthorized()
-    session_id = request.cookies.get(browser_auth.session_cookie_name)
+    origin, session_id = split_session_cookie(
+        request.cookies.get(browser_auth.session_cookie_name)
+    )
     access = browser_auth.authenticate_session(session_id)
-    if access is None:
-        raise _unauthorized()
-    return access
+    if access is not None:
+        return access
+    # A cookie that names a different process, in a deployment that stamps
+    # one, is not an expired session -- it is a request that reached the
+    # wrong server. Saying so turns a misconfiguration that looks like a
+    # random sign-out into one an operator can act on. Only reachable where
+    # sessions are process-local, because that is the only case that stamps.
+    if (
+        session_origin is not None
+        and origin is not None
+        and origin != session_origin
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "session_from_another_server",
+                "message": (
+                    "this session was issued by another server process, which "
+                    "keeps its sessions to itself"
+                ),
+            },
+        )
+    raise _unauthorized()
 
 
 def _browser_login_error_redirect(

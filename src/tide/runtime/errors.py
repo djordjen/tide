@@ -95,6 +95,10 @@ class SessionStoreError(TideRuntimeError):
     code = "session_store_error"
 
 
+class ServerLeaseError(TideRuntimeError):
+    code = "server_lease_error"
+
+
 class RelationshipExpansionLimit(TideRuntimeError):
     code = "relationship_expansion_limit"
 

@@ -98,6 +98,15 @@ tokens, and keeping those out of persistent application data is why its store
 is process-local in the first place; sharing them means encrypting session
 state at rest, which is separate work.
 
+That constraint is enforced rather than described. Against a managed database
+an OIDC server takes a lease in `tide_server_lease` and a second one refuses to
+start, naming the incumbent and saying when its claim expires. And wherever
+sessions stay in the process that issued them, the cookie carries an opaque
+stamp naming that process, so a request that reaches a sibling is answered
+`401 session_from_another_server` instead of a bare 401 -- the difference
+between a diagnosable misconfiguration and users apparently being signed out at
+random.
+
 A live session is re-checked against the user store, by default every 30
 seconds rather than on every request: re-reading costs a fresh SQLite
 connection, a schema check and two queries — about 1.6ms, which is not a price

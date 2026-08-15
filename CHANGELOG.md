@@ -438,6 +438,19 @@ sharing. **This adds two tables to the managed schema**; run `--create-schema`
 once against an existing managed database, or `tide db diff` to see the
 proposal.
 
+Where browser sessions cannot be shared, only one process may serve. A managed
+database carries `tide_server_lease`, and a server whose sessions stay in the
+process that issued them -- `--auth oidc` always -- takes it at startup, renews
+it while it runs, and releases it on the way out. A second one refuses to start
+and names the incumbent. The lease expires on its own, so a server that was
+killed rather than stopped blocks a restart for at most `--lease-ttl` seconds
+(120 by default) instead of until somebody finds the row. Beside it, a
+process-local session cookie now carries an opaque stamp naming its issuing
+process, so a request that reaches a sibling is answered
+`401 session_from_another_server` rather than the bare 401 that is
+indistinguishable from an expired session. A shared deployment emits no stamp,
+because there a session that cannot be found has genuinely expired.
+
 `tide run --database-env` selects a persistent SQLAlchemy repository using the
 `TIDE_DATABASE_URL` environment variable. The first managed-database run may
 add `--create-schema`; later runs omit it. Database URLs and credentials remain

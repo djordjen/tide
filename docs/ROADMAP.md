@@ -313,7 +313,13 @@ the same services.
   a proxy;
 - encrypted browser-session state at rest, which is what OIDC needs before it
   can share a store: its sessions hold the provider's access and refresh
-  tokens, and it keeps its single-process constraint until then;
+  tokens, and it keeps its single-process constraint until then. **That
+  constraint is now enforced rather than described**: a managed database
+  carries a server lease, a second OIDC process refuses to start and names the
+  incumbent, and the lease expires on its own so a killed server does not have
+  to be cleaned up by hand. Where sessions stay in one process the cookie also
+  carries a stamp naming it, so a request that reaches a sibling is answered
+  `401 session_from_another_server` rather than a bare 401;
 - provider-wide logout/revocation and reviewed session-key rotation;
 - verified, non-overwriting online backup plus manifest/integrity/application
   checks for path-based SQLite, and a native SQL Server isolated-restore and

@@ -32,6 +32,7 @@ from sqlalchemy.engine import URL, Engine
 from tide.data.sqlalchemy import SchemaIssue
 from tide.data.sqlalchemy_actions import SQLAlchemyActionExecutionStore
 from tide.data.sqlalchemy_cursors import SQLAlchemyCursorStore
+from tide.data.sqlalchemy_leases import SQLAlchemyServerLeaseStore
 from tide.data.sqlalchemy_sessions import SQLAlchemySessionStore
 
 
@@ -72,6 +73,7 @@ class FrameworkStores:
     cursors: SQLAlchemyCursorStore
     actions: SQLAlchemyActionExecutionStore
     sessions: SQLAlchemySessionStore
+    leases: SQLAlchemyServerLeaseStore
 
     @property
     def all(self) -> tuple[ManagedStore, ...]:
@@ -123,4 +125,5 @@ def framework_stores(
         cursors=SQLAlchemyCursorStore(bind, mode=mode),
         actions=SQLAlchemyActionExecutionStore(bind, mode=mode),
         sessions=SQLAlchemySessionStore(bind, mode=mode),
+        leases=SQLAlchemyServerLeaseStore(bind, mode=mode),
     )

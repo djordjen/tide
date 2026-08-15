@@ -73,8 +73,8 @@ configuration.
 
 ## Running more than one process
 
-A managed database carries a `tide_browser_session` table and a
-`tide_login_failure` table, created by `--create-schema` beside the
+A managed database carries `tide_browser_session`, `tide_login_failure` and
+`tide_server_lease` tables, created by `--create-schema` beside the
 query-cursor and action-audit tables. Where they exist, the password and
 development authenticators keep their sessions and their failed-login counters
 in them, so several `tide serve` processes behind one address agree about who
@@ -85,12 +85,19 @@ behind a proxy.
 
 Three things to know before doing that:
 
-* **A legacy database gets neither table.** TIDE may not create one in a
-  database it does not own, so those deployments keep process-local sessions
-  and must run one application process.
+* **A legacy database gets none of them.** TIDE may not create a table in a
+  database it does not own, so those deployments keep process-local sessions,
+  have nowhere to hold a lease, and must run one application process. The
+  cookie stamp still applies, so the mistake is at least diagnosable there.
 * **`--auth oidc` keeps its single-process constraint** whatever the database
   is. Its sessions hold the provider's access and refresh tokens, and those
-  want encryption at rest before they want sharing.
+  want encryption at rest before they want sharing. Against a managed
+  database this is now enforced rather than documented: the server takes a
+  lease in `tide_server_lease`, and a second one refuses to start, naming the
+  incumbent. The lease is renewed while the server runs and released when it
+  stops; a server that is killed rather than stopped blocks a restart for at
+  most `--lease-ttl` seconds (120 by default), after which its claim clears
+  itself. Nothing has to be deleted by hand.
 * **`tide serve` runs one uvicorn process.** It has no `--workers`: uvicorn
   spawns workers only from an import string, and TIDE builds its application
   object from the parsed command line, a compiled model and an open
@@ -98,7 +105,15 @@ Three things to know before doing that:
   proxy, or several containers behind a load balancer, and let the shared
   store do the agreeing.
 
-Adding these two tables changes the managed schema. Run `--create-schema` once
+Where sessions stay in the process that issued them, the session cookie
+carries an opaque twelve-character stamp naming that process. A request that
+reaches a different one is answered `401 session_from_another_server` rather
+than a bare 401 -- which is otherwise indistinguishable from an expired
+session, and is what makes this misconfiguration read as users being randomly
+signed out. A shared deployment emits no stamp, because there a session that
+cannot be found has genuinely expired.
+
+Adding these three tables changes the managed schema. Run `--create-schema` once
 against an existing managed database, or `tide db diff` to see the proposal
 first.
 

@@ -16,6 +16,7 @@ from tide.data import (
     SQLAlchemyRepository,
     framework_stores,
 )
+from tide.data.sqlalchemy_leases import SQLAlchemyServerLeaseStore
 from tide.data.sqlalchemy_sessions import SQLAlchemySessionStore
 from tide.runtime import TideRuntimeError
 from tide.services import (
@@ -31,6 +32,7 @@ class RunStorage:
     cursor_store: CursorStore | None = None
     execution_store: ActionExecutionStore | None = None
     session_store: SQLAlchemySessionStore | None = None
+    lease_store: SQLAlchemyServerLeaseStore | None = None
     """Browser sessions every process can see, when there is a place to put them.
 
     Present for a managed database and absent for a legacy one, on the same
@@ -100,6 +102,7 @@ def open_run_storage(
             cursor_store=stores.cursors if stores is not None else None,
             execution_store=stores.actions if stores is not None else None,
             session_store=stores.sessions if stores is not None else None,
+            lease_store=stores.leases if stores is not None else None,
         )
     except (SQLAlchemyError, TideRuntimeError, ValueError) as error:
         if repository is not None:

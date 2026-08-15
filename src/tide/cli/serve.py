@@ -6,6 +6,7 @@ import argparse
 import ipaddress
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -20,6 +21,11 @@ from tide.api.config import (
     HttpServerLimits,
 )
 from tide.api.openapi import DEFAULT_BASE_PATH
+from tide.api.server_lease import (
+    DEFAULT_LEASE_TTL_SECONDS,
+    ServerLeaseHolder,
+    new_lease_id,
+)
 from tide.compiler.compiler import compile_project
 from tide.observability import configure_runtime_logging
 from tide.runtime import Principal
@@ -179,6 +185,18 @@ def add_serve_command(commands: argparse._SubParsersAction[argparse.ArgumentPars
         default="TIDE_API_TOKEN",
         metavar="NAME",
         help="read the local-development bearer token from environment variable NAME",
+    )
+    serve.add_argument(
+        "--lease-ttl",
+        type=float,
+        default=DEFAULT_LEASE_TTL_SECONDS,
+        metavar="SECONDS",
+        help=(
+            "how long this server's claim survives without a heartbeat, where "
+            "browser sessions cannot be shared (default: "
+            f"{DEFAULT_LEASE_TTL_SECONDS:.0f}); a crashed server blocks a "
+            "restart for at most this long"
+        ),
     )
     serve.add_argument(
         "--local-auth-store",
@@ -595,6 +613,44 @@ def _serve_api(arguments: argparse.Namespace) -> int:
             except DemoDataError as error:
                 print(f"API demo startup failed: {error}", file=sys.stderr)
                 return 1
+        # Where the sessions cannot be shared, only one process may serve.
+        # A process cannot see its siblings, but it can see their lease, so
+        # this is the one place the misconfiguration can be refused rather
+        # than met later as intermittent 401s that read like an expiry.
+        # Nothing to take a lease with means a legacy database, where TIDE
+        # may not create the table and the answer stays documentary.
+        sessions_travel = getattr(shared_sessions, "shared", False)
+        # Stamped only where sessions stay put, so the stamp's presence is
+        # itself the statement that they do -- and a request carrying somebody
+        # else's stamp can be answered precisely instead of as a bare 401.
+        session_origin = None if sessions_travel else new_lease_id()[:12]
+        lease_holder: ServerLeaseHolder | None = None
+        if (
+            browser_auth is not None
+            and not sessions_travel
+            and storage.lease_store is not None
+        ):
+            lease_holder = ServerLeaseHolder(
+                storage.lease_store,
+                lease_id=new_lease_id(),
+                application=model.name,
+                ttl=arguments.lease_ttl,
+            )
+            lease = lease_holder.acquire()
+            if not lease.granted:
+                waited = max(arguments.lease_ttl - (time.time() - lease.renewed_at), 0)
+                print(
+                    "API startup failed: another TIDE process is already serving "
+                    f"{model.name!r} against this database, and "
+                    f"--auth {arguments.auth} keeps browser sessions in the process "
+                    "that issued them.\n"
+                    "Stop the other server, or give this one its own database. If "
+                    "that server is gone, its lease clears itself in about "
+                    f"{waited:.0f}s.",
+                    file=sys.stderr,
+                )
+                return 1
+
         records = RecordsService(
             model,
             storage.repository,
@@ -620,6 +676,7 @@ def _serve_api(arguments: argparse.Namespace) -> int:
                 ),
                 web_root=arguments.web_root,
                 browser_auth=browser_auth,
+                session_origin=session_origin if browser_auth is not None else None,
                 # The description maps every entity, field and action, so it
                 # follows the same rule as development authentication: fine on
                 # the machine you are building on, not something a networked
@@ -667,6 +724,8 @@ def _serve_api(arguments: argparse.Namespace) -> int:
         browser_summary = (
             f"; {session_summary}" if browser_auth is not None else ""
         )
+        if lease_holder is not None:
+            browser_summary = f"{browser_summary} (this server only)"
         print(
             f"Serving {model.name} at {scheme}://{arguments.host}:{arguments.port} "
             f"(docs: /docs; {identity_summary}{browser_summary}{mcp_summary})."
@@ -691,8 +750,14 @@ def _serve_api(arguments: argparse.Namespace) -> int:
             )
             if keyfile_password is not None:
                 configuration["ssl_keyfile_password"] = keyfile_password
-        with configure_runtime_logging(arguments.log_level):
-            uvicorn.run(app, **configuration)
+        if lease_holder is not None:
+            lease_holder.start()
+        try:
+            with configure_runtime_logging(arguments.log_level):
+                uvicorn.run(app, **configuration)
+        finally:
+            if lease_holder is not None:
+                lease_holder.stop()
         return 0
     finally:
         storage.dispose()
