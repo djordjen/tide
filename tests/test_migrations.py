@@ -16,10 +16,8 @@ from tide.compiler.normalized import NormalizedField, deep_thaw, immutable_mappi
 from tide.data import migrations as migration_module
 from tide.data import (
     MigrationPlanningError,
-    SQLAlchemyActionExecutionStore,
-    SQLAlchemyCursorStore,
-    SQLAlchemySessionStore,
     SQLAlchemyRepository,
+    framework_stores,
     propose_migration,
 )
 
@@ -186,9 +184,7 @@ def test_retained_rename_declarations_are_clean_after_the_schema_is_current(
     url = f"sqlite+pysqlite:///{database.as_posix()}"
     repository = SQLAlchemyRepository(model, url)
     repository.create_schema()
-    SQLAlchemyCursorStore(repository.engine, mode="managed").create_schema()
-    SQLAlchemyActionExecutionStore(repository.engine, mode="managed").create_schema()
-    SQLAlchemySessionStore(repository.engine, mode="managed").create_schema()
+    framework_stores(repository.engine).create_schema()
     repository.dispose()
 
     proposal = propose_migration(model, url)
@@ -534,9 +530,7 @@ def _managed_database(path: Path):
     url = f"sqlite+pysqlite:///{path.as_posix()}"
     repository = SQLAlchemyRepository(model, url)
     repository.create_schema()
-    SQLAlchemyCursorStore(repository.engine, mode="managed").create_schema()
-    SQLAlchemyActionExecutionStore(repository.engine, mode="managed").create_schema()
-    SQLAlchemySessionStore(repository.engine, mode="managed").create_schema()
+    framework_stores(repository.engine).create_schema()
     repository.dispose()
     return model, url
 

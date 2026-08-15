@@ -22,6 +22,7 @@ from tide.data import (
     SQLAlchemyActionExecutionStore,
     SQLAlchemyCursorStore,
     SQLAlchemyRepository,
+    framework_stores,
 )
 from tide.runtime import Channel, Principal, RequestContext
 from tide.services import ActionService, AuditOutcome, RecordsService
@@ -714,19 +715,19 @@ def test_tide_run_database_constructs_durable_runtime(
 
     engine = create_engine(database_url)
     try:
+        # The application's own tables plus `tide_sequence`, which the
+        # repository creates, plus whatever the framework stores declare. The
+        # framework half is derived rather than listed: this used to be one
+        # set of eleven names, and adding a store meant remembering to edit
+        # it. What it still measures is that executing the DDL produces
+        # exactly what the metadata declares, and nothing besides.
         assert set(inspect(engine).get_table_names()) == {
             "catalog_product",
             "crm_customer",
             "sales_invoice",
             "sales_invoice_line",
-            "tide_action_audit",
-            "tide_action_idempotency",
-            "tide_browser_session",
-            "tide_login_failure",
-            "tide_query_cursor",
-            "tide_record_audit",
             "tide_sequence",
-        }
+        } | {table.name for table in framework_stores(engine).tables}
     finally:
         engine.dispose()
 

@@ -382,6 +382,11 @@ def _database_without_session_tables(tmp_path: Path) -> tuple[str, Any]:
     model = compile_project(ROOT / "applications" / "invoicing")
     repository = SQLAlchemyRepository(model, url)
     repository.create_schema()
+    # Deliberately not `framework_stores`: this builds the schema as it was
+    # before the session store existed, so it names the two stores of that
+    # moment on purpose. Routing it through the current list would make it
+    # complete, and a fixture that cannot be missing anything cannot show that
+    # something missing is noticed.
     SQLAlchemyCursorStore(repository.engine, mode="managed").create_schema()
     SQLAlchemyActionExecutionStore(repository.engine, mode="managed").create_schema()
     repository.dispose()

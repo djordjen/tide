@@ -18,9 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from tide.compiler.normalized import ApplicationModel
 from tide.data.sqlalchemy import SQLAlchemyRepository
-from tide.data.sqlalchemy_actions import SQLAlchemyActionExecutionStore
-from tide.data.sqlalchemy_cursors import SQLAlchemyCursorStore
-from tide.data.sqlalchemy_sessions import SQLAlchemySessionStore
+from tide.data.framework_schema import framework_stores
 from tide.runtime.errors import TideRuntimeError
 
 
@@ -258,12 +256,7 @@ def _validate_application_backup(model: ApplicationModel, path: Path) -> None:
     try:
         repository.check_readiness()
         if str(model.database["mode"]) == "managed":
-            SQLAlchemyCursorStore(repository.engine, mode="managed").validate_schema()
-            SQLAlchemyActionExecutionStore(
-                repository.engine,
-                mode="managed",
-            ).validate_schema()
-            SQLAlchemySessionStore(repository.engine, mode="managed").validate_schema()
+            framework_stores(repository.engine).validate_schema()
     except (SQLAlchemyError, TideRuntimeError, ValueError) as error:
         raise DatabaseBackupError(
             f"backup is not compatible with the compiled application: {error}"

@@ -12,10 +12,8 @@ from tide.api.openapi import REST_OPERATIONS, rest_exposures
 from tide.cli import main
 from tide.data import (
     InMemoryRepository,
-    SQLAlchemyActionExecutionStore,
-    SQLAlchemyCursorStore,
-    SQLAlchemySessionStore,
     SQLAlchemyRepository,
+    framework_stores,
 )
 from tide.development import (
     ApplicationApplyApproval,
@@ -270,12 +268,7 @@ def test_contacts_cli_persists_application_owned_fake_data(
     url = f"sqlite+pysqlite:///{(tmp_path / 'contacts.db').as_posix()}"
     repository = SQLAlchemyRepository(model, url)
     repository.create_schema()
-    SQLAlchemyCursorStore(repository.engine, mode="managed").create_schema()
-    SQLAlchemyActionExecutionStore(
-        repository.engine,
-        mode="managed",
-    ).create_schema()
-    SQLAlchemySessionStore(repository.engine, mode="managed").create_schema()
+    framework_stores(repository.engine).create_schema()
     repository.dispose()
     monkeypatch.setenv("CONTACTS_DATABASE_URL", url)
 

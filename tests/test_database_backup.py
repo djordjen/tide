@@ -12,10 +12,8 @@ from tide.compiler.normalized import immutable_mapping
 from tide.data import (
     DatabaseBackupError,
     DatabaseBackupUnsupported,
-    SQLAlchemyActionExecutionStore,
-    SQLAlchemyCursorStore,
-    SQLAlchemySessionStore,
     SQLAlchemyRepository,
+    framework_stores,
     create_sqlite_backup,
     verify_sqlite_backup,
 )
@@ -228,8 +226,6 @@ def _managed_database(path: Path):
     url = f"sqlite+pysqlite:///{path.as_posix()}"
     repository = SQLAlchemyRepository(model, url)
     repository.create_schema()
-    SQLAlchemyCursorStore(repository.engine, mode="managed").create_schema()
-    SQLAlchemyActionExecutionStore(repository.engine, mode="managed").create_schema()
-    SQLAlchemySessionStore(repository.engine, mode="managed").create_schema()
+    framework_stores(repository.engine).create_schema()
     repository.dispose()
     return model, url

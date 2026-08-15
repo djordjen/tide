@@ -58,6 +58,11 @@ from tide.data.sqlalchemy import (
     SchemaManagementError,
 )
 from tide.data.sqlalchemy_actions import SQLAlchemyActionExecutionStore
+from tide.data.framework_schema import (
+    FrameworkStores,
+    ManagedStore,
+    framework_stores,
+)
 from tide.data.sqlalchemy_cursors import SQLAlchemyCursorStore
 from tide.data.sqlalchemy_sessions import SQLAlchemySessionStore
 from tide.data.sql_expressions import QueryTranslationError
@@ -89,6 +94,9 @@ __all__ = [
     "RevisionSqlRenderingError",
     "SQLAlchemyRepository",
     "SQLAlchemyActionExecutionStore",
+    "FrameworkStores",
+    "ManagedStore",
+    "framework_stores",
     "SQLAlchemyCursorStore",
     "SQLAlchemySessionStore",
     "SchemaCompatibilityError",

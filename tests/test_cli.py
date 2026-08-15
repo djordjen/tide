@@ -13,10 +13,8 @@ from tide.api.browser_auth import OidcBrowserAuth, OidcBrowserProviderInfo
 from tide.cli import main
 from tide.cli.database import _seed_counts
 from tide.data import (
-    SQLAlchemyActionExecutionStore,
-    SQLAlchemyCursorStore,
-    SQLAlchemySessionStore,
     SQLAlchemyRepository,
+    framework_stores,
 )
 from tide.development import (
     DesignerCommandBatch,
@@ -1029,12 +1027,7 @@ def test_db_check_validates_managed_database_without_echoing_url(
     model = compile_project(INVOICING)
     repository = SQLAlchemyRepository(model, url)
     repository.create_schema()
-    SQLAlchemyCursorStore(repository.engine, mode="managed").create_schema()
-    SQLAlchemyActionExecutionStore(
-        repository.engine,
-        mode="managed",
-    ).create_schema()
-    SQLAlchemySessionStore(repository.engine, mode="managed").create_schema()
+    framework_stores(repository.engine).create_schema()
     repository.dispose()
     monkeypatch.setenv("CHECK_DATABASE_URL", url)
 
@@ -1093,12 +1086,7 @@ def test_db_seed_populates_empty_managed_database_deterministically(
         model = compile_project(INVOICING)
         repository = SQLAlchemyRepository(model, url)
         repository.create_schema()
-        SQLAlchemyCursorStore(repository.engine, mode="managed").create_schema()
-        SQLAlchemyActionExecutionStore(
-            repository.engine,
-            mode="managed",
-        ).create_schema()
-        SQLAlchemySessionStore(repository.engine, mode="managed").create_schema()
+        framework_stores(repository.engine).create_schema()
         repository.dispose()
         monkeypatch.setenv("SEED_DATABASE_URL", url)
 
