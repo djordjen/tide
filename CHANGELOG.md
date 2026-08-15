@@ -439,6 +439,15 @@ reports what it could not map instead of guessing. A table with a composite or
 absent primary key is named as skipped, with the reason. See
 [Legacy databases](docs/LEGACY-DATABASES.md#adopting-an-existing-schema).
 
+Proposed names are snake-cased: `SerialNo` becomes `serial_no`, and the physical
+name stays in `column:`, which is what binds the field to the table. The name is
+spent on the REST payload key, the MCP argument, the YAML you edit, and the
+label — no proposed field declares one, so `humanize` derives it from the name,
+and a name flattened to `serialno` reads `Serialno` on all four surfaces with
+nothing downstream able to split it again. An acronym still reads poorly
+(`UniqueID` labels as `Unique Id`) and is left to an explicit `label:`. See
+[The names it chooses](docs/LEGACY-DATABASES.md#the-names-it-chooses).
+
 A synthesized collection is declined, and named on stderr, when it would point an entity at itself, close a cycle, or put a record further from a list than hydration follows. Collections load eagerly with no cycle guard, and past `RelationshipLoadPlan.max_depth` the repository raises `RelationshipExpansionLimit` instead of truncating -- so one over-long chain returns an empty browse rather than a slow one. The reference itself always survives; only the turned-around collection is declined.
 
 `--runnable` also turns every reference around: the entity a foreign key points

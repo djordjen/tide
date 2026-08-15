@@ -19,6 +19,7 @@ from tide.data.inspection import (
     InspectionProposal,
     synthesize_collections,
 )
+from tide.presentation import field_label
 
 LEGACY_DDL = (
     "CREATE TABLE EMPLOYEE_MASTER ("
@@ -53,6 +54,20 @@ TANGLED_DDL = (
     "FOREIGN KEY (STORE_KEY) REFERENCES ATTACHMENT_STORE(STORE_KEY))",
 )
 
+# The shape XPO and most .NET ORMs leave behind. A screaming-snake schema
+# already carries its word boundaries in the name; this one carries them in
+# the capitals, which is the case that has to survive reflection.
+PASCAL_DDL = (
+    "CREATE TABLE Manufacturer (OID INTEGER PRIMARY KEY, Name VARCHAR(60) NOT NULL)",
+    "CREATE TABLE Equipment ("
+    "OID INTEGER PRIMARY KEY, "
+    "SerialNo VARCHAR(40) NOT NULL, "
+    "ReplacedBy INTEGER, "
+    "UniqueID VARCHAR(36), "
+    "GCRecord INTEGER, "
+    "Manufacturer INTEGER REFERENCES Manufacturer(OID))",
+)
+
 
 def _database(tmp_path: Path, name: str, statements: tuple[str, ...]) -> str:
     url = f"sqlite+pysqlite:///{tmp_path / name}"
@@ -72,6 +87,11 @@ def legacy_url(tmp_path: Path) -> str:
 @pytest.fixture
 def tangled_url(tmp_path: Path) -> str:
     return _database(tmp_path, "tangled.db", TANGLED_DDL)
+
+
+@pytest.fixture
+def pascal_url(tmp_path: Path) -> str:
+    return _database(tmp_path, "pascal.db", PASCAL_DDL)
 
 
 @pytest.fixture
@@ -160,6 +180,66 @@ def test_a_foreign_key_becomes_a_reference_to_the_entity_it_points_at(
     assert "storage: OWNER_EMPLOYEE_NO" in declarations["owner_employee_no"]
     assert declarations["customer_no"].startswith("{type: integer, primary_key: true")
     assert customer.display == "display_name"
+
+
+def test_a_pascal_case_column_becomes_a_snake_case_field(pascal_url: str) -> None:
+    """`SerialNo` is one word to the database and two to everyone reading it.
+
+    The field name is TIDE's to choose and `column:` is what binds it to the
+    table, so the name can follow the convention the rest of the framework
+    uses. Every surface then spends it: it is the REST payload key, the MCP
+    argument name, and the string a label is derived from.
+    """
+
+    equipment = next(
+        entity
+        for entity in inspect_schema(pascal_url).entities
+        if entity.table == "Equipment"
+    )
+    declarations = dict(equipment.fields)
+
+    assert list(declarations) == [
+        "oid",
+        "serial_no",
+        "replaced_by",
+        "unique_id",
+        "gc_record",
+        "manufacturer",
+    ]
+    assert "column: SerialNo" in declarations["serial_no"]
+    assert "storage: Manufacturer" in declarations["manufacturer"]
+    assert equipment.display == "serial_no"
+
+
+def test_the_label_a_form_shows_is_derived_from_the_field_name(
+    pascal_url: str, tmp_path: Path
+) -> None:
+    """Which is the reason the name is worth splitting: nothing else carries it.
+
+    `inspect` emits no `label:` -- every surface derives one with `humanize` --
+    so a name flattened to `serialno` reads `Serialno` on all four of them and
+    no downstream layer can recover the boundary that was dropped here.
+    """
+
+    model = _compiled(inspect_schema(pascal_url), tmp_path, name="pascal")
+    equipment = model.entity("legacy.Equipment")
+
+    assert [
+        field_label(equipment.field(name))
+        for name in ("serial_no", "replaced_by", "manufacturer")
+    ] == ["Serial No", "Replaced By", "Manufacturer"]
+
+
+def test_renaming_a_field_leaves_it_bound_to_the_column_it_came_from(
+    pascal_url: str, tmp_path: Path
+) -> None:
+    """The rename is TIDE-side only, and the schema check is what proves it."""
+
+    model = _compiled(inspect_schema(pascal_url), tmp_path, name="pascal-bound")
+
+    repository = SQLAlchemyRepository(model, pascal_url)
+    repository.validate_schema()
+    repository.dispose()
 
 
 def test_a_selected_table_never_references_one_the_selection_left_out(

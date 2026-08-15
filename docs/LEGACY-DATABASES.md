@@ -224,6 +224,36 @@ fields:
   owner_employee_no: {type: reference, target: legacy.EmployeeMaster, storage: OWNER_EMPLOYEE_NO, on_delete: restrict}
 ```
 
+### The names it chooses
+
+A reflected name is snake-cased and the physical one is kept beside it in
+`column:`. `SerialNo` becomes `serial_no`; `CUSTOMER_NO` was already
+`customer_no` and does not move.
+
+The field name is TIDE's to choose precisely because `column:` is what binds it
+to the table — nothing downstream reads the name back. It is spent in four
+places instead: the REST payload key, the MCP argument name, the YAML you edit,
+and the label every surface shows. That last one is why the boundary between
+words has to survive reflection. No proposed field carries an explicit
+`label:`; `humanize` derives one by splitting the name and titling it, so the
+capitals are the only record of where the words divide, and lowercasing the run
+destroys it for good — `serialno` reads `Serialno` on all four surfaces and no
+layer downstream can put the boundary back.
+
+| Column | Field | Label |
+|---|---|---|
+| `SerialNo` | `serial_no` | Serial No |
+| `ReplacedBy` | `replaced_by` | Replaced By |
+| `ModelName` | `model_name` | Model Name |
+| `CUSTOMER_NO` | `customer_no` | Customer No |
+
+An acronym is the case this reads poorly: `UniqueID` becomes `unique_id` and
+labels as `Unique Id`, `GCRecord` labels as `Gc Record`. Write `label: Unique
+ID` on the field to say otherwise — a declared label is used exactly as
+written, and the proposal is source you own. Renaming the field itself is safe
+too, as long as `column:` stays; `validate_schema()` is what proves the
+mapping, and it reads the column.
+
 What it cannot map it reports on stderr rather than guessing, so redirecting
 the proposal still leaves you holding the list of what is missing from it:
 
@@ -301,9 +331,9 @@ collection, an inline row editor, and a section on its form. A table pointed
 at twice, or one that points at itself, keeps the key in the name:
 
 ```yaml
-equipment_instance_replacedby: {type: collection, target: legacy.EquipmentInstance, inverse: replacedby}
+equipment_instance_replaced_by: {type: collection, target: legacy.EquipmentInstance, inverse: replaced_by}
 equipment_instance_replaced: {type: collection, target: legacy.EquipmentInstance, inverse: replaced}
-equipment_instances_tasks: {type: collection, target: legacy.EquipmentInstancesTasks, inverse: equipmentinstances}
+equipment_instances_tasks: {type: collection, target: legacy.EquipmentInstancesTasks, inverse: equipment_instances}
 ```
 
 This is what makes an XPO- or XAF-style many-to-many table usable. Those

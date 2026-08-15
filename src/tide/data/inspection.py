@@ -555,8 +555,10 @@ def _capitalized(part: str) -> str:
 def _snake(name: str) -> str:
     """`EquipmentInstancesTasks` -> `equipment_instances_tasks`.
 
-    Only synthesized names go through this. A column keeps whatever
-    `_identifier` makes of it, so no existing proposal changes shape.
+    Every proposed name goes through this, because the boundary between words
+    is only in the capitals and lowercasing the run destroys it for good:
+    `SerialNo` becomes `serialno`, which labels as `Serialno` on every surface
+    and cannot be split back apart by any layer downstream.
     """
 
     spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", name)
@@ -569,7 +571,7 @@ def _identifier(name: str) -> str:
 
 
 def _field_name(physical: str, used: set[str]) -> str:
-    candidate = _identifier(physical) or "field"
+    candidate = _snake(physical) or "field"
     if candidate not in used:
         return candidate
     suffix = 2
