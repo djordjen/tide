@@ -50,6 +50,7 @@ from tide.api.config import (
     DEFAULT_MAX_REQUEST_BODY_BYTES,
     DEFAULT_REQUEST_BODY_TIMEOUT_SECONDS,
 )
+from tide.api.development_auth import is_loopback_host_header
 from tide.api.inputs import build_writable_models, field_is_writable
 from tide.api.local_auth import LocalAuthenticationBusy
 from tide.api.openapi import (
@@ -190,7 +191,7 @@ class BearerAuthenticator(Protocol):
 class BrowserAuthenticator(Protocol):
     """Keep a server-owned identity behind an opaque browser session."""
 
-    authentication_mode: Literal["oidc", "password"]
+    authentication_mode: Literal["oidc", "password", "development"]
     secure_cookie: bool
     session_cookie_name: str
     session_lifetime_seconds: int
@@ -217,6 +218,12 @@ class OidcBrowserAuthenticator(BrowserAuthenticator, Protocol):
 
 class PasswordBrowserAuthenticator(BrowserAuthenticator, Protocol):
     def login(self, *, username: str, password: str) -> Any: ...
+
+
+class DevelopmentBrowserAuthenticator(BrowserAuthenticator, Protocol):
+    """Starts a session for nobody in particular, on a machine-local request."""
+
+    def begin_session(self) -> Any: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -312,8 +319,28 @@ def build_fastapi_app(
     if browser_auth is not None and browser_auth.authentication_mode not in {
         "oidc",
         "password",
+        "development",
     }:
         raise ValueError("browser authentication mode is unsupported")
+    if (
+        browser_auth is not None
+        and browser_auth.authentication_mode == "development"
+        and getattr(authenticator, "production", False)
+    ):
+        # A session nobody has to prove anything for cannot be attached to an
+        # adapter that was chosen because it is production-grade. The mode is
+        # already refused off loopback by `tide serve`; this is the fence for
+        # everything that builds an app without going through the CLI, and it
+        # is structural because a "development only" flag reaches production
+        # exactly by being possible.
+        raise ValueError(
+            "a development browser session may not be combined with a "
+            "production identity adapter"
+        )
+    development_browser_session = (
+        browser_auth is not None
+        and browser_auth.authentication_mode == "development"
+    )
     preview = build_openapi_preview(model, base_path=base_path)
     exposures = rest_exposures(model, allowed_operations=SERVER_OPERATIONS)
     action_service = actions or ActionService(model, records)
@@ -421,7 +448,20 @@ def build_fastapi_app(
                 request.state.tide_operation = "requestBodyLimit"
                 response = body_error
             elif response is None:
-                response = await call_next(request)
+                if development_browser_session and not is_loopback_host_header(
+                    request.headers.get("host")
+                ):
+                    # DNS rebinding is the one attacker the rest of this
+                    # arrangement cannot see. Binding to 127.0.0.1 does not stop
+                    # a browser whose attacker-controlled domain now resolves
+                    # there, and no CORS header helps either, because to that
+                    # browser the page is same-origin. What the request still
+                    # carries is the name it asked for, and that name is not
+                    # this machine's.
+                    request.state.tide_operation = "nonLoopbackHost"
+                    response = _non_loopback_host()
+                else:
+                    response = await call_next(request)
         except Exception as error:
             log_runtime_event(
                 runtime_logger,
@@ -791,6 +831,41 @@ def build_fastapi_app(
                 max_age=password_browser_auth.session_lifetime_seconds,
                 httponly=True,
                 secure=password_browser_auth.secure_cookie,
+                samesite="strict",
+                path="/",
+            )
+            return response
+
+    if development_browser_session:
+        development_browser_auth = cast(
+            DevelopmentBrowserAuthenticator, browser_auth
+        )
+
+        @app.post(
+            browser_login_path,
+            tags=["TIDE"],
+            summary="Start a local development session without a credential",
+            response_model=TideBrowserSessionInfo,
+            responses=_documented_errors(400, 403),
+        )
+        def browser_development_login(request: Request) -> Response:
+            # The same custom-header requirement the password flow uses. It
+            # proves nothing about who is asking -- nothing here does -- but a
+            # header a form post cannot set is what keeps a cross-site page
+            # from starting a session in a developer's browser without any
+            # script running at all.
+            if request.headers.get(_BROWSER_LOGIN_HEADER) != "development":
+                raise _bad_request("development login request is invalid")
+            result = development_browser_auth.begin_session()
+            response = JSONResponse(
+                TideBrowserSessionInfo(csrf_token=result.csrf_token).model_dump()
+            )
+            response.set_cookie(
+                development_browser_auth.session_cookie_name,
+                result.session_id,
+                max_age=development_browser_auth.session_lifetime_seconds,
+                httponly=True,
+                secure=development_browser_auth.secure_cookie,
                 samesite="strict",
                 path="/",
             )
@@ -1977,6 +2052,30 @@ def _csrf_failed() -> HTTPException:
         detail={
             "code": "csrf_failed",
             "message": "browser request verification failed",
+        },
+    )
+
+
+def _non_loopback_host() -> JSONResponse:
+    """Refuse a request that asked for a name other than this machine's.
+
+    A response rather than a raise: this runs in the middleware, before routing,
+    so there is no handler to carry an `HTTPException` out of. 403 rather than
+    404 because the resource exists and the caller is not allowed to reach it by
+    that name, and the message says which name is wrong so a developer who has
+    put a proxy in front of a development server is not left guessing.
+    """
+
+    return JSONResponse(
+        status_code=403,
+        content={
+            "detail": {
+                "code": "non_loopback_host",
+                "message": (
+                    "a development browser session serves only loopback host "
+                    "names"
+                ),
+            }
         },
     )
 

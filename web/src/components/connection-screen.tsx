@@ -74,6 +74,27 @@ export function ConnectionScreen({
     }
   }
 
+  async function enterDevelopment() {
+    if (browserAuthentication === null) {
+      return
+    }
+    setConnecting(true)
+    setError(null)
+    try {
+      const api = await TideApi.startDevelopmentSession(browserAuthentication)
+      const connection = await api.connect()
+      onConnected(api, connection)
+    } catch (caught) {
+      setError(
+        caught instanceof TideApiError
+          ? caught.message
+          : "The application sign-in failed.",
+      )
+    } finally {
+      setConnecting(false)
+    }
+  }
+
   return (
     <main className="relative flex min-h-screen overflow-hidden bg-background">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_15%,color-mix(in_oklab,var(--color-primary)_13%,transparent),transparent_34%),radial-gradient(circle_at_88%_8%,color-mix(in_oklab,var(--color-chart-2)_12%,transparent),transparent_27%)]" />
@@ -125,12 +146,23 @@ export function ConnectionScreen({
           </div>
           <p className="text-sm font-medium text-primary">Web renderer</p>
           <h2 className="mt-2 text-2xl font-semibold tracking-tight">
-            {browserAuthentication?.enabled
-              ? "Sign in to your application"
-              : "Connect to an application"}
+            {browserAuthentication?.mode === "development"
+              ? "Open a development server"
+              : browserAuthentication?.enabled
+                ? "Sign in to your application"
+                : "Connect to an application"}
           </h2>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            {browserAuthentication?.mode === "password" ? (
+            {browserAuthentication?.mode === "development" ? (
+              <>
+                This server was started with{" "}
+                <code className="rounded bg-muted px-1.5 py-0.5 text-xs text-foreground">
+                  --auth development
+                </code>{" "}
+                and asks for no credential. It answers this machine only, and is
+                not a way to run an application for anyone else.
+              </>
+            ) : browserAuthentication?.mode === "password" ? (
               <>
                 Enter the username and password created by the application
                 administrator. TIDE verifies them on the application server.
@@ -164,6 +196,19 @@ export function ConnectionScreen({
             {checkingIdentity ? (
               <Button className="w-full" size="lg" disabled>
                 Checking secure session…
+              </Button>
+            ) : browserAuthentication?.mode === "development" ? (
+              <Button
+                className="w-full"
+                size="lg"
+                type="button"
+                disabled={connecting}
+                onClick={() => {
+                  void enterDevelopment()
+                }}
+              >
+                {connecting ? "Opening…" : "Open without signing in"}
+                {!connecting ? <ArrowRight /> : null}
               </Button>
             ) : browserAuthentication?.mode === "password" ? (
               <form className="space-y-5" onSubmit={signIn}>

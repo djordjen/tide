@@ -46,7 +46,7 @@ export interface TideSessionInfo {
 
 export interface TideBrowserAuthenticationInfo {
   enabled: boolean
-  mode: "oidc" | "password" | null
+  mode: "oidc" | "password" | "development" | null
   login_path: string | null
   session_path: string | null
   logout_path: string | null

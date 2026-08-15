@@ -138,7 +138,8 @@ export class TideApi {
     const paths = [value.login_path, value.session_path, value.logout_path]
     if (
       typeof value.enabled !== "boolean" ||
-      (enabled && !["oidc", "password"].includes(value.mode ?? "")) ||
+      (enabled &&
+        !["oidc", "password", "development"].includes(value.mode ?? "")) ||
       (!enabled && value.mode !== null) ||
       (enabled && paths.some((path) => typeof path !== "string")) ||
       (!enabled && paths.some((path) => path !== null))
@@ -183,6 +184,56 @@ export class TideApi {
           "X-TIDE-LOGIN": "password",
         },
         body: JSON.stringify({ username, password }),
+        redirect: "error",
+        signal,
+      })
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw error
+      }
+      throw new TideApiError("The TIDE application server could not be reached.")
+    }
+    if (!response.ok) {
+      await throwResponseError(response)
+    }
+    const csrfToken = browserCsrfToken(await safeJson(response))
+    return new TideApi("", basePath, {
+      authentication,
+      csrfToken,
+    })
+  }
+
+  /**
+   * Start a session on a development server, which asks for no credential.
+   *
+   * Deliberately its own method rather than a branch inside
+   * `loginWithPassword`: nothing is being sent, so there is no place for a
+   * username or password to be read from, and a reader of either method can
+   * see at a glance which one carries a secret.
+   */
+  static async startDevelopmentSession(
+    authentication: TideBrowserAuthenticationInfo,
+    basePath = API_BASE_PATH,
+    signal?: AbortSignal,
+  ): Promise<TideApi> {
+    if (
+      authentication.mode !== "development" ||
+      authentication.login_path === null
+    ) {
+      throw new TideApiError("Development sign-in is unavailable.", {
+        code: "authentication_unavailable",
+      })
+    }
+    let response: Response
+    try {
+      response = await fetch(safeApiPath(authentication.login_path), {
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json",
+          "X-TIDE-LOGIN": "development",
+        },
         redirect: "error",
         signal,
       })

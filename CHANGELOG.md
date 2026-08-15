@@ -263,7 +263,20 @@ cannot make and the one the roving tab stop exists for.
 ### Machine interfaces and AI-assisted generation
 
 `tide serve` requires a 32-character-or-longer development bearer token in
-`TIDE_API_TOKEN` and binds to loopback. The Windows `start.bat api-demo`
+`TIDE_API_TOKEN` and binds to loopback. Under `--auth development` the Web
+renderer now opens with no credential at all -- the connect screen offers
+**Open without signing in** instead of a token box -- so checking a screen no
+longer means moving a 32-character secret into a browser by hand. The session
+carries the `--principal` and `--role` the server was started with, which is
+also how to see an application as one role meets it. The REST API is unchanged
+and still wants its bearer token. Three fences hold the mode to one machine and
+none of them is a document: the bind must be loopback (refused at startup),
+`build_fastapi_app` refuses to attach it to a production identity adapter, and
+any request whose `Host` header names something other than this machine is
+answered `403 non_loopback_host` -- which is what closes DNS rebinding, since
+an attacker domain resolving to 127.0.0.1 is same-origin to the browser and
+neither the bind address nor the absent CORS headers can see it. See
+[Open any application while developing](docs/WEB-UI.md#open-any-application-while-developing). The Windows `start.bat api-demo`
 shortcut generates one for local testing and prints the `/docs` address.
 The separate `start.bat api-check` command securely prompts for that printed
 token and verifies authentication plus application/wire compatibility through

@@ -276,6 +276,88 @@ it("signs in with a local username and password without retaining credentials", 
   expect(window.localStorage.length).toBe(0)
 })
 
+it("opens a development server with no credential to type", async () => {
+  const requests: Array<{
+    url: string
+    method: string
+    loginProof: string | null
+    body: string | null
+  }> = []
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const headers = new Headers(init?.headers)
+      requests.push({
+        url,
+        method: init?.method ?? "GET",
+        loginProof: headers.get("X-TIDE-LOGIN"),
+        body: typeof init?.body === "string" ? init.body : null,
+      })
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: true,
+          mode: "development",
+          login_path: "/api/v1/_tide/browser-auth/login",
+          session_path: "/api/v1/_tide/browser-auth/session",
+          logout_path: "/api/v1/_tide/browser-auth/logout",
+        })
+      }
+      if (url.endsWith("/_tide/browser-auth/session")) {
+        return new Response(
+          JSON.stringify({
+            code: "unauthorized",
+            message: "authentication required",
+          }),
+          { status: 401, headers: { "Content-Type": "application/json" } },
+        )
+      }
+      if (url.endsWith("/_tide/browser-auth/login")) {
+        return jsonResponse({
+          csrf_token: "browser-csrf-token-that-is-long-enough",
+        })
+      }
+      if (url.endsWith("/_tide/session")) {
+        return jsonResponse(session)
+      }
+      if (url.endsWith("/_tide/presentation")) {
+        return jsonResponse(presentation)
+      }
+      if (url.endsWith("/invoices/_query")) {
+        return jsonResponse({ records: [], next_cursor: null })
+      }
+      throw new Error(`Unexpected URL ${url}`)
+    }),
+  )
+
+  renderApp()
+  // The screen says what it is. A server that asks for nothing looks exactly
+  // like a broken one otherwise, and this is the mode where a reader most
+  // needs to know which they are looking at.
+  expect(
+    await screen.findByRole("heading", { name: "Open a development server" }),
+  ).toBeInTheDocument()
+  expect(screen.queryByLabelText("Application token")).not.toBeInTheDocument()
+
+  await userEvent.click(
+    screen.getByRole("button", { name: "Open without signing in" }),
+  )
+  expect(
+    await screen.findByRole("heading", { name: "Invoices" }),
+  ).toBeInTheDocument()
+
+  const login = requests.find((request) =>
+    request.url.endsWith("/_tide/browser-auth/login"),
+  )
+  // Nothing is sent, and the custom header still is: a cross-site form can
+  // post to this path but cannot set that.
+  expect(login).toMatchObject({
+    method: "POST",
+    loginProof: "development",
+    body: null,
+  })
+})
+
 function renderApp() {
   const client = new QueryClient({
     defaultOptions: {

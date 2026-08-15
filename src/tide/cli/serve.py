@@ -430,8 +430,22 @@ def _serve_api(arguments: argparse.Namespace) -> int:
             roles = (max(model.roles, key=lambda role: len(model.roles[role])),)
         principal = Principal(arguments.principal, roles=frozenset(roles))
         authenticator: Any = DevelopmentTokenAuthenticator(token, principal)
+        # The bearer token still guards the REST API, so `curl` and Swagger are
+        # unchanged. What this adds is a way into the Web renderer that does not
+        # involve moving a 32-character secret into a browser by hand: the same
+        # principal, granted a session on request. It is reachable only from
+        # this machine -- the bind was refused above if it is not loopback, and
+        # the server rejects any request naming a host that is not loopback.
+        from tide.api.development_auth import DevelopmentBrowserAuth
+
+        browser_auth = DevelopmentBrowserAuth(
+            principal,
+            secure_cookie=certfile is not None,
+            session_lifetime_seconds=arguments.web_session_lifetime,
+        )
         identity_summary = (
-            f"identity: {principal.identifier}; development auth only"
+            f"identity: {principal.identifier}; development auth only "
+            "(browser sessions need no credential -- loopback only)"
         )
     elif arguments.auth == "local":
         if arguments.role or arguments.principal != "development:api":

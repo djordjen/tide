@@ -36,6 +36,39 @@ This uses the same `TIDE_DATABASE_URL` defined inside `start.bat` as the other
 persistent modes. The browser never receives that URL or connects to the
 database.
 
+## Open any application while developing
+
+`--auth development` serves the built renderer and asks for no credential to
+enter it. Build the renderer once, then point a server at any application:
+
+```bash
+npm --prefix web run build
+```
+
+```bash
+export TIDE_API_TOKEN=$(uv run python -c "import secrets; print(secrets.token_urlsafe(32))")
+```
+
+```bash
+uv run --extra api --extra client tide serve applications/invoicing --demo --role sales_clerk --port 8000 --web-root web/dist
+```
+
+Open <http://127.0.0.1:8000/> and choose **Open without signing in**. The token
+is still needed to *start* the server, because the REST API still wants it --
+`curl`, Swagger and the typed client are unchanged -- but nothing has to be
+typed into the browser. The session carries whatever `--principal` and `--role`
+named, so this is also how to see a screen the way one role meets it.
+
+Three things keep that off a network, and the first two refuse at startup: the
+bind must be loopback, and the identity adapter must not be a production one.
+The third is per request -- a `Host` header naming anything but this machine is
+answered `403 non_loopback_host`, which is what closes DNS rebinding. Details in
+[Operations](OPERATIONS.md). `--auth local` remains the mode for a real
+username and password, and the only one to put in front of anybody else.
+
+Remember the renderer is served from `web/dist`, so an edit under `web/src` is
+invisible until it is rebuilt.
+
 ## What is implemented
 
 - responsive application shell with grouped, capability-filtered navigation,

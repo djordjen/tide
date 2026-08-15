@@ -251,7 +251,7 @@ class TideBrowserAuthenticationInfo(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     enabled: bool
-    mode: Literal["oidc", "password"] | None = None
+    mode: Literal["oidc", "password", "development"] | None = None
     login_path: str | None = Field(default=None, pattern=r"^/")
     session_path: str | None = Field(default=None, pattern=r"^/")
     logout_path: str | None = Field(default=None, pattern=r"^/")

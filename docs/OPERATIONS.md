@@ -27,7 +27,26 @@ database and currently keep those three forms of runtime state in-process.
 
 `tide serve` follows the same database selection and explicit schema-creation
 rules. The development bearer adapter may bind only to loopback and is not a
-production authentication mechanism. The default Web adapter uses a separate,
+production authentication mechanism. Under it the Web renderer opens with no
+credential at all: the browser asks the server for a session and is given one,
+for the principal and roles `--principal` and `--role` named. Three things
+fence that, and none of them is a document. `tide serve` refuses the mode off
+loopback; `build_fastapi_app` refuses to attach it to an identity adapter that
+declares itself production, which is the fence for callers that never reach the
+CLI; and the server answers `403 non_loopback_host` to any request whose `Host`
+header names something other than this machine. That last one is what stops DNS
+rebinding: an attacker's domain resolving to 127.0.0.1 is same-origin to the
+browser, so neither the bind address nor the absent CORS headers see it, and
+the name it asked for is the part still carrying the attacker's own. The REST
+API is unchanged and still wants its bearer token, so `curl`, Swagger and the
+typed client behave exactly as before. Say plainly what that costs: under
+`--auth development`, any process on this machine can obtain a session by
+asking, whether or not `--web-root` was given, and the bearer token no longer
+separates one local process from another. That is within the mode's stated
+envelope rather than a surprise inside it -- development authentication was
+never a production mechanism, and a shared machine is not where it belongs --
+but it is the reason not to reach for `--auth development` because it is the
+convenient one. `--auth local` is the mode to put in front of anybody else. The default Web adapter uses a separate,
 explicitly initialized TIDE-owned local identity file and never adds users or
 password hashes to the application database. The optional OIDC adapter validates an exact
 HTTPS issuer, audience, signature, expiry, subject, token type, and explicit
