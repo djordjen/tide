@@ -17,6 +17,7 @@ from tide.compiler.normalized import ApplicationModel
 from tide.data.sqlalchemy import SQLAlchemyRepository
 from tide.data.sqlalchemy_actions import SQLAlchemyActionExecutionStore
 from tide.data.sqlalchemy_cursors import SQLAlchemyCursorStore
+from tide.data.sqlalchemy_sessions import SQLAlchemySessionStore
 from tide.runtime.errors import TideRuntimeError
 
 
@@ -309,6 +310,7 @@ def _legacy_compatibility_changes(
 def _desired_tables(repository: SQLAlchemyRepository) -> dict[tuple[str | None, str], _DesiredTable]:
     cursor_store = SQLAlchemyCursorStore(repository.engine, mode="managed")
     action_store = SQLAlchemyActionExecutionStore(repository.engine, mode="managed")
+    session_store = SQLAlchemySessionStore(repository.engine, mode="managed")
     result: dict[tuple[str | None, str], _DesiredTable] = {}
     application_tables: list[_DesiredTable] = []
     for entity_name, entity in repository.model.entities.items():
@@ -344,6 +346,7 @@ def _desired_tables(repository: SQLAlchemyRepository) -> dict[tuple[str | None, 
         ("application", (item for item in application_tables)),
         ("framework", cursor_store.metadata.tables.values()),
         ("framework", action_store.metadata.tables.values()),
+        ("framework", session_store.metadata.tables.values()),
     ):
         for table in tables:
             table_spec = table if isinstance(table, _DesiredTable) else _DesiredTable(

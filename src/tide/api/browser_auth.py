@@ -105,10 +105,18 @@ class _BrowserSession:
 class OidcBrowserAuth:
     """Run an OIDC code/PKCE flow and retain tokens outside browser JavaScript.
 
-    The built-in store is deliberately process-local: it keeps access and refresh
-    tokens out of cookies and persistent application data. A process restart logs
-    browser users out, and deployments must use one application process until a
-    reviewed shared session-store adapter is introduced.
+    The store is deliberately process-local: it keeps access and refresh tokens
+    out of cookies and persistent application data. A process restart logs
+    browser users out, and an OIDC deployment must still use one application
+    process.
+
+    A shared session store now exists and the password and development modes
+    use it, but this one deliberately does not. Two things stand in the way,
+    and neither is incidental. The sessions here hold the provider's own
+    credentials, so writing them to a plain table would trade a real secret for
+    a convenience -- that wants encryption at rest, which is separate work.
+    And each session carries a `Lock` held across its provider calls, which is
+    a promise about one process rather than one deployment.
     """
 
     authentication_mode = "oidc"

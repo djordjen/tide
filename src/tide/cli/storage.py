@@ -17,6 +17,7 @@ from tide.data import (
     SQLAlchemyCursorStore,
     SQLAlchemyRepository,
 )
+from tide.data.sqlalchemy_sessions import SQLAlchemySessionStore
 from tide.runtime import TideRuntimeError
 from tide.services import (
     ActionExecutionStore,
@@ -30,6 +31,16 @@ class RunStorage:
     source_label: str
     cursor_store: CursorStore | None = None
     execution_store: ActionExecutionStore | None = None
+    session_store: SQLAlchemySessionStore | None = None
+    """Browser sessions every process can see, when there is a place to put them.
+
+    Present for a managed database and absent for a legacy one, on the same
+    reasoning as its two siblings: a database TIDE does not own is a database
+    TIDE may not create a table in. Built here rather than in `tide serve`
+    because `--create-schema` may equally have been run from `tide run`, and a
+    table only one of the two commands creates is a table the other one fails
+    to validate.
+    """
 
     def dispose(self) -> None:
         if isinstance(self.repository, SQLAlchemyRepository):
@@ -67,24 +78,30 @@ def open_run_storage(
         mode = str(model.database["mode"])
         cursor_store: SQLAlchemyCursorStore | None = None
         execution_store: SQLAlchemyActionExecutionStore | None = None
+        session_store: SQLAlchemySessionStore | None = None
         if mode == "managed":
             cursor_store = SQLAlchemyCursorStore(repository.engine, mode="managed")
             execution_store = SQLAlchemyActionExecutionStore(
                 repository.engine,
                 mode="managed",
             )
+            session_store = SQLAlchemySessionStore(repository.engine, mode="managed")
 
         if arguments.create_schema:
             repository.create_schema()
             if cursor_store is not None and execution_store is not None:
                 cursor_store.create_schema()
                 execution_store.create_schema()
+            if session_store is not None:
+                session_store.create_schema()
 
         repository.validate_schema()
         repository.validate_query_support()
         if cursor_store is not None and execution_store is not None:
             cursor_store.validate_schema()
             execution_store.validate_schema()
+        if session_store is not None:
+            session_store.validate_schema()
 
         state_label = "durable state" if mode == "managed" else "process-local state"
         return RunStorage(
@@ -92,6 +109,7 @@ def open_run_storage(
             f"database via {environment_name} ({state_label})",
             cursor_store=cursor_store,
             execution_store=execution_store,
+            session_store=session_store,
         )
     except (SQLAlchemyError, TideRuntimeError, ValueError) as error:
         if repository is not None:

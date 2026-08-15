@@ -91,6 +91,10 @@ class CursorStoreError(TideRuntimeError):
     code = "cursor_store_error"
 
 
+class SessionStoreError(TideRuntimeError):
+    code = "session_store_error"
+
+
 class RelationshipExpansionLimit(TideRuntimeError):
     code = "relationship_expansion_limit"
 

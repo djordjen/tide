@@ -721,6 +721,8 @@ def test_tide_run_database_constructs_durable_runtime(
             "sales_invoice_line",
             "tide_action_audit",
             "tide_action_idempotency",
+            "tide_browser_session",
+            "tide_login_failure",
             "tide_query_cursor",
             "tide_record_audit",
             "tide_sequence",

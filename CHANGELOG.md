@@ -420,6 +420,24 @@ project or reparse every YAML document.
 
 ### Databases and operations
 
+Browser sessions are no longer a fact about one process. A managed database now
+carries `tide_browser_session` and `tide_login_failure`, created by
+`--create-schema` beside the query-cursor and action-audit tables, and the
+password and development authenticators keep their sessions there: several TIDE
+processes behind one address agree about who is signed in, and a restart does
+not sign everybody out. Only the digest of a session identifier is stored, on
+the same reasoning as the query cursors. The failed-login counters moved with
+them, because a limit of five attempts counted per process is five attempts
+*per process* -- a second worker silently doubled the budget for guessing a
+password, and nothing said so. A legacy database gets neither table (TIDE may
+not create one in a database it does not own) and keeps process-local sessions;
+the startup banner now states which is in force. OIDC is deliberately excluded
+and keeps its single-process constraint: its sessions hold the provider's
+access and refresh tokens, which want encryption at rest before they want
+sharing. **This adds two tables to the managed schema**; run `--create-schema`
+once against an existing managed database, or `tide db diff` to see the
+proposal.
+
 `tide run --database-env` selects a persistent SQLAlchemy repository using the
 `TIDE_DATABASE_URL` environment variable. The first managed-database run may
 add `--create-schema`; later runs omit it. Database URLs and credentials remain
@@ -583,7 +601,10 @@ wrong was wrong in the syntax.
 
 ### Not yet
 
-Shared encrypted multi-worker browser sessions, provider-wide logout, trusted
-reverse proxies, richer report parameters/group bands, and broader
-lookup-query capabilities remain roadmap work.
+Encrypted session state at rest (which is what OIDC needs before it can share a
+store), session-key rotation, provider-wide logout, trusted reverse proxies,
+richer report parameters/group bands, and broader lookup-query capabilities
+remain roadmap work. `tide serve` still runs one uvicorn process: uvicorn wants
+an import string rather than an application object to spawn workers itself, so
+several processes behind a proxy is the shape that works today.
 

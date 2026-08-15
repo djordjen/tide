@@ -407,163 +407,186 @@ def _serve_api(arguments: argparse.Namespace) -> int:
             return 1
         raise
 
-    identity_summary: str
-    browser_auth: Any = None
-    if arguments.auth == "development":
-        token = os.environ.get(arguments.dev_token_env)
-        if not token:
-            print(
-                "API startup failed: development bearer-token environment variable "
-                f"{arguments.dev_token_env!r} is not set",
-                file=sys.stderr,
-            )
-            return 1
-        if len(token) < 32:
-            print(
-                "API startup failed: development bearer token must contain at least "
-                "32 characters",
-                file=sys.stderr,
-            )
-            return 1
-        roles = tuple(arguments.role)
-        if not roles and arguments.demo and model.roles:
-            roles = (max(model.roles, key=lambda role: len(model.roles[role])),)
-        principal = Principal(arguments.principal, roles=frozenset(roles))
-        authenticator: Any = DevelopmentTokenAuthenticator(token, principal)
-        # The bearer token still guards the REST API, so `curl` and Swagger are
-        # unchanged. What this adds is a way into the Web renderer that does not
-        # involve moving a 32-character secret into a browser by hand: the same
-        # principal, granted a session on request. It is reachable only from
-        # this machine -- the bind was refused above if it is not loopback, and
-        # the server rejects any request naming a host that is not loopback.
-        from tide.api.development_auth import DevelopmentBrowserAuth
-
-        browser_auth = DevelopmentBrowserAuth(
-            principal,
-            secure_cookie=certfile is not None,
-            session_lifetime_seconds=arguments.web_session_lifetime,
-        )
-        identity_summary = (
-            f"identity: {principal.identifier}; development auth only "
-            "(browser sessions need no credential -- loopback only)"
-        )
-    elif arguments.auth == "local":
-        if arguments.role or arguments.principal != "development:api":
-            print(
-                "API startup failed: --role and --principal apply only to "
-                "development authentication",
-                file=sys.stderr,
-            )
-            return 1
-        try:
-            from tide.api.local_auth import LocalPasswordAuth, LocalUserStore
-
-            store = LocalUserStore(
-                arguments.local_auth_store,
-                application=model.name,
-            )
-            authenticator = LocalPasswordAuth(
-                store,
-                allowed_roles=model.roles,
-                secure_cookie=certfile is not None,
-                session_lifetime_seconds=arguments.web_session_lifetime,
-            )
-        except ValueError as error:
-            print(f"API startup failed: {error}", file=sys.stderr)
-            print_local_store_remedy(
-                arguments.local_auth_store,
-                arguments.project,
-                model,
-            )
-            return 1
-        browser_auth = authenticator
-        identity_summary = (
-            f"identity: local username/password ({store.path}); browser login enabled"
-        )
-    else:
-        if arguments.role or arguments.principal != "development:api":
-            print(
-                "API startup failed: --role and --principal apply only to "
-                "development authentication",
-                file=sys.stderr,
-            )
-            return 1
-        if not arguments.oidc_issuer or not arguments.oidc_audience:
-            print(
-                "API startup failed: OIDC authentication requires --oidc-issuer "
-                "and --oidc-audience",
-                file=sys.stderr,
-            )
-            return 1
-        try:
-            from tide.api.auth import OidcJwtAuthenticator
-
-            role_map = parse_oidc_role_map(arguments.oidc_role_map, model)
-            authenticator = OidcJwtAuthenticator.from_discovery(
-                issuer=arguments.oidc_issuer,
-                audience=arguments.oidc_audience,
-                role_claim=arguments.oidc_role_claim,
-                role_map=role_map,
-                algorithms=tuple(arguments.oidc_algorithm) or ("RS256",),
-                token_types=tuple(arguments.oidc_token_type) or ("at+jwt", "JWT"),
-                leeway=arguments.oidc_leeway,
-                timeout=arguments.oidc_timeout,
-            )
-        except ModuleNotFoundError as error:
-            if error.name in {"httpx", "jwt", "cryptography"} or (
-                error.name or ""
-            ).startswith(("httpx.", "jwt.", "cryptography.")):
-                print(
-                    "The OIDC adapter is not installed. Install the 'auth' extra "
-                    "(for example: uv sync --extra api --extra auth).",
-                    file=sys.stderr,
-                )
-                return 1
-            raise
-        except ValueError as error:
-            print(f"API startup failed: {error}", file=sys.stderr)
-            return 1
-        identity_summary = f"identity: OIDC issuer {arguments.oidc_issuer}"
-        if browser_oidc_requested:
-            client_secret = None
-            if arguments.web_oidc_client_secret_env:
-                client_secret = os.environ.get(
-                    arguments.web_oidc_client_secret_env
-                )
-                if not client_secret:
-                    print(
-                        "API startup failed: browser OIDC client-secret environment "
-                        f"variable {arguments.web_oidc_client_secret_env!r} is not set",
-                        file=sys.stderr,
-                    )
-                    return 1
-            try:
-                from tide.api.browser_auth import OidcBrowserAuth
-
-                browser_configuration: dict[str, Any] = {}
-                if arguments.web_oidc_scope:
-                    browser_configuration["scopes"] = tuple(
-                        arguments.web_oidc_scope
-                    )
-                browser_auth = OidcBrowserAuth.from_discovery(
-                    issuer=arguments.oidc_issuer,
-                    authenticator=authenticator,
-                    client_id=arguments.web_oidc_client_id,
-                    client_secret=client_secret,
-                    redirect_uri=arguments.web_oidc_redirect_uri,
-                    session_lifetime_seconds=arguments.web_session_lifetime,
-                    timeout=arguments.oidc_timeout,
-                    **browser_configuration,
-                )
-            except ValueError as error:
-                print(f"API startup failed: {error}", file=sys.stderr)
-                return 1
-            identity_summary = f"{identity_summary}; browser login enabled"
-
     storage = open_run_storage(arguments, model, purpose="API")
     if storage is None:
         return 1
     try:
+        identity_summary: str
+        browser_auth: Any = None
+        # A managed database carries a session table, and where there is one, the
+        # sessions go in it: several TIDE processes behind one address then agree
+        # about who is signed in, and a restart does not sign everybody out.
+        #
+        # OIDC is deliberately excluded. Its sessions hold the provider's access
+        # and refresh tokens, and keeping those out of persistent application data
+        # is the reason its store is process-local in the first place; writing them
+        # to a plain table would trade a real secret for a convenience. That mode
+        # keeps its single-process constraint until session state is encrypted at
+        # rest, which is the next half of this same piece of work.
+        shared_sessions = (
+            storage.session_store if arguments.auth in {"development", "local"} else None
+        )
+        # The banner reports what the store says about itself rather than
+        # inferring it from having one, so a store that is not shared cannot be
+        # announced as though it were.
+        session_summary = (
+            "sessions: shared"
+            if getattr(shared_sessions, "shared", False)
+            else "sessions: this process"
+        )
+        if arguments.auth == "development":
+            token = os.environ.get(arguments.dev_token_env)
+            if not token:
+                print(
+                    "API startup failed: development bearer-token environment variable "
+                    f"{arguments.dev_token_env!r} is not set",
+                    file=sys.stderr,
+                )
+                return 1
+            if len(token) < 32:
+                print(
+                    "API startup failed: development bearer token must contain at least "
+                    "32 characters",
+                    file=sys.stderr,
+                )
+                return 1
+            roles = tuple(arguments.role)
+            if not roles and arguments.demo and model.roles:
+                roles = (max(model.roles, key=lambda role: len(model.roles[role])),)
+            principal = Principal(arguments.principal, roles=frozenset(roles))
+            authenticator: Any = DevelopmentTokenAuthenticator(token, principal)
+            # The bearer token still guards the REST API, so `curl` and Swagger are
+            # unchanged. What this adds is a way into the Web renderer that does not
+            # involve moving a 32-character secret into a browser by hand: the same
+            # principal, granted a session on request. It is reachable only from
+            # this machine -- the bind was refused above if it is not loopback, and
+            # the server rejects any request naming a host that is not loopback.
+            from tide.api.development_auth import DevelopmentBrowserAuth
+
+            browser_auth = DevelopmentBrowserAuth(
+                principal,
+                secure_cookie=certfile is not None,
+                session_lifetime_seconds=arguments.web_session_lifetime,
+                sessions=shared_sessions,
+            )
+            identity_summary = (
+                f"identity: {principal.identifier}; development auth only "
+                "(browser sessions need no credential -- loopback only)"
+            )
+        elif arguments.auth == "local":
+            if arguments.role or arguments.principal != "development:api":
+                print(
+                    "API startup failed: --role and --principal apply only to "
+                    "development authentication",
+                    file=sys.stderr,
+                )
+                return 1
+            try:
+                from tide.api.local_auth import LocalPasswordAuth, LocalUserStore
+
+                store = LocalUserStore(
+                    arguments.local_auth_store,
+                    application=model.name,
+                )
+                authenticator = LocalPasswordAuth(
+                    store,
+                    allowed_roles=model.roles,
+                    secure_cookie=certfile is not None,
+                    session_lifetime_seconds=arguments.web_session_lifetime,
+                    sessions=shared_sessions,
+                )
+            except ValueError as error:
+                print(f"API startup failed: {error}", file=sys.stderr)
+                print_local_store_remedy(
+                    arguments.local_auth_store,
+                    arguments.project,
+                    model,
+                )
+                return 1
+            browser_auth = authenticator
+            identity_summary = (
+                f"identity: local username/password ({store.path}); browser login enabled"
+            )
+        else:
+            if arguments.role or arguments.principal != "development:api":
+                print(
+                    "API startup failed: --role and --principal apply only to "
+                    "development authentication",
+                    file=sys.stderr,
+                )
+                return 1
+            if not arguments.oidc_issuer or not arguments.oidc_audience:
+                print(
+                    "API startup failed: OIDC authentication requires --oidc-issuer "
+                    "and --oidc-audience",
+                    file=sys.stderr,
+                )
+                return 1
+            try:
+                from tide.api.auth import OidcJwtAuthenticator
+
+                role_map = parse_oidc_role_map(arguments.oidc_role_map, model)
+                authenticator = OidcJwtAuthenticator.from_discovery(
+                    issuer=arguments.oidc_issuer,
+                    audience=arguments.oidc_audience,
+                    role_claim=arguments.oidc_role_claim,
+                    role_map=role_map,
+                    algorithms=tuple(arguments.oidc_algorithm) or ("RS256",),
+                    token_types=tuple(arguments.oidc_token_type) or ("at+jwt", "JWT"),
+                    leeway=arguments.oidc_leeway,
+                    timeout=arguments.oidc_timeout,
+                )
+            except ModuleNotFoundError as error:
+                if error.name in {"httpx", "jwt", "cryptography"} or (
+                    error.name or ""
+                ).startswith(("httpx.", "jwt.", "cryptography.")):
+                    print(
+                        "The OIDC adapter is not installed. Install the 'auth' extra "
+                        "(for example: uv sync --extra api --extra auth).",
+                        file=sys.stderr,
+                    )
+                    return 1
+                raise
+            except ValueError as error:
+                print(f"API startup failed: {error}", file=sys.stderr)
+                return 1
+            identity_summary = f"identity: OIDC issuer {arguments.oidc_issuer}"
+            if browser_oidc_requested:
+                client_secret = None
+                if arguments.web_oidc_client_secret_env:
+                    client_secret = os.environ.get(
+                        arguments.web_oidc_client_secret_env
+                    )
+                    if not client_secret:
+                        print(
+                            "API startup failed: browser OIDC client-secret environment "
+                            f"variable {arguments.web_oidc_client_secret_env!r} is not set",
+                            file=sys.stderr,
+                        )
+                        return 1
+                try:
+                    from tide.api.browser_auth import OidcBrowserAuth
+
+                    browser_configuration: dict[str, Any] = {}
+                    if arguments.web_oidc_scope:
+                        browser_configuration["scopes"] = tuple(
+                            arguments.web_oidc_scope
+                        )
+                    browser_auth = OidcBrowserAuth.from_discovery(
+                        issuer=arguments.oidc_issuer,
+                        authenticator=authenticator,
+                        client_id=arguments.web_oidc_client_id,
+                        client_secret=client_secret,
+                        redirect_uri=arguments.web_oidc_redirect_uri,
+                        session_lifetime_seconds=arguments.web_session_lifetime,
+                        timeout=arguments.oidc_timeout,
+                        **browser_configuration,
+                    )
+                except ValueError as error:
+                    print(f"API startup failed: {error}", file=sys.stderr)
+                    return 1
+                identity_summary = f"{identity_summary}; browser login enabled"
+
         if arguments.demo:
             try:
                 from tide.tui.demo import DemoDataError, seed_demo_data
@@ -641,9 +664,12 @@ def _serve_api(arguments: argparse.Namespace) -> int:
         mcp_summary = (
             f"; MCP: {mcp_resource_url}" if mcp_resource_url is not None else ""
         )
+        browser_summary = (
+            f"; {session_summary}" if browser_auth is not None else ""
+        )
         print(
             f"Serving {model.name} at {scheme}://{arguments.host}:{arguments.port} "
-            f"(docs: /docs; {identity_summary}{mcp_summary})."
+            f"(docs: /docs; {identity_summary}{browser_summary}{mcp_summary})."
         )
         configuration: dict[str, Any] = {
             "host": arguments.host,

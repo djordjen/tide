@@ -301,10 +301,20 @@ the same services.
   processing, and OpenAPI limit disclosure; **implemented**;
 - reviewed proxy allowlists, request-rate policy, and dialect-certified
   statement timeout/cancellation behavior;
-- encrypted shared browser-session storage, multi-worker/session-instance
-  coordination, provider-wide logout/revocation, and reviewed session-key
-  rotation; **the initial bounded process-local Web session contract is
-  implemented, while these production scale-out controls remain**;
+- shared browser-session storage and multi-worker/session-instance
+  coordination; **implemented for the password and development modes** as a
+  store contract with the process-local dict kept as the default and a
+  SQLAlchemy implementation on the application's own engine, carrying the
+  failed-login counters with it so a per-process budget cannot silently become
+  a per-worker one; a managed database gains the two tables from
+  `--create-schema` and a legacy database keeps process-local sessions.
+  `tide serve` still runs one uvicorn process -- uvicorn spawns workers only
+  from an import string -- so the shape this serves is several processes behind
+  a proxy;
+- encrypted browser-session state at rest, which is what OIDC needs before it
+  can share a store: its sessions hold the provider's access and refresh
+  tokens, and it keeps its single-process constraint until then;
+- provider-wide logout/revocation and reviewed session-key rotation;
 - verified, non-overwriting online backup plus manifest/integrity/application
   checks for path-based SQLite, and a native SQL Server isolated-restore and
   migration-recovery runbook; **implemented for this initial operator contract;

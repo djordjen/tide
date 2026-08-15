@@ -59,6 +59,7 @@ from tide.data.sqlalchemy import (
 )
 from tide.data.sqlalchemy_actions import SQLAlchemyActionExecutionStore
 from tide.data.sqlalchemy_cursors import SQLAlchemyCursorStore
+from tide.data.sqlalchemy_sessions import SQLAlchemySessionStore
 from tide.data.sql_expressions import QueryTranslationError
 
 __all__ = [
@@ -89,6 +90,7 @@ __all__ = [
     "SQLAlchemyRepository",
     "SQLAlchemyActionExecutionStore",
     "SQLAlchemyCursorStore",
+    "SQLAlchemySessionStore",
     "SchemaCompatibilityError",
     "SchemaIssue",
     "SchemaManagementError",

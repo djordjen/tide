@@ -22,21 +22,26 @@ one:
   the absent CORS headers help there, and the `Host` header is the one part of
   such a request that still carries the attacker's name.
 
-Sessions live in this process and nowhere else. There is no store to
-initialize, which is the point: `--auth local` is the mode that owns identities
-and it will not start until `tide auth create-user` has made one.
+Sessions go wherever the session store puts them, which by default is this
+process and nowhere else. There is still no store of *identities* to
+initialize, which is the point: `--auth local` is the mode that owns those and
+it will not start until `tide auth create-user` has made one.
 """
 
 from __future__ import annotations
 
-from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 import secrets
-from threading import RLock
 import time
 
 from tide.api.browser_session import BrowserSessionAccess
+from tide.api.session_store import (
+    SESSION_STATE_VERSION,
+    BrowserSessionStore,
+    InMemorySessionStore,
+    SessionRecord,
+)
 from tide.runtime import Principal
 
 __all__ = [
@@ -81,12 +86,6 @@ class DevelopmentSessionResult:
     csrf_token: str
 
 
-@dataclass(frozen=True, slots=True)
-class _DevelopmentSession:
-    csrf_token: str
-    expires_at: float
-
-
 class DevelopmentBrowserAuth:
     """Grant one configured principal a browser session, on request, unasked.
 
@@ -107,6 +106,7 @@ class DevelopmentBrowserAuth:
         secure_cookie: bool = False,
         session_lifetime_seconds: int = 8 * 60 * 60,
         max_sessions: int = 64,
+        sessions: BrowserSessionStore | None = None,
         clock: Callable[[], float] = time.time,
     ) -> None:
         for label, value in (
@@ -123,8 +123,11 @@ class DevelopmentBrowserAuth:
             "__Host-tide_session" if secure_cookie else "tide_session"
         )
         self._clock = clock
-        self._sessions: OrderedDict[str, _DevelopmentSession] = OrderedDict()
-        self._lock = RLock()
+        self._sessions: BrowserSessionStore = (
+            InMemorySessionStore(max_entries=max_sessions)
+            if sessions is None
+            else sessions
+        )
 
     def begin_session(self) -> DevelopmentSessionResult:
         """Start a session. Nothing is verified, because nothing was asked for."""
@@ -132,15 +135,18 @@ class DevelopmentBrowserAuth:
         now = self._clock()
         session_id = secrets.token_urlsafe(32)
         csrf_token = secrets.token_urlsafe(32)
-        with self._lock:
-            self._prune_locked(now)
-            self._sessions[session_id] = _DevelopmentSession(
-                csrf_token,
-                now + self.session_lifetime_seconds,
-            )
-            self._sessions.move_to_end(session_id)
-            while len(self._sessions) > self.max_sessions:
-                self._sessions.popitem(last=False)
+        self._sessions.create(
+            session_id,
+            SessionRecord(
+                subject=self.principal.identifier,
+                expires_at=now + self.session_lifetime_seconds,
+                state={
+                    "version": SESSION_STATE_VERSION,
+                    "csrf_token": csrf_token,
+                },
+            ),
+            now=now,
+        )
         return DevelopmentSessionResult(session_id, csrf_token)
 
     def authenticate(self, credential: str) -> Principal | None:
@@ -152,26 +158,19 @@ class DevelopmentBrowserAuth:
     ) -> BrowserSessionAccess | None:
         if not isinstance(session_id, str) or not session_id:
             return None
-        now = self._clock()
-        with self._lock:
-            self._prune_locked(now)
-            session = self._sessions.get(session_id)
-            if session is None:
-                return None
-            self._sessions.move_to_end(session_id)
-            return BrowserSessionAccess(self.principal, session.csrf_token)
+        record = self._sessions.read(session_id, now=self._clock())
+        if record is None:
+            return None
+        if record.state.get("version") != SESSION_STATE_VERSION:
+            self._sessions.discard(session_id, record)
+            return None
+        csrf_token = record.state.get("csrf_token")
+        if not isinstance(csrf_token, str) or not csrf_token:
+            self._sessions.discard(session_id, record)
+            return None
+        return BrowserSessionAccess(self.principal, csrf_token)
 
     def end_session(self, session_id: str | None) -> None:
         if not isinstance(session_id, str) or not session_id:
             return
-        with self._lock:
-            self._sessions.pop(session_id, None)
-
-    def _prune_locked(self, now: float) -> None:
-        expired = [
-            identifier
-            for identifier, session in self._sessions.items()
-            if session.expires_at <= now
-        ]
-        for identifier in expired:
-            del self._sessions[identifier]
+        self._sessions.delete(session_id)

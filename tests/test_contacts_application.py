@@ -14,6 +14,7 @@ from tide.data import (
     InMemoryRepository,
     SQLAlchemyActionExecutionStore,
     SQLAlchemyCursorStore,
+    SQLAlchemySessionStore,
     SQLAlchemyRepository,
 )
 from tide.development import (
@@ -274,6 +275,7 @@ def test_contacts_cli_persists_application_owned_fake_data(
         repository.engine,
         mode="managed",
     ).create_schema()
+    SQLAlchemySessionStore(repository.engine, mode="managed").create_schema()
     repository.dispose()
     monkeypatch.setenv("CONTACTS_DATABASE_URL", url)
 

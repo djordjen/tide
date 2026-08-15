@@ -71,6 +71,37 @@ boundary: the browser sends either the local opaque HTTP-only session cookie or
 the configured development/provider credential and receives no database
 configuration.
 
+## Running more than one process
+
+A managed database carries a `tide_browser_session` table and a
+`tide_login_failure` table, created by `--create-schema` beside the
+query-cursor and action-audit tables. Where they exist, the password and
+development authenticators keep their sessions and their failed-login counters
+in them, so several `tide serve` processes behind one address agree about who
+is signed in and a restart does not sign everybody out. The startup banner
+reports `sessions: shared` when this is in force and `sessions: this process`
+when it is not, which is the line to read before putting a second process
+behind a proxy.
+
+Three things to know before doing that:
+
+* **A legacy database gets neither table.** TIDE may not create one in a
+  database it does not own, so those deployments keep process-local sessions
+  and must run one application process.
+* **`--auth oidc` keeps its single-process constraint** whatever the database
+  is. Its sessions hold the provider's access and refresh tokens, and those
+  want encryption at rest before they want sharing.
+* **`tide serve` runs one uvicorn process.** It has no `--workers`: uvicorn
+  spawns workers only from an import string, and TIDE builds its application
+  object from the parsed command line, a compiled model and an open
+  repository. Run several `tide serve` processes on different ports behind a
+  proxy, or several containers behind a load balancer, and let the shared
+  store do the agreeing.
+
+Adding these two tables changes the managed schema. Run `--create-schema` once
+against an existing managed database, or `tide db diff` to see the proposal
+first.
+
 ## HTTP resource limits
 
 `tide serve` applies the same HTTP boundary to REST and hosted runtime MCP. Its

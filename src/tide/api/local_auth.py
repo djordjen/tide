@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from base64 import urlsafe_b64decode, urlsafe_b64encode
-from collections import OrderedDict, deque
 from collections.abc import Iterable
 from contextlib import contextmanager, suppress
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from hashlib import pbkdf2_hmac, sha256
 import os
 from pathlib import Path
@@ -14,11 +13,17 @@ import re
 import secrets
 import sqlite3
 import subprocess
-from threading import BoundedSemaphore, RLock
+from threading import BoundedSemaphore
 import time
 from typing import Callable, Iterator, NoReturn
 
 from tide.api.browser_session import BrowserSessionAccess
+from tide.api.session_store import (
+    SESSION_STATE_VERSION,
+    InMemorySessionStore,
+    SessionAndThrottleStore,
+    SessionRecord,
+)
 from tide.runtime import Principal
 
 
@@ -81,6 +86,68 @@ class _LocalSession:
     """
 
     revalidate_at: float
+
+
+def _session_record(session: _LocalSession) -> SessionRecord:
+    """Flatten a session into the shape any store can hold.
+
+    The principal is split into its identifier and roles rather than stored as
+    an object, because a shared store has to write it down and read it back in
+    another process.
+    """
+
+    return SessionRecord(
+        subject=session.username,
+        expires_at=session.expires_at,
+        state={
+            "version": SESSION_STATE_VERSION,
+            "principal": session.principal.identifier,
+            "roles": sorted(session.principal.roles),
+            "csrf_token": session.csrf_token,
+            "credential_stamp": session.credential_stamp,
+            "revalidate_at": session.revalidate_at,
+        },
+    )
+
+
+def _local_session(record: SessionRecord) -> _LocalSession | None:
+    """Rebuild a session from storage, or ``None`` if the record cannot be read.
+
+    A shared store holds rows this process did not write, so an unreadable one
+    is an ordinary possibility rather than a broken invariant: a state version
+    from an older build, a value somebody edited, a column that changed type on
+    the way through a driver. It ends that session rather than the request, and
+    it never guesses a missing field -- a session with an unreadable role list
+    is not a session with no roles.
+    """
+
+    state = record.state
+    if state.get("version") != SESSION_STATE_VERSION:
+        return None
+    identifier = state.get("principal")
+    roles = state.get("roles")
+    csrf_token = state.get("csrf_token")
+    credential_stamp = state.get("credential_stamp")
+    revalidate_at = state.get("revalidate_at")
+    if (
+        not isinstance(identifier, str)
+        or not identifier
+        or not isinstance(csrf_token, str)
+        or not isinstance(credential_stamp, str)
+        or isinstance(revalidate_at, bool)
+        or not isinstance(revalidate_at, (int, float))
+        or not isinstance(roles, (list, tuple))
+        or not all(isinstance(role, str) for role in roles)
+    ):
+        return None
+    return _LocalSession(
+        principal=Principal(identifier, roles=frozenset(roles)),
+        csrf_token=csrf_token,
+        expires_at=record.expires_at,
+        username=record.subject,
+        credential_stamp=credential_stamp,
+        revalidate_at=float(revalidate_at),
+    )
 
 
 class LocalUserStore:
@@ -417,7 +484,13 @@ class LocalUserStore:
 
 
 class LocalPasswordAuth:
-    """Authenticate local users and retain bounded, process-local sessions."""
+    """Authenticate local users and keep their sessions wherever the store is.
+
+    The store also holds the failed-login counters, because they are the
+    same coordination problem wearing a different hat: a limit of five
+    attempts counted per process is five attempts *per process*, and adding
+    a worker does not announce that it has doubled the budget.
+    """
 
     authentication_type = "local-password"
     authentication_mode = "password"
@@ -436,6 +509,7 @@ class LocalPasswordAuth:
         max_failure_subjects: int = 4096,
         failure_window_seconds: int = 60,
         max_concurrent_verifications: int = 8,
+        sessions: SessionAndThrottleStore | None = None,
         clock: Callable[[], float] = time.time,
     ) -> None:
         for label, value in (
@@ -465,9 +539,17 @@ class LocalPasswordAuth:
             "__Host-tide_session" if secure_cookie else "tide_session"
         )
         self._clock = clock
-        self._sessions: OrderedDict[str, _LocalSession] = OrderedDict()
-        self._failures: OrderedDict[str, deque[float]] = OrderedDict()
-        self._lock = RLock()
+        # An injected store owns its own capacity, because two workers sharing
+        # one must not each believe a different number. `max_sessions` sizes
+        # the default instead, which is the only store this can still name.
+        self._sessions: SessionAndThrottleStore = (
+            InMemorySessionStore(
+                max_entries=max_sessions,
+                max_failure_subjects=max_failure_subjects,
+            )
+            if sessions is None
+            else sessions
+        )
         self._dummy_hash = hash_password(
             secrets.token_urlsafe(24),
             iterations=store.password_iterations,
@@ -498,10 +580,14 @@ class LocalPasswordAuth:
         except ValueError:
             normalized_username = "invalid"
             username_valid = False
-        with self._lock:
-            self._prune_locked(now)
-            failures = self._failure_bucket_locked(normalized_username, now=now)
-            throttled = len(failures) >= self.max_failures
+        throttled = (
+            self._sessions.count_failures(
+                normalized_username,
+                now=now,
+                window=self.failure_window_seconds,
+            )
+            >= self.max_failures
+        )
 
         if throttled:
             # The refusal is already decided. Hashing anyway would let an
@@ -582,19 +668,21 @@ class LocalPasswordAuth:
         )
         session_id = secrets.token_urlsafe(32)
         csrf_token = secrets.token_urlsafe(32)
-        with self._lock:
-            self._failures.pop(normalized_username, None)
-            self._prune_locked(now)
-            self._sessions[session_id] = _LocalSession(
-                principal=principal,
-                csrf_token=csrf_token,
-                expires_at=now + self.session_lifetime_seconds,
-                username=user.username,
-                credential_stamp=_credential_stamp(stored_hash),
-                revalidate_at=now + self.revalidate_interval_seconds,
-            )
-            while len(self._sessions) > self.max_sessions:
-                self._sessions.popitem(last=False)
+        self._sessions.clear_failures(normalized_username)
+        self._sessions.create(
+            session_id,
+            _session_record(
+                _LocalSession(
+                    principal=principal,
+                    csrf_token=csrf_token,
+                    expires_at=now + self.session_lifetime_seconds,
+                    username=user.username,
+                    credential_stamp=_credential_stamp(stored_hash),
+                    revalidate_at=now + self.revalidate_interval_seconds,
+                )
+            ),
+            now=now,
+        )
         return LocalLoginResult(session_id, csrf_token)
 
     def authenticate(self, credential: str) -> Principal | None:
@@ -606,33 +694,37 @@ class LocalPasswordAuth:
             return None
         now = self._clock()
         while True:
-            with self._lock:
-                self._prune_locked(now)
-                session = self._sessions.get(session_id)
-                if session is None:
-                    return None
-                self._sessions.move_to_end(session_id)
-                if now < session.revalidate_at:
-                    return BrowserSessionAccess(
-                        session.principal,
-                        session.csrf_token,
-                    )
+            record = self._sessions.read(session_id, now=now)
+            if record is None:
+                return None
+            session = _local_session(record)
+            if session is None:
+                self._sessions.discard(session_id, record)
+                return None
+            if now < session.revalidate_at:
+                return BrowserSessionAccess(
+                    session.principal,
+                    session.csrf_token,
+                )
 
             # Re-reading opens a connection to the store, so it is bounded by
             # an interval rather than done per request. Two requests may reach
-            # the boundary together. If the other one refreshes the mapping
-            # first, loop over its result instead of mistaking replacement for
-            # revocation; an actual revocation removes the mapping and the next
+            # the boundary together, and with a shared store they may be in
+            # different processes. If the other one refreshes the record first,
+            # loop over its result instead of mistaking replacement for
+            # revocation; an actual revocation removes the record and the next
             # pass returns None.
             refreshed = self._revalidated(session, now=now)
-            with self._lock:
-                if self._sessions.get(session_id) is not session:
-                    continue
-                if refreshed is None:
-                    self._sessions.pop(session_id, None)
+            if refreshed is None:
+                if self._sessions.discard(session_id, record):
                     return None
-                self._sessions[session_id] = refreshed
-                self._sessions.move_to_end(session_id)
+                continue
+            if self._sessions.replace(
+                session_id,
+                record,
+                _session_record(refreshed),
+                now=now,
+            ):
                 return BrowserSessionAccess(
                     refreshed.principal,
                     refreshed.csrf_token,
@@ -677,13 +769,7 @@ class LocalPasswordAuth:
         did, so the sessions issued against the old one stay valid.
         """
 
-        with self._lock:
-            for session_id, session in list(self._sessions.items()):
-                if session.username != username:
-                    continue
-                self._sessions[session_id] = replace(
-                    session, credential_stamp=stamp
-                )
+        self._sessions.update_subject(username, {"credential_stamp": stamp})
 
     def revoke_user(self, username: str) -> int:
         """End every session held by one account, now rather than on interval.
@@ -697,68 +783,27 @@ class LocalPasswordAuth:
             normalized = normalize_username(username)
         except ValueError:
             return 0
-        with self._lock:
-            doomed = [
-                session_id
-                for session_id, session in self._sessions.items()
-                if session.username == normalized
-            ]
-            for session_id in doomed:
-                self._sessions.pop(session_id, None)
-        return len(doomed)
+        return self._sessions.delete_subject(normalized)
 
     def revoke_all(self) -> int:
-        """End every local-password session in this process."""
+        """End every local-password session the store holds."""
 
-        with self._lock:
-            count = len(self._sessions)
-            self._sessions.clear()
-        return count
+        return self._sessions.clear()
 
     def end_session(self, session_id: str | None) -> None:
         if not isinstance(session_id, str) or not session_id:
             return
-        with self._lock:
-            self._sessions.pop(session_id, None)
-
-    def _prune_locked(self, now: float) -> None:
-        for key in [
-            key
-            for key, session in self._sessions.items()
-            if session.expires_at <= now
-        ]:
-            self._sessions.pop(key, None)
-        for username in list(self._failures):
-            failures = self._failures[username]
-            self._prune_failures(failures, now=now)
-            if not failures:
-                self._failures.pop(username, None)
-
-    def _prune_failures(self, failures: deque[float], *, now: float) -> None:
-        boundary = now - self.failure_window_seconds
-        while failures and failures[0] <= boundary:
-            failures.popleft()
-
-    def _failure_bucket_locked(
-        self,
-        username: str,
-        *,
-        now: float,
-    ) -> deque[float]:
-        failures = self._failures.setdefault(username, deque())
-        self._prune_failures(failures, now=now)
-        self._failures.move_to_end(username)
-        while len(self._failures) > self.max_failure_subjects:
-            self._failures.popitem(last=False)
-        return failures
+        self._sessions.delete(session_id)
 
     def _refuse_login(self, username: str, *, now: float) -> NoReturn:
         """Record one generic credential refusal and disclose nothing else."""
 
-        with self._lock:
-            failures = self._failure_bucket_locked(username, now=now)
-            if len(failures) < self.max_failures:
-                failures.append(now)
+        self._sessions.record_failure(
+            username,
+            now=now,
+            window=self.failure_window_seconds,
+            limit=self.max_failures,
+        )
         raise LocalAuthenticationError("username or password is incorrect")
 
 

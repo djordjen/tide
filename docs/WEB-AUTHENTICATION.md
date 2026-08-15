@@ -72,11 +72,31 @@ Disabling refuses new sign-ins immediately. A session already open ends at its
 next revalidation, because the command runs in its own process and cannot reach
 the server's memory; see below.
 
-Local browser sessions are opaque, HTTP-only, time-bounded and process-local.
-React receives only the cookie and a per-session CSRF proof. A small bounded
-failed-login window slows repeated guessing, and every accepted identity is
-still reauthorized by the ordinary service layer. A server restart logs browser
-users out but does not remove users or password hashes.
+Local browser sessions are opaque, HTTP-only and time-bounded. React receives
+only the cookie and a per-session CSRF proof. A small bounded failed-login
+window slows repeated guessing, and every accepted identity is still
+reauthorized by the ordinary service layer.
+
+Where those sessions are kept depends on the database. A **managed** database
+carries a `tide_browser_session` table, created by `--create-schema` alongside
+the query-cursor and action-audit tables, and sessions go there: several TIDE
+processes behind one address agree about who is signed in, and a restart no
+longer signs everybody out. The failed-login counters share it, for a reason
+worth stating plainly — a budget of five attempts held per process is really
+five *per process*, so a second worker silently doubles it. A **legacy**
+database gets neither table, because TIDE may not create one in a database it
+does not own, and sessions stay in the process that issued them. The startup
+banner says which is in force: `sessions: shared` or `sessions: this process`.
+
+Only the digest of a session identifier is stored, never the identifier
+itself, on the same reasoning as the query cursors: a backup or a replica of
+the application database must not hand over every live session.
+
+OIDC is deliberately excluded from the shared store and keeps its
+single-process constraint. Its sessions hold the provider's access and refresh
+tokens, and keeping those out of persistent application data is why its store
+is process-local in the first place; sharing them means encrypting session
+state at rest, which is separate work.
 
 A live session is re-checked against the user store, by default every 30
 seconds rather than on every request: re-reading costs a fresh SQLite
@@ -336,7 +356,8 @@ store is asked again afterwards, and a session removed in the meantime is not
 revived by the reply.
 
 Disconnect currently ends the local TIDE session. Provider-wide single logout,
-revocation calls, provider-specific consent behavior, shared session storage,
-and trusted reverse-proxy deployment remain separate reviewed work. Direct TLS
-and the controls in [Operational baseline](OPERATIONS.md) remain required for
-the current non-loopback host.
+revocation calls, provider-specific consent behavior, encrypted session state
+at rest (which is what OIDC needs before it can share a store), session-key
+rotation, and trusted reverse-proxy deployment remain separate reviewed work.
+Direct TLS and the controls in [Operational baseline](OPERATIONS.md) remain
+required for the current non-loopback host.

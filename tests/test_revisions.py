@@ -14,6 +14,7 @@ from tide.data import (
     RevisionSqlRenderingError,
     SQLAlchemyActionExecutionStore,
     SQLAlchemyCursorStore,
+    SQLAlchemySessionStore,
     SQLAlchemyRepository,
     generate_revision,
     propose_migration,
@@ -269,6 +270,7 @@ def test_explicit_renames_require_exact_keys_and_never_overwrite(
         )
     SQLAlchemyCursorStore(engine, mode="managed").create_schema()
     SQLAlchemyActionExecutionStore(engine, mode="managed").create_schema()
+    SQLAlchemySessionStore(engine, mode="managed").create_schema()
     proposal = propose_migration(model, engine)
     assert {change.operation for change in proposal.changes} == {
         "rename_table",
@@ -524,6 +526,7 @@ def _initialize_database(model, engine: Engine) -> None:
     repository.create_schema()
     SQLAlchemyCursorStore(engine, mode="managed").create_schema()
     SQLAlchemyActionExecutionStore(engine, mode="managed").create_schema()
+    SQLAlchemySessionStore(engine, mode="managed").create_schema()
 
 
 def _database_fingerprint(proposal) -> str:

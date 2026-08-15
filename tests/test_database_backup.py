@@ -14,6 +14,7 @@ from tide.data import (
     DatabaseBackupUnsupported,
     SQLAlchemyActionExecutionStore,
     SQLAlchemyCursorStore,
+    SQLAlchemySessionStore,
     SQLAlchemyRepository,
     create_sqlite_backup,
     verify_sqlite_backup,
@@ -229,5 +230,6 @@ def _managed_database(path: Path):
     repository.create_schema()
     SQLAlchemyCursorStore(repository.engine, mode="managed").create_schema()
     SQLAlchemyActionExecutionStore(repository.engine, mode="managed").create_schema()
+    SQLAlchemySessionStore(repository.engine, mode="managed").create_schema()
     repository.dispose()
     return model, url

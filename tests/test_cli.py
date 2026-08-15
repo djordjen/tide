@@ -15,6 +15,7 @@ from tide.cli.database import _seed_counts
 from tide.data import (
     SQLAlchemyActionExecutionStore,
     SQLAlchemyCursorStore,
+    SQLAlchemySessionStore,
     SQLAlchemyRepository,
 )
 from tide.development import (
@@ -1033,6 +1034,7 @@ def test_db_check_validates_managed_database_without_echoing_url(
         repository.engine,
         mode="managed",
     ).create_schema()
+    SQLAlchemySessionStore(repository.engine, mode="managed").create_schema()
     repository.dispose()
     monkeypatch.setenv("CHECK_DATABASE_URL", url)
 
@@ -1096,6 +1098,7 @@ def test_db_seed_populates_empty_managed_database_deterministically(
             repository.engine,
             mode="managed",
         ).create_schema()
+        SQLAlchemySessionStore(repository.engine, mode="managed").create_schema()
         repository.dispose()
         monkeypatch.setenv("SEED_DATABASE_URL", url)
 
