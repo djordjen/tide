@@ -54,12 +54,60 @@ external-role mappings. A non-loopback bind requires Uvicorn to terminate HTTPS
 from a supplied certificate and key. Private-key passwords may be read from a
 named environment variable and are never printed.
 
-This direct-TLS contract does not yet trust reverse-proxy forwarding headers.
-Deployments must not remove the TLS check merely because a proxy is present;
-forwarded headers are explicitly disabled. Trusted proxy configuration,
-token-acquisition flows, request-rate policy, database statement cancellation,
-expanded security-event logging, and production process supervision remain
-later reviewed work.
+A proxy in front changes who terminates HTTPS, and the section below is how a
+deployment says so. Token-acquisition flows, request-rate policy, database
+statement cancellation, expanded security-event logging, and production process
+supervision remain later reviewed work.
+
+## Behind a TLS-terminating reverse proxy
+
+`tide serve` speaks HTTP on its own socket and expects a proxy in front to
+terminate HTTPS. Say so with `--behind-tls-proxy`. Without it the server has no
+way to know, and it assumes the worst it can safely assume: a non-loopback bind
+is refused for want of a certificate, and the session cookie is issued without
+`Secure` on a site whose address bar says `https`.
+
+`--behind-tls-proxy` is a declaration about the deployment, and it moves four
+things:
+
+* the session cookie becomes `__Host-tide_session` with `Secure` set, exactly as
+  it is under `--ssl-certfile`;
+* a non-loopback bind is allowed without a certificate, so the server may listen
+  on a container's routable address;
+* `/docs`, `/redoc` and `/openapi.json` default to **off**. A loopback bind used
+  to mean "only this machine", and a proxy is precisely what makes that untrue
+  while the bind stays the same. Pass `--docs` to publish them deliberately;
+* `--mcp` requires `--mcp-resource-url`. A URL derived from the bind address
+  names this socket, which is not an address any client will use.
+
+It may not be combined with `--ssl-certfile` -- HTTPS is terminated in one place
+-- and it refuses `--auth development`, which grants a browser session to
+whoever asks and had only the bind address keeping it honest.
+
+Forwarded headers stay a separate decision, because trusting a header is not
+the same as knowing a proxy is there. `--forwarded-allow-ips ADDRESS` names a
+peer, or a network in CIDR form, whose `X-Forwarded-*` headers this server
+believes; repeat it for several. Without it `proxy_headers` stays off and every
+request appears to come from the proxy. Uvicorn accepts `*` here and TIDE does
+not: an allowlist naming everybody is not an allowlist, and a client reaching
+the port directly would then choose what the logs record about it. Entries must
+parse as an address or network, so a hostname is refused rather than silently
+never matching.
+
+The startup banner prints the address uvicorn is listening on, which stays
+`http://` for a proxied server -- printing `https` there would name a socket
+nothing is serving. It adds `TLS terminated by a trusted proxy`, and
+`forwarded headers trusted from ...` when any are named.
+
+One container of several:
+
+```bash
+tide serve /srv/app --database-env TIDE_DATABASE_URL --auth local --local-auth-store /srv/identity.sqlite3 --host 0.0.0.0 --behind-tls-proxy --forwarded-allow-ips 10.0.0.0/24
+```
+
+The proxy must send `X-Forwarded-Proto: https`, and must terminate a
+certificate for the name users type. TIDE checks neither: it is behind the
+proxy, and a server cannot audit what is in front of it.
 
 A built TIDE Web renderer may be served from `tide serve --web-root DIRECTORY`.
 Startup requires an existing directory containing `index.html`; an incomplete
@@ -103,7 +151,8 @@ Three things to know before doing that:
   object from the parsed command line, a compiled model and an open
   repository. Run several `tide serve` processes on different ports behind a
   proxy, or several containers behind a load balancer, and let the shared
-  store do the agreeing.
+  store do the agreeing. Each of them needs `--behind-tls-proxy`; see the
+  section above for what that declaration carries.
 
 Where sessions stay in the process that issued them, the session cookie
 carries an opaque twelve-character stamp naming that process. A request that
@@ -152,9 +201,9 @@ Production statement timeouts and cancellation require dialect-specific
 certification.
 
 Uvicorn's identifying server header and duplicate access log are disabled.
-Forwarded headers remain disabled until a deployment explicitly gains a
-reviewed trusted-proxy allowlist; an operator must not infer external TLS from
-untrusted forwarding headers.
+Forwarded headers remain disabled until a deployment names the peers it trusts
+with `--forwarded-allow-ips`; external TLS is a separate declaration
+(`--behind-tls-proxy`) and is never inferred from a forwarding header.
 
 Runtime MCP is opt-in through `tide serve --mcp` and the separate `mcp` package
 extra. It shares the REST process, persistence, bearer validator, and

@@ -2097,7 +2097,7 @@ def test_tide_serve_requires_direct_tls_for_non_loopback_oidc(capsys) -> None:
     assert result == 1
     assert capsys.readouterr().err == (
         "API startup failed: non-loopback serving requires --ssl-certfile and "
-        "--ssl-keyfile\n"
+        "--ssl-keyfile, or --behind-tls-proxy\n"
     )
 
 

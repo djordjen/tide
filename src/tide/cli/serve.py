@@ -7,6 +7,7 @@ import ipaddress
 import os
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -95,7 +96,10 @@ def add_serve_command(commands: argparse._SubParsersAction[argparse.ArgumentPars
     serve.add_argument(
         "--host",
         default="127.0.0.1",
-        help="interface to bind (non-loopback requires OIDC and direct TLS)",
+        help=(
+            "interface to bind (non-loopback requires --ssl-certfile or "
+            "--behind-tls-proxy, and a production identity adapter)"
+        ),
     )
     serve.add_argument("--port", type=int, default=8000)
     serve.add_argument(
@@ -104,8 +108,8 @@ def add_serve_command(commands: argparse._SubParsersAction[argparse.ArgumentPars
         action="store_true",
         default=None,
         help=(
-            "serve /docs, /redoc and /openapi.json "
-            "(default: on for a loopback bind, off otherwise)"
+            "serve /docs, /redoc and /openapi.json (default: on only where "
+            "nothing beyond this machine can reach the server)"
         ),
     )
     serve.add_argument(
@@ -179,6 +183,25 @@ def add_serve_command(commands: argparse._SubParsersAction[argparse.ArgumentPars
         "--ssl-keyfile-password-env",
         metavar="NAME",
         help="read the encrypted private-key password from environment variable NAME",
+    )
+    serve.add_argument(
+        "--behind-tls-proxy",
+        action="store_true",
+        help=(
+            "declare that a trusted reverse proxy terminates HTTPS in front of "
+            "this server; the browser's scheme is https even though this socket "
+            "speaks http"
+        ),
+    )
+    serve.add_argument(
+        "--forwarded-allow-ips",
+        action="append",
+        default=[],
+        metavar="ADDRESS",
+        help=(
+            "trust X-Forwarded-* headers from this address or network; repeat "
+            "for several. Without it forwarded headers stay disabled"
+        ),
     )
     serve.add_argument(
         "--dev-token-env",
@@ -385,19 +408,10 @@ def _serve_api(arguments: argparse.Namespace) -> int:
 
     try:
         certfile, keyfile, keyfile_password = _server_tls_configuration(arguments)
-        is_loopback = _is_loopback_host(arguments.host)
-        if arguments.auth == "development" and not is_loopback:
-            raise ValueError(
-                "development authentication may listen only on a loopback interface"
-            )
-        if arguments.auth in {"local", "oidc"} and not is_loopback and certfile is None:
-            raise ValueError(
-                "non-loopback serving requires --ssl-certfile and --ssl-keyfile"
-            )
+        exposure = _network_exposure(arguments, certfile=certfile)
         mcp_resource_url, mcp_issuer_url = _server_mcp_configuration(
             arguments,
-            is_loopback=is_loopback,
-            direct_tls=certfile is not None,
+            exposure=exposure,
         )
     except ValueError as error:
         print(f"API startup failed: {error}", file=sys.stderr)
@@ -483,7 +497,7 @@ def _serve_api(arguments: argparse.Namespace) -> int:
 
             browser_auth = DevelopmentBrowserAuth(
                 principal,
-                secure_cookie=certfile is not None,
+                secure_cookie=exposure.external_https,
                 session_lifetime_seconds=arguments.web_session_lifetime,
                 sessions=shared_sessions,
             )
@@ -509,7 +523,7 @@ def _serve_api(arguments: argparse.Namespace) -> int:
                 authenticator = LocalPasswordAuth(
                     store,
                     allowed_roles=model.roles,
-                    secure_cookie=certfile is not None,
+                    secure_cookie=exposure.external_https,
                     session_lifetime_seconds=arguments.web_session_lifetime,
                     sessions=shared_sessions,
                 )
@@ -680,8 +694,14 @@ def _serve_api(arguments: argparse.Namespace) -> int:
                 # The description maps every entity, field and action, so it
                 # follows the same rule as development authentication: fine on
                 # the machine you are building on, not something a networked
-                # deployment publishes because nobody said otherwise.
-                docs=is_loopback if arguments.docs is None else arguments.docs,
+                # deployment publishes because nobody said otherwise. A proxy
+                # publishes a loopback bind, which is why this asks about the
+                # exposure rather than the socket.
+                docs=(
+                    not exposure.published
+                    if arguments.docs is None
+                    else arguments.docs
+                ),
             )
             if arguments.mcp:
                 try:
@@ -726,16 +746,27 @@ def _serve_api(arguments: argparse.Namespace) -> int:
         )
         if lease_holder is not None:
             browser_summary = f"{browser_summary} (this server only)"
+        # The scheme above is this socket's, not the deployment's: printing
+        # https for a proxied server would name an address nothing listens on.
+        proxy_summary = (
+            "; TLS terminated by a trusted proxy" if exposure.proxied else ""
+        )
+        if exposure.trusted_proxies:
+            proxy_summary += (
+                "; forwarded headers trusted from "
+                f"{', '.join(exposure.trusted_proxies)}"
+            )
         print(
             f"Serving {model.name} at {scheme}://{arguments.host}:{arguments.port} "
-            f"(docs: /docs; {identity_summary}{browser_summary}{mcp_summary})."
+            f"(docs: /docs; {identity_summary}{browser_summary}"
+            f"{proxy_summary}{mcp_summary})."
         )
         configuration: dict[str, Any] = {
             "host": arguments.host,
             "port": arguments.port,
             "log_level": arguments.log_level,
             "access_log": False,
-            "proxy_headers": False,
+            "proxy_headers": bool(exposure.trusted_proxies),
             "server_header": False,
             "limit_concurrency": limits.max_concurrent_requests,
             "timeout_keep_alive": limits.keep_alive_timeout_seconds,
@@ -743,6 +774,10 @@ def _serve_api(arguments: argparse.Namespace) -> int:
                 limits.graceful_shutdown_timeout_seconds
             ),
         }
+        if exposure.trusted_proxies:
+            configuration["forwarded_allow_ips"] = ",".join(
+                exposure.trusted_proxies
+            )
         if certfile is not None and keyfile is not None:
             configuration.update(
                 ssl_certfile=str(certfile),
@@ -788,11 +823,99 @@ def _server_tls_configuration(
     return certfile, keyfile, password
 
 
+@dataclass(frozen=True, slots=True)
+class NetworkExposure:
+    """What can reach this server, which the bind address alone cannot answer.
+
+    `_is_loopback_host` was doing two jobs: naming the socket, and standing in
+    for "only this machine can arrive". A reverse proxy is exactly the thing
+    that separates them -- it forwards the world to a loopback port -- so every
+    decision that read the bind address to mean the second thing now reads this
+    instead. The bind address still decides what uvicorn listens on and what
+    scheme this socket speaks; nothing else.
+    """
+
+    published: bool
+    """Something other than this machine can reach the application."""
+
+    external_https: bool
+    """The address the browser used is https, whoever terminated it."""
+
+    proxied: bool
+    """A declared reverse proxy terminates HTTPS in front of this server."""
+
+    trusted_proxies: tuple[str, ...]
+    """Peers whose `X-Forwarded-*` headers are believed. Empty means none."""
+
+
+def _network_exposure(
+    arguments: argparse.Namespace,
+    *,
+    certfile: Path | None,
+) -> NetworkExposure:
+    """Decide what the network can see, refusing the combinations that lie."""
+
+    proxied = bool(arguments.behind_tls_proxy)
+    trusted_proxies = _trusted_proxies(arguments.forwarded_allow_ips)
+    is_loopback = _is_loopback_host(arguments.host)
+    if proxied and certfile is not None:
+        raise ValueError(
+            "--behind-tls-proxy means a proxy terminates HTTPS, so this server "
+            "may not also be given --ssl-certfile"
+        )
+    if arguments.auth == "development":
+        # Development authentication grants a browser session to whoever asks.
+        # A loopback bind was what kept that honest, and a proxy is a front
+        # door -- so the bind is no longer the question worth asking.
+        if proxied:
+            raise ValueError(
+                "development authentication may not be published through a proxy"
+            )
+        if not is_loopback:
+            raise ValueError(
+                "development authentication may listen only on a loopback interface"
+            )
+    if arguments.auth in {"local", "oidc"} and not is_loopback:
+        if certfile is None and not proxied:
+            raise ValueError(
+                "non-loopback serving requires --ssl-certfile and --ssl-keyfile, "
+                "or --behind-tls-proxy"
+            )
+    return NetworkExposure(
+        published=not is_loopback or proxied,
+        external_https=certfile is not None or proxied,
+        proxied=proxied,
+        trusted_proxies=trusted_proxies,
+    )
+
+
+def _trusted_proxies(values: list[str]) -> tuple[str, ...]:
+    """Validate the allowlist, because uvicorn's own `*` is not an allowlist."""
+
+    trusted: list[str] = []
+    for value in values:
+        entry = value.strip()
+        if entry == "*":
+            raise ValueError(
+                "--forwarded-allow-ips must name addresses or networks; '*' "
+                "would trust a forwarded header from any peer"
+            )
+        try:
+            ipaddress.ip_network(entry, strict=False)
+        except ValueError as error:
+            raise ValueError(
+                "--forwarded-allow-ips entry is not an address or network: "
+                f"{entry!r}"
+            ) from error
+        if entry not in trusted:
+            trusted.append(entry)
+    return tuple(trusted)
+
+
 def _server_mcp_configuration(
     arguments: argparse.Namespace,
     *,
-    is_loopback: bool,
-    direct_tls: bool,
+    exposure: NetworkExposure,
 ) -> tuple[str | None, str | None]:
     if not arguments.mcp:
         if arguments.mcp_resource_url is not None:
@@ -811,14 +934,18 @@ def _server_mcp_configuration(
         )
     resource_url = arguments.mcp_resource_url
     if resource_url is None:
-        if not is_loopback:
+        # Deriving one from the bind address names this socket, which behind a
+        # proxy is not the address any client will ever use.
+        if exposure.proxied:
+            raise ValueError("proxied MCP serving requires --mcp-resource-url")
+        if exposure.published:
             raise ValueError(
                 "non-loopback MCP serving requires --mcp-resource-url"
             )
         host = arguments.host.strip()
         if ":" in host and not host.startswith("["):
             host = f"[{host}]"
-        scheme = "https" if direct_tls else "http"
+        scheme = "https" if exposure.external_https else "http"
         resource_url = f"{scheme}://{host}:{arguments.port}{path}"
     try:
         parsed = urlsplit(resource_url)

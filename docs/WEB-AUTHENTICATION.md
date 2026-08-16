@@ -179,9 +179,14 @@ uv run --extra api --extra report --extra sqlserver tide serve `
   --host 127.0.0.1 --port 8000
 ```
 
-Non-loopback local-password serving requires direct TLS with the existing
-`--ssl-certfile` and `--ssl-keyfile` options. Reverse-proxy trust remains a
-separate deployment feature.
+Non-loopback local-password serving requires TLS, either terminated here with
+`--ssl-certfile` and `--ssl-keyfile` or declared upstream with
+`--behind-tls-proxy`. The declaration is what makes the session cookie
+`__Host-tide_session` with `Secure` set, since without it the server reads that
+flag off a certificate a proxied deployment does not have. Which peers'
+`X-Forwarded-*` headers are believed is the separate `--forwarded-allow-ips`
+allowlist; see
+[Behind a TLS-terminating reverse proxy](OPERATIONS.md#behind-a-tls-terminating-reverse-proxy).
 
 ### The cost of a refused sign-in
 

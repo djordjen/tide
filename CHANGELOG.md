@@ -451,6 +451,24 @@ process, so a request that reaches a sibling is answered
 indistinguishable from an expired session. A shared deployment emits no stamp,
 because there a session that cannot be found has genuinely expired.
 
+Those several processes now have somewhere to stand. `--behind-tls-proxy`
+declares that a reverse proxy terminates HTTPS in front of the server -- the one
+thing TIDE could not work out for itself, and had been guessing wrongly in both
+directions. A non-loopback bind was refused for want of a certificate such a
+deployment does not have, and the arrangement that did start (bind loopback,
+proxy on the same host) read the session cookie's `Secure` flag off that absent
+certificate and issued the cookie without it, on a site whose address bar says
+`https`. The declaration makes the cookie `__Host-tide_session`, allows a
+routable bind without a certificate, requires `--mcp-resource-url` where `--mcp`
+is used, and switches the API description off by default -- a loopback bind
+stops meaning "only this machine" the moment something forwards to it. It
+refuses `--ssl-certfile`, since HTTPS is terminated in one place, and
+`--auth development`, which grants a browser session to whoever asks and had
+only the bind address keeping it honest. Forwarded headers stay a separate
+decision: `--forwarded-allow-ips` names the peers whose `X-Forwarded-*` headers
+this server believes, as addresses or CIDR networks, and refuses the `*` uvicorn
+would accept.
+
 `tide run --database-env` selects a persistent SQLAlchemy repository using the
 `TIDE_DATABASE_URL` environment variable. The first managed-database run may
 add `--create-schema`; later runs omit it. Database URLs and credentials remain

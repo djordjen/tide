@@ -298,8 +298,15 @@ the same services.
   graceful-shutdown limits, bounded body-receive deadlines, safe correlated
   408/413 responses, disabled server-identification and forwarded-header
   processing, and OpenAPI limit disclosure; **implemented**;
-- reviewed proxy allowlists, request-rate policy, and dialect-certified
-  statement timeout/cancellation behavior;
+- reviewed proxy allowlists; **implemented as `--forwarded-allow-ips`, which
+  names the peers whose `X-Forwarded-*` headers are believed and refuses the
+  `*` uvicorn would accept. External TLS is the separate `--behind-tls-proxy`
+  declaration and is never inferred from a header: it makes the session cookie
+  `Secure`, allows a routable bind without a certificate, and switches the API
+  description off by default, because a loopback bind stops meaning "only this
+  machine" the moment a proxy forwards to it**;
+- request-rate policy, and dialect-certified statement timeout/cancellation
+  behavior;
 - shared browser-session storage and multi-worker/session-instance
   coordination; **implemented for the password and development modes** as a
   store contract with the process-local dict kept as the default and a

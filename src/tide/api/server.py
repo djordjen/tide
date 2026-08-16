@@ -319,7 +319,8 @@ def build_fastapi_app(
     entity, field and action plus the `x-tide` runtime configuration, which is
     a map of the application handed out before anyone authenticates. Defaulting
     it off means a caller that never considers the question is not publishing
-    one, and `tide serve` turns it on for a loopback bind where it is useful.
+    one, and `tide serve` turns it on only where nothing beyond the machine
+    can reach the server -- a loopback bind with no declared proxy in front.
 
     Withheld rather than gated: a bearer token is not what makes publishing the
     model surface acceptable, and Swagger UI is a browser page that would have
