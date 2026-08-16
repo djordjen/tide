@@ -200,7 +200,7 @@ empty directory instead. On Windows, `start.bat` wraps every command above; run
 | Metadata compiler (v0.1) | Validated, resolved, immutable model; source-located diagnostics |
 | Headless services | Records, queries, actions, validation, audit, idempotency, optimistic concurrency |
 | Repositories | In-memory and SQLAlchemy Core; managed SQLite and legacy no-DDL mappings |
-| Databases | SQLite for development; SQL Server as the first multi-user target, certified by an opt-in live suite; PostgreSQL later |
+| Databases | SQLite for development; SQL Server as the multi-user target, certified by an opt-in live suite |
 | Terminal client | Browse, forms, master-detail, lookups, three-way conflict review, reports |
 | Web UI | The same journeys in React, plus deep links and TIDE-owned sign-in |
 | REST + OpenAPI | Generated from the model; only explicitly exposed operations |

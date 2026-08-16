@@ -45,7 +45,7 @@ A TIDE application should support:
 - transactional master-detail editing;
 - menus, actions, dialogs, tabs, notifications, and role-aware behavior;
 - printable reports and controlled exports;
-- local SQLite operation and multi-user PostgreSQL deployment;
+- local SQLite operation and multi-user SQL Server deployment;
 - local terminal and remote SSH sessions.
 
 ## Developer experience
@@ -68,7 +68,7 @@ A developer should be able to:
 TIDE is not:
 
 - a terminal skin over a web application;
-- a replacement for SQLAlchemy, PostgreSQL, FastAPI, or Textual;
+- a replacement for SQLAlchemy, FastAPI, or Textual;
 - a new general-purpose programming language;
 - purely a visual no-code builder;
 - a framework that hides the underlying Python application;

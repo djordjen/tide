@@ -99,9 +99,8 @@ renderer-neutral input contract: numeric fields accept a picture such as
 `"0.00"`, while string fields accept `{regex: "..."}`. Adapters may provide
 earlier feedback, but service validation remains authoritative.
 
-Storage exactness depends on the deployment driver. `mssql+pyodbc` and
-`postgresql+psycopg2` bind `Decimal` values directly and keep the declared
-precision. `sqlite+pysqlite` binds through a float and therefore holds 15
+Storage exactness depends on the deployment driver. `mssql+pyodbc` binds
+`Decimal` values directly and keeps the declared precision. `sqlite+pysqlite` binds through a float and therefore holds 15
 significant digits exactly; a field declaring more precision fails the
 readiness check rather than rounding on the way in, so a model intended for
 SQLite should stay within that limit. Compilation, expression evaluation, and

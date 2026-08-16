@@ -287,8 +287,8 @@ class SQLAlchemyRepository:
         Exact decimal storage is a property of the driver, not of TIDE. SQLite
         binds a `Decimal` through a C double, so a value wider than a double
         represents loses digits on the way in with nothing raised. Dialects that
-        bind decimals natively, such as `mssql+pyodbc` and `postgresql+psycopg2`,
-        keep the declared precision.
+        bind decimals natively, such as `mssql+pyodbc`, keep the declared
+        precision.
         """
 
         if self.engine.dialect.supports_native_decimal:

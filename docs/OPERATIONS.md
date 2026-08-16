@@ -217,8 +217,8 @@ automatic destructive migration from the probe.
 Readiness also refuses a deployment whose driver cannot store a declared
 decimal precision exactly. SQLite binds `Decimal` values through a float and
 holds 15 significant digits; a wider field would be rounded on the way in with
-nothing raised, so the process reports not ready instead. `mssql+pyodbc` and
-`postgresql+psycopg2` bind decimals directly and are unaffected.
+nothing raised, so the process reports not ready instead. `mssql+pyodbc`
+binds decimals directly and is unaffected.
 
 For `database.mode: legacy`, readiness uses reflection-based compatibility
 inspection rather than a TIDE schema revision. Mismatched mapped tables,
@@ -379,8 +379,8 @@ See [Microsoft SQL Server](SQL-SERVER.md#backup-and-restore-rehearsal).
 When a migration fails, choose either a reviewed forward repair or a database
 restore paired with an application version known to accept that restored
 schema. Do not independently roll back application binaries against an
-incompatible migrated schema. PostgreSQL and future server adapters likewise
-use database-native backup and point-in-time facilities where configured.
+incompatible migrated schema. Future server adapters likewise use
+database-native backup and point-in-time facilities where configured.
 
 ## Minimum production checks
 

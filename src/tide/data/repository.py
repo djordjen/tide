@@ -358,8 +358,8 @@ class Repository(Protocol):
         * a failed **write** dooms the scope: the unit refuses further work
           and the exit rolls back even if the caller swallowed the error.
           There are no savepoints to undo one write with, and how much of a
-          refused statement survives is the backend's business -- PostgreSQL
-          fails everything after it, SQLite carries on. A failed *read*
+          refused statement survives is the backend's business -- some abort
+          everything after it, SQLite carries on. A failed *read*
           changes nothing and does not doom, so a `NotFoundError` a caller
           means to handle stays handleable;
         * `transaction()` on a unit *joins* the scope it is already in rather

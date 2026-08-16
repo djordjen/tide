@@ -263,7 +263,6 @@ the same services.
   SQL policy translation without exposing the URL; **implemented and passed
   against the local Windows-integrated MSSQL database**;
 - complete multi-version live SQL Server certification and operational guidance;
-- PostgreSQL support after the SQL Server contract is stable;
 - additional SQLAlchemy dialect certification for legacy databases, based on
   demand and dialect availability;
 - deterministic read-only managed migration proposal with application/runtime
