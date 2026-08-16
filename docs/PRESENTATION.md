@@ -287,14 +287,16 @@ authorizes the `ReportDocument`; the renderer presents it and offers the shared
 controlled export writers. Report metadata and permissions remain authoritative
 across renderers.
 
-Parameterless summary reports use the same boundary. A summary action is
-available only when the report belongs to the active entity, is REST-exposed,
-has no declared parameters, and appears in the authenticated session
-capabilities. The server builds the full authorized `ReportDocument`; the
-renderer displays its detail table and offers the shared controlled CSV, HTML,
-and PDF writers. Current browse search/filter/cursor state does not silently
-alter the report's declared query. Parameter-entry controls remain a separate
-later contract.
+Summary reports use the same boundary. A summary action is available when the
+report belongs to the active entity, is REST-exposed, and appears in the
+authenticated session capabilities. A summary that declares parameters
+collects them first -- the terminal with a modal, the browser with a form
+built from the manifest's parameter metadata -- as strings the report service
+types once, a blank input meaning omitted. The server builds the full
+authorized `ReportDocument`; the renderer displays its detail table and
+offers the shared controlled CSV, HTML, and PDF writers. Current browse
+search/filter/cursor state does not silently alter the report's declared
+query.
 
 Named presets capture recurring patterns such as `standard_browse`,
 `standard_form`, and `master_detail`.

@@ -35,6 +35,9 @@ TideAlignment = Literal["left", "center", "right"]
 TideCollectionAction = Literal["add", "apply", "remove"]
 TideReportKind = Literal["record", "summary"]
 TideReportExportFormat = Literal["csv", "html", "pdf"]
+TideReportParameterType = Literal[
+    "string", "integer", "decimal", "boolean", "date", "datetime"
+]
 
 
 class TideReportValue(BaseModel):
@@ -577,6 +580,24 @@ class TidePresentationNavigationGroup(BaseModel):
     items: tuple[TidePresentationNavigationItem, ...] = Field(min_length=1)
 
 
+class TideReportParameter(BaseModel):
+    """One value a renderer collects as text before building a summary.
+
+    `required` means the caller must supply the value. A parameter whose
+    definition carries a default is offered as optional here, because the
+    report service fills the default on its own; typing and range checks
+    also stay with the service, so the renderer sends strings and nothing
+    else.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    type: TideReportParameterType
+    required: bool = False
+
+
 class TidePresentationReport(BaseModel):
     """One authorized renderer-neutral report entry point."""
 
@@ -592,6 +613,9 @@ class TidePresentationReport(BaseModel):
         "html",
         "pdf",
     )
+    # Empty for record reports: their identity parameter is bound from the
+    # URL, so a renderer has nothing to collect.
+    parameters: tuple[TideReportParameter, ...] = ()
 
 
 class TidePresentationManifest(BaseModel):

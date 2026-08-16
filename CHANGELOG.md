@@ -117,8 +117,16 @@ surface sends strings -- and a criteria clause comparing against a declared
 optional parameter that was not supplied is **dropped**, so the posted-sales
 summary answers "everything", "since a date" or "a period" from one
 declaration. The terminal asks for parameter values before building, with
-blank meaning omitted; the browser, which cannot ask yet, is simply not
-offered a summary it could not legally build with `{}`. HTML, PDF, the
+blank meaning omitted; the browser asks with a form built from the
+presentation manifest, which now carries each summary parameter's name,
+label, type and required flag -- required meaning "the caller must supply
+this", since a declared default satisfies the service on its own. An
+all-optional summary builds in the browser immediately and the form narrows
+it; one with a required parameter waits for the form instead of rendering
+the service's refusal; dates get native pickers, and exports send the values
+the visible preview was built with, so a download cannot disagree with the
+screen. Record reports carry no parameters over the manifest, because their
+identity is bound from the URL. HTML, PDF, the
 Textual preview and the Web preview render groups as bands inside the one
 detail table; CSV re-flattens them into leading columns repeated per row,
 because a spreadsheet has no headings to put them in and a row that does not

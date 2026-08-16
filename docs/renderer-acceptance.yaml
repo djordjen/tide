@@ -317,3 +317,26 @@ capabilities:
           - path: tests/test_api_server.py
             selector: test_server_builds_only_authorized_renderer_neutral_reports
             runner: python
+
+  - id: report_parameters
+    tier: roadmap
+    description: Renderers collect summary parameters as strings the report service types once, and an unsupplied optional parameter drops its criteria clause.
+    renderers:
+      tui:
+        status: covered
+        evidence:
+          - path: tests/test_tui.py
+            selector: test_textual_invoice_report_preview_and_exports
+            runner: python
+          - path: tests/test_api_remote.py
+            selector: test_remote_textual_preview_uses_the_server_report_document
+            runner: python
+      web:
+        status: covered
+        evidence:
+          - path: web/src/App.lookup.test.tsx
+            selector: sends collected summary parameters with builds and exports
+            runner: web
+          - path: tests/test_api_server.py
+            selector: test_manifest_offers_required_parameter_summaries_with_their_metadata
+            runner: python

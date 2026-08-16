@@ -133,11 +133,14 @@ Python. Its operation and writable hints are advisory; every request is
 authorized again by the ordinary service route.
 
 The same manifest projects authorized REST reports only as safe name, title,
-record/summary kind, owning entity, resource path, and supported export
-formats. It omits report queries, criteria, bands, expressions, and permission
-names. Record and parameterless summary endpoints return an immutable,
-renderer-neutral `ReportDocument`; controlled export endpoints rebuild that
-document under the same authorization and return CSV, standalone HTML, or PDF:
+record/summary kind, owning entity, resource path, supported export formats,
+and each summary parameter's name, label, type, and required flag. It omits
+report queries, criteria, bands, expressions, and permission names. Record and
+summary endpoints return an immutable, renderer-neutral `ReportDocument` -- a
+summary build takes its parameter values as a JSON object of strings in the
+POST body, typed once by the report service -- and controlled export endpoints
+rebuild that document under the same authorization and return CSV, standalone
+HTML, or PDF:
 
 ```text
 POST /api/v1/_tide/reports/{report}/exports/{format}

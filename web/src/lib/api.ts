@@ -454,13 +454,14 @@ export class TideApi {
   buildReport(
     report: TidePresentationReport,
     identity: unknown | null,
+    parameters: Record<string, string>,
     signal?: AbortSignal,
   ): Promise<TideReportDocument> {
     const path = reportRequestPath(report, identity)
     return this.request<TideReportDocument>(
       path,
       report.kind === "summary"
-        ? { method: "POST", body: JSON.stringify({}) }
+        ? { method: "POST", body: JSON.stringify(parameters) }
         : { method: "GET" },
       signal,
     )
@@ -470,6 +471,7 @@ export class TideApi {
     report: TidePresentationReport,
     exportFormat: TideReportExportFormat,
     identity: unknown | null,
+    parameters: Record<string, string>,
     signal?: AbortSignal,
   ): Promise<TideReportDownload> {
     if (!report.export_formats.includes(exportFormat)) {
@@ -482,7 +484,7 @@ export class TideApi {
     const response = await this.authorizedResponse(
       path,
       report.kind === "summary"
-        ? { method: "POST", body: JSON.stringify({}) }
+        ? { method: "POST", body: JSON.stringify(parameters) }
         : { method: "GET" },
       signal,
       "*/*",

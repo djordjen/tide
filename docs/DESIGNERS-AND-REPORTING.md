@@ -438,10 +438,13 @@ row_limit: 500
 Both parameters are optional: a criteria clause comparing against a parameter
 that was not supplied is dropped, so the one report answers "everything",
 "since a date" or "a period" depending on what the caller filled in. A
-required parameter without a default must be supplied, and the terminal asks
-for parameter values before building; a summary that cannot be built with an
-empty parameter map is not offered to the browser, which has no way to ask
-yet. Parameter typing and the required check live in `ReportService`, so every
+required parameter without a default must be supplied. The terminal asks for
+parameter values before building, and the browser builds a form from the
+manifest's parameter metadata -- name, label, type, and whether the caller
+must supply a value once server-side defaults are counted. An all-optional
+summary builds in the browser immediately and the form narrows it; one with a
+required parameter waits for the form instead of rendering a refusal.
+Parameter typing and the required check live in `ReportService`, so every
 surface sends strings and gets the same refusal in the same words.
 
 Naming `columns:` turns the summary into a **grouped listing**: the matching
@@ -475,7 +478,10 @@ parameters are their own later contract decision.
 
 The intended progression includes:
 
-- typed required parameters with validation; **implemented for record reports**
+- typed required and optional parameters with validation; **implemented:
+  record identity plus summary parameters typed once in the report service,
+  prompted for in the terminal and collected by the browser's manifest-driven
+  form**
 - queryable sorting/filtering plus grouping, `count`, and numeric `sum`;
   **implemented for bounded summary reports**
 - shared formats and computed expressions; **implemented**

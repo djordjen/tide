@@ -340,8 +340,9 @@ deployments and receive clear concurrency feedback.
 Status: **the grouped, parameterized summary slice is implemented**. Invoicing
 now has a secured, bounded posted-sales listing grouped by Customer/Currency
 with per-group subtotals and grand totals, optional date-range parameters
-prompted for in the terminal, local/remote Textual preview, REST transport with
-the Web preview rendering the same bands, and controlled CSV export that
+prompted for in the terminal and collected in the browser through the
+manifest's parameter metadata, local/remote Textual preview, REST transport
+with the Web preview rendering the same bands, and controlled CSV export that
 re-flattens groups into leading columns. Richer page behavior, spreadsheet
 formats, report MCP actions, and designer tooling remain.
 
@@ -351,8 +352,12 @@ formats, report MCP actions, and designer tooling remain.
   unsupplied optional parameter drops its criteria clause), `columns:` turning
   a summary into a grouped listing whose `group_by` runs head their own rows
   and close with the aggregates as subtotals, and the same aggregates totaling
-  the report at the foot. A parameter narrowing by reference stays out until
-  reference-typed parameters are their own contract decision (TIDE306)**;
+  the report at the foot. The presentation manifest now carries each summary
+  parameter's name, label, type and required flag -- required meaning "the
+  caller must supply this", since a declared default satisfies the service on
+  its own -- so the browser asks with a form the way the terminal asks with a
+  modal. A parameter narrowing by reference stays out until reference-typed
+  parameters are their own contract decision (TIDE306)**;
 - HTML preview and PDF output;
 - page behavior and repeatable-band tests;
 - CSV export; **implemented for renderer-neutral detail tables; a grouped

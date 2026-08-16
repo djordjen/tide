@@ -24,10 +24,11 @@ from tide.api.contracts import (
     TidePresentationLookup,
     TidePresentationReference,
     TidePresentationReport,
+    TideReportParameter,
     TideSessionInfo,
 )
 from tide.api.openapi import RestExposure
-from tide.labels import declared_values
+from tide.labels import declared_values, humanize
 from tide.model.source import RESERVED_ACTION_NAMES
 from tide.compiler.normalized import (
     ApplicationModel,
@@ -229,20 +230,12 @@ def build_presentation_manifest(
                 f"{base_path.rstrip('/')}/_tide/reports/"
                 f"{quote(name, safe='')}"
             ),
+            parameters=_report_parameters(report),
         )
         for name, report in model.reports.items()
         if name in session.reports
         and report.get("expose", {}).get("rest") is True
         and str(report["entity"]) in accessible_entities
-        and (
-            report.get("kind", "record") != "summary"
-            # The browser has no way to ask for parameter values yet, so a
-            # summary it cannot legally build with `{}` is not offered. An
-            # optional parameter (or one with a default) costs nothing to
-            # leave unfilled -- the clause it feeds is dropped -- so only a
-            # required parameter without a default keeps a report out.
-            or not _summary_needs_parameters(report)
-        )
     }
     return TidePresentationManifest(
         application=model.name,
@@ -256,12 +249,30 @@ def build_presentation_manifest(
     )
 
 
-def _summary_needs_parameters(report: Mapping[str, Any]) -> bool:
-    """True when the report cannot be built with an empty parameter map."""
+def _report_parameters(
+    report: Mapping[str, Any],
+) -> tuple[TideReportParameter, ...]:
+    """What a renderer asks the user for before building a summary.
 
-    return any(
-        definition.get("required") and definition.get("default") is None
-        for definition in report.get("parameters", {}).values()
+    A record report binds its identity parameter from the URL, so only
+    summaries collect values. The wire `required` flag means "the caller
+    must supply this": a declared default satisfies the report service on
+    its own, so that parameter is offered as optional.
+    """
+
+    if report.get("kind", "record") != "summary":
+        return ()
+    return tuple(
+        TideReportParameter(
+            name=name,
+            label=humanize(name),
+            type=str(definition.get("type", "string")),
+            required=bool(
+                definition.get("required")
+                and definition.get("default") is None
+            ),
+        )
+        for name, definition in report.get("parameters", {}).items()
     )
 
 

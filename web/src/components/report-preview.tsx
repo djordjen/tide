@@ -9,12 +9,14 @@ import {
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { TideApiError, type TideApi } from "@/lib/api"
 import type {
   TidePresentationReport,
   TideReportCell,
   TideReportDocument,
   TideReportExportFormat,
+  TideReportParameterType,
 } from "@/lib/contracts"
 import { useDialogFocus } from "@/lib/dialog-focus"
 import { cn } from "@/lib/utils"
@@ -37,11 +39,36 @@ export function ReportPreview({
   const [exporting, setExporting] =
     useState<TideReportExportFormat | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
+  const parameters = report.parameters ?? []
+  const [draft, setDraft] = useState<Record<string, string>>({})
+  // The values the visible preview was built with. Exports reuse these, so a
+  // download always matches what is on screen, never an unbuilt edit. A
+  // required parameter starts this as null: building `{}` would only render
+  // the service's refusal, so nothing is requested until the user submits.
+  const [submitted, setSubmitted] = useState<Record<string, string> | null>(
+    parameters.some((parameter) => parameter.required) ? null : {},
+  )
   const query = useQuery({
-    queryKey: ["report-preview", report.name, identity],
-    queryFn: ({ signal }) => api.buildReport(report, identity, signal),
+    queryKey: ["report-preview", report.name, identity, submitted],
+    queryFn: ({ signal }) =>
+      api.buildReport(report, identity, submitted ?? {}, signal),
+    enabled: submitted !== null,
     staleTime: 0,
   })
+
+  function buildWithParameters(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    // Strings only, blanks omitted: typing and the required check belong to
+    // the report service, and an unsent optional parameter drops its clause.
+    const supplied: Record<string, string> = {}
+    for (const parameter of parameters) {
+      const value = (draft[parameter.name] ?? "").trim()
+      if (value) {
+        supplied[parameter.name] = value
+      }
+    }
+    setSubmitted(supplied)
+  }
 
   useEffect(() => {
     function closeOnEscape(event: KeyboardEvent) {
@@ -61,6 +88,7 @@ export function ReportPreview({
         report,
         exportFormat,
         identity,
+        submitted ?? {},
       )
       const url = URL.createObjectURL(result.blob)
       const anchor = document.createElement("a")
@@ -129,8 +157,50 @@ export function ReportPreview({
           </Button>
         </header>
 
+        {parameters.length > 0 ? (
+          <form
+            className="flex shrink-0 flex-wrap items-end gap-3 border-b bg-muted/25 px-4 py-3 md:px-6"
+            onSubmit={buildWithParameters}
+          >
+            {parameters.map((parameter) => (
+              <label
+                key={parameter.name}
+                className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium sm:max-w-56 sm:flex-none"
+              >
+                <span className="text-muted-foreground">
+                  {parameter.label}
+                  {parameter.required ? " (required)" : ""}
+                </span>
+                <Input
+                  className="h-8"
+                  type={parameterInputType(parameter.type)}
+                  inputMode={parameterInputMode(parameter.type)}
+                  placeholder={parameterPlaceholder(parameter.type)}
+                  value={draft[parameter.name] ?? ""}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      [parameter.name]: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            ))}
+            <Button size="sm" type="submit">
+              Build report
+            </Button>
+          </form>
+        ) : null}
+
         <div className="min-h-0 flex-1 overflow-auto bg-muted/35 p-3 md:p-6">
-          {query.isPending ? (
+          {submitted === null ? (
+            <div
+              data-testid="report-parameters-prompt"
+              className="flex h-full min-h-72 items-center justify-center px-6 text-center text-sm text-muted-foreground"
+            >
+              Fill in the required parameters, then choose Build report.
+            </div>
+          ) : query.isPending ? (
             <div className="flex h-full min-h-72 items-center justify-center gap-3 text-sm text-muted-foreground">
               <LoaderCircle className="size-5 animate-spin" />
               Building the secured report…
@@ -282,6 +352,40 @@ function ReportPage({ document }: { document: TideReportDocument }) {
       </footer>
     </article>
   )
+}
+
+function parameterInputType(type: TideReportParameterType): string {
+  // Native date controls collect exactly the ISO strings the report service
+  // parses, and give the phone-sized Web surface a real picker.
+  return type === "date"
+    ? "date"
+    : type === "datetime"
+      ? "datetime-local"
+      : "text"
+}
+
+function parameterInputMode(
+  type: TideReportParameterType,
+): "numeric" | "decimal" | undefined {
+  return type === "integer"
+    ? "numeric"
+    : type === "decimal"
+      ? "decimal"
+      : undefined
+}
+
+function parameterPlaceholder(
+  type: TideReportParameterType,
+): string | undefined {
+  return type === "integer"
+    ? "a whole number"
+    : type === "decimal"
+      ? "a number"
+      : type === "boolean"
+        ? "true or false"
+        : type === "string"
+          ? "text"
+          : undefined
 }
 
 function reportBodyRows(document: TideReportDocument) {

@@ -200,6 +200,24 @@ export interface TidePresentationNavigationGroup {
   items: TidePresentationNavigationItem[]
 }
 
+export type TideReportParameterType =
+  | "string"
+  | "integer"
+  | "decimal"
+  | "boolean"
+  | "date"
+  | "datetime"
+
+// One value a renderer collects as text before building a summary. The wire
+// `required` flag means the caller must supply it: a parameter with a
+// server-side default arrives here as optional.
+export interface TideReportParameter {
+  name: string
+  label: string
+  type: TideReportParameterType
+  required: boolean
+}
+
 export interface TidePresentationReport {
   name: string
   title: string
@@ -207,6 +225,8 @@ export interface TidePresentationReport {
   entity: string
   resource_path: string
   export_formats: TideReportExportFormat[]
+  // Absent or empty for record reports: their identity is bound from the URL.
+  parameters?: TideReportParameter[]
 }
 
 export interface TidePresentationManifest {

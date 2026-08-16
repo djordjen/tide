@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -770,6 +771,141 @@ it("previews secured record and summary reports and downloads controlled exports
       path:
         "/api/v1/_tide/reports/sales.invoice/records/1/exports/pdf",
     },
+  ])
+})
+
+it("sends collected summary parameters with builds and exports", async () => {
+  // The manifest names what to ask for; what the person types must reach the
+  // wire as the POST body -- for the preview and for the download alike.
+  const bodies: string[] = []
+  const downloadedNames: string[] = []
+  vi.stubGlobal(
+    "URL",
+    class extends URL {
+      static createObjectURL() {
+        return "blob:tide-report"
+      }
+
+      static revokeObjectURL() {}
+    },
+  )
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
+    function click(this: HTMLAnchorElement) {
+      downloadedNames.push(this.download)
+    },
+  )
+
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: false,
+          mode: null,
+          login_path: null,
+          session_path: null,
+          logout_path: null,
+        })
+      }
+      if (url.endsWith("/_tide/session")) {
+        return jsonResponse(session)
+      }
+      if (url.endsWith("/_tide/presentation")) {
+        return jsonResponse({
+          ...presentation,
+          reports: {
+            "sales.summary": {
+              ...presentation.reports["sales.summary"],
+              parameters: [
+                {
+                  name: "from_date",
+                  label: "From Date",
+                  type: "date",
+                  required: false,
+                },
+                {
+                  name: "to_date",
+                  label: "To Date",
+                  type: "date",
+                  required: false,
+                },
+              ],
+            },
+          },
+        })
+      }
+      if (url.endsWith("/invoices/_query")) {
+        const stored = invoice(1)
+        return jsonResponse({
+          records: [
+            {
+              id: 1,
+              number: stored.number,
+              customer: stored.customer,
+              status: stored.status,
+              total: stored.total,
+            },
+          ],
+          next_cursor: null,
+        })
+      }
+      if (
+        url.endsWith("/_tide/reports/sales.summary") &&
+        init?.method === "POST"
+      ) {
+        bodies.push(String(init.body))
+        return jsonResponse(summaryReport())
+      }
+      if (
+        url.endsWith("/_tide/reports/sales.summary/exports/csv") &&
+        init?.method === "POST"
+      ) {
+        bodies.push(String(init.body))
+        return downloadResponse(
+          "Customer,Currency,Invoices,Sales total\r\n",
+          "posted-sales-summary.csv",
+          "text/csv",
+        )
+      }
+      throw new Error(`Unexpected URL ${url}`)
+    }),
+  )
+
+  const user = userEvent.setup()
+  renderApp()
+  await connectWithToken(user)
+
+  await user.click(
+    await screen.findByRole("button", {
+      name: "Posted Sales Summary",
+    }),
+  )
+  const dialog = await screen.findByRole("dialog", {
+    name: "Posted Sales Summary",
+  })
+  // All-optional parameters: the preview builds `{}` before anyone types.
+  expect(await within(dialog).findByText("4,610.00")).toBeInTheDocument()
+
+  fireEvent.change(within(dialog).getByLabelText(/From Date/), {
+    target: { value: "2026-08-01" },
+  })
+  await user.click(
+    within(dialog).getByRole("button", { name: "Build report" }),
+  )
+  await waitFor(() => expect(bodies).toHaveLength(2))
+
+  await user.click(
+    within(dialog).getByRole("button", { name: "Download CSV" }),
+  )
+  await waitFor(() =>
+    expect(downloadedNames).toContain("posted-sales-summary.csv"),
+  )
+
+  expect(bodies.map((body) => JSON.parse(body))).toEqual([
+    {},
+    { from_date: "2026-08-01" },
+    { from_date: "2026-08-01" },
   ])
 })
 

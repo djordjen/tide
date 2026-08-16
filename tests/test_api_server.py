@@ -142,6 +142,9 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
                 "entity": "sales.Invoice",
                 "resource_path": "/api/v1/_tide/reports/sales.invoice",
                 "export_formats": ["csv", "html", "pdf"],
+                # A record report's identity parameter is bound from the URL,
+                # so the browser has nothing to ask for.
+                "parameters": [],
             },
             "sales.summary": {
                 "name": "sales.summary",
@@ -150,6 +153,20 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
                 "entity": "sales.Invoice",
                 "resource_path": "/api/v1/_tide/reports/sales.summary",
                 "export_formats": ["csv", "html", "pdf"],
+                "parameters": [
+                    {
+                        "name": "from_date",
+                        "label": "From Date",
+                        "type": "date",
+                        "required": False,
+                    },
+                    {
+                        "name": "to_date",
+                        "label": "To Date",
+                        "type": "date",
+                        "required": False,
+                    },
+                ],
             },
         }
         assert set(manifest["forms"]) == {
@@ -1084,6 +1101,55 @@ def test_presentation_manifest_filters_field_protected_controls() -> None:
             for row in section["rows"]
             for field_name in row
         }
+
+    asyncio.run(exercise())
+
+
+def test_manifest_offers_required_parameter_summaries_with_their_metadata() -> None:
+    # The old fence hid any summary `{}` could not build, because the browser
+    # had no way to ask for values. Now the manifest carries what to ask for,
+    # and its `required` flag means "the caller must supply this" -- a declared
+    # default satisfies the report service on its own, so that parameter is
+    # offered as optional even though the YAML says required.
+    model = compile_project(INVOICING)
+    report = dict(model.reports["sales.summary"])
+    report["parameters"] = {
+        "from_date": {"type": "date", "required": True, "default": None},
+        "to_date": {"type": "date", "required": True, "default": "2026-12-31"},
+    }
+    app = _app(
+        "sales_clerk",
+        model=replace(
+            model,
+            reports=immutable_mapping(
+                {**dict(model.reports), "sales.summary": report}
+            ),
+        ),
+    )
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            response = await client.get(
+                "/api/v1/_tide/presentation",
+                headers=_authorization(),
+            )
+
+        assert response.status_code == 200
+        summary = response.json()["reports"]["sales.summary"]
+        assert summary["parameters"] == [
+            {
+                "name": "from_date",
+                "label": "From Date",
+                "type": "date",
+                "required": True,
+            },
+            {
+                "name": "to_date",
+                "label": "To Date",
+                "type": "date",
+                "required": False,
+            },
+        ]
 
     asyncio.run(exercise())
 
