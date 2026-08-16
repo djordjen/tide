@@ -40,6 +40,7 @@ from tide.tui.report import ReportParametersScreen, ReportPreviewScreen
 
 ROOT = Path(__file__).parents[1]
 INVOICING = ROOT / "applications" / "invoicing"
+PROJECTS = ROOT / "tests" / "fixtures" / "valid" / "projects"
 
 
 async def _wait_until(
@@ -136,16 +137,17 @@ TWO_COLLECTION_PROJECT: dict[str, str] = {
 }
 
 
-def test_textual_form_with_two_collections_mounts_instead_of_crashing(
+def test_textual_form_with_two_collections_renders_both(
     tmp_path: Path,
 ) -> None:
-    """Two collection sections used to compose one collection twice.
+    """One entity pointed at twice renders as two panes with the right rows.
 
-    The screen resolves a single collection and the layout loop emitted a
-    section per declaration, so both carried the id `collection-records` and
-    Textual refused to mount either. Every checked-in application declares at
-    most one collection, which is why nothing here ever saw it -- and a
-    reflected schema reaches two the moment one table is pointed at twice.
+    This is the XPO many-to-many shape: the same child entity reached through
+    two inverse references. The screen used to compose one collection and
+    silently skip the rest -- this test pinned that behaviour (`one table,
+    once`) until each collection got a pane and ids of its own; now it pins
+    the opposite: both tables mount, and the seeded child appears only in the
+    collection whose inverse it fills.
     """
 
     project = tmp_path / "two"
@@ -178,11 +180,11 @@ def test_textual_form_with_two_collections_mounts_instead_of_crashing(
             await _wait_until(pilot, lambda: isinstance(app.screen, RecordEditScreen))
             screen = app.screen
             assert isinstance(screen, RecordEditScreen)
-            tables = screen.query(DataTable)
-            # One collection is rendered, once: the screen supports one, and
-            # composing the others under the same id is what broke it.
-            assert len(tables) == 1
-            assert tables.first().row_count == 1
+            firsts = screen.query_one("#collection-records-firsts", DataTable)
+            seconds = screen.query_one("#collection-records-seconds", DataTable)
+            assert firsts.row_count == 1
+            assert seconds.row_count == 0
+            assert len(screen.query(DataTable)) == 2
 
     asyncio.run(scenario())
 
@@ -342,7 +344,7 @@ def _assert_actions_stay_reachable(width: int, height: int) -> None:
                 assert body.show_vertical_scrollbar
                 assert body.max_scroll_y > 0
                 body.scroll_end(animate=False)
-                line_fields = screen.query_one("#line-fields")
+                line_fields = screen.query_one("#line-fields-lines")
                 await _wait_until(
                     pilot,
                     lambda: (
@@ -545,6 +547,174 @@ def test_textual_customer_delete_is_permission_driven_and_compact_safe() -> None
             assert table.row_count == 3
 
     asyncio.run(exercise())
+
+
+def _projects_app() -> TideApp:
+    """A record with two collections, which neither checked-in application has."""
+
+    model = compile_project(PROJECTS)
+    repository = InMemoryRepository()
+    records = RecordsService(model, repository)
+    actions = ActionService(model, records)
+    # The fixture declares no runtime.py, so this verifies and returns False.
+    configure_application_runtime(model, records, actions)
+    context = RequestContext(
+        principal=Principal("plan:user", roles=frozenset({"editor"})),
+        channel=Channel.TUI,
+    )
+    stored = records.commit(
+        records.create(
+            "plan.Project",
+            context,
+            {
+                "name": "Alpha",
+                "tasks": [{"title": "Survey", "estimate": Decimal("4.00")}],
+                "members": [{"person": "Mira", "role_name": "Lead"}],
+            },
+        ),
+        context,
+    )
+    assert stored["id"] == 1
+    return TideApp(
+        model,
+        records,
+        context,
+        actions=actions,
+        page_size=10,
+        source_label="fixture",
+    )
+
+
+def test_textual_form_renders_every_collection_and_scopes_its_actions() -> None:
+    """Both collections are on the form, and the line actions follow the focus.
+
+    The screen used to resolve one collection and silently skip the rest, so
+    the terminal and the browser disagreed about what a record contains. Now
+    each collection owns its table and editors, and the one bar of line
+    actions acts on whichever collection the focus is in -- including its
+    declared action order, which is why Members deliberately has no remove.
+    """
+
+    app = _projects_app()
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 36)) as pilot:
+            await pilot.pause()
+            app.open_record(1)
+            await _wait_until(
+                pilot, lambda: isinstance(app.screen, RecordEditScreen)
+            )
+            screen = app.screen
+
+            tasks_table = screen.query_one("#collection-records-tasks", DataTable)
+            members_table = screen.query_one(
+                "#collection-records-members", DataTable
+            )
+            assert tasks_table.row_count == 1
+            assert members_table.row_count == 1
+
+            # Tasks is the first collection and starts active; its declared
+            # action order includes remove.
+            assert screen.query_one("#remove-line", Button).display
+
+            # Focus the members table: the bar follows, and Members has none.
+            members_table.focus()
+            await pilot.pause()
+            assert not screen.query_one("#remove-line", Button).display
+
+            # Selecting a row loads that pane's editors, not the first pane's.
+            await pilot.press("enter")
+            await pilot.pause()
+            assert (
+                screen.query_one("#line-members--person", Input).value == "Mira"
+            )
+
+            # Add through the same bar: the line lands in Members, not Tasks.
+            screen.query_one("#add-line", Button).press()
+            await pilot.pause()
+            assert members_table.row_count == 2
+            assert tasks_table.row_count == 1
+            screen.query_one("#line-members--person", Input).value = "Novak"
+            # Deliberately left unapplied: Save must sweep it up.
+
+            # Switch back to Tasks: remove returns, and add goes to Tasks.
+            tasks_table.focus()
+            await pilot.pause()
+            assert screen.query_one("#remove-line", Button).display
+            screen.query_one("#add-line", Button).press()
+            await pilot.pause()
+            assert tasks_table.row_count == 2
+            assert members_table.row_count == 2
+            screen.query_one("#line-tasks--title", Input).value = "Install"
+            # Also unapplied -- one background pane, one active, both pending.
+
+            screen.query_one("#save-form", Button).press()
+            await _wait_until(
+                pilot, lambda: not isinstance(app.screen, RecordEditScreen)
+            )
+
+            stored = app.records.get("plan.Project", 1, app.context)
+            assert sorted(task["title"] for task in stored["tasks"]) == [
+                "Install",
+                "Survey",
+            ]
+            assert sorted(member["person"] for member in stored["members"]) == [
+                "Mira",
+                "Novak",
+            ]
+
+    asyncio.run(exercise())
+
+
+def test_two_collection_form_lays_out_at_the_rail_sizes() -> None:
+    """Both tables hold their ground at 140×40 and stay reachable at 80×24.
+
+    Containment is only half a layout claim -- controls can overlap and still
+    be inside the viewport -- so at the large size the two tables must occupy
+    disjoint regions. At 80×24 the second collection may sit below the fold,
+    which is what the scrollable form body is for; it must still focus and
+    accept a line.
+    """
+
+    async def exercise_large() -> None:
+        app = _projects_app()
+        async with app.run_test(size=(140, 40)) as pilot:
+            await pilot.pause()
+            app.open_record(1)
+            await _wait_until(
+                pilot, lambda: isinstance(app.screen, RecordEditScreen)
+            )
+            screen = app.screen
+            tasks_table = screen.query_one("#collection-records-tasks", DataTable)
+            members_table = screen.query_one(
+                "#collection-records-members", DataTable
+            )
+            assert tasks_table.region.height >= 5
+            assert members_table.region.height >= 5
+            assert not tasks_table.region.overlaps(members_table.region), (
+                "the two collection tables share screen space"
+            )
+
+    async def exercise_small() -> None:
+        app = _projects_app()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            app.open_record(1)
+            await _wait_until(
+                pilot, lambda: isinstance(app.screen, RecordEditScreen)
+            )
+            screen = app.screen
+            members_table = screen.query_one(
+                "#collection-records-members", DataTable
+            )
+            members_table.focus()
+            await pilot.pause()
+            screen.query_one("#add-line", Button).press()
+            await pilot.pause()
+            assert members_table.row_count == 2
+
+    asyncio.run(exercise_large())
+    asyncio.run(exercise_small())
 
 
 def test_textual_invoice_report_preview_and_exports(tmp_path: Path) -> None:
@@ -838,8 +1008,8 @@ def test_textual_invoice_edit_saves_header_and_line_transactionally() -> None:
             assert isinstance(screen, RecordEditScreen)
             assert screen.session.identity == 2
             assert screen.query_one("#field-invoice_date", Input).value == "03.07.2026"
-            line_table = screen.query_one("#collection-records", DataTable)
-            line_fields = screen.query_one("#line-fields")
+            line_table = screen.query_one("#collection-records-lines", DataTable)
+            line_fields = screen.query_one("#line-fields-lines")
             line_actions = screen.query_one("#line-actions")
             record_actions = screen.query_one("#record-actions")
             assert line_table.row_count == 1
@@ -850,10 +1020,10 @@ def test_textual_invoice_edit_saves_header_and_line_transactionally() -> None:
 
             screen.query_one("#field-invoice_date", Input).value = "01.07.2026"
             screen.query_one("#field-currency", Input).value = "USD"
-            screen.query_one("#line-quantity", Input).value = "3"
+            screen.query_one("#line-lines--quantity", Input).value = "3"
             screen.action_apply_line()
             line_row = screen.query_one(
-                "#collection-records", DataTable
+                "#collection-records-lines", DataTable
             ).get_row_at(0)
             assert str(line_row[-1]) == "720.00"
             assert all(
@@ -898,7 +1068,8 @@ def test_textual_form_focuses_columns_and_enter_advances() -> None:
             assert screen.focused is not None
             assert screen.focused.id == "field-currency"
 
-            assert screen.line_fields == (
+            lines_pane = screen.collections["lines"]
+            assert lines_pane.line_fields == (
                 "line_number",
                 "product",
                 "description",
@@ -906,17 +1077,17 @@ def test_textual_form_focuses_columns_and_enter_advances() -> None:
                 "unit_price",
                 "total",
             )
-            assert screen.line_editor_columns == (
+            assert lines_pane.editor_columns == (
                 ("line_number", "product", "description"),
                 ("unit_price", "quantity"),
             )
-            line_number = screen.query_one("#line-line_number", Input)
+            line_number = screen.query_one("#line-lines--line_number", Input)
             line_number.focus()
             for expected_id in (
-                "line-product",
-                "line-description",
-                "line-unit_price",
-                "line-quantity",
+                "line-lines--product",
+                "line-lines--description",
+                "line-lines--unit_price",
+                "line-lines--quantity",
             ):
                 await pilot.press("tab")
                 assert screen.focused is not None
@@ -982,7 +1153,7 @@ def test_textual_form_renders_portable_tabs_and_action_bar_order(
                 lambda: isinstance(app.screen, RecordEditScreen)
                 and len(app.screen.query("#form-tabs")) == 1
                 and app.screen.query_one(
-                    "#collection-records", DataTable
+                    "#collection-records-lines", DataTable
                 ).row_count
                 == 1,
             )
@@ -1001,7 +1172,7 @@ def test_textual_form_renders_portable_tabs_and_action_bar_order(
                 "add-line",
                 "apply-line",
             ]
-            assert screen.query_one("#collection-records", DataTable).row_count == 1
+            assert screen.query_one("#collection-records-lines", DataTable).row_count == 1
             tabs.active = "form-tab-1"
             await _wait_until(pilot, lambda: tabs.active == "form-tab-1")
             assert tabs.active == "form-tab-1"
@@ -1054,7 +1225,7 @@ def test_textual_view_hidden_fields_match_browse_and_form_rendering(
             screen = app.screen
             assert isinstance(screen, RecordEditScreen)
             assert not screen.query("#field-number")
-            assert not screen.query("#collection-records")
+            assert not screen.query("#collection-records-lines")
             assert not screen.query("#line-actions")
             assert len(screen.query("TabPane")) == 1
 
@@ -1089,12 +1260,12 @@ def test_textual_product_lookup_search_and_selection_defaults() -> None:
             await _wait_until(
                 pilot,
                 lambda: isinstance(app.screen, RecordEditScreen)
-                and len(app.screen.query("#line-product")) == 1,
+                and len(app.screen.query("#line-lines--product")) == 1,
             )
             form = app.screen
             assert isinstance(form, RecordEditScreen)
 
-            product = form.query_one("#line-product", LookupField)
+            product = form.query_one("#line-lines--product", LookupField)
             product.focus()
             await pilot.press("space")
             await _wait_until(
@@ -1129,12 +1300,12 @@ def test_textual_product_lookup_search_and_selection_defaults() -> None:
             )
             assert app.screen is form
             assert product.value == 3
-            assert form.query_one("#line-description", Input).value == "Annual license"
-            assert form.query_one("#line-unit_price", Input).value == "1200.00"
+            assert form.query_one("#line-lines--description", Input).value == "Annual license"
+            assert form.query_one("#line-lines--unit_price", Input).value == "1200.00"
 
             form.action_apply_line()
             assert str(
-                form.query_one("#collection-records", DataTable).get_row_at(0)[-1]
+                form.query_one("#collection-records-lines", DataTable).get_row_at(0)[-1]
             ) == "2,400.00"
 
     asyncio.run(exercise())
@@ -1150,13 +1321,13 @@ def test_textual_lookup_creates_product_and_preserves_invoice_draft() -> None:
             await _wait_until(
                 pilot,
                 lambda: isinstance(app.screen, RecordEditScreen)
-                and len(app.screen.query("#line-product")) == 1,
+                and len(app.screen.query("#line-lines--product")) == 1,
             )
             invoice = app.screen
             assert isinstance(invoice, RecordEditScreen)
             invoice.query_one("#field-currency", Input).value = "GBP"
 
-            product = invoice.query_one("#line-product", LookupField)
+            product = invoice.query_one("#line-lines--product", LookupField)
             product.focus()
             await pilot.press("space")
             await _wait_until(
@@ -1204,10 +1375,10 @@ def test_textual_lookup_creates_product_and_preserves_invoice_draft() -> None:
             assert app.screen is invoice
             assert invoice.query_one("#field-currency", Input).value == "GBP"
             assert product.value == 4
-            assert invoice.query_one("#line-description", Input).value == (
+            assert invoice.query_one("#line-lines--description", Input).value == (
                 "Training day"
             )
-            assert invoice.query_one("#line-unit_price", Input).value == "350.00"
+            assert invoice.query_one("#line-lines--unit_price", Input).value == "350.00"
             assert app.records.repository.get("catalog.Product", 4)["code"] == (
                 "TRAIN"
             )
@@ -1342,13 +1513,13 @@ def test_textual_invoice_create_uses_generator_and_inline_line_editor() -> None:
                 "ADRIA - Adria Consulting",
             )
             screen.action_add_line()
-            screen.query_one("#line-product", LookupField).set_selection(
+            screen.query_one("#line-lines--product", LookupField).set_selection(
                 1,
                 "CONS - Consulting hour",
             )
-            screen.query_one("#line-description", Input).value = "Created in Textual"
-            screen.query_one("#line-quantity", Input).value = "2.5"
-            screen.query_one("#line-unit_price", Input).value = "85.00"
+            screen.query_one("#line-lines--description", Input).value = "Created in Textual"
+            screen.query_one("#line-lines--quantity", Input).value = "2.5"
+            screen.query_one("#line-lines--unit_price", Input).value = "85.00"
             screen.action_apply_line()
             screen.action_save()
             await pilot.pause()

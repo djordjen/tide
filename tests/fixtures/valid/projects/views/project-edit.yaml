@@ -1,0 +1,20 @@
+view: plan.Project.edit
+entity: plan.Project
+kind: form
+
+layout:
+  - group: Project
+    rows:
+      - [name]
+
+  - collection: tasks
+    view: plan.Task.inline_edit
+    actions: [add, apply, remove]
+
+  # Deliberately a different action order: no remove. The screen's line-action
+  # bar must follow the collection that has the focus, not the first one.
+  - collection: members
+    view: plan.Member.inline_edit
+    actions: [add, apply]
+
+actions: [cancel, save]

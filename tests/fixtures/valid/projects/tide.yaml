@@ -1,0 +1,14 @@
+# Contract fixture: the two-collection form the checked-in applications lack.
+#
+# Invoicing and Contacts declare at most one collection per form, which is why
+# the record screen's single-collection assumptions were never observable in
+# the suite -- and a reflected legacy schema reaches two collections the moment
+# one table is pointed at twice. Tasks and Members deliberately differ in their
+# action orders (Members has no remove), and neither child declares
+# `line_number`, so line numbering must be a capability of the entity rather
+# than an assumption of the screen.
+schema_version: "0.1"
+application: {name: Projects, version: 0.1.0}
+model: {paths: [models]}
+views: {paths: [views]}
+security: {paths: [security]}

@@ -357,5 +357,6 @@ def test_the_terminal_inline_editor_hides_what_the_inline_view_hides() -> None:
         ),
     )
 
-    assert "description" not in screen.line_fields
-    assert "total" in screen.line_fields
+    lines_pane = screen.collections["lines"]
+    assert "description" not in lines_pane.line_fields
+    assert "total" in lines_pane.line_fields

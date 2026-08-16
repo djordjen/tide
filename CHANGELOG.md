@@ -555,10 +555,24 @@ stored key outside that window.
 
 A Textual form declaring more than one collection used to crash with
 `Tried to insert 2 widgets with the same ID 'collection-records'` — the screen
-resolves one collection and the layout loop emitted a section per declaration.
-It now renders the one it supports. Both checked-in applications declare at
-most one collection, which is why nothing saw it; a reflected schema reaches
-two as soon as one table is pointed at twice.
+resolved one collection and the layout loop emitted a section per declaration.
+For a while it rendered the one it supported, which meant the terminal and the
+browser disagreed about what a record contains. **It now renders them all**:
+each collection owns a pane — its table, its line editors, its drafts — with
+widget ids that carry the collection name, and the one bar of line actions
+acts on whichever collection has the focus, following that collection's
+declared action order (a collection without `remove` never shows the button;
+the bar holds the union of every pane's actions and toggles visibility,
+because mounting buttons at runtime raced its own teardown). Save sweeps the
+unapplied line edits of every pane, not just the focused one. Two latent
+defects fell out of the generalization: `Add line` no longer injects a
+`line_number` key into a child entity that never declared the field, and the
+reference-option caches are keyed by target entity rather than field name, so
+two collections sharing a field name aimed at different targets no longer
+collide — which also means one query now serves every field pointing at the
+same target. A two-collection fixture application exists precisely because
+neither checked-in application declares two, which is why the suite pinned
+the old behaviour as correct for a year of its life.
 
 `--runnable` proposes the rest of an application, not just its metadata:
 `expose` for the TUI, REST and MCP plus five permissions per entity, a

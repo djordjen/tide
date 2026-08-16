@@ -1,0 +1,5 @@
+view: plan.Project.browse
+entity: plan.Project
+kind: browse
+
+columns: [name]

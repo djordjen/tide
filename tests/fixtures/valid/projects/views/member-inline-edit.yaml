@@ -1,0 +1,11 @@
+view: plan.Member.inline_edit
+entity: plan.Member
+kind: inline_edit
+
+columns: [person, role_name]
+
+layout:
+  - group: Member
+    rows:
+      - [person]
+      - [role_name]

@@ -1,0 +1,22 @@
+entity: plan.Task
+label: Tasks
+display: title
+
+permissions:
+  list: plan.read
+  read: plan.read
+  create: plan.write
+  update: plan.write
+
+fields:
+  id:       {type: integer, primary_key: true}
+  title:    {type: string, length: 80, required: true}
+  estimate: {type: decimal, precision: 8, scale: 2}
+
+  project:
+    type: reference
+    target: plan.Project
+    storage: project_id
+    inverse: tasks
+    required: true
+    on_delete: cascade

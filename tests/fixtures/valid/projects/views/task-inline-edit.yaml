@@ -1,0 +1,11 @@
+view: plan.Task.inline_edit
+entity: plan.Task
+kind: inline_edit
+
+columns: [title, estimate]
+
+layout:
+  - group: Task
+    rows:
+      - [title]
+      - [estimate]

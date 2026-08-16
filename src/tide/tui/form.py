@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 import re
@@ -161,6 +161,40 @@ class FormSelect(Select[Any]):
 Editor = Input | Select[Any] | LookupField
 
 
+@dataclass
+class _CollectionPane:
+    """Everything one collection owns on the record screen.
+
+    The screen used to hold this state once, in eight singular attributes,
+    which is exactly why a second declared collection could not be rendered.
+    Every attribute here is per-collection by construction, and the widget ids
+    carry the collection name so two panes can never collide.
+    """
+
+    name: str
+    entity: NormalizedEntity
+    inline_view: ResolvedView
+    action_order: tuple[str, ...]
+    line_fields: tuple[str, ...]
+    editor_columns: tuple[tuple[str, ...], tuple[str, ...]]
+    editor_fields: tuple[str, ...]
+    lines: list[dict[str, Any]]
+    protected: bool
+    selected: int | None = None
+    editors: dict[str, Editor] = dataclass_field(default_factory=dict)
+
+    @property
+    def table_id(self) -> str:
+        return f"collection-records-{self.name}"
+
+    @property
+    def fields_id(self) -> str:
+        return f"line-fields-{self.name}"
+
+    def editor_id(self, field_name: str) -> str:
+        return f"line-{self.name}--{field_name}"
+
+
 @dataclass(frozen=True, slots=True)
 class ReopenRecordEdit:
     """Ask the owning application to rebuild a form from a fresh session."""
@@ -170,7 +204,12 @@ class ReopenRecordEdit:
 
 
 class RecordEditScreen(Screen[Any]):
-    """Edit one record and its first metadata-defined inline collection."""
+    """Edit one record and every collection its form layout declares.
+
+    Each collection owns a pane -- table, line editors, drafts -- and the one
+    bar of line actions acts on whichever collection has the focus, following
+    that collection's declared action order.
+    """
 
     ENABLE_COMMAND_PALETTE = False
 
@@ -209,7 +248,7 @@ class RecordEditScreen(Screen[Any]):
         content-align: left middle;
     }
 
-    .record-fields, #line-fields {
+    .record-fields, .line-fields {
         height: auto;
     }
 
@@ -271,13 +310,13 @@ class RecordEditScreen(Screen[Any]):
         content-align: left middle;
     }
 
-    #collection-records {
+    .collection-records {
         height: 1fr;
         min-height: 5;
         border: round $primary;
     }
 
-    #line-fields {
+    .line-fields {
         margin-top: 1;
     }
 
@@ -369,53 +408,23 @@ class RecordEditScreen(Screen[Any]):
             if section.kind == "group"
             for name in section.fields
         )
-        self.collection_name, self.inline_view = _collection_view(
-            model,
-            self.layout_sections,
-        )
         self.layout_tabs = form_layout_tabs(self.layout_sections)
         self.record_action_order = _record_action_order(view, self.entity)
-        self.collection_action_order = _collection_action_order(
-            view, self.collection_name
+        self.collections = _collection_panes(
+            model,
+            view,
+            self.entity,
+            self.layout_sections,
+            session,
         )
-        self.collection_entity = (
-            model.entity(self.entity.field(self.collection_name).target_entity)
-            if self.collection_name is not None
-            else None
-        )
-        self.line_fields = (
-            browse_columns(self.inline_view, self.collection_entity)
-            if self.inline_view is not None and self.collection_entity is not None
-            else ()
-        )
-        self.line_editor_columns = (
-            _inline_editor_columns(
-                self.inline_view,
-                self.collection_entity,
-                self.line_fields,
-            )
-            if self.inline_view is not None and self.collection_entity is not None
-            else ((), ())
-        )
-        self.line_editor_fields = tuple(
-            name for column in self.line_editor_columns for name in column
-        )
-        source_lines = (
-            session.values.get(self.collection_name, [])
-            if self.collection_name is not None
-            else []
-        )
-        self._collection_protected = source_lines is PROTECTED
-        self.lines = (
-            deepcopy(list(source_lines))
-            if isinstance(source_lines, (list, tuple))
-            else []
-        )
-        self._selected_line: int | None = None
+        self._active_collection: str | None = next(iter(self.collections), None)
+        # Reference caches are keyed by the target entity, not the field name:
+        # two collections may both call a field `product`, and the option list
+        # depends only on what it points at -- which also means one query
+        # serves every field aimed at the same target.
         self._reference_options: dict[str, tuple[tuple[str, Any], ...]] = {}
         self._reference_records: dict[str, dict[Any, dict[str, Any]]] = {}
         self._editors: dict[str, Editor] = {}
-        self._line_editors: dict[str, Editor] = {}
         self._pending_conflict: RecordConflict | None = None
         self._pending_conflict_draft: dict[str, Any] | None = None
         self._load_reference_options()
@@ -438,7 +447,8 @@ class RecordEditScreen(Screen[Any]):
             return False
         if action == "cancel" and "cancel" not in self.record_action_order:
             return False
-        if action in {"add_line", "apply_line"} and self.collection_name is None:
+        pane = self._active_pane
+        if action in {"add_line", "apply_line"} and pane is None:
             return False
         collection_action = {
             "add_line": "add",
@@ -446,10 +456,19 @@ class RecordEditScreen(Screen[Any]):
         }.get(action)
         if (
             collection_action is not None
-            and collection_action not in self.collection_action_order
+            and pane is not None
+            and collection_action not in pane.action_order
         ):
             return False
         return super().check_action(action, parameters)
+
+    @property
+    def _active_pane(self) -> _CollectionPane | None:
+        """The collection the one bar of line actions currently acts on."""
+
+        if self._active_collection is None:
+            return None
+        return self.collections.get(self._active_collection)
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -488,15 +507,27 @@ class RecordEditScreen(Screen[Any]):
 
         yield Static("", id="form-message")
         with Horizontal(id="form-actions"):
-            if self.collection_name is not None:
+            if self.collections:
+                # One bar for every collection: the union of their declared
+                # actions is composed once, and switching the active pane only
+                # toggles visibility. Mounting buttons at runtime raced its own
+                # remove_children and duplicated ids; a display flag cannot.
                 with Horizontal(id="line-actions"):
-                    for action_name in self.collection_action_order:
+                    for action_name in self._line_action_union():
                         yield _collection_action_button(action_name)
             yield Static("", id="action-spacer")
             with Horizontal(id="record-actions"):
                 for action_name in self.record_action_order:
                     yield self._record_action_button(action_name)
         yield Footer()
+
+    def _line_action_union(self) -> tuple[str, ...]:
+        ordered: list[str] = []
+        for pane in self.collections.values():
+            for action_name in pane.action_order:
+                if action_name not in ordered:
+                    ordered.append(action_name)
+        return tuple(ordered)
 
     def _compose_record_fields(
         self,
@@ -532,31 +563,28 @@ class RecordEditScreen(Screen[Any]):
         self,
         section: FormLayoutSection,
     ) -> ComposeResult:
-        if self.collection_name is None or self.collection_entity is None:
-            return
-        if section.collection != self.collection_name:
-            # This screen resolves one collection and builds its table, line
-            # editor and action bar around it. Emitting a section for any
-            # other declaration produced a second widget tree under the same
-            # ids -- showing the wrong rows if Textual had allowed it at all.
+        pane = self.collections.get(section.collection or "")
+        if pane is None:
+            # A collection section without a resolvable inline view has no
+            # editable shape to render; the layout simply moves on.
             return
         yield Static(
-            _field_label(self.entity.field(self.collection_name)),
+            _field_label(self.entity.field(pane.name)),
             classes="section-title",
         )
-        yield DataTable(id="collection-records")
-        with Horizontal(id="line-fields"):
-            for column_fields in self.line_editor_columns:
+        yield DataTable(id=pane.table_id, classes="collection-records")
+        with Horizontal(id=pane.fields_id, classes="line-fields"):
+            for column_fields in pane.editor_columns:
                 with Grid(classes="field-column"):
                     for field_name in column_fields:
-                        field = self.collection_entity.field(field_name)
+                        field = pane.entity.field(field_name)
                         label_classes = (
                             "field-label"
-                            if self._collection_is_editable()
+                            if self._pane_is_editable(pane)
                             else "field-label readonly-label"
                         )
                         yield Label(_field_label(field), classes=label_classes)
-                        yield self._line_widget(field)
+                        yield self._line_widget(pane, field)
 
     def _record_action_button(self, action_name: str) -> Button:
         if action_name == "cancel":
@@ -576,17 +604,17 @@ class RecordEditScreen(Screen[Any]):
 
     def on_mount(self) -> None:
         self._sync_terminal_layout(self.app.size.width)
-        if self.collection_name is not None:
-            table = self.query_one("#collection-records", DataTable)
-            for field_name in self.line_fields:
-                field = self.collection_entity.field(field_name)
+        for pane in self.collections.values():
+            table = self.query_one(f"#{pane.table_id}", DataTable)
+            for field_name in pane.line_fields:
+                field = pane.entity.field(field_name)
                 table.add_column(
                     table_label(field, _field_label(field), self.model.formats),
                     key=field_name,
                 )
             table.cursor_type = "row"
             table.zebra_stripes = True
-            self._refresh_lines(select=0 if self.lines else None)
+            self._refresh_lines(pane, select=0 if pane.lines else None)
         self._update_actions()
         first_editor = next(
             (editor for editor in self._editors.values() if not editor.disabled),
@@ -638,12 +666,45 @@ class RecordEditScreen(Screen[Any]):
         self._open_lookup(event.lookup)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        if event.data_table.id != "collection-records":
+        pane = self._pane_for_widget(event.data_table.id)
+        if pane is None:
             return
         key = str(event.row_key.value)
         if not key.startswith("line-"):
             return
-        self._select_line(int(key.removeprefix("line-")))
+        self._activate_pane(pane.name)
+        self._select_line(pane, int(key.removeprefix("line-")))
+
+    def on_descendant_focus(self, event: events.DescendantFocus) -> None:
+        """Focus decides which collection the line actions act on.
+
+        Selecting a row is not the only way in: an empty collection has no
+        row to select, so focusing its table (or one of its editors) must be
+        enough to aim `Add line` at it.
+        """
+
+        pane = self._pane_for_widget(event.widget.id)
+        if pane is not None:
+            self._activate_pane(pane.name)
+
+    def _pane_for_widget(self, widget_id: str | None) -> _CollectionPane | None:
+        value = widget_id or ""
+        if value.startswith("collection-records-"):
+            return self.collections.get(
+                value.removeprefix("collection-records-")
+            )
+        if value.startswith("line-") and "--" in value:
+            collection, _separator, _field = value.removeprefix(
+                "line-"
+            ).partition("--")
+            return self.collections.get(collection)
+        return None
+
+    def _activate_pane(self, name: str) -> None:
+        if name == self._active_collection or name not in self.collections:
+            return
+        self._active_collection = name
+        self._update_actions()
 
     def action_save(self) -> None:
         buttons = list(self.query("#save-form"))
@@ -707,52 +768,66 @@ class RecordEditScreen(Screen[Any]):
         self.dismiss(False)
 
     def action_add_line(self) -> None:
-        if self.collection_entity is None or not self._collection_is_editable():
+        pane = self._active_pane
+        if pane is None or not self._pane_is_editable(pane):
             return
         try:
-            defaults = self.records.create(
-                self.collection_entity.name,
-                self.context,
-            ).values
+            defaults = self.records.create(pane.entity.name, self.context).values
         except TideRuntimeError as error:
             self._show_error(error)
             return
-        line_number = (
-            max(
-                (int(line.get("line_number") or 0) for line in self.lines),
-                default=0,
+        if "line_number" in pane.entity.fields:
+            # Numbering is a capability of the child entity, not an assumption
+            # of the screen: a collection without the field gets no bogus key.
+            defaults["line_number"] = (
+                max(
+                    (
+                        int(line.get("line_number") or 0)
+                        for line in pane.lines
+                    ),
+                    default=0,
+                )
+                + 1
             )
-            + 1
-        )
-        defaults["line_number"] = line_number
-        inverse = self.entity.field(self.collection_name).metadata.get("inverse")
+        inverse = self.entity.field(pane.name).metadata.get("inverse")
         if inverse:
             defaults[inverse] = self.session.identity
-        self.lines.append(defaults)
-        self._refresh_lines()
-        self._select_line(len(self.lines) - 1)
+        pane.lines.append(defaults)
+        self._refresh_lines(pane)
+        self._select_line(pane, len(pane.lines) - 1)
 
     def action_apply_line(self) -> None:
-        if self._selected_line is None or not self._collection_is_editable():
+        pane = self._active_pane
+        if pane is None or pane.selected is None:
             return
-        line = deepcopy(self.lines[self._selected_line])
-        for field_name, editor in self._line_editors.items():
-            field = self.collection_entity.field(field_name)
-            line[field_name] = _editor_value(field, editor)
-        _preview_computed_fields(self.collection_entity, line)
-        self.lines[self._selected_line] = line
-        self._refresh_lines(select=self._selected_line)
-        self._set_message("Line applied locally; Save commits the invoice.")
+        if not self._pane_is_editable(pane):
+            return
+        self._apply_pane_line(pane)
+        self._refresh_lines(pane, select=pane.selected)
+        self._set_message("Line applied locally; Save commits the record.")
         self._update_actions()
 
-    def action_remove_line(self) -> None:
-        if self._selected_line is None or not self._collection_is_editable():
+    def _apply_pane_line(self, pane: _CollectionPane) -> None:
+        if pane.selected is None:
             return
-        del self.lines[self._selected_line]
-        next_index = min(self._selected_line, len(self.lines) - 1)
-        self._selected_line = None
-        self._refresh_lines(select=next_index if next_index >= 0 else None)
-        self._clear_line_editors()
+        line = deepcopy(pane.lines[pane.selected])
+        for field_name, editor in pane.editors.items():
+            field = pane.entity.field(field_name)
+            line[field_name] = _editor_value(field, editor)
+        _preview_computed_fields(pane.entity, line)
+        pane.lines[pane.selected] = line
+
+    def action_remove_line(self) -> None:
+        pane = self._active_pane
+        if pane is None or pane.selected is None:
+            return
+        if not self._pane_is_editable(pane):
+            return
+        del pane.lines[pane.selected]
+        next_index = min(pane.selected, len(pane.lines) - 1)
+        pane.selected = None
+        self._refresh_lines(pane, select=next_index if next_index >= 0 else None)
+        self._clear_line_editors(pane)
         self._update_actions()
 
     def _field_widget(
@@ -768,14 +843,24 @@ class RecordEditScreen(Screen[Any]):
                 id=f"value-{field.name}",
                 classes="readonly-value",
             )
-        widget = self._editable_widget(field, value, prefix="field")
+        widget = self._editable_widget(
+            field,
+            value,
+            widget_id=f"field-{field.name}",
+            view=self.view,
+        )
         self._editors[field.name] = widget
         return widget
 
-    def _line_widget(self, field: NormalizedField) -> Editor:
-        widget = self._editable_widget(field, None, prefix="line")
-        widget.disabled = not self._collection_is_editable()
-        self._line_editors[field.name] = widget
+    def _line_widget(self, pane: _CollectionPane, field: NormalizedField) -> Editor:
+        widget = self._editable_widget(
+            field,
+            None,
+            widget_id=pane.editor_id(field.name),
+            view=pane.inline_view,
+        )
+        widget.disabled = not self._pane_is_editable(pane)
+        pane.editors[field.name] = widget
         return widget
 
     def _editable_widget(
@@ -783,12 +868,12 @@ class RecordEditScreen(Screen[Any]):
         field: NormalizedField,
         value: Any,
         *,
-        prefix: str,
+        widget_id: str,
+        view: ResolvedView,
     ) -> Editor:
-        widget_id = f"{prefix}-{field.name}"
         field_type = field.metadata["type"]
         if field_type == "reference":
-            if self._reference_editor(field.name, prefix) == "lookup":
+            if self._reference_editor(field.name, view) == "lookup":
                 return LookupField(
                     value=value,
                     display=self._reference_display(field, value),
@@ -796,7 +881,7 @@ class RecordEditScreen(Screen[Any]):
                     classes="editable-value",
                 )
             return FormSelect(
-                self._reference_options.get(field.name, ()),
+                self._reference_options.get(field.target_entity, ()),
                 value=value if value is not None else Select.NULL,
                 allow_blank=True,
                 id=widget_id,
@@ -872,53 +957,62 @@ class RecordEditScreen(Screen[Any]):
         return editor
 
     def _collect_form(self) -> bool:
-        if self._selected_line is not None and self._collection_is_editable():
-            self.action_apply_line()
+        for pane in self.collections.values():
+            if pane.selected is not None and self._pane_is_editable(pane):
+                # Unapplied edits in any collection's editors are committed,
+                # not just the one the focus happens to be in.
+                self._apply_pane_line(pane)
         for field_name, editor in self._editors.items():
             field = self.entity.field(field_name)
             self.session.set(field_name, _editor_value(field, editor))
-        if self.collection_name is not None and self._collection_is_editable():
-            self.session.set(self.collection_name, deepcopy(self.lines))
+        for pane in self.collections.values():
+            if self._pane_is_editable(pane):
+                self.session.set(pane.name, deepcopy(pane.lines))
         return True
 
-    def _select_line(self, index: int) -> None:
-        if index < 0 or index >= len(self.lines):
+    def _select_line(self, pane: _CollectionPane, index: int) -> None:
+        if index < 0 or index >= len(pane.lines):
             return
-        self._selected_line = index
-        line = self.lines[index]
-        for field_name, editor in self._line_editors.items():
+        pane.selected = index
+        line = pane.lines[index]
+        for field_name, editor in pane.editors.items():
             value = line.get(field_name)
             self._set_editor_value(
-                self.collection_entity.field(field_name),
+                pane.entity.field(field_name),
                 editor,
                 value,
             )
         self._update_actions()
 
-    def _refresh_lines(self, *, select: int | None = None) -> None:
-        table = self.query_one("#collection-records", DataTable)
+    def _refresh_lines(
+        self,
+        pane: _CollectionPane,
+        *,
+        select: int | None = None,
+    ) -> None:
+        table = self.query_one(f"#{pane.table_id}", DataTable)
         table.clear()
-        for index, line in enumerate(self.lines):
+        for index, line in enumerate(pane.lines):
             table.add_row(
                 *(
                     table_cell(
-                        self.collection_entity.field(field_name),
+                        pane.entity.field(field_name),
                         self._format_value(
-                            self.collection_entity.field(field_name),
+                            pane.entity.field(field_name),
                             line.get(field_name),
                         ),
                         self.model.formats,
                     )
-                    for field_name in self.line_fields
+                    for field_name in pane.line_fields
                 ),
                 key=f"line-{index}",
             )
-        if select is not None and self.lines:
+        if select is not None and pane.lines:
             table.move_cursor(row=select, column=0)
-            self._select_line(select)
+            self._select_line(pane, select)
 
-    def _clear_line_editors(self) -> None:
-        for field_name, editor in self._line_editors.items():
+    def _clear_line_editors(self, pane: _CollectionPane) -> None:
+        for editor in pane.editors.values():
             if isinstance(editor, Select):
                 editor.value = Select.NULL
             elif isinstance(editor, LookupField):
@@ -927,16 +1021,18 @@ class RecordEditScreen(Screen[Any]):
                 editor.value = ""
 
     def _load_reference_options(self) -> None:
-        fields = [(self.entity.field(name), "field") for name in self.scalar_fields]
-        if self.collection_entity is not None:
+        fields = [(self.entity.field(name), self.view) for name in self.scalar_fields]
+        for pane in self.collections.values():
             fields.extend(
-                (self.collection_entity.field(name), "line")
-                for name in self.line_editor_fields
+                (pane.entity.field(name), pane.inline_view)
+                for name in pane.editor_fields
             )
-        for field, prefix in fields:
+        for field, view in fields:
             if field.metadata["type"] != "reference" or not field.target_entity:
                 continue
-            if self._reference_editor(field.name, prefix) == "lookup":
+            if field.target_entity in self._reference_options:
+                continue
+            if self._reference_editor(field.name, view) == "lookup":
                 continue
             try:
                 page = self.records.query_page(
@@ -951,21 +1047,27 @@ class RecordEditScreen(Screen[Any]):
             options = tuple(
                 (_record_title(target, record), record[key]) for record in page.records
             )
-            self._reference_options[field.name] = options
-            self._reference_records[field.name] = {
+            self._reference_options[field.target_entity] = options
+            self._reference_records[field.target_entity] = {
                 record[key]: record for record in page.records
             }
 
     def _open_lookup(self, editor: LookupField) -> None:
-        prefix, field_name = _editor_identity(editor.id)
-        entity = self.entity if prefix == "field" else self.collection_entity
-        if entity is None:
+        prefix, collection, field_name = _editor_identity(editor.id)
+        pane = self.collections.get(collection or "") if prefix == "line" else None
+        if prefix == "line" and pane is None:
             return
-        if prefix == "line" and self._selected_line is None:
-            self._set_message("Add or select a line before choosing a lookup value.")
-            return
+        if pane is not None:
+            self._activate_pane(pane.name)
+            if pane.selected is None:
+                self._set_message(
+                    "Add or select a line before choosing a lookup value."
+                )
+                return
+        entity = self.entity if pane is None else pane.entity
+        view = self.view if pane is None else pane.inline_view
         field = entity.field(field_name)
-        lookup_name = self._reference_lookup_view(field, prefix)
+        lookup_name = self._reference_lookup_view(field, view)
         if lookup_name is None or lookup_name not in self.model.views:
             self._set_message(
                 f"No lookup view is configured for {_field_label(field)}."
@@ -979,30 +1081,30 @@ class RecordEditScreen(Screen[Any]):
                 self.actions,
                 self.context,
                 self.model.views[lookup_name],
-                create_view=self._reference_create_view(field.name, prefix),
+                create_view=self._reference_create_view(field.name, view),
             ),
-            lambda result: self._lookup_selected(editor, entity, field, prefix, result),
+            lambda result: self._lookup_selected(editor, field, pane, result),
         )
 
     def _lookup_selected(
         self,
         editor: LookupField,
-        entity: NormalizedEntity,
         field: NormalizedField,
-        prefix: str,
+        pane: _CollectionPane | None,
         selected: dict[str, Any] | None,
     ) -> None:
         if selected is None or field.target_entity is None:
             return
+        entity = self.entity if pane is None else pane.entity
         target = self.model.entity(field.target_entity)
         identity = selected[_primary_key(target)]
-        editors = self._editors if prefix == "field" else self._line_editors
-        if prefix == "field":
+        editors = self._editors if pane is None else pane.editors
+        if pane is None:
             draft = deepcopy(self.session.values)
         else:
-            if self._selected_line is None:
+            if pane.selected is None:
                 return
-            draft = deepcopy(self.lines[self._selected_line])
+            draft = deepcopy(pane.lines[pane.selected])
         for name, draft_editor in editors.items():
             draft[name] = _editor_value(entity.field(name), draft_editor)
         try:
@@ -1058,25 +1160,25 @@ class RecordEditScreen(Screen[Any]):
         else:
             editor.value = _input_text(field, value)
 
-    def _reference_editor(self, field_name: str, prefix: str) -> str:
-        configuration = self._reference_configuration(field_name, prefix)
+    def _reference_editor(self, field_name: str, view: ResolvedView) -> str:
+        configuration = self._reference_configuration(field_name, view)
         return str(configuration.get("editor", "select"))
 
     def _reference_lookup_view(
         self,
         field: NormalizedField,
-        prefix: str,
+        view: ResolvedView,
     ) -> str | None:
-        configuration = self._reference_configuration(field.name, prefix)
+        configuration = self._reference_configuration(field.name, view)
         value = configuration.get("lookup_view", field.metadata.get("lookup_view"))
         return str(value) if value else None
 
     def _reference_create_view(
         self,
         field_name: str,
-        prefix: str,
+        view: ResolvedView,
     ) -> ResolvedView | None:
-        configuration = self._reference_configuration(field_name, prefix)
+        configuration = self._reference_configuration(field_name, view)
         if configuration.get("allow_create") is not True:
             return None
         create_name = configuration.get("create_view")
@@ -1085,24 +1187,23 @@ class RecordEditScreen(Screen[Any]):
     def _reference_configuration(
         self,
         field_name: str,
-        prefix: str,
+        view: ResolvedView,
     ) -> Mapping[str, Any]:
-        view = self.view if prefix == "field" else self.inline_view
-        if view is None:
-            return {}
         configuration = view.data.get("fields", {}).get(field_name, {})
         return configuration if isinstance(configuration, Mapping) else {}
 
     def _reference_display(self, field: NormalizedField, value: Any) -> str:
         if value is None or value is PROTECTED or not field.target_entity:
             return ""
-        related = self._reference_records.get(field.name, {}).get(value)
+        related = self._reference_records.get(field.target_entity, {}).get(value)
         if related is None:
             try:
                 related = self.records.get(field.target_entity, value, self.context)
             except TideRuntimeError:
                 return "Protected"
-            self._reference_records.setdefault(field.name, {})[value] = related
+            self._reference_records.setdefault(field.target_entity, {})[value] = (
+                related
+            )
         return _record_title(self.model.entity(field.target_entity), related)
 
     def _field_is_editable(
@@ -1122,12 +1223,12 @@ class RecordEditScreen(Screen[Any]):
             return False
         return not _field_is_immutable(field, original)
 
-    def _collection_is_editable(self) -> bool:
-        if self.collection_name is None or self._collection_protected:
+    def _pane_is_editable(self, pane: _CollectionPane | None) -> bool:
+        if pane is None or pane.protected:
             return False
         return self._field_is_editable(
             self.entity,
-            self.entity.field(self.collection_name),
+            self.entity.field(pane.name),
             self.session.original,
         )
 
@@ -1137,7 +1238,7 @@ class RecordEditScreen(Screen[Any]):
         if value is None:
             return ""
         if field.metadata["type"] == "reference" and field.target_entity:
-            related = self._reference_records.get(field.name, {}).get(value)
+            related = self._reference_records.get(field.target_entity, {}).get(value)
             if related is not None:
                 return _record_title(self.model.entity(field.target_entity), related)
             try:
@@ -1162,12 +1263,14 @@ class RecordEditScreen(Screen[Any]):
         """Return the draft an action condition is evaluated against."""
 
         values = deepcopy(self.session.values)
-        if self.collection_name is not None:
-            values[self.collection_name] = deepcopy(self.lines)
+        for pane in self.collections.values():
+            values[pane.name] = deepcopy(pane.lines)
         return values
 
     def _update_actions(self) -> None:
-        editable = bool(self._editors) or self._collection_is_editable()
+        editable = bool(self._editors) or any(
+            self._pane_is_editable(pane) for pane in self.collections.values()
+        )
         save_buttons = list(self.query("#save-form"))
         if save_buttons:
             save_buttons[0].disabled = not editable
@@ -1184,14 +1287,20 @@ class RecordEditScreen(Screen[Any]):
             state = _action_state(action, self._action_values())
             action_buttons[0].disabled = not (can_execute and state.enabled)
             action_buttons[0].display = state.visible
-        if self.collection_name is not None:
-            collection_editable = self._collection_is_editable()
-            for action_name in self.collection_action_order:
-                button = self.query_one(
-                    f"#{_collection_action_button_id(action_name)}", Button
+        pane = self._active_pane
+        if pane is not None:
+            pane_editable = self._pane_is_editable(pane)
+            for action_name in self._line_action_union():
+                buttons = list(
+                    self.query(f"#{_collection_action_button_id(action_name)}")
                 )
-                button.disabled = not collection_editable or (
-                    action_name in {"apply", "remove"} and self._selected_line is None
+                if not buttons:
+                    continue
+                # The bar holds every collection's actions; only the active
+                # pane's declared ones are shown, in its stead.
+                buttons[0].display = action_name in pane.action_order
+                buttons[0].disabled = not pane_editable or (
+                    action_name in {"apply", "remove"} and pane.selected is None
                 )
 
     def _show_validation(self, error: ValidationFailed) -> None:
@@ -1218,10 +1327,7 @@ class RecordEditScreen(Screen[Any]):
             draft,
             fields=(
                 field_name
-                for field_name in (
-                    *self.scalar_fields,
-                    *((self.collection_name,) if self.collection_name else ()),
-                )
+                for field_name in (*self.scalar_fields, *self.collections)
                 if self._field_is_editable(
                     self.entity,
                     self.entity.field(field_name),
@@ -1423,30 +1529,77 @@ def _layout_columns(
     )
 
 
-def _editor_identity(widget_id: str | None) -> tuple[str, str]:
+def _editor_identity(widget_id: str | None) -> tuple[str, str | None, str]:
+    """Split an editor id into (prefix, collection, field).
+
+    Record editors are `field-{name}`; line editors are
+    `line-{collection}--{name}`, with the double dash as the separator a
+    snake_case field name can never contain.
+    """
+
     value = widget_id or ""
-    for prefix in ("field", "line"):
-        marker = f"{prefix}-"
-        if value.startswith(marker):
-            return prefix, value.removeprefix(marker)
+    if value.startswith("field-"):
+        return "field", None, value.removeprefix("field-")
+    if value.startswith("line-"):
+        collection, separator, field_name = value.removeprefix("line-").partition(
+            "--"
+        )
+        if separator and collection and field_name:
+            return "line", collection, field_name
     raise ValueError(f"unknown form editor id {value!r}")
 
 
-def _collection_view(
+def _collection_panes(
     model: ApplicationModel,
+    view: ResolvedView,
+    entity: NormalizedEntity,
     sections: tuple[FormLayoutSection, ...],
-) -> tuple[str | None, ResolvedView | None]:
+    session: RecordSession,
+) -> dict[str, _CollectionPane]:
+    """Resolve one pane per collection section that names an inline view.
+
+    A section without a resolvable `inline_edit` view is skipped -- the rule
+    that used to apply to everything after the first collection now applies
+    uniformly, and only to declarations that genuinely cannot be edited.
+    """
+
+    panes: dict[str, _CollectionPane] = {}
     for section in sections:
-        collection = section.collection
-        inline_name = section.inline_view
-        if (
-            collection
-            and inline_name
-        ):
-            inline = model.views.get(inline_name)
-            if inline is not None and inline.kind == "inline_edit":
-                return collection, inline
-    return None, None
+        name = section.collection
+        if section.kind != "collection" or not name or name in panes:
+            continue
+        if not section.inline_view:
+            continue
+        inline = model.views.get(section.inline_view)
+        if inline is None or inline.kind != "inline_edit":
+            continue
+        target_name = entity.field(name).target_entity
+        if target_name is None:
+            continue
+        target = model.entity(target_name)
+        line_fields = browse_columns(inline, target)
+        editor_columns = _inline_editor_columns(inline, target, line_fields)
+        source_lines = session.values.get(name, [])
+        panes[name] = _CollectionPane(
+            name=name,
+            entity=target,
+            inline_view=inline,
+            action_order=_collection_action_order(view, name),
+            line_fields=line_fields,
+            editor_columns=editor_columns,
+            editor_fields=tuple(
+                field_name
+                for column in editor_columns
+                for field_name in column
+            ),
+            lines=(
+                deepcopy(list(source_lines))
+                if isinstance(source_lines, (list, tuple))
+                else []
+            ),
+            protected=source_lines is PROTECTED,
+        )
+    return panes
 
 
 def select_form_view(

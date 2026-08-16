@@ -1,0 +1,22 @@
+entity: plan.Member
+label: Members
+display: person
+
+permissions:
+  list: plan.read
+  read: plan.read
+  create: plan.write
+  update: plan.write
+
+fields:
+  id:        {type: integer, primary_key: true}
+  person:    {type: string, length: 60, required: true}
+  role_name: {type: string, length: 40}
+
+  project:
+    type: reference
+    target: plan.Project
+    storage: project_id
+    inverse: members
+    required: true
+    on_delete: cascade

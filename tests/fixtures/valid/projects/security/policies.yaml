@@ -1,0 +1,9 @@
+permissions:
+  - plan.read
+  - plan.write
+
+roles:
+  editor:
+    grants:
+      - plan.read
+      - plan.write

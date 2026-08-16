@@ -574,13 +574,13 @@ def _tui_sections(screen: RecordEditScreen) -> list[dict[str, Any]]:
                 }
             )
             continue
-        assert section.collection == screen.collection_name
+        pane = screen.collections[section.collection]
         result.append(
             {
                 "kind": "collection",
                 "label": section.label,
                 "collection": section.collection,
-                "columns": list(screen.line_fields),
+                "columns": list(pane.line_fields),
             }
         )
     return result

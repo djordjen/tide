@@ -378,11 +378,14 @@ at its head. The limit is read from the load plan rather than restated here.
 The reference itself always survives — only the collection turned around from
 it is declined, so nothing is lost from the record that holds the key.
 
-**The Textual form renders the first collection only.** Its record screen
-resolves one collection and builds the table, line editor and action bar
-around it; the others are declared, exposed and served, and the Web UI shows
-them all. Nothing is dropped from the metadata, and the terminal shows one
-until its form screen learns to hold several.
+**The Textual form renders every declared collection.** Each collection owns
+its own table and line editors, and the one bar of line actions follows the
+collection that has the focus -- honouring that collection's declared action
+order, so a collection without `remove` never shows the button. This matters
+here more than anywhere: a reflected schema reaches two collections the moment
+one table is pointed at twice, and an XPO-style many-to-many table produces
+exactly that shape. The terminal and the browser now agree about what a
+record contains.
 
 A proposal that compiles is not yet a proposal that fits, so the test covering
 this runs `validate_schema()` against the same database the metadata was read

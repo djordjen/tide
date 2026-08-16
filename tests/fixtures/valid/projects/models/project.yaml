@@ -1,0 +1,30 @@
+entity: plan.Project
+label: Projects
+display: name
+
+expose:
+  tui: true
+
+permissions:
+  list: plan.read
+  read: plan.read
+  create: plan.write
+  update: plan.write
+
+fields:
+  id:   {type: integer, primary_key: true}
+  name: {type: string, length: 60, required: true}
+
+  tasks:
+    type: collection
+    target: plan.Task
+    inverse: project
+    cascade: [create, update]
+    orphan_delete: true
+
+  members:
+    type: collection
+    target: plan.Member
+    inverse: project
+    cascade: [create, update]
+    orphan_delete: true
