@@ -395,6 +395,14 @@
       "title": "Group By",
       "type": "array"
     },
+    "columns": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Columns",
+      "type": "array"
+    },
     "aggregates": {
       "default": [],
       "items": {

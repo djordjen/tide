@@ -105,7 +105,7 @@ Important shortcuts include:
 | `Ctrl+N` | Add a line or create a lookup record |
 | `Ctrl+P` | Post an eligible invoice |
 | `V` | Preview the selected invoice report |
-| `S` | Preview the posted-sales summary |
+| `S` | Preview the posted-sales summary (asks for its date range first; blank means everything) |
 | `H` | Show authorized audit history |
 | `Esc` | Cancel or close the current screen |
 | `q` | Quit |

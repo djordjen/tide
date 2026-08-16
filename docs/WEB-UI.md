@@ -230,8 +230,12 @@ report query, criteria, bands, expressions, permission names, or database
 configuration. **Posted Sales Summary** on the Invoice list and **Preview
 Invoice** on a saved detail both ask FastAPI to build the same immutable
 `ReportDocument` used by Textual. React renders its already-formatted
-values and tables; CSV, HTML, and PDF buttons call separately authorized export
-routes that rebuild and render the report server-side. Record preview is
+values and tables, including a grouped listing's bands -- each group's heading
+and subtotal are full-width rows in the one table; CSV, HTML, and PDF buttons
+call separately authorized export routes that rebuild and render the report
+server-side. The browser has no way to ask for report parameter values yet: it
+builds summaries with every optional parameter unfilled, and a summary
+requiring a parameter without a default is simply not offered to it. Record preview is
 disabled while the form has unsaved changes so the displayed document cannot
 silently disagree with the draft.
 

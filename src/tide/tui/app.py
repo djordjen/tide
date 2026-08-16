@@ -48,7 +48,7 @@ from tide.services import (
 from tide.tui.audit import AuditHistoryScreen
 from tide.tui.confirm import DeleteConfirmationScreen
 from tide.tui.form import ReopenRecordEdit, RecordEditScreen, select_form_view
-from tide.tui.report import ReportPreviewScreen
+from tide.tui.report import ReportParametersScreen, ReportPreviewScreen
 
 
 _CACHE_MISS = object()
@@ -543,8 +543,41 @@ class TideApp(App[None]):
         report_name = self._active_report("summary")
         if report_name is None:
             return
+        report = self.model.reports.get(report_name, {})
+        definitions = report.get("parameters", {})
+        if definitions:
+            def build(parameters: dict[str, Any] | None) -> None:
+                if parameters is not None:
+                    self._open_summary_report(report_name, parameters)
+
+            self.push_screen(
+                ReportParametersScreen(
+                    str(report.get("title") or report_name),
+                    definitions,
+                ),
+                build,
+            )
+            return
+        self._open_summary_report(report_name, {})
+
+    def _open_summary_report(
+        self,
+        report_name: str,
+        parameters: dict[str, Any],
+    ) -> None:
+        """Build and show one summary, telling the user what refused and why.
+
+        The inputs arrive as strings and the report service does the typing,
+        so a wrong date lands here as the same `ValidationFailed` every other
+        surface gets, worded by the one place that owns the rule.
+        """
+
         try:
-            document = self.report_service.build(report_name, {}, self.context)
+            document = self.report_service.build(
+                report_name,
+                parameters,
+                self.context,
+            )
         except (TideRuntimeError, ValueError) as error:
             self.notify(f"Summary report failed: {error}", severity="error")
             return

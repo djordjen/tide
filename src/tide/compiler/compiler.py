@@ -254,7 +254,7 @@ def compile_project(project: str | Path = ".") -> ApplicationModel:
                     mode="json",
                     exclude_none=True,
                     exclude=(
-                        {"group_by", "aggregates"}
+                        {"group_by", "columns", "aggregates"}
                         if report.kind == "record"
                         else None
                     ),
@@ -2631,6 +2631,26 @@ def _validate_summary_report(
                 f"unknown report format {group.format!r}",
                 document,
                 (*path, "format"),
+            )
+
+    for index, column in enumerate(report.columns):
+        path = ("columns", index)
+        column_field = entity.fields.get(column)
+        if column_field is None:
+            _add(
+                diagnostics,
+                "TIDE254",
+                f"unknown report field {column!r}",
+                document,
+                path,
+            )
+        elif column_field.type == "collection":
+            _add(
+                diagnostics,
+                "TIDE255",
+                "collection fields cannot be listing columns",
+                document,
+                path,
             )
 
     for index, aggregate in enumerate(report.aggregates):

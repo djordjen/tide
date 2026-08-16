@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { TideApiError, type TideApi } from "@/lib/api"
 import type {
   TidePresentationReport,
+  TideReportCell,
   TideReportDocument,
   TideReportExportFormat,
 } from "@/lib/contracts"
@@ -256,26 +257,7 @@ function ReportPage({ document }: { document: TideReportDocument }) {
               ))}
             </tr>
           </thead>
-          <tbody>
-            {document.detail.rows.map((row, rowIndex) => (
-              <tr
-                key={rowIndex}
-                className="border-b border-slate-200 even:bg-slate-50"
-              >
-                {row.map((cell, cellIndex) => (
-                  <td
-                    key={cellIndex}
-                    className={cn(
-                      "px-3 py-2.5",
-                      alignmentClass(cell.alignment),
-                    )}
-                  >
-                    {cell.text}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
+          <tbody>{reportBodyRows(document)}</tbody>
         </table>
       </div>
 
@@ -299,6 +281,61 @@ function ReportPage({ document }: { document: TideReportDocument }) {
           .replace("{page_count}", "1")}
       </footer>
     </article>
+  )
+}
+
+function reportBodyRows(document: TideReportDocument) {
+  const groups = document.groups ?? []
+  if (groups.length === 0) {
+    return document.detail.rows.map((row, rowIndex) => dataRow(row, rowIndex))
+  }
+  // A grouped listing renders as bands inside the one table: the heading and
+  // subtotal are full-width rows, so the columns keep their shared widths and
+  // horizontal scrolling moves the whole report together.
+  const span = document.detail.columns.length
+  return groups.flatMap((group, groupIndex) => [
+    <tr
+      key={`group-heading-${groupIndex}`}
+      data-testid="report-group-heading"
+      className="border-t-2 border-blue-600 bg-slate-100 font-semibold text-slate-800"
+    >
+      <td colSpan={span} className="px-3 py-2">
+        {group.values
+          .map((value) => `${value.label}: ${value.text}`)
+          .join("  ·  ")}
+      </td>
+    </tr>,
+    ...document.detail.rows
+      .slice(group.row_start, group.row_start + group.row_count)
+      .map((row, rowIndex) =>
+        dataRow(row, group.row_start + rowIndex),
+      ),
+    <tr
+      key={`group-footer-${groupIndex}`}
+      data-testid="report-group-footer"
+      className="border-b-2 border-slate-300 font-semibold"
+    >
+      <td colSpan={span} className="px-3 py-2 text-right tabular-nums">
+        {group.footer_values
+          .map((value) => `${value.label}: ${value.text}`)
+          .join("  ·  ")}
+      </td>
+    </tr>,
+  ])
+}
+
+function dataRow(row: TideReportCell[], rowIndex: number) {
+  return (
+    <tr key={rowIndex} className="border-b border-slate-200 even:bg-slate-50">
+      {row.map((cell, cellIndex) => (
+        <td
+          key={cellIndex}
+          className={cn("px-3 py-2.5", alignmentClass(cell.alignment))}
+        >
+          {cell.text}
+        </td>
+      ))}
+    </tr>
   )
 }
 

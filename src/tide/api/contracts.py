@@ -75,6 +75,17 @@ class TideReportTable(BaseModel):
     rows: tuple[tuple[TideReportCell, ...], ...]
 
 
+class TideReportGroup(BaseModel):
+    """One named, subtotaled slice of the flat report detail rows."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    values: tuple[TideReportValue, ...]
+    row_start: int = Field(ge=0)
+    row_count: int = Field(ge=0)
+    footer_values: tuple[TideReportValue, ...]
+
+
 class TideReportDocument(BaseModel):
     """Versioned wire form of an authorized renderer-neutral report."""
 
@@ -91,6 +102,7 @@ class TideReportDocument(BaseModel):
     footer_values: tuple[TideReportValue, ...]
     page_footer_template: str
     suggested_filename: str
+    groups: tuple[TideReportGroup, ...] = ()
 
 
 class TideFilterInput(BaseModel):

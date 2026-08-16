@@ -103,6 +103,29 @@ standalone HTML, or an A4 PDF with shared field formats. A second bounded
 posted-sales report groups authorized invoices by Customer/Currency and
 calculates invoice count and Decimal sales totals.
 
+That summary is now a **grouped, parameterized listing**. Naming `columns:` on
+a summary report makes the matching records themselves the detail rows: each
+`group_by` run heads its own contiguous slice and closes with the aggregates
+as a subtotal, and the same aggregates -- folded through one accumulator, so a
+group total and the grand total cannot disagree -- close the report at the
+foot. The group fields are prepended to the declared sort, which keeps every
+group one run and leaves the declared sort ordering the rows inside it.
+Without `columns:` a summary keeps its one-row-per-group shape, and both
+shapes gained the grand-total footer they previously lacked. Report
+parameters are typed and validated in the report service alone -- every
+surface sends strings -- and a criteria clause comparing against a declared
+optional parameter that was not supplied is **dropped**, so the posted-sales
+summary answers "everything", "since a date" or "a period" from one
+declaration. The terminal asks for parameter values before building, with
+blank meaning omitted; the browser, which cannot ask yet, is simply not
+offered a summary it could not legally build with `{}`. HTML, PDF, the
+Textual preview and the Web preview render groups as bands inside the one
+detail table; CSV re-flattens them into leading columns repeated per row,
+because a spreadsheet has no headings to put them in and a row that does not
+say whose it is cannot be pivoted. The grouped document crosses REST intact:
+the wire model carries the group slices and the typed client refuses one
+that names rows outside the table.
+
 ### Qt client (retired 2026-08-10)
 
 This renderer was removed. It is recorded here because it existed for most of

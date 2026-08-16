@@ -32,6 +32,7 @@ from tide.reporting.document import (
     ReportCell,
     ReportColumn,
     ReportDocument,
+    ReportGroup,
     ReportTable,
     ReportValue,
 )
@@ -623,6 +624,14 @@ class TideApiClient:
             raise TideApiContractError(
                 "report detail rows do not match the declared columns"
             )
+        row_count = len(wire.detail.rows)
+        if any(
+            group.row_start + group.row_count > row_count
+            for group in wire.groups
+        ):
+            raise TideApiContractError(
+                "report group names rows outside the detail table"
+            )
         return ReportDocument(
             report=wire.report,
             title=wire.title,
@@ -651,6 +660,21 @@ class TideApiClient:
             ),
             page_footer_template=wire.page_footer_template,
             suggested_filename=wire.suggested_filename,
+            groups=tuple(
+                ReportGroup(
+                    values=tuple(
+                        ReportValue(value.label, value.text, value.alignment)
+                        for value in group.values
+                    ),
+                    row_start=group.row_start,
+                    row_count=group.row_count,
+                    footer_values=tuple(
+                        ReportValue(value.label, value.text, value.alignment)
+                        for value in group.footer_values
+                    ),
+                )
+                for group in wire.groups
+            ),
         )
 
     def _resource(self, entity_name: str, operation: str) -> str:

@@ -714,6 +714,93 @@ def test_summary_report_contract_is_compiler_validated(tmp_path: Path) -> None:
     assert {"TIDE254", "TIDE257"} <= codes
 
 
+def test_grouped_listing_columns_are_compiler_validated(tmp_path: Path) -> None:
+    """`columns:` must name real scalar fields, and only a summary may have it."""
+
+    project = tmp_path / "invalid-listing"
+    (project / "models").mkdir(parents=True)
+    (project / "reports").mkdir()
+    (project / "tide.yaml").write_text(
+        "\n".join(
+            [
+                'schema_version: "0.1"',
+                "application: {name: Invalid Listing, version: 0.1.0}",
+                "model: {paths: [models]}",
+                "reports: {paths: [reports]}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (project / "models" / "root.yaml").write_text(
+        "\n".join(
+            [
+                "entity: demo.Root",
+                "fields:",
+                "  id: {type: integer, primary_key: true}",
+                "  name: {type: string}",
+                "  amount: {type: decimal, precision: 12, scale: 2}",
+                "  lines: {type: collection, target: demo.Line, inverse: root}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (project / "models" / "line.yaml").write_text(
+        "\n".join(
+            [
+                "entity: demo.Line",
+                "fields:",
+                "  id: {type: integer, primary_key: true}",
+                "  root: {type: reference, target: demo.Root, storage: root_id, inverse: lines}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (project / "reports" / "listing.yaml").write_text(
+        "\n".join(
+            [
+                "report: demo.listing",
+                "title: Broken Listing",
+                "entity: demo.Root",
+                "kind: summary",
+                "unrestricted: true",
+                "group_by: [{field: name}]",
+                "columns: [missing, lines]",
+                "aggregates:",
+                "  - {name: amount_total, function: sum, field: amount}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (project / "reports" / "record.yaml").write_text(
+        "\n".join(
+            [
+                "report: demo.record",
+                "title: Record With Columns",
+                "entity: demo.Root",
+                "unrestricted: true",
+                "parameters:",
+                "  identity: {type: integer, required: true}",
+                'query: {criteria: "id == $identity"}',
+                "columns: [name]",
+                "bands:",
+                "  detail: {source: lines, columns: [id]}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(project)
+
+    codes = {diagnostic.code for diagnostic in caught.value.diagnostics}
+    messages = " | ".join(
+        diagnostic.message for diagnostic in caught.value.diagnostics
+    )
+    assert "TIDE254" in codes, "an unknown listing column must be named"
+    assert "TIDE255" in codes, "a collection cannot be a listing column"
+    assert "record reports do not accept summary fields" in messages
+
+
 def test_project_discovery_cannot_escape_project_root(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()

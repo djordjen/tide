@@ -4,6 +4,7 @@ from .document import (
     ReportCell,
     ReportColumn,
     ReportDocument,
+    ReportGroup,
     ReportTable,
     ReportValue,
 )
@@ -17,6 +18,7 @@ __all__ = [
     "ReportCell",
     "ReportColumn",
     "ReportDocument",
+    "ReportGroup",
     "ReportService",
     "ReportTable",
     "ReportValue",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, Mapping
 
 from rich.console import Group
 from rich.panel import Panel
@@ -10,10 +11,11 @@ from rich.table import Table
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, VerticalScroll
-from textual.screen import Screen
-from textual.widgets import Button, Footer, Header, Static
+from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.screen import ModalScreen, Screen
+from textual.widgets import Button, Footer, Header, Input, Static
 
+from tide.labels import humanize
 from tide.reporting import (
     PdfDependencyMissing,
     ReportDocument,
@@ -133,6 +135,135 @@ class ReportPreviewScreen(Screen[None]):
         self.notify(f"PDF exported to {path}", severity="information")
 
 
+class ReportParametersScreen(ModalScreen[dict[str, Any] | None]):
+    """Ask for a report's parameter values before building it.
+
+    The inputs collect strings and nothing else: typing, ranges and the
+    required check all belong to `ReportService`, which validates the same
+    way for every surface. A blank input is simply not sent, which for an
+    optional parameter means its criteria clause is dropped -- so building
+    with every field empty is the same report `{}` always built.
+    """
+
+    ENABLE_COMMAND_PALETTE = False
+
+    CSS = """
+    ReportParametersScreen {
+        align: center middle;
+        background: $background 65%;
+    }
+
+    #report-parameters-dialog {
+        width: 64;
+        height: auto;
+        padding: 1 2;
+        border: round $accent;
+        background: $surface;
+    }
+
+    #report-parameters-title {
+        height: 2;
+        color: $accent;
+        text-style: bold;
+    }
+
+    .report-parameter-label {
+        height: 1;
+        color: $text-muted;
+    }
+
+    #report-parameters-dialog Input {
+        margin-bottom: 1;
+    }
+
+    #report-parameters-actions {
+        height: 3;
+        align-horizontal: right;
+    }
+
+    #report-parameters-actions Button {
+        min-width: 14;
+        margin-left: 1;
+    }
+    """
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def __init__(
+        self,
+        title: str,
+        parameters: Mapping[str, Mapping[str, Any]],
+    ) -> None:
+        super().__init__()
+        self.report_title = title
+        self.parameters = parameters
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="report-parameters-dialog"):
+            yield Static(f"{self.report_title} parameters", id="report-parameters-title")
+            for name, definition in self.parameters.items():
+                requirement = (
+                    "required"
+                    if definition.get("required") and definition.get("default") is None
+                    else "optional"
+                )
+                yield Static(
+                    f"{humanize(name)} ({definition.get('type', 'string')}, "
+                    f"{requirement})",
+                    classes="report-parameter-label",
+                    markup=False,
+                )
+                yield Input(
+                    placeholder=_parameter_placeholder(definition),
+                    id=f"report-parameter-{name.replace('_', '-')}",
+                )
+            with Horizontal(id="report-parameters-actions"):
+                yield Button("Cancel", id="cancel-report-parameters")
+                yield Button(
+                    "Build report",
+                    id="build-report",
+                    variant="primary",
+                )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "build-report":
+            self.dismiss(self._collect())
+        elif event.button.id == "cancel-report-parameters":
+            self.action_cancel()
+
+    def on_input_submitted(self, _event: Input.Submitted) -> None:
+        self.dismiss(self._collect())
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def _collect(self) -> dict[str, Any]:
+        supplied: dict[str, Any] = {}
+        for name in self.parameters:
+            value = self.query_one(
+                f"#report-parameter-{name.replace('_', '-')}", Input
+            ).value.strip()
+            if value:
+                supplied[name] = value
+        return supplied
+
+
+def _parameter_placeholder(definition: Mapping[str, Any]) -> str:
+    hints = {
+        "date": "for example 2026-08-16",
+        "datetime": "for example 2026-08-16T09:00:00",
+        "integer": "a whole number",
+        "decimal": "a number",
+        "boolean": "true or false",
+        "string": "text",
+    }
+    hint = hints.get(str(definition.get("type", "string")), "text")
+    default = definition.get("default")
+    if default is not None:
+        return f"{hint} (default: {default})"
+    return f"{hint} (leave blank to skip)"
+
+
 def _preview_renderable(document: ReportDocument) -> Group:
     heading = Text(document.title, style="bold bright_blue", justify="left")
     application = Text(document.application, style="bold")
@@ -154,8 +285,39 @@ def _preview_renderable(document: ReportDocument) -> Group:
     detail = Table(expand=True, show_lines=False, header_style="bold white on #1e3a5f")
     for column in document.detail.columns:
         detail.add_column(column.label, justify=column.alignment)
-    for row in document.detail.rows:
-        detail.add_row(*(Text(cell.text, justify=cell.alignment) for cell in row))
+    if document.groups:
+        # Rich has no colspan, so a band is a section: a rule, the heading
+        # carried in the first cell, the group's rows, and its subtotal
+        # right-aligned in the last cell -- all inside the one table so the
+        # columns keep their shared widths.
+        for group in document.groups:
+            heading_text = "  ·  ".join(
+                f"{value.label}: {value.text}" for value in group.values
+            )
+            heading_row: list[Text] = [
+                Text(heading_text, style="bold #1e3a5f", overflow="fold")
+            ] + [Text("")] * (len(document.detail.columns) - 1)
+            detail.add_section()
+            detail.add_row(*heading_row)
+            for row in document.detail.rows[
+                group.row_start : group.row_start + group.row_count
+            ]:
+                detail.add_row(
+                    *(Text(cell.text, justify=cell.alignment) for cell in row)
+                )
+            subtotal_text = "  ·  ".join(
+                f"{value.label}: {value.text}" for value in group.footer_values
+            )
+            # The first column is the widest at 80 columns, so the subtotal
+            # folds there legibly instead of wrapping in the narrow last one.
+            subtotal_row = [
+                Text(subtotal_text, style="bold", overflow="fold")
+            ] + [Text("")] * (len(document.detail.columns) - 1)
+            detail.add_row(*subtotal_row)
+            detail.add_section()
+    else:
+        for row in document.detail.rows:
+            detail.add_row(*(Text(cell.text, justify=cell.alignment) for cell in row))
 
     totals = Table.grid(padding=(0, 2))
     totals.add_column(style="bold", justify="right")

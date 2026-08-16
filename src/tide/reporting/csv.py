@@ -17,10 +17,29 @@ def render_csv(document: ReportDocument) -> str:
 
     Formula-looking text is prefixed with an apostrophe so opening an export in
     a spreadsheet cannot turn application data into an executable formula.
+
+    A grouped document is re-flattened: the group values become leading columns
+    repeated on every row of their slice, because a spreadsheet has no headings
+    to put them in, and a row that does not say whose it is cannot be sorted,
+    filtered or pivoted -- which is what a CSV export is for.
     """
 
     output = StringIO(newline="")
     writer = csv.writer(output, lineterminator="\r\n")
+    if document.groups:
+        writer.writerow(
+            [value.label for value in document.groups[0].values]
+            + [column.label for column in document.detail.columns]
+        )
+        for group in document.groups:
+            prefix = [_safe_spreadsheet_cell(value.text) for value in group.values]
+            for row in document.detail.rows[
+                group.row_start : group.row_start + group.row_count
+            ]:
+                writer.writerow(
+                    prefix + [_safe_spreadsheet_cell(cell.text) for cell in row]
+                )
+        return output.getvalue()
     writer.writerow(column.label for column in document.detail.columns)
     for row in document.detail.rows:
         writer.writerow(_safe_spreadsheet_cell(cell.text) for cell in row)

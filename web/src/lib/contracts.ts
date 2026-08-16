@@ -238,6 +238,13 @@ export interface TideReportCell {
   alignment: TideAlignment
 }
 
+export interface TideReportGroup {
+  values: TideReportValue[]
+  row_start: number
+  row_count: number
+  footer_values: TideReportValue[]
+}
+
 export interface TideReportDocument {
   wire_version: "0.1"
   report: string
@@ -253,6 +260,7 @@ export interface TideReportDocument {
   footer_values: TideReportValue[]
   page_footer_template: string
   suggested_filename: string
+  groups?: TideReportGroup[]
 }
 
 export interface TideReportDownload {

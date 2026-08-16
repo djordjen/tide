@@ -6,8 +6,15 @@ kind: summary
 permission: sales.invoice.report
 expose: {rest: true}
 
+# Both parameters are optional: a clause comparing against one that was not
+# supplied is dropped, so this one report answers "everything", "since a
+# date", "until a date" or "a period" depending on what the caller filled in.
+parameters:
+  from_date: {type: date}
+  to_date: {type: date}
+
 query:
-  criteria: "status == 'posted'"
+  criteria: "status == 'posted' and invoice_date >= $from_date and invoice_date <= $to_date"
   sort: [customer, currency, invoice_date, number]
 
 group_by:
@@ -15,6 +22,12 @@ group_by:
     label: Customer
   - field: currency
     label: Currency
+
+# Naming columns turns the summary into a grouped listing: each group heads
+# its own invoices and closes with the aggregates as a subtotal, and the same
+# aggregates total the whole report at the foot. Without columns the report
+# stays one row per group.
+columns: [number, invoice_date, total]
 
 aggregates:
   - name: invoice_count

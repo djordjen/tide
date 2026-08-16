@@ -1786,7 +1786,12 @@ def test_server_builds_only_authorized_renderer_neutral_reports() -> None:
         assert unknown.status_code == 404
         assert unknown.json()["code"] == "not_found"
         assert summary.status_code == 200
-        assert summary.json()["detail"]["rows"][0][-1]["text"] == "4,610.00"
+        # The summary is a grouped listing now: rows are the invoices, and
+        # the group total rides in the group's own footer over the wire.
+        assert summary.json()["detail"]["rows"][0][-1]["text"] == "850.00"
+        summary_group = summary.json()["groups"][0]
+        assert summary_group["row_count"] == 3
+        assert summary_group["footer_values"][-1]["text"] == "4,610.00"
         assert pdf.status_code == 200
         assert pdf.content.startswith(b"%PDF-")
         assert pdf.headers["content-type"] == "application/pdf"
@@ -1796,7 +1801,10 @@ def test_server_builds_only_authorized_renderer_neutral_reports() -> None:
         )
         assert summary_csv.status_code == 200
         assert summary_csv.content.startswith(b"\xef\xbb\xbf")
-        assert b"Customer,Currency,Invoices,Sales total" in summary_csv.content
+        assert b"Customer,Currency,Number,Invoice Date,Total" in summary_csv.content
+        assert (
+            b"ADRIA - Adria Consulting,EUR,INV-2026-0001" in summary_csv.content
+        ), "the group values are repeated on every exported row"
         assert summary_csv.headers["content-type"] == "text/csv; charset=utf-8"
         assert summary_html.status_code == 200
         assert b"<!doctype html>" in summary_html.content

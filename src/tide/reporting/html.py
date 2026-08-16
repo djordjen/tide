@@ -20,14 +20,7 @@ def render_html(document: ReportDocument) -> str:
         f'<th class="{column.alignment}">{escape(column.label)}</th>'
         for column in document.detail.columns
     )
-    rows = "".join(
-        "<tr>{}</tr>".format(
-            "".join(
-                f'<td class="{cell.alignment}">{escape(cell.text)}</td>' for cell in row
-            )
-        )
-        for row in document.detail.rows
-    )
+    rows = _table_rows(document)
     footer_values = "".join(
         "<div class=\"total\"><dt>{}</dt><dd class=\"{}\">{}</dd></div>".format(
             escape(value.label), value.alignment, escape(value.text)
@@ -61,6 +54,8 @@ def render_html(document: ReportDocument) -> str:
     th {{ background: #1e3a5f; color: white; padding: 8px 7px; text-align: left; }}
     td {{ border-bottom: 1px solid #dbe3ee; padding: 8px 7px; vertical-align: top; }}
     tbody tr:nth-child(even) {{ background: #f8fafc; }}
+    tr.group-heading td {{ background: #eef2f7; color: #1e3a5f; font-weight: 700; border-top: 2px solid #2563eb; }}
+    tr.group-footer td {{ background: white; font-weight: 700; border-bottom: 2px solid #cbd5e1; }}
     .right {{ text-align: right; }} .center {{ text-align: center; }}
     .totals {{ margin: 20px 0 0 auto; width: 310px; border-top: 2px solid #2563eb; padding-top: 10px; }}
     .total {{ grid-template-columns: 1fr 1fr; padding: 3px 0; }}
@@ -92,3 +87,47 @@ def write_html(document: ReportDocument, path: str | Path) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(render_html(document), encoding="utf-8")
     return destination
+
+
+def _table_rows(document: ReportDocument) -> str:
+    """Emit the detail rows, banded per group where the document has them.
+
+    Headings and subtotals are full-width rows inside the one table rather
+    than separate tables, so printing keeps column widths, zebra striping
+    and page breaks working exactly as they do for a flat report.
+    """
+
+    if not document.groups:
+        return "".join(_data_row(row) for row in document.detail.rows)
+    span = len(document.detail.columns)
+    parts: list[str] = []
+    for group in document.groups:
+        heading = "  ·  ".join(
+            f"{value.label}: {value.text}" for value in group.values
+        )
+        parts.append(
+            f'<tr class="group-heading"><td colspan="{span}">'
+            f"{escape(heading)}</td></tr>"
+        )
+        parts.extend(
+            _data_row(row)
+            for row in document.detail.rows[
+                group.row_start : group.row_start + group.row_count
+            ]
+        )
+        subtotal = "  ·  ".join(
+            f"{value.label}: {value.text}" for value in group.footer_values
+        )
+        parts.append(
+            f'<tr class="group-footer"><td colspan="{span}" class="right">'
+            f"{escape(subtotal)}</td></tr>"
+        )
+    return "".join(parts)
+
+
+def _data_row(row: tuple) -> str:
+    return "<tr>{}</tr>".format(
+        "".join(
+            f'<td class="{cell.alignment}">{escape(cell.text)}</td>' for cell in row
+        )
+    )

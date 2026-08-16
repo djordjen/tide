@@ -20,7 +20,14 @@ from tide.runtime.errors import AuthorizationError, ValidationFailed, Validation
 from tide.security import PROTECTED
 from tide.services.records import RecordsService
 
-from .document import ReportCell, ReportColumn, ReportDocument, ReportTable, ReportValue
+from .document import (
+    ReportCell,
+    ReportColumn,
+    ReportDocument,
+    ReportGroup,
+    ReportTable,
+    ReportValue,
+)
 
 
 class ReportService:
@@ -173,11 +180,27 @@ class ReportService:
         report_context = replace(context, channel=Channel.REPORT)
         row_limit = int(report.get("row_limit", 500))
         query = report.get("query", {})
+        group_definitions = tuple(report.get("group_by", ()))
+        column_names = tuple(str(name) for name in report.get("columns", ()))
+        declared_sort = tuple(
+            _summary_sort(str(name)) for name in query.get("sort", ())
+        )
+        if column_names and group_definitions:
+            # A group is a contiguous run of equal keys, so the rows must
+            # arrive grouped whatever the author sorted by. Prepending the
+            # group fields keeps their declared sort as the order inside
+            # each group rather than an instruction the listing ignores.
+            group_fields = tuple(
+                str(group["field"]) for group in group_definitions
+            )
+            declared_sort = tuple(SortField(name) for name in group_fields) + tuple(
+                item for item in declared_sort if item.field not in group_fields
+            )
         page = self.records.query_page(
             entity.name,
             QuerySpec(
                 filters=_summary_filters(str(query.get("criteria") or ""), parameters),
-                sort=tuple(_summary_sort(str(name)) for name in query.get("sort", ())),
+                sort=declared_sort,
                 limit=row_limit,
             ),
             report_context,
@@ -188,9 +211,21 @@ class ReportService:
                 f"{row_limit}; narrow the report criteria"
             )
 
-        group_definitions = tuple(report.get("group_by", ()))
         aggregate_definitions = tuple(report["aggregates"])
+        if column_names:
+            return self._build_listing(
+                report_name,
+                report,
+                entity,
+                page,
+                group_definitions,
+                column_names,
+                aggregate_definitions,
+                report_context,
+                generated_at=generated_at,
+            )
         groups: dict[tuple[Any, ...], list[int | Decimal]] = {}
+        totals = _initial_aggregates(aggregate_definitions)
         if not group_definitions:
             groups[()] = _initial_aggregates(aggregate_definitions)
         for record in page.records:
@@ -202,14 +237,8 @@ class ReportService:
                 key,
                 _initial_aggregates(aggregate_definitions),
             )
-            for index, aggregate in enumerate(aggregate_definitions):
-                if aggregate["function"] == "count":
-                    values[index] = int(values[index]) + 1
-                    continue
-                field_name = str(aggregate["field"])
-                raw = _read_report_value(entity.name, field_name, record)
-                if raw is not None:
-                    values[index] = Decimal(values[index]) + Decimal(raw)
+            _accumulate(entity.name, aggregate_definitions, values, record)
+            _accumulate(entity.name, aggregate_definitions, totals, record)
 
         columns = tuple(
             ReportColumn(
@@ -226,11 +255,7 @@ class ReportService:
             )
             for group in group_definitions
         ) + tuple(
-            ReportColumn(
-                str(aggregate["name"]),
-                str(aggregate.get("label") or _humanize(str(aggregate["name"]))),
-                "right",
-            )
+            ReportColumn(str(aggregate["name"]), _aggregate_label(aggregate), "right")
             for aggregate in aggregate_definitions
         )
 
@@ -256,19 +281,14 @@ class ReportService:
                 )
                 for group, value in zip(group_definitions, key)
             )
-            aggregate_cells: list[ReportCell] = []
-            for aggregate, value in zip(aggregate_definitions, aggregate_values):
-                if aggregate["function"] == "count":
-                    text = self._format_scalar(value, aggregate.get("format"))
-                else:
-                    text = self._format_field(
-                        entity.field(str(aggregate["field"])),
-                        value,
-                        report_context,
-                        format_name=aggregate.get("format"),
-                    )
-                aggregate_cells.append(ReportCell(text, "right"))
-            rows.append(group_cells + tuple(aggregate_cells))
+            aggregate_cells = tuple(
+                ReportCell(
+                    self._aggregate_text(entity, aggregate, value, report_context),
+                    "right",
+                )
+                for aggregate, value in zip(aggregate_definitions, aggregate_values)
+            )
+            rows.append(group_cells + aggregate_cells)
 
         now = generated_at or datetime.now(timezone.utc)
         return ReportDocument(
@@ -279,13 +299,144 @@ class ReportService:
             header_text=(),
             record_values=(),
             detail=ReportTable(columns, tuple(rows)),
-            footer_values=(
-                ReportValue("Source records", str(len(page.records)), "right"),
-            ),
+            footer_values=tuple(
+                ReportValue(
+                    _aggregate_label(aggregate),
+                    self._aggregate_text(entity, aggregate, value, report_context),
+                    "right",
+                )
+                for aggregate, value in zip(aggregate_definitions, totals)
+            )
+            + (ReportValue("Source records", str(len(page.records)), "right"),),
             page_footer_template="Page {page_number} of {page_count}",
             suggested_filename=_report_filename(
                 report, now.astimezone(timezone.utc).date().isoformat()
             ),
+        )
+
+    def _build_listing(
+        self,
+        report_name: str,
+        report: Mapping[str, Any],
+        entity: NormalizedEntity,
+        page: Any,
+        group_definitions: tuple[Mapping[str, Any], ...],
+        column_names: tuple[str, ...],
+        aggregate_definitions: tuple[Mapping[str, Any], ...],
+        context: RequestContext,
+        *,
+        generated_at: datetime | None,
+    ) -> ReportDocument:
+        """List the matching records themselves, sliced into subtotaled groups.
+
+        The detail table holds every row exactly once; a group names its
+        contiguous slice, heads it with the group values and closes it with
+        the aggregates. The same aggregates run once more over everything for
+        the report footer, so a group total and the grand total can only
+        disagree if the arithmetic itself does.
+        """
+
+        column_fields = tuple(entity.field(name) for name in column_names)
+        columns = tuple(
+            ReportColumn(
+                field.name,
+                _field_label(field),
+                _alignment(field, self.model.formats, None),
+            )
+            for field in column_fields
+        )
+        rows: list[tuple[ReportCell, ...]] = []
+        groups: list[ReportGroup] = []
+        totals = _initial_aggregates(aggregate_definitions)
+        run_key: tuple[Any, ...] | None = None
+        run_start = 0
+        run_values = _initial_aggregates(aggregate_definitions)
+
+        def close_run() -> None:
+            if not group_definitions or run_key is None:
+                return
+            groups.append(
+                ReportGroup(
+                    tuple(
+                        ReportValue(
+                            str(
+                                group.get("label")
+                                or _field_label(entity.field(str(group["field"])))
+                            ),
+                            self._format_field(
+                                entity.field(str(group["field"])),
+                                value,
+                                context,
+                                format_name=group.get("format"),
+                                references=page.references,
+                            ),
+                        )
+                        for group, value in zip(group_definitions, run_key)
+                    ),
+                    run_start,
+                    len(rows) - run_start,
+                    tuple(
+                        ReportValue(
+                            _aggregate_label(aggregate),
+                            self._aggregate_text(entity, aggregate, value, context),
+                            "right",
+                        )
+                        for aggregate, value in zip(aggregate_definitions, run_values)
+                    ),
+                )
+            )
+
+        for record in page.records:
+            key = tuple(
+                _read_report_value(entity.name, str(group["field"]), record)
+                for group in group_definitions
+            )
+            if group_definitions and key != run_key:
+                close_run()
+                run_key = key
+                run_start = len(rows)
+                run_values = _initial_aggregates(aggregate_definitions)
+            _accumulate(entity.name, aggregate_definitions, run_values, record)
+            _accumulate(entity.name, aggregate_definitions, totals, record)
+            rows.append(
+                tuple(
+                    ReportCell(
+                        self._format_field(
+                            field,
+                            _read_report_value(entity.name, field.name, record),
+                            context,
+                            references=page.references,
+                        ),
+                        _alignment(field, self.model.formats, None),
+                    )
+                    for field in column_fields
+                )
+            )
+        close_run()
+
+        now = generated_at or datetime.now(timezone.utc)
+        return ReportDocument(
+            report=report_name,
+            title=str(report["title"]),
+            application=self.model.name,
+            generated_at=now,
+            header_text=(),
+            record_values=(),
+            detail=ReportTable(columns, tuple(rows)),
+            footer_values=tuple(
+                ReportValue(
+                    _aggregate_label(aggregate),
+                    self._aggregate_text(entity, aggregate, value, context),
+                    "right",
+                )
+                for aggregate, value in zip(aggregate_definitions, totals)
+            )
+            + (ReportValue("Source records", str(len(page.records)), "right"),),
+            page_footer_template="Page {page_number} of {page_count}",
+            suggested_filename=_report_filename(
+                report, now.astimezone(timezone.utc).date().isoformat()
+            ),
+            groups=tuple(groups),
         )
 
     def _content_values(
@@ -403,6 +554,29 @@ class ReportService:
                     )
                 )
         return "  |  ".join(parts) or "Page {page_number} of {page_count}"
+
+    def _aggregate_text(
+        self,
+        entity: NormalizedEntity,
+        aggregate: Mapping[str, Any],
+        value: Any,
+        context: RequestContext,
+    ) -> str:
+        """Format one aggregate the same way wherever it appears.
+
+        A subtotal, a grand total and a summary cell are the same number at
+        different scopes; formatting them in one place is what keeps a group
+        footer from disagreeing with the column above it.
+        """
+
+        if aggregate["function"] == "count":
+            return self._format_scalar(value, aggregate.get("format"))
+        return self._format_field(
+            entity.field(str(aggregate["field"])),
+            value,
+            context,
+            format_name=aggregate.get("format"),
+        )
 
     def _format_field(
         self,
@@ -527,6 +701,14 @@ def _summary_filters(
             "__tide_parameter_"
         ):
             value = parameters[comparator.id.removeprefix("__tide_parameter_")]
+            if value is None:
+                # A declared optional parameter that was not supplied. The
+                # clause asks nothing, so it is dropped rather than sent to
+                # the database as a comparison with nothing -- which is what
+                # lets one report answer both "everything" and "this period".
+                # A required parameter cannot be None here (coercion refused
+                # it), and a literal `null` comparison takes the branch below.
+                continue
         elif isinstance(comparator, ast.Name):
             value = {"true": True, "false": False, "null": None}[comparator.id]
         else:
@@ -545,6 +727,10 @@ def _summary_sort(value: str) -> SortField:
     return SortField(value.lstrip("+-"), descending=value.startswith("-"))
 
 
+def _aggregate_label(aggregate: Mapping[str, Any]) -> str:
+    return str(aggregate.get("label") or _humanize(str(aggregate["name"])))
+
+
 def _initial_aggregates(
     aggregates: tuple[Mapping[str, Any], ...],
 ) -> list[int | Decimal]:
@@ -552,6 +738,27 @@ def _initial_aggregates(
         0 if aggregate["function"] == "count" else Decimal(0)
         for aggregate in aggregates
     ]
+
+
+def _accumulate(
+    entity_name: str,
+    aggregates: tuple[Mapping[str, Any], ...],
+    values: list[int | Decimal],
+    record: Mapping[str, Any],
+) -> None:
+    """Fold one record into a running aggregate row, in place.
+
+    A group subtotal, the grand total and the flat summary's cells all walk
+    through here, which is what entitles the listing to claim they agree.
+    """
+
+    for index, aggregate in enumerate(aggregates):
+        if aggregate["function"] == "count":
+            values[index] = int(values[index]) + 1
+            continue
+        raw = _read_report_value(entity_name, str(aggregate["field"]), record)
+        if raw is not None:
+            values[index] = Decimal(values[index]) + Decimal(raw)
 
 
 def _coerce_parameter(field_type: str, value: Any) -> Any:

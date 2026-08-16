@@ -414,13 +414,19 @@ kind: summary
 permission: sales.invoice.report
 expose: {rest: true}
 
+parameters:
+  from_date: {type: date}
+  to_date: {type: date}
+
 query:
-  criteria: "status == 'posted'"
-  sort: [customer, currency]
+  criteria: "status == 'posted' and invoice_date >= $from_date and invoice_date <= $to_date"
+  sort: [customer, currency, invoice_date, number]
 
 group_by:
   - {field: customer, label: Customer}
   - {field: currency, label: Currency}
+
+columns: [number, invoice_date, total]
 
 aggregates:
   - {name: invoice_count, function: count, label: Invoices}
@@ -429,15 +435,41 @@ aggregates:
 row_limit: 500
 ```
 
+Both parameters are optional: a criteria clause comparing against a parameter
+that was not supplied is dropped, so the one report answers "everything",
+"since a date" or "a period" depending on what the caller filled in. A
+required parameter without a default must be supplied, and the terminal asks
+for parameter values before building; a summary that cannot be built with an
+empty parameter map is not offered to the browser, which has no way to ask
+yet. Parameter typing and the required check live in `ReportService`, so every
+surface sends strings and gets the same refusal in the same words.
+
+Naming `columns:` turns the summary into a **grouped listing**: the matching
+records themselves become the detail rows, each `group_by` run heads its own
+slice and closes with the aggregates as a subtotal, and the same aggregates
+total the whole report at the foot -- one accumulator walks both, so a group
+total and the grand total cannot disagree. The group fields are prepended to
+the declared sort, which keeps every group one contiguous run and leaves the
+declared sort ordering the rows inside it. Without `columns:` the summary
+stays one row per group, and either shape closes with the grand totals.
+HTML, PDF and the terminal preview render the groups as bands inside the one
+detail table; CSV re-flattens instead, repeating the group values as leading
+columns on every row, because a spreadsheet has no headings to put them in
+and a row that does not say whose it is cannot be pivoted.
+
 Summary criteria are the shared typed expression syntax, restricted in this
 initial slice to direct field comparisons joined by `and` so they translate to
 the structured repository query. Group values and aggregate inputs come only
 from row/field-policy-projected records. The runtime refuses generation when a
 next page would make the totals incomplete. The compiler validates report
-access, parameters and expression types, fields, aggregate types, sorting, and
-named formats. Reports fail closed if any requested field is protected. REST
-delivery is independently opt-in through `expose.rest: true`; declaring a
-report permission alone does not create an HTTP route.
+access, parameters and expression types, fields, listing columns, aggregate
+types, sorting, and named formats. Reports fail closed if any requested field
+is protected. REST delivery is independently opt-in through
+`expose.rest: true`; declaring a report permission alone does not create an
+HTTP route. A parameter narrowing by reference -- "one customer's period" --
+is not yet expressible: the expression validator refuses comparing a
+reference field with an integer parameter (TIDE306), and typed reference
+parameters are their own later contract decision.
 
 ## Report capabilities
 

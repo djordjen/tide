@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Mapping
+from typing import Any, Mapping
 from urllib.parse import quote
 
 from tide.api.contracts import (
@@ -236,7 +236,12 @@ def build_presentation_manifest(
         and str(report["entity"]) in accessible_entities
         and (
             report.get("kind", "record") != "summary"
-            or not report.get("parameters")
+            # The browser has no way to ask for parameter values yet, so a
+            # summary it cannot legally build with `{}` is not offered. An
+            # optional parameter (or one with a default) costs nothing to
+            # leave unfilled -- the clause it feeds is dropped -- so only a
+            # required parameter without a default keeps a report out.
+            or not _summary_needs_parameters(report)
         )
     }
     return TidePresentationManifest(
@@ -248,6 +253,15 @@ def build_presentation_manifest(
         views=views,
         forms=forms,
         reports=reports,
+    )
+
+
+def _summary_needs_parameters(report: Mapping[str, Any]) -> bool:
+    """True when the report cannot be built with an empty parameter map."""
+
+    return any(
+        definition.get("required") and definition.get("default") is None
+        for definition in report.get("parameters", {}).values()
     )
 
 

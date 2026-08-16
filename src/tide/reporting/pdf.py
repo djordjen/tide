@@ -130,38 +130,114 @@ def render_pdf(document: ReportDocument) -> bytes:
         )
         story.extend([facts_table, Spacer(1, 5 * mm)])
 
+    group_heading = ParagraphStyle(
+        "TideGroupHeading",
+        parent=normal,
+        fontName=bold_font,
+        textColor=colors.HexColor("#1E3A5F"),
+    )
+    group_footer = ParagraphStyle(
+        "TideGroupFooter",
+        parent=right,
+        fontName=bold_font,
+    )
     table_data: list[list[Any]] = [
         [
             Paragraph(_xml(column.label), table_header)
             for column in document.detail.columns
         ]
     ]
-    table_data.extend(
-        [
+    column_count = len(document.detail.columns)
+    style_commands: list[tuple[Any, ...]] = [
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E3A5F")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), bold_font),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("GRID", (0, 0), (-1, 0), 0.25, colors.HexColor("#1E3A5F")),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.25, colors.HexColor("#CBD5E1")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]
+
+    def data_row(row: Any) -> list[Any]:
+        return [
             Paragraph(_xml(cell.text), paragraph_styles[cell.alignment])
             for cell in row
         ]
-        for row in document.detail.rows
-    )
+
+    def full_width_row(text: str, style: ParagraphStyle) -> list[Any]:
+        return [Paragraph(_xml(text), style)] + [""] * (column_count - 1)
+
+    if document.groups:
+        # Bands live inside the one table so ReportLab keeps page breaks and
+        # the repeated header; each heading and subtotal row spans the width.
+        for group in document.groups:
+            heading_index = len(table_data)
+            table_data.append(
+                full_width_row(
+                    "   ·   ".join(
+                        f"{value.label}: {value.text}" for value in group.values
+                    ),
+                    group_heading,
+                )
+            )
+            table_data.extend(
+                data_row(row)
+                for row in document.detail.rows[
+                    group.row_start : group.row_start + group.row_count
+                ]
+            )
+            subtotal_index = len(table_data)
+            table_data.append(
+                full_width_row(
+                    "   ·   ".join(
+                        f"{value.label}: {value.text}"
+                        for value in group.footer_values
+                    ),
+                    group_footer,
+                )
+            )
+            style_commands.extend(
+                [
+                    ("SPAN", (0, heading_index), (-1, heading_index)),
+                    (
+                        "BACKGROUND",
+                        (0, heading_index),
+                        (-1, heading_index),
+                        colors.HexColor("#EEF2F7"),
+                    ),
+                    (
+                        "LINEABOVE",
+                        (0, heading_index),
+                        (-1, heading_index),
+                        0.8,
+                        colors.HexColor("#2563EB"),
+                    ),
+                    ("SPAN", (0, subtotal_index), (-1, subtotal_index)),
+                    (
+                        "LINEBELOW",
+                        (0, subtotal_index),
+                        (-1, subtotal_index),
+                        0.8,
+                        colors.HexColor("#CBD5E1"),
+                    ),
+                ]
+            )
+    else:
+        table_data.extend(data_row(row) for row in document.detail.rows)
+        style_commands.append(
+            (
+                "ROWBACKGROUNDS",
+                (0, 1),
+                (-1, -1),
+                [colors.white, colors.HexColor("#F8FAFC")],
+            )
+        )
     widths = _column_widths(document, page_width - doc.leftMargin - doc.rightMargin)
     detail_table = Table(table_data, colWidths=widths, repeatRows=1, hAlign="LEFT")
-    detail_table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E3A5F")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTNAME", (0, 0), (-1, 0), bold_font),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("GRID", (0, 0), (-1, 0), 0.25, colors.HexColor("#1E3A5F")),
-                ("LINEBELOW", (0, 1), (-1, -1), 0.25, colors.HexColor("#CBD5E1")),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
-                ("LEFTPADDING", (0, 0), (-1, -1), 5),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-                ("TOPPADDING", (0, 0), (-1, -1), 5),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ]
-        )
-    )
+    detail_table.setStyle(TableStyle(style_commands))
     story.extend([detail_table, Spacer(1, 6 * mm)])
 
     if document.footer_values:

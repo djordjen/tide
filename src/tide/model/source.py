@@ -435,6 +435,11 @@ class ReportSource(SourceModel):
     query: QuerySource = Field(default_factory=QuerySource)
     bands: ReportBandsSource | None = None
     group_by: tuple[ReportGroupSource, ...] = ()
+    # Naming columns turns a summary into a grouped listing: the matching
+    # records themselves become the detail rows, each group_by run heads its
+    # own slice and closes with the aggregates as a subtotal. Without columns
+    # the summary stays one row per group.
+    columns: tuple[str, ...] = ()
     aggregates: tuple[ReportAggregateSource, ...] = ()
     row_limit: int | None = Field(default=None, ge=1, le=500)
 
@@ -445,7 +450,12 @@ class ReportSource(SourceModel):
         if self.kind == "record":
             if self.bands is None:
                 raise ValueError("record reports require bands")
-            if self.group_by or self.aggregates or self.row_limit is not None:
+            if (
+                self.group_by
+                or self.columns
+                or self.aggregates
+                or self.row_limit is not None
+            ):
                 raise ValueError("record reports do not accept summary fields")
         else:
             if self.bands is not None:

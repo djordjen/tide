@@ -33,7 +33,7 @@ from tide.tui import seed_demo_data
 from tide.tui import TideApp
 from tide.tui.conflict import ConflictReviewScreen
 from tide.tui.form import RecordEditScreen
-from tide.tui.report import ReportPreviewScreen
+from tide.tui.report import ReportParametersScreen, ReportPreviewScreen
 from tide.tui.confirm import DeleteConfirmationScreen
 from textual.widgets import Button, DataTable, Input, Select
 from textual.pilot import Pilot
@@ -378,8 +378,16 @@ def test_remote_textual_preview_uses_the_server_report_document(
                 assert not summary.disabled
                 await pilot.click("#summary-report")
                 await pilot.pause()
+                # The parameter prompt appears remotely too; blank inputs
+                # mean `{}`, which the client POSTs to the server, and the
+                # grouped document that comes back carries its subtotals.
+                assert isinstance(tide_app.screen, ReportParametersScreen)
+                await pilot.click("#build-report")
+                await pilot.pause()
                 assert isinstance(tide_app.screen, ReportPreviewScreen)
-                assert "4,610.00" in tide_app.screen.document.plain_text()
+                remote_preview = tide_app.screen.document.plain_text()
+                assert "Customer: ADRIA - Adria Consulting" in remote_preview
+                assert "4,610.00" in remote_preview
                 await pilot.click("#export-csv")
                 assert list(tmp_path.glob("posted-sales-summary-*.csv"))
 

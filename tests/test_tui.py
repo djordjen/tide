@@ -36,7 +36,7 @@ from tide.tui.form import NumericMaskedInput, RecordEditScreen
 from tide.tui.confirm import DeleteConfirmationScreen
 from tide.tui.conflict import ConflictReviewScreen
 from tide.tui.lookup import LookupField, LookupScreen
-from tide.tui.report import ReportPreviewScreen
+from tide.tui.report import ReportParametersScreen, ReportPreviewScreen
 
 ROOT = Path(__file__).parents[1]
 INVOICING = ROOT / "applications" / "invoicing"
@@ -583,12 +583,48 @@ def test_textual_invoice_report_preview_and_exports(tmp_path: Path) -> None:
             assert not summary_button.disabled
             await pilot.click("#summary-report")
             await pilot.pause()
+            # The summary declares optional parameters, so a prompt comes
+            # first. Leaving every input blank sends `{}`: each unsupplied
+            # optional parameter drops its criteria clause, so this is the
+            # same report the button built before parameters existed.
+            assert isinstance(app.screen, ReportParametersScreen)
+            await pilot.click("#build-report")
+            await pilot.pause()
             assert isinstance(app.screen, ReportPreviewScreen)
-            assert "Posted Sales Summary" in app.screen.document.plain_text()
-            assert "4,610.00" in app.screen.document.plain_text()
+            preview_text = app.screen.document.plain_text()
+            assert "Posted Sales Summary" in preview_text
+            assert "Customer: ADRIA - Adria Consulting" in preview_text
+            assert "4,610.00" in preview_text
             await pilot.click("#export-csv")
             await pilot.pause()
             assert list(tmp_path.glob("posted-sales-summary-*.csv"))
+
+            await pilot.press("escape")
+            await pilot.pause()
+
+            # A supplied date narrows the report to the period it names.
+            await pilot.click("#summary-report")
+            await pilot.pause()
+            assert isinstance(app.screen, ReportParametersScreen)
+            from_date = app.screen.query_one("#report-parameter-from-date", Input)
+            from_date.value = "2026-07-10"
+            await pilot.click("#build-report")
+            await pilot.pause()
+            assert isinstance(app.screen, ReportPreviewScreen)
+            narrowed = app.screen.document.plain_text()
+            assert "INV-2026-0007" in narrowed
+            assert "INV-2026-0001" not in narrowed
+            await pilot.press("escape")
+            await pilot.pause()
+
+            # Cancelling the prompt builds nothing.
+            await pilot.click("#summary-report")
+            await pilot.pause()
+            assert isinstance(app.screen, ReportParametersScreen)
+            await pilot.click("#cancel-report-parameters")
+            await pilot.pause()
+            assert not isinstance(app.screen, ReportPreviewScreen)
+            assert not isinstance(app.screen, ReportParametersScreen)
 
     asyncio.run(exercise())
 

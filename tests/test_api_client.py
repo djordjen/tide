@@ -190,7 +190,11 @@ def test_client_round_trips_types_mutations_versions_and_actions() -> None:
     assert "INV-2026-0001" in render_html(report)
     assert render_pdf(report).startswith(b"%PDF-")
     assert summary.report == "sales.summary"
-    assert summary.detail.rows[0][-1].text == "4,610.00"
+    # The grouped listing round-trips: the typed client rebuilds the group
+    # slices, so the remote preview shows the same subtotals as a local one.
+    assert summary.detail.rows[0][-1].text == "850.00"
+    assert summary.groups[0].footer_values[-1].text == "4,610.00"
+    assert summary.groups[0].row_count == 3
     assert product.values["unit_price"] == Decimal("29.95")
     assert product.etag is None
     assert deleted_product.value.status_code == 404

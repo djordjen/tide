@@ -36,6 +36,22 @@ class ReportTable:
 
 
 @dataclass(frozen=True, slots=True)
+class ReportGroup:
+    """One contiguous slice of the detail rows, named and subtotaled.
+
+    Presentation structure over the flat table rather than a second copy of
+    the rows: CSV stays spreadsheet-flat by reading `detail` alone, and a
+    renderer that understands groups slices the same rows everybody else
+    formats, so the two can never disagree about what is in the report.
+    """
+
+    values: tuple[ReportValue, ...]
+    row_start: int
+    row_count: int
+    footer_values: tuple[ReportValue, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ReportDocument:
     report: str
     title: str
@@ -47,6 +63,7 @@ class ReportDocument:
     footer_values: tuple[ReportValue, ...]
     page_footer_template: str
     suggested_filename: str
+    groups: tuple[ReportGroup, ...] = ()
 
     def plain_text(self) -> str:
         """Return a compact accessible representation for terminals and tests."""
@@ -54,8 +71,23 @@ class ReportDocument:
         lines = [self.title, self.application, *self.header_text]
         lines.extend(f"{value.label}: {value.text}" for value in self.record_values)
         lines.append(" | ".join(column.label for column in self.detail.columns))
-        lines.extend(
-            " | ".join(cell.text for cell in row) for row in self.detail.rows
-        )
+        if self.groups:
+            for group in self.groups:
+                lines.extend(
+                    f"{value.label}: {value.text}" for value in group.values
+                )
+                lines.extend(
+                    " | ".join(cell.text for cell in row)
+                    for row in self.detail.rows[
+                        group.row_start : group.row_start + group.row_count
+                    ]
+                )
+                lines.extend(
+                    f"{value.label}: {value.text}" for value in group.footer_values
+                )
+        else:
+            lines.extend(
+                " | ".join(cell.text for cell in row) for row in self.detail.rows
+            )
         lines.extend(f"{value.label}: {value.text}" for value in self.footer_values)
         return "\n".join(lines)

@@ -337,17 +337,27 @@ deployments and receive clear concurrency feedback.
 
 ## Milestone 6 - Reporting
 
-Status: **the first business-facing summary slice is implemented**. Invoicing
-now has a secured, bounded posted-sales summary grouped by Customer/Currency,
-`count` and `sum` aggregates, local/remote Textual preview, REST transport, and
-controlled CSV export. Richer band/page behavior, parameters in the example,
-spreadsheet formats, report MCP actions, and designer tooling remain.
+Status: **the grouped, parameterized summary slice is implemented**. Invoicing
+now has a secured, bounded posted-sales listing grouped by Customer/Currency
+with per-group subtotals and grand totals, optional date-range parameters
+prompted for in the terminal, local/remote Textual preview, REST transport with
+the Web preview rendering the same bands, and controlled CSV export that
+re-flattens groups into leading columns. Richer page behavior, spreadsheet
+formats, report MCP actions, and designer tooling remain.
 
 - stable declarative band model;
-- parameters, groups, totals, headers, and footers;
+- parameters, groups, totals, headers, and footers; **implemented: typed
+  optional/required parameters validated once in the report service (an
+  unsupplied optional parameter drops its criteria clause), `columns:` turning
+  a summary into a grouped listing whose `group_by` runs head their own rows
+  and close with the aggregates as subtotals, and the same aggregates totaling
+  the report at the foot. A parameter narrowing by reference stays out until
+  reference-typed parameters are their own contract decision (TIDE306)**;
 - HTML preview and PDF output;
 - page behavior and repeatable-band tests;
-- CSV export; **implemented for renderer-neutral detail tables**
+- CSV export; **implemented for renderer-neutral detail tables; a grouped
+  listing exports flat with the group values repeated per row, because a
+  spreadsheet pivots for itself**
 - spreadsheet export;
 - report actions through TUI, REST, and MCP where exposed;
 - initial report property editor and preview tools.
