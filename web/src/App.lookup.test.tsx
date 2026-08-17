@@ -404,7 +404,7 @@ it("saves Invoice line drafts and Product Save & Select as one parent update", a
   await user.click(screen.getByRole("button", { name: "Add Line" }))
   expect(screen.getByText("2 draft rows")).toBeInTheDocument()
   await user.click(screen.getByRole("button", { name: "Remove Line" }))
-  expect(screen.getByText("1 draft rows")).toBeInTheDocument()
+  expect(screen.getByText("1 draft row")).toBeInTheDocument()
 
   await user.click(screen.getByRole("button", { name: "Save" }))
   await waitFor(() =>

@@ -167,7 +167,9 @@ export function EditableCollection({
             by the server when the record is saved.
           </p>
         </div>
-        <Badge variant="outline">{rows.length} draft rows</Badge>
+        <Badge variant="outline">
+          {rows.length} draft {rows.length === 1 ? "row" : "rows"}
+        </Badge>
       </div>
 
       {/* The table takes the height its rows need, up to the cap: a one-line
