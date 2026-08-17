@@ -87,6 +87,7 @@ interface RecordDetailProps {
   view: TideBrowsePresentation
   form: TideFormPresentation
   forms: TidePresentationManifest["forms"]
+  views?: TidePresentationManifest["views"]
   reports: TidePresentationReport[]
   mode: "create" | "update"
   identity: unknown | null
@@ -153,6 +154,7 @@ export function RecordDetail({
   view,
   form,
   forms,
+  views,
   reports,
   mode,
   identity,
@@ -926,6 +928,7 @@ export function RecordDetail({
           api={api}
           section={section}
           forms={forms}
+          views={views}
           rows={collectionDrafts[section.name] ?? []}
           errors={collectionErrors[section.name] ?? []}
           editable
@@ -1147,6 +1150,7 @@ export function RecordDetail({
               api={api}
               form={{ ...form, sections: cardSections }}
               forms={forms}
+              views={views}
               draft={draft}
               editableFields={editableFields}
               errors={fieldErrors}

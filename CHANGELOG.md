@@ -195,6 +195,16 @@ own words; a domain action steps back to an outline while the draft is dirty,
 because the natural next step is Save and two filled buttons shout over each
 other.
 
+The reference well carries two more of the reference application's
+affordances. An open-record door deep-links the referenced record's own
+screen in a new tab, so an open draft can never be lost to a side trip; it is
+offered only when the capability-filtered manifest carries a browse view with
+a detail form for the target entity, which means a person without access to
+Customers simply gets no door. A clear control empties a reference through
+the same draft path as selection, and only where the model says empty is a
+legal value -- emptying a required reference could only manufacture the
+service's refusal, so the control does not offer to.
+
 A study of the reference EMS application then tightened the dress. Group
 captions are bands with their own background, spanning their panel edge to
 edge -- the floating eyebrow that preceded them read as one more field label.

@@ -27,6 +27,7 @@ interface EditableCollectionProps {
   api: TideApi
   section: TidePresentationFormCollection
   forms: TidePresentationManifest["forms"]
+  views?: TidePresentationManifest["views"]
   rows: TideRecord[]
   errors: TideFormErrors[]
   editable: boolean
@@ -41,6 +42,7 @@ export function EditableCollection({
   api,
   section,
   forms,
+  views,
   rows,
   errors,
   editable,
@@ -286,6 +288,7 @@ export function EditableCollection({
             api={api}
             form={form}
             forms={forms}
+            views={views}
             draft={selected}
             editableFields={editable ? editableFields : new Set()}
             errors={errors[selectedIndex ?? 0] ?? {}}

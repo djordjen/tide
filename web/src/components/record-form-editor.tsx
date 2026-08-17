@@ -11,6 +11,7 @@ import {
   Ellipsis,
   LoaderCircle,
   Search,
+  SquareArrowOutUpRight,
   X,
 } from "lucide-react"
 
@@ -35,6 +36,7 @@ import type {
   TideRecord,
 } from "@/lib/contracts"
 import { useDialogFocus } from "@/lib/dialog-focus"
+import { referenceRecordHref } from "@/lib/reference-link"
 import {
   acceptsNumericDraft,
   formDraft,
@@ -60,6 +62,8 @@ interface RecordFormEditorProps {
   api: TideApi
   form: TideFormPresentation
   forms: TidePresentationManifest["forms"]
+  /** Capability-filtered browse views, for the reference controls' doors. */
+  views?: TidePresentationManifest["views"]
   draft: TideFormDraft
   editableFields: ReadonlySet<string>
   errors: TideFormErrors
@@ -75,6 +79,7 @@ export function RecordFormEditor({
   api,
   form,
   forms,
+  views,
   draft,
   editableFields,
   errors,
@@ -97,6 +102,7 @@ export function RecordFormEditor({
             api={api}
             form={form}
             forms={forms}
+            views={views}
             record={record}
             section={section}
             editableFields={editableFields}
@@ -119,6 +125,7 @@ function EditorGroup({
   api,
   form,
   forms,
+  views,
   record,
   section,
   editableFields,
@@ -132,6 +139,7 @@ function EditorGroup({
   api: TideApi
   form: TideFormPresentation
   forms: TidePresentationManifest["forms"]
+  views?: TidePresentationManifest["views"]
   record: TideRecord
   section: TidePresentationFormGroup
   editableFields: ReadonlySet<string>
@@ -176,6 +184,7 @@ function EditorGroup({
                       api={api}
                       form={form}
                       forms={forms}
+                      views={views}
                       field={field}
                       value={record[name]}
                       draft={record}
@@ -211,6 +220,7 @@ function FieldEditor({
   api,
   form,
   forms,
+  views,
   field,
   value,
   draft,
@@ -223,6 +233,7 @@ function FieldEditor({
   api: TideApi
   form: TideFormPresentation
   forms: TidePresentationManifest["forms"]
+  views?: TidePresentationManifest["views"]
   field: TidePresentationFormField
   value: unknown
   draft: TideFormDraft
@@ -243,6 +254,7 @@ function FieldEditor({
         api={api}
         form={form}
         forms={forms}
+        views={views}
         field={field}
         lookup={field.lookup}
         value={value}
@@ -412,6 +424,7 @@ function ReferenceEditor({
   api,
   form,
   forms,
+  views,
   field,
   lookup,
   value,
@@ -424,6 +437,7 @@ function ReferenceEditor({
   api: TideApi
   form: TideFormPresentation
   forms: TidePresentationManifest["forms"]
+  views?: TidePresentationManifest["views"]
   field: TidePresentationFormField
   lookup: TidePresentationLookup
   value: unknown
@@ -438,6 +452,11 @@ function ReferenceEditor({
   const helpId = `${id}-help`
   const errorId = `${id}-error`
   const describedBy = error ? errorId : field.help ? helpId : undefined
+  const recordHref = referenceRecordHref(views, field.reference, value)
+  // Clearing is offered only where empty is a legal value: emptying a
+  // required reference could only manufacture the service's refusal.
+  const clearable =
+    !field.required && value !== null && value !== undefined && !disabled
 
   return (
     <div className={fieldGroupClass}>
@@ -469,6 +488,39 @@ function ReferenceEditor({
           record={{ [field.name]: value }}
           className="min-w-0 flex-1 truncate"
         />
+        {clearable ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+            aria-label={`Clear ${field.label}`}
+            title={`Clear ${field.label}`}
+            onClick={() => onApplyValues({ [field.name]: null })}
+          >
+            <X />
+          </Button>
+        ) : null}
+        {recordHref ? (
+          // A door to the record this value names -- in a new tab, so an
+          // open draft can never be lost to a side trip.
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+          >
+            <a
+              href={recordHref}
+              target="_blank"
+              rel="noopener"
+              aria-label={`Open ${field.label}`}
+              title={`Open ${field.label}`}
+            >
+              <SquareArrowOutUpRight />
+            </a>
+          </Button>
+        ) : null}
         <Button
           id={id}
           data-tide-editor

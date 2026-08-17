@@ -76,6 +76,7 @@ interface BrowseWorkspaceProps {
   view: TideBrowsePresentation
   form: TideFormPresentation | null
   forms: TidePresentationManifest["forms"]
+  views: TidePresentationManifest["views"]
   reports: Record<string, TidePresentationReport>
 }
 
@@ -86,6 +87,7 @@ export function BrowseWorkspace({
   view,
   form,
   forms,
+  views,
   reports,
 }: BrowseWorkspaceProps) {
   const [search, setSearch] = useState("")
@@ -481,6 +483,7 @@ export function BrowseWorkspace({
         view={view}
         form={form}
         forms={forms}
+        views={views}
         reports={recordReports}
         mode={creating ? "create" : "update"}
         identity={creating ? null : activeIdentity}

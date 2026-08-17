@@ -255,6 +255,7 @@ export function AppShell({
           view={view}
           form={form}
           forms={connection.presentation.forms}
+          views={connection.presentation.views}
           reports={connection.presentation.reports ?? {}}
         />
       </section>

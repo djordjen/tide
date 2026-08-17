@@ -251,11 +251,19 @@ download cannot disagree with the screen. Record preview is
 disabled while the form has unsaved changes so the displayed document cannot
 silently disagree with the draft.
 
-Invoice headers now use that reference contract for Customer. **Select…** opens
-a debounced multi-column table and searches every YAML-declared readable search
-field through ordinary structured REST queries. Choosing a row calls
-`/_tide/reference-selection`; React never implements `on_select` assignments.
-When `allow_create: true`, target create permission, and a compiled target form
+Invoice headers now use that reference contract for Customer. The reference is
+one combobox-shaped well: the chosen value, then its controls on the trailing
+edge. The ellipsis picker opens a debounced multi-column table and searches
+every YAML-declared readable search field through ordinary structured REST
+queries; choosing a row calls `/_tide/reference-selection`, and React never
+implements `on_select` assignments. An open-record door beside it deep-links
+the referenced record's own screen in a new tab — offered only when the
+capability-filtered manifest carries a browse view with a detail form for the
+target entity, so a person who may not see Customers simply gets no door. A
+clear control empties the reference through the same draft path as selection,
+and only where the field is not required, because emptying a required
+reference could only manufacture the service's refusal. When
+`allow_create: true`, target create permission, and a compiled target form
 all agree, **New Customer** opens a nested metadata-driven form.
 **Save & Select** creates that independent master record, applies the returned
 identity through the same server operation, and returns to the unchanged
