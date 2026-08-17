@@ -42,6 +42,7 @@ import type { TideApi } from "@/lib/api"
 import type {
   TideBrowsePresentation,
   TidePresentationColumn,
+  TidePresentationManifest,
   TideRecord,
   TideSortInput,
 } from "@/lib/contracts"
@@ -62,6 +63,8 @@ interface TideDataGridProps {
   application: string
   principal: string
   view: TideBrowsePresentation
+  /** For reference cells' doors to their records. */
+  views?: TidePresentationManifest["views"]
   records: TideRecord[]
   loading: boolean
   fetchingMore: boolean
@@ -80,6 +83,7 @@ export function TideDataGrid({
   application,
   principal,
   view,
+  views,
   records,
   loading,
   fetchingMore,
@@ -645,6 +649,11 @@ export function TideDataGrid({
                           api={api}
                           column={column}
                           record={row.original}
+                          views={views}
+                          // The grid's roving tab stop owns the keyboard;
+                          // the doors stay for the pointer and for Enter
+                          // on the opened record.
+                          linkTabIndex={-1}
                         />
                       </div>
                     )

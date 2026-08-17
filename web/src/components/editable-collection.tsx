@@ -267,6 +267,7 @@ export function EditableCollection({
                           api={api}
                           column={column}
                           record={row}
+                          views={views}
                         />
                       </td>
                     ))}

@@ -205,6 +205,15 @@ the same draft path as selection, and only where the model says empty is a
 legal value -- emptying a required reference could only manufacture the
 service's refusal, so the control does not offer to.
 
+Where a reference is read rather than edited -- a locked field on a posted
+record, a collection row, a browse grid cell -- the resolved name itself is
+now the door. Following it navigates in place with one marked history entry,
+and the opened record's Close walks back to exactly where the person was;
+modified clicks still open a tab, because these are real anchors. The
+editable well's door keeps its new tab deliberately, since a side trip from
+an open draft must not be able to lose it, and grid links stay out of the
+tab order so the grid's roving tab stop keeps owning the keyboard.
+
 A study of the reference EMS application then tightened the dress. Group
 captions are bands with their own background, spanning their panel edge to
 edge -- the floating eyebrow that preceded them read as one more field label.

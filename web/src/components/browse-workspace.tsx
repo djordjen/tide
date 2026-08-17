@@ -36,6 +36,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import { documentTitle, useDocumentTitle } from "@/lib/document-title"
+import { cameFromReferenceLink } from "@/lib/reference-link"
 import { useUrlParameter } from "@/lib/url-state"
 import { TideApiError, type TideApi } from "@/lib/api"
 import type {
@@ -458,6 +459,7 @@ export function BrowseWorkspace({
         application={application}
         principal={principal}
         view={view}
+        views={views}
         records={records}
         loading={query.isPending}
         fetchingMore={query.isFetchingNextPage}
@@ -499,6 +501,13 @@ export function BrowseWorkspace({
         onNext={() => void navigate(1)}
         onClose={() => {
           setCreating(false)
+          // A record reached by following a reference link closes back to
+          // exactly where the person was -- the entry the link pushed is
+          // marked, and one step back restores both view and record.
+          if (cameFromReferenceLink()) {
+            window.history.back()
+            return
+          }
           setActiveIdentity(null)
         }}
         onSaved={(record, mode) => {

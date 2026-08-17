@@ -201,6 +201,7 @@ function EditorGroup({
                         api={api}
                         column={field}
                         record={record}
+                        views={views}
                         wrap
                         className={readOnlyValueClass}
                       />

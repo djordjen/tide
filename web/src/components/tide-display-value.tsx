@@ -4,18 +4,27 @@ import { Badge } from "@/components/ui/badge"
 import type { TideApi } from "@/lib/api"
 import type {
   TidePresentationColumn,
+  TidePresentationManifest,
   TideRecord,
 } from "@/lib/contracts"
 import {
   formatCellValue,
   formatReferenceDisplay,
 } from "@/lib/format"
+import {
+  referenceLinkClick,
+  referenceRecordHref,
+} from "@/lib/reference-link"
 import { cn } from "@/lib/utils"
 
 interface TideDisplayValueProps {
   api: TideApi
   column: TidePresentationColumn
   record: TideRecord
+  /** When given, a resolved reference renders as a door to its record. */
+  views?: TidePresentationManifest["views"]
+  /** -1 inside the data grid, whose roving tab stop owns the keyboard. */
+  linkTabIndex?: number
   className?: string
   wrap?: boolean
 }
@@ -61,6 +70,8 @@ export function TideDisplayValue({
   api,
   column,
   record,
+  views,
+  linkTabIndex,
   className,
   wrap = false,
 }: TideDisplayValueProps) {
@@ -125,6 +136,36 @@ export function TideDisplayValue({
       </span>
     )
   }
+  const recordHref =
+    reference && !withheld && text && text !== "…"
+      ? referenceRecordHref(views, reference, value)
+      : null
+  if (recordHref) {
+    // The resolved name is itself the door, the way the reference
+    // application draws its grids: in place, one history entry, and the
+    // record screen's Close walks back to exactly here. A modified click
+    // still opens a tab, because this is a real anchor.
+    return (
+      <span
+        className={cn(
+          "block min-w-0",
+          wrap ? "break-words whitespace-pre-wrap" : "truncate",
+          className,
+        )}
+        title={text}
+      >
+        <a
+          href={recordHref}
+          tabIndex={linkTabIndex}
+          className="rounded-sm underline decoration-muted-foreground/50 underline-offset-2 outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/40"
+          onClick={(event) => referenceLinkClick(event, recordHref)}
+        >
+          {text}
+        </a>
+      </span>
+    )
+  }
+
   return (
     <span
       className={cn(

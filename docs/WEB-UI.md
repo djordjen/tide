@@ -262,7 +262,17 @@ capability-filtered manifest carries a browse view with a detail form for the
 target entity, so a person who may not see Customers simply gets no door. A
 clear control empties the reference through the same draft path as selection,
 and only where the field is not required, because emptying a required
-reference could only manufacture the service's refusal. When
+reference could only manufacture the service's refusal.
+
+Where a reference is read rather than edited — a locked field on a posted
+record, a collection row, a browse grid cell — the resolved name itself is
+the door, the way the reference application draws its grids. Following it
+navigates in place with one history entry, marked so the opened record's
+**Close** walks back to exactly where the person was; a ctrl, shift or
+middle click still opens a tab, because these are real anchors. The editable
+well's door keeps its new tab deliberately: a side trip from an open draft
+must not be able to lose it. Grid links carry `tabindex="-1"` so the grid's
+roving tab stop keeps owning the keyboard. When
 `allow_create: true`, target create permission, and a compiled target form
 all agree, **New Customer** opens a nested metadata-driven form.
 **Save & Select** creates that independent master record, applies the returned

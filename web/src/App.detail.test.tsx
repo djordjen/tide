@@ -315,6 +315,194 @@ const invoiceView = {
   detail_view: "sales.Invoice.edit",
 }
 
+it("follows a locked reference to its record and Close walks back", async () => {
+  // A posted invoice is read-only, so its Customer is a link; following it
+  // opens the customer's own screen in place, and Close returns to exactly
+  // the invoice the person left -- one history entry each way.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: false,
+          mode: null,
+          login_path: null,
+          session_path: null,
+          logout_path: null,
+        })
+      }
+      if (url.endsWith("/_tide/session")) {
+        return jsonResponse(session)
+      }
+      if (url.endsWith("/_tide/presentation")) {
+        return jsonResponse(referencePresentation())
+      }
+      if (url.endsWith("/invoices/_query")) {
+        return jsonResponse({
+          records: [summary(1, "INV-2026-0001", "posted")],
+          next_cursor: null,
+        })
+      }
+      if (url.endsWith("/invoices/1")) {
+        return jsonResponse({
+          ...invoice(1, "INV-2026-0001", "posted", []),
+          customer: 4,
+          _tide: {
+            ...invoice(1, "INV-2026-0001", "posted", [])._tide,
+            references: { customer: "ADRIA - Adria Consulting" },
+          },
+        })
+      }
+      if (url.endsWith("/customers/_query")) {
+        return jsonResponse({
+          records: [{ id: 4, code: "ADRIA", name: "Adria Consulting" }],
+          next_cursor: null,
+        })
+      }
+      if (url.endsWith("/customers/4")) {
+        return jsonResponse({
+          id: 4,
+          code: "ADRIA",
+          name: "Adria Consulting",
+          _tide: { writable_fields: [], protected_fields: [], actions: {} },
+        })
+      }
+      throw new Error(`Unexpected URL ${url}`)
+    }),
+  )
+
+  const user = userEvent.setup()
+  renderApp()
+  await connectWithToken(user)
+  await user.dblClick(
+    await screen.findByRole("row", { name: /INV-2026-0001/ }),
+  )
+  await screen.findByRole("heading", { name: "Invoice — INV-2026-0001" })
+
+  await user.click(
+    await screen.findByRole("link", { name: "ADRIA - Adria Consulting" }),
+  )
+  await screen.findByRole("heading", { name: "Customer — ADRIA" })
+
+  await user.click(screen.getByRole("button", { name: "Close" }))
+  expect(
+    await screen.findByRole("heading", { name: "Invoice — INV-2026-0001" }),
+  ).toBeInTheDocument()
+})
+
+function referencePresentation() {
+  const readOnlyFormField = {
+    writable: false,
+    lookup: null,
+    required: false,
+    help: null,
+    max_length: null,
+    choices: [],
+    regex: null,
+    numeric_mask: null,
+    precision: null,
+    scale: null,
+    minimum: null,
+    maximum: null,
+    has_default: false,
+    default_value: null,
+  }
+  const customerView = {
+    view: "crm.Customer.browse",
+    entity: "crm.Customer",
+    label: "Customers",
+    resource_path: "/api/v1/customers",
+    query_path: "/api/v1/customers/_query",
+    identity_field: "id",
+    columns: [
+      { ...plainColumn, name: "code", label: "Code" },
+      { ...plainColumn, name: "name", label: "Name" },
+    ],
+    search_field: null,
+    search_label: null,
+    named_filters: [],
+    sortable_fields: [],
+    page_size: 25,
+    operations: ["list", "get"],
+    detail_view: "crm.Customer.edit",
+  }
+  const customerForm = {
+    view: "crm.Customer.edit",
+    entity: "crm.Customer",
+    label: "Customer",
+    display_template: "code",
+    fields: {
+      code: {
+        ...plainColumn,
+        ...readOnlyFormField,
+        name: "code",
+        label: "Code",
+      },
+      name: {
+        ...plainColumn,
+        ...readOnlyFormField,
+        name: "name",
+        label: "Name",
+      },
+    },
+    sections: [
+      {
+        kind: "group",
+        label: "Customer",
+        rows: [["code"], ["name"]],
+        tab: null,
+      },
+    ],
+    actions: [],
+  }
+  const invoiceEdit = presentation.forms["sales.Invoice.edit"]
+  return {
+    ...presentation,
+    views: {
+      ...presentation.views,
+      "crm.Customer.browse": customerView,
+    },
+    forms: {
+      "sales.Invoice.edit": {
+        ...invoiceEdit,
+        fields: {
+          ...invoiceEdit.fields,
+          customer: {
+            ...plainColumn,
+            name: "customer",
+            label: "Customer",
+            field_type: "reference",
+            target_entity: "crm.Customer",
+            reference: {
+              entity: "crm.Customer",
+              resource_path: "/api/v1/customers",
+              identity_field: "id",
+              display_template: "{code} - {name}",
+            },
+          },
+        },
+        sections: [
+          {
+            kind: "group",
+            label: "Invoice",
+            rows: [
+              ["number", "invoice_date"],
+              ["status", "customer"],
+              ["total"],
+            ],
+            tab: null,
+          },
+          ...invoiceEdit.sections.filter(
+            (section) => section.kind === "collection",
+          ),
+        ],
+      },
+      "crm.Customer.edit": customerForm,
+    },
+  }
+}
+
 function twoCollectionPresentation() {
   const form = presentation.forms["sales.Invoice.edit"]
   return {

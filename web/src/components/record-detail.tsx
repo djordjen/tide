@@ -971,6 +971,7 @@ export function RecordDetail({
         record={source}
         section={section}
         heading={withHeading}
+        views={views}
       />
     )
   }
@@ -1222,6 +1223,7 @@ export function RecordDetail({
                   record={record}
                   section={section}
                   writable={writable}
+                  views={views}
                 />
               ) : (
                 <div

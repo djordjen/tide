@@ -6,6 +6,7 @@ import { TideDisplayValue } from "@/components/tide-display-value"
 import type { TideApi } from "@/lib/api"
 import type {
   TidePresentationColumn,
+  TidePresentationManifest,
   TideRecord,
 } from "@/lib/contracts"
 
@@ -77,6 +78,92 @@ describe("a reference cell", () => {
   })
 })
 
+describe("a read-only reference value", () => {
+  it("is a door to its record where the manifest offers a screen", async () => {
+    renderCell(
+      {
+        id: 7,
+        customer: 4,
+        _tide: { references: { customer: "ADRIA - Adria Consulting" } },
+      },
+      unusedReference(),
+      { views },
+    )
+
+    const link = await screen.findByRole("link", {
+      name: "ADRIA - Adria Consulting",
+    })
+    expect(link.getAttribute("href")).toContain("view=crm.Customer.browse")
+    expect(link.getAttribute("href")).toContain("record=4")
+  })
+
+  it("navigates in place and marks the entry, so Close can come back", async () => {
+    window.history.replaceState(null, "", "/?view=sales.Invoice.browse&record=7")
+    renderCell(
+      {
+        id: 7,
+        customer: 4,
+        _tide: { references: { customer: "ADRIA - Adria Consulting" } },
+      },
+      unusedReference(),
+      { views },
+    )
+
+    const link = await screen.findByRole("link", {
+      name: "ADRIA - Adria Consulting",
+    })
+    link.click()
+
+    expect(window.location.search).toContain("view=crm.Customer.browse")
+    expect(window.location.search).toContain("record=4")
+    expect(
+      (window.history.state as { tideReference?: boolean }).tideReference,
+    ).toBe(true)
+  })
+
+  it("stays plain text when the manifest offers no screen", async () => {
+    renderCell(
+      {
+        id: 7,
+        customer: 4,
+        _tide: { references: { customer: "ADRIA - Adria Consulting" } },
+      },
+      unusedReference(),
+      { views: {} },
+    )
+
+    expect(
+      await screen.findByText("ADRIA - Adria Consulting"),
+    ).toBeDefined()
+    expect(screen.queryByRole("link")).toBeNull()
+  })
+})
+
+function unusedReference() {
+  return () => {
+    throw new Error("a resolved reference must not be fetched again")
+  }
+}
+
+const views = {
+  "crm.Customer.browse": {
+    view: "crm.Customer.browse",
+    entity: "crm.Customer",
+    label: "Customers",
+    resource_path: "/api/v1/customers",
+    query_path: "/api/v1/customers/_query",
+    identity_field: "id",
+    columns: [],
+    search_field: null,
+    search_label: null,
+    named_filters: [],
+    sortable_fields: [],
+    page_size: 25,
+    operations: ["list", "get"],
+    detail_view: "crm.Customer.edit",
+  },
+} as unknown as TidePresentationManifest["views"]
+
 describe("a choice chip", () => {
   it("wears the same identity tint for the same value on every screen", () => {
     // The tint says "these rows are the same state", not "this state is
@@ -123,7 +210,11 @@ function renderChoice(value: string) {
   )
 }
 
-function renderCell(record: TideRecord, getReference: unknown) {
+function renderCell(
+  record: TideRecord,
+  getReference: unknown,
+  options: { views?: TidePresentationManifest["views"] } = {},
+) {
   const column: TidePresentationColumn = {
     name: "customer",
     label: "Customer",
@@ -146,6 +237,7 @@ function renderCell(record: TideRecord, getReference: unknown) {
         api={{ getReference } as unknown as TideApi}
         column={column}
         record={record}
+        views={options.views}
       />
     </QueryClientProvider>,
   )

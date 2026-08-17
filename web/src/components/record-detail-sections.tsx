@@ -18,6 +18,7 @@ import type {
   TideFormPresentation,
   TidePresentationFormCollection,
   TidePresentationFormGroup,
+  TidePresentationManifest,
   TideRecord,
 } from "@/lib/contracts"
 
@@ -36,12 +37,14 @@ export function DetailGroup({
   record,
   section,
   writable,
+  views,
 }: {
   api: TideApi
   form: TideFormPresentation
   record: TideRecord
   section: TidePresentationFormGroup
   writable: ReadonlySet<string>
+  views?: TidePresentationManifest["views"]
 }) {
   return (
     <section>
@@ -83,6 +86,7 @@ export function DetailGroup({
                     api={api}
                     column={field}
                     record={record}
+                    views={views}
                     wrap
                     className={cn(
                       readOnlyValueClass,
@@ -105,12 +109,14 @@ export function DetailCollection({
   record,
   section,
   heading = true,
+  views,
 }: {
   api: TideApi
   record: TideRecord
   section: TidePresentationFormCollection
   /** False when a tab already names the collection. */
   heading?: boolean
+  views?: TidePresentationManifest["views"]
 }) {
   const protectedFields = record._tide?.protected_fields ?? []
   const protectedCollection = protectedFields.includes(section.name)
@@ -184,6 +190,7 @@ export function DetailCollection({
                         api={api}
                         column={column}
                         record={row}
+                        views={views}
                       />
                     </td>
                   ))}
