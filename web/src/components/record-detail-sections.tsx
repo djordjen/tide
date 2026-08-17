@@ -12,6 +12,7 @@ import {
   fieldLabelRowClass,
   fieldLabelTextClass,
   readOnlyValueClass,
+  sectionHeadingClass,
 } from "./form-field"
 import type {
   TideFormPresentation,
@@ -44,7 +45,7 @@ export function DetailGroup({
 }) {
   return (
     <section>
-      <h2 className="mb-3 text-sm font-semibold">{section.label}</h2>
+      <h2 className={`mb-3 ${sectionHeadingClass}`}>{section.label}</h2>
       <div className="space-y-3">
         {section.rows.map((row, rowIndex) => (
           <div
@@ -110,14 +111,14 @@ export function DetailCollection({
   const rows = Array.isArray(raw) ? (raw as TideRecord[]) : []
 
   return (
-    <section className="min-w-0">
+    <section className="min-w-0 rounded-xl border bg-muted/20 p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold">{section.label}</h2>
+        <h2 className={sectionHeadingClass}>{section.label}</h2>
         <Badge variant="outline">
           {protectedCollection ? "Protected" : `${rows.length} rows`}
         </Badge>
       </div>
-      <div className="max-h-80 min-h-44 overflow-auto rounded-xl border">
+      <div className="max-h-80 overflow-auto rounded-lg border bg-background">
         {protectedCollection ? (
           <div className="flex min-h-44 items-center justify-center gap-2 text-sm text-muted-foreground">
             <LockKeyhole className="size-4" />

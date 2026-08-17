@@ -176,7 +176,10 @@ select {
    */
   .tide-field {
     display: grid;
-    grid-template-columns: var(--tide-label-column, 10rem) minmax(0, 1fr);
+    /* 8rem fits every invoicing label on one line and hands the difference
+       to the control column, where a truncated reference display was losing
+       the very name it exists to show. A longer legacy column name wraps. */
+    grid-template-columns: var(--tide-label-column, 8rem) minmax(0, 1fr);
     align-items: start;
     column-gap: 0.75rem;
   }

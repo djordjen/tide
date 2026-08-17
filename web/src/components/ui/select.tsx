@@ -27,7 +27,8 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "flex h-9 w-full items-center justify-between rounded-lg border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none transition-[border-color,box-shadow] data-[placeholder]:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:truncate",
+      // The same well as `ui/input.tsx`: a value holder, not a button.
+      "flex h-9 w-full items-center justify-between rounded-lg border border-input bg-muted/55 px-3 py-1 text-sm shadow-xs outline-none transition-[border-color,box-shadow] data-[placeholder]:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/25 [&>span]:truncate",
       className,
     )}
     {...props}

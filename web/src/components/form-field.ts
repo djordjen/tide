@@ -49,5 +49,21 @@ export const fieldLabelRowClass = "mb-1 flex items-center justify-between gap-2"
 
 export { fieldLabelTextClass }
 
-/** A read-only value: text, never a box that invites a click. */
-export const readOnlyValueClass = "min-h-6 text-sm"
+/**
+ * A read-only value: text, never a box that invites a click.
+ *
+ * Beside its label it takes the same 8px of top padding the label does, so
+ * the pair share a baseline instead of the value floating above it; on a
+ * phone the label sits on top and the padding does not apply.
+ */
+export const readOnlyValueClass = "min-h-6 text-sm md:pt-2"
+
+/**
+ * A section heading is an eyebrow, not a second title.
+ *
+ * The page has one title, in the display face. Group names such as "Invoice"
+ * or "Lines" mark structure below it, and at the same size as the field
+ * labels they marked nothing -- three type levels were rendering as one.
+ */
+export const sectionHeadingClass =
+  "text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase"

@@ -21,6 +21,7 @@ import {
   type TideFormErrors,
 } from "@/lib/form-draft"
 import { cn } from "@/lib/utils"
+import { sectionHeadingClass } from "./form-field"
 
 interface EditableCollectionProps {
   api: TideApi
@@ -155,14 +156,17 @@ export function EditableCollection({
   }
 
   return (
+    // The whole collection -- table, line editor, line actions -- is one
+    // recessed region, so where the record's own fields end and its rows
+    // begin is a visible boundary rather than an inference.
     <section
-      className="min-w-0"
+      className="min-w-0 rounded-xl border bg-muted/20 p-4"
       data-tide-collection={section.name}
     >
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold">{section.label}</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
+          <h2 className={sectionHeadingClass}>{section.label}</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
             Select a row to edit its details. Calculated values are finalized
             by the server when the record is saved.
           </p>
@@ -176,7 +180,7 @@ export function EditableCollection({
           draft used to sit above a hundred pixels of reserved emptiness,
           pushing its own editors below the fold. Only the empty state keeps
           a minimum, so "No Lines" has room to say so. */}
-      <div className="max-h-80 overflow-auto rounded-xl border">
+      <div className="max-h-80 overflow-auto rounded-lg border bg-background">
         {rows.length === 0 ? (
           <div className="flex min-h-44 flex-col items-center justify-center text-sm text-muted-foreground">
             <ListChecks className="mb-2 size-5" />
@@ -255,7 +259,11 @@ export function EditableCollection({
       </div>
 
       {selected ? (
-        <div className="mt-5 border-t pt-5">
+        // The editor of the highlighted row, not another form section: an
+        // inner card on the recessed region, wearing the selection's primary
+        // as a left accent so the table row and the fields editing it read
+        // as one thing.
+        <div className="mt-4 rounded-lg border border-l-2 border-l-primary/55 bg-background p-4 shadow-xs">
           <RecordFormEditor
             api={api}
             form={form}

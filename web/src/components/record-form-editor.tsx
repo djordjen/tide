@@ -52,6 +52,7 @@ import {
   fieldGroupClass,
   fieldLabelClass,
   readOnlyValueClass,
+  sectionHeadingClass,
 } from "./form-field"
 
 interface RecordFormEditorProps {
@@ -131,7 +132,7 @@ function EditorGroup({
 }) {
   return (
     <section>
-      <h2 className="mb-3 text-sm font-semibold">{section.label}</h2>
+      <h2 className={`mb-3 ${sectionHeadingClass}`}>{section.label}</h2>
       <div className="space-y-3">
         {section.rows.map((row, rowIndex) => (
           <div
@@ -435,7 +436,10 @@ function ReferenceEditor({
       <div className="flex min-w-0 gap-2">
         <div
           className={cn(
-            "flex h-9 min-w-0 flex-1 items-center rounded-lg border border-input bg-background px-3 text-sm shadow-xs",
+            // The same well as `ui/input.tsx`: this holds the chosen value,
+            // so it dresses like the text controls, and only `Select…`
+            // beside it dresses like a button.
+            "flex h-9 min-w-0 flex-1 items-center rounded-lg border border-input bg-muted/55 px-3 text-sm shadow-xs dark:bg-input/25",
             error && "border-destructive/65",
           )}
           aria-live="polite"
