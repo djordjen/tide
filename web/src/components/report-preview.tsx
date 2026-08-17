@@ -142,7 +142,7 @@ export function ReportPreview({
             </p>
             <h1
               id="tide-report-preview-title"
-              className="truncate text-lg font-semibold"
+              className="font-display truncate text-lg font-semibold"
             >
               {report.title}
             </h1>
@@ -273,10 +273,10 @@ export function ReportPreview({
 
 function ReportPage({ document }: { document: TideReportDocument }) {
   return (
-    <article className="mx-auto min-h-[70rem] max-w-4xl bg-white px-6 py-8 text-slate-800 shadow-sm ring-1 ring-slate-900/8 sm:px-10 md:px-14 md:py-12">
+    <article className="mx-auto max-w-4xl bg-white px-4 py-6 text-slate-800 shadow-sm ring-1 ring-slate-900/8 sm:min-h-[70rem] sm:px-10 sm:py-8 md:px-14 md:py-12">
       <header className="flex flex-col justify-between gap-5 border-b-[3px] border-blue-600 pb-5 sm:flex-row">
         <div>
-          <h2 className="text-3xl font-semibold tracking-tight text-blue-700">
+          <h2 className="font-display text-3xl font-semibold tracking-tight text-blue-700">
             {document.title}
           </h2>
           <p className="mt-1 text-sm font-semibold">{document.application}</p>

@@ -1,6 +1,17 @@
 @import "tailwindcss";
+/* The display face ships with the bundle -- Vite copies the woff2 out of the
+   package -- so headings render the same on every machine, like the body
+   stack below. */
+@import "@fontsource-variable/bricolage-grotesque";
 
 @custom-variant dark (&:is(.dark *));
+
+@theme {
+  /* Headings and the wordmark carry TIDE's voice; data stays in the system
+     stack, where tables render crispest. */
+  --font-display:
+    "Bricolage Grotesque Variable", ui-sans-serif, system-ui, sans-serif;
+}
 
 @theme inline {
   --color-background: var(--background);
@@ -36,6 +47,11 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/* TIDE's palette leans its blue toward the sea: primary sits at hue 215
+   rather than the framework-default 246, and the sidebar ink carries the same
+   teal cast at 235. Deliberate, not decorative -- the product is named after
+   water, and one recognizable hue is what separates an identity from a
+   template. */
 :root {
   --radius: 0.65rem;
   --background: oklch(0.985 0.003 247);
@@ -44,27 +60,27 @@
   --card-foreground: oklch(0.205 0.02 255);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.205 0.02 255);
-  --primary: oklch(0.55 0.18 246);
+  --primary: oklch(0.52 0.12 215);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.955 0.012 250);
   --secondary-foreground: oklch(0.275 0.025 255);
   --muted: oklch(0.958 0.008 250);
   --muted-foreground: oklch(0.515 0.025 255);
-  --accent: oklch(0.94 0.025 246);
-  --accent-foreground: oklch(0.29 0.08 248);
+  --accent: oklch(0.94 0.03 212);
+  --accent-foreground: oklch(0.28 0.07 220);
   --destructive: oklch(0.58 0.22 27);
   --border: oklch(0.9 0.014 250);
   --input: oklch(0.88 0.016 250);
-  --ring: oklch(0.6 0.16 246);
+  --ring: oklch(0.58 0.12 215);
   --chart-2: oklch(0.69 0.16 168);
-  --sidebar: oklch(0.205 0.025 255);
+  --sidebar: oklch(0.21 0.03 235);
   --sidebar-foreground: oklch(0.955 0.008 250);
-  --sidebar-primary: oklch(0.66 0.17 246);
+  --sidebar-primary: oklch(0.66 0.13 215);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.285 0.035 255);
+  --sidebar-accent: oklch(0.285 0.04 235);
   --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.3 0.025 255);
-  --sidebar-ring: oklch(0.66 0.17 246);
+  --sidebar-border: oklch(0.3 0.03 235);
+  --sidebar-ring: oklch(0.66 0.13 215);
 }
 
 .dark {
@@ -74,27 +90,27 @@
   --card-foreground: oklch(0.96 0.008 250);
   --popover: oklch(0.235 0.022 255);
   --popover-foreground: oklch(0.96 0.008 250);
-  --primary: oklch(0.68 0.16 246);
+  --primary: oklch(0.72 0.11 212);
   --primary-foreground: oklch(0.16 0.02 255);
   --secondary: oklch(0.29 0.025 255);
   --secondary-foreground: oklch(0.955 0.008 250);
   --muted: oklch(0.27 0.02 255);
   --muted-foreground: oklch(0.69 0.025 250);
-  --accent: oklch(0.31 0.045 250);
+  --accent: oklch(0.31 0.05 220);
   --accent-foreground: oklch(0.98 0 0);
   --destructive: oklch(0.68 0.19 25);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 14%);
-  --ring: oklch(0.62 0.15 246);
+  --ring: oklch(0.64 0.11 212);
   --chart-2: oklch(0.7 0.15 168);
-  --sidebar: oklch(0.135 0.018 255);
+  --sidebar: oklch(0.135 0.02 235);
   --sidebar-foreground: oklch(0.95 0.008 250);
-  --sidebar-primary: oklch(0.69 0.16 246);
+  --sidebar-primary: oklch(0.71 0.11 212);
   --sidebar-primary-foreground: oklch(0.14 0.02 255);
-  --sidebar-accent: oklch(0.23 0.032 255);
+  --sidebar-accent: oklch(0.23 0.035 235);
   --sidebar-accent-foreground: oklch(0.98 0 0);
   --sidebar-border: oklch(1 0 0 / 9%);
-  --sidebar-ring: oklch(0.65 0.15 246);
+  --sidebar-ring: oklch(0.67 0.11 212);
 }
 
 * {

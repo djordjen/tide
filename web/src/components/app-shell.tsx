@@ -14,6 +14,7 @@ import {
 
 import { BrowseWorkspace } from "@/components/browse-workspace"
 import { Button } from "@/components/ui/button"
+import { TideLine } from "@/components/tide-line"
 import { Separator } from "@/components/ui/separator"
 import {
   Tooltip,
@@ -101,12 +102,15 @@ export function AppShell({
             <Waves className="size-4.5" />
           </div>
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">TIDE Framework</p>
+            <p className="font-display truncate text-sm font-semibold">
+              TIDE Framework
+            </p>
             <p className="truncate text-xs text-sidebar-foreground/55">
               {connection.presentation.application}
             </p>
           </div>
         </div>
+        <TideLine className="mb-1 ml-5 w-14 text-sidebar-primary/70" />
         <Separator className="bg-sidebar-border" />
 
         <nav

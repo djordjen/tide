@@ -402,10 +402,10 @@ export function TideDataGrid({
 
   return (
     <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border bg-card shadow-sm">
-      <div className="flex h-10 shrink-0 items-center justify-between border-b bg-muted/35 px-3">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Rows3 className="size-3.5" />
-          <span>
+      <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b bg-muted/35 px-3">
+        <div className="flex min-w-0 items-center gap-2 text-xs whitespace-nowrap text-muted-foreground">
+          <Rows3 className="size-3.5 shrink-0" />
+          <span className="shrink-0">
             {loading
               ? "Loading records"
               : `${records.length.toLocaleString()} loaded`}
@@ -421,7 +421,7 @@ export function TideDataGrid({
           ) : !hasMore && records.length ? (
             <>
               <span className="text-border">•</span>
-              <span>All matching records loaded</span>
+              <span className="truncate">All matching records loaded</span>
             </>
           ) : null}
         </div>

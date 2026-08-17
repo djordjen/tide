@@ -157,6 +157,26 @@ conflict contracts, and batched reference displays on `QueryPage`.
 
 ### Web renderer
 
+The shell now carries TIDE's own identity instead of a template's. The primary
+hue moved from framework-default blue to a sea-teal, the sidebar ink took the
+same cast, and headings, the wordmark and report titles render in a bundled
+Bricolage Grotesque while data stays in the named system stack -- tables are
+the instrument, headings are the voice. A three-crest tide-line marks the
+connect headline, the sidebar wordmark and the workspace title, and nothing
+else. Choice values wear a soft identity tint chosen by their own text -- six
+buckets carrying no success green and no danger red, because the framework
+cannot know whether an application's `posted` is good news -- so the same
+value wears the same tint on every screen of every application and a status
+column reads at a glance. A resolving reference shows an ellipsis instead of
+flashing its raw key. On a phone, the browse toolbar became one wrapping row
+instead of six stacked full-width controls, so the records start a screen
+earlier; the grid's meta strip stopped wrapping mid-word; the record action
+bar's clusters each keep to their own aligned row; the report paper gives up
+its desktop minimum height and side padding at phone widths, so a
+three-column summary fits 375px without cutting a column; and a one-row lines
+table stopped reserving a hundred pixels of emptiness that pushed its own
+editors below the fold.
+
 A reference picker showed the literal word `uniqueid` where the record's display value belonged. `display: uniqueid` compiles to a template with no placeholder, meaning the name of the field to show, and the two web formatters resolving the same declaration disagreed about that: one substituted `{braces}` only and returned everything else verbatim. Both now read one rule. Field labels are 14px and wrap instead of 12px and truncating, which was sized for a label stacked above its control; the colour was already 5.6:1 on the light card and 6.4:1 on the dark one.
 
 The closed-set field editor is a code-owned `Select` rather than a native one, so its popup is styled like the rest of the application. The general scalar editor now uses the vendored `Input`, whose styling it had been carrying a drifted second copy of. A boolean is still a native tick box and the phone navigation is still a native select, both for stated reasons.

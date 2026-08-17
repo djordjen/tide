@@ -3,6 +3,7 @@ import { ArrowRight, DatabaseZap, LockKeyhole, Waves } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { TideLine } from "@/components/tide-line"
 import { TideApi, TideApiError } from "@/lib/api"
 import type {
   TideBrowserAuthenticationInfo,
@@ -106,12 +107,13 @@ export function ConnectionScreen({
           <p className="mb-4 text-sm font-semibold tracking-[0.22em] text-primary uppercase">
             TIDE Framework
           </p>
-          <h1 className="text-balance text-5xl leading-[1.08] font-semibold tracking-tight text-foreground">
+          <h1 className="font-display text-balance text-5xl leading-[1.08] font-semibold tracking-tight text-foreground">
             Business applications,
             <span className="block text-muted-foreground">
               shaped by metadata.
             </span>
           </h1>
+          <TideLine className="mt-6 text-primary" />
           <p className="mt-6 max-w-xl text-lg leading-8 text-muted-foreground">
             One secured application model, rendered consistently across Web,
             desktop and terminal experiences.
@@ -145,7 +147,7 @@ export function ConnectionScreen({
             </p>
           </div>
           <p className="text-sm font-medium text-primary">Web renderer</p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight">
+          <h2 className="font-display mt-2 text-2xl font-semibold tracking-tight">
             {browserAuthentication?.mode === "development"
               ? "Open a development server"
               : browserAuthentication?.enabled

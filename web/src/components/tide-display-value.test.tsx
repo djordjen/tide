@@ -41,6 +41,17 @@ describe("a reference cell", () => {
     expect(getReference).toHaveBeenCalledTimes(1)
   })
 
+  it("does not flash the raw key while the name is on its way", () => {
+    const getReference = vi.fn(() => new Promise(() => {}))
+
+    renderCell({ id: 7, customer: 4 }, getReference)
+
+    // The key is the database's spelling of the reference, not its name; a
+    // cell that shows it for a frame teaches people to read keys.
+    expect(screen.queryByText("4")).toBeNull()
+    expect(screen.getByText("…")).toBeDefined()
+  })
+
   it("will not name a field it was told to withhold", async () => {
     const getReference = vi.fn(() => {
       throw new Error("a protected reference must not be fetched")
@@ -65,6 +76,52 @@ describe("a reference cell", () => {
     expect(getReference).not.toHaveBeenCalled()
   })
 })
+
+describe("a choice chip", () => {
+  it("wears the same identity tint for the same value on every screen", () => {
+    // The tint says "these rows are the same state", not "this state is
+    // good": the framework cannot know what Posted means to an application,
+    // so color is identity, and identity must be stable.
+    const first = renderChoice("Posted")
+    const tint = first
+      .getByText("Posted")
+      .closest("[data-tint]")
+      ?.getAttribute("data-tint")
+    expect(tint).toBeTruthy()
+    first.unmount()
+
+    const again = renderChoice("Posted")
+    expect(
+      again
+        .getByText("Posted")
+        .closest("[data-tint]")
+        ?.getAttribute("data-tint"),
+    ).toBe(tint)
+  })
+})
+
+function renderChoice(value: string) {
+  const column: TidePresentationColumn = {
+    name: "status",
+    label: "Status",
+    field_type: "choice",
+    alignment: "left",
+    values: [],
+    format: null,
+    format_options: null,
+    target_entity: null,
+    reference: null,
+  }
+  return render(
+    <QueryClientProvider client={new QueryClient()}>
+      <TideDisplayValue
+        api={{} as unknown as TideApi}
+        column={column}
+        record={{ id: 1, status: value }}
+      />
+    </QueryClientProvider>,
+  )
+}
 
 function renderCell(record: TideRecord, getReference: unknown) {
   const column: TidePresentationColumn = {

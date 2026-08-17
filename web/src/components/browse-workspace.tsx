@@ -22,6 +22,7 @@ import {
 
 import { TideDataGrid } from "@/components/tide-data-grid"
 import { Badge } from "@/components/ui/badge"
+import { TideLine } from "@/components/tide-line"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -290,9 +291,10 @@ export function BrowseWorkspace({
       >
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight">
+            <h1 className="font-display text-2xl font-semibold tracking-tight">
               {view.label}
             </h1>
+            <TideLine className="w-12 text-primary/45" />
             <Badge variant="outline">Server mode</Badge>
           </div>
           <p className="mt-1.5 flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -301,9 +303,12 @@ export function BrowseWorkspace({
           </p>
         </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        {/* One wrapping row at every width: on a phone the search keeps its
+            own line and the actions share the next, so the records start a
+            screen earlier than the stacked full-width column they replace. */}
+        <div className="flex flex-wrap items-center gap-2">
           {view.search_field ? (
-            <div className="relative min-w-0 sm:w-72">
+            <div className="relative w-full min-w-0 sm:w-72">
               <Search className="pointer-events-none absolute top-2.5 left-3 size-4 text-muted-foreground" />
               <Input
                 className="pr-9 pl-9"
@@ -329,7 +334,6 @@ export function BrowseWorkspace({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
-                  className="justify-start sm:justify-center"
                   variant={filterName === "all" ? "outline" : "secondary"}
                 >
                   <Filter />

@@ -20,6 +20,43 @@ interface TideDisplayValueProps {
   wrap?: boolean
 }
 
+/**
+ * A choice value wears a soft tint chosen by its text, the same on every
+ * screen of every application. The tint claims identity, never judgement --
+ * the framework cannot know whether an application's `posted` is good news,
+ * so the buckets carry no success green and no danger red, and a value's
+ * color means only "these rows are in the same state".
+ */
+const TINT_NAMES = [
+  "sky",
+  "teal",
+  "violet",
+  "amber",
+  "slate",
+  "indigo",
+] as const
+
+const TINT_CLASSES: Record<string, string> = {
+  sky: "border border-sky-200 bg-sky-100/80 text-sky-950 dark:border-sky-400/25 dark:bg-sky-400/15 dark:text-sky-200",
+  teal: "border border-teal-200 bg-teal-100/80 text-teal-950 dark:border-teal-400/25 dark:bg-teal-400/15 dark:text-teal-200",
+  violet:
+    "border border-violet-200 bg-violet-100/80 text-violet-950 dark:border-violet-400/25 dark:bg-violet-400/15 dark:text-violet-200",
+  amber:
+    "border border-amber-200 bg-amber-100/80 text-amber-950 dark:border-amber-400/25 dark:bg-amber-400/15 dark:text-amber-200",
+  slate:
+    "border border-slate-200 bg-slate-100/80 text-slate-950 dark:border-slate-400/25 dark:bg-slate-400/15 dark:text-slate-200",
+  indigo:
+    "border border-indigo-200 bg-indigo-100/80 text-indigo-950 dark:border-indigo-400/25 dark:bg-indigo-400/15 dark:text-indigo-200",
+}
+
+function valueTint(text: string): (typeof TINT_NAMES)[number] {
+  let hash = 0
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) | 0
+  }
+  return TINT_NAMES[Math.abs(hash) % TINT_NAMES.length]
+}
+
 export function TideDisplayValue({
   api,
   column,
@@ -63,13 +100,25 @@ export function TideDisplayValue({
     text = resolved
   } else if (reference && referenceQuery.data) {
     text = formatReferenceDisplay(reference, referenceQuery.data)
+  } else if (reference && referenceQuery.isLoading) {
+    // The key is the database's spelling of the reference, not its name;
+    // showing it for a frame teaches people to read keys. A failed fetch
+    // falls back to the key, which at least is true.
+    text = "…"
   }
 
   if (column.field_type === "choice" && text) {
+    const tint = valueTint(text)
     return (
       <Badge
-        className={cn("max-w-full", !wrap && "truncate", className)}
+        className={cn(
+          "max-w-full",
+          TINT_CLASSES[tint],
+          !wrap && "truncate",
+          className,
+        )}
         variant="secondary"
+        data-tint={tint}
         title={text}
       >
         {text}
@@ -83,7 +132,7 @@ export function TideDisplayValue({
         wrap ? "break-words whitespace-pre-wrap" : "truncate",
         protectedFields.includes(column.name) &&
           "italic text-muted-foreground",
-        referenceQuery.isPending && "text-muted-foreground",
+        referenceQuery.isLoading && "text-muted-foreground",
         className,
       )}
       title={text}

@@ -170,7 +170,11 @@ export function EditableCollection({
         <Badge variant="outline">{rows.length} draft rows</Badge>
       </div>
 
-      <div className="max-h-80 min-h-44 overflow-auto rounded-xl border">
+      {/* The table takes the height its rows need, up to the cap: a one-line
+          draft used to sit above a hundred pixels of reserved emptiness,
+          pushing its own editors below the fold. Only the empty state keeps
+          a minimum, so "No Lines" has room to say so. */}
+      <div className="max-h-80 overflow-auto rounded-xl border">
         {rows.length === 0 ? (
           <div className="flex min-h-44 flex-col items-center justify-center text-sm text-muted-foreground">
             <ListChecks className="mb-2 size-5" />

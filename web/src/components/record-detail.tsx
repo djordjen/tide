@@ -880,7 +880,7 @@ export function RecordDetail({
       <header className="mb-4 flex shrink-0 items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="truncate text-2xl font-semibold tracking-tight">
+            <h1 className="font-display truncate text-2xl font-semibold tracking-tight">
               {heading}
             </h1>
             <Badge variant="outline">
@@ -1206,7 +1206,7 @@ export function RecordDetail({
             </div>
           ) : null}
         </div>
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+        <div className="ml-auto flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
           {editorActive ? (
             <>
               <Button
