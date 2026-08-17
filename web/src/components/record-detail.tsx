@@ -1367,7 +1367,11 @@ export function RecordDetail({
                   onClick={() => onPreviewReport(report)}
                 >
                   <FileText />
-                  Preview {report.title}
+                  {/* The record is the scope, so one report needs no name;
+                      two must say which is which. */}
+                  {reports.length === 1
+                    ? "Preview"
+                    : `Preview ${report.title}`}
                 </Button>
               ))
             : null}

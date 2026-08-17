@@ -734,7 +734,7 @@ it("previews secured record and summary reports and downloads controlled exports
   // click on a disabled button is a silent no-op -- so waiting for it to
   // exist is not enough to know the click will do anything.
   const preview = await screen.findByRole("button", {
-    name: "Preview Invoice",
+    name: "Preview",
   })
   await waitFor(() => expect(preview).toBeEnabled())
   await user.click(preview)

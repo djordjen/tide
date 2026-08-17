@@ -110,19 +110,19 @@ export function TideDisplayValue({
   if (column.field_type === "choice" && text) {
     const tint = valueTint(text)
     return (
-      <Badge
-        className={cn(
-          "max-w-full",
-          TINT_CLASSES[tint],
-          !wrap && "truncate",
-          className,
-        )}
-        variant="secondary"
-        data-tint={tint}
-        title={text}
-      >
-        {text}
-      </Badge>
+      // The wrapper takes the cell's layout classes -- alignment, the
+      // read-only baseline padding -- so they can never leak inside the
+      // chip; padding inside the chip is what made its text sit low.
+      <span className={cn("block min-w-0", className)}>
+        <Badge
+          className={cn("max-w-full", TINT_CLASSES[tint], !wrap && "truncate")}
+          variant="secondary"
+          data-tint={tint}
+          title={text}
+        >
+          {text}
+        </Badge>
+      </span>
     )
   }
   return (

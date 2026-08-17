@@ -178,10 +178,12 @@ select {
     display: grid;
     /* 8rem fits every invoicing label on one line and hands the difference
        to the control column, where a truncated reference display was losing
-       the very name it exists to show. A longer legacy column name wraps. */
+       the very name it exists to show. A longer legacy column name wraps.
+       The label sits 8px from its control -- closer than the 24px between
+       field columns -- so proximity says what belongs to what. */
     grid-template-columns: var(--tide-label-column, 8rem) minmax(0, 1fr);
     align-items: start;
-    column-gap: 0.75rem;
+    column-gap: 0.5rem;
   }
 
   .tide-field > :first-child {
@@ -195,6 +197,14 @@ select {
   .tide-field > :not(:first-child) {
     grid-column: 2;
   }
+}
+
+/* The native date control keeps its own picker, but `display: flex` on the
+   input leaves the indicator beside the text instead of at the trailing
+   edge; the auto margin sends it where every other trailing control sits. */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  margin-left: auto;
 }
 
 ::selection {

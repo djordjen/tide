@@ -50,7 +50,7 @@ export function DetailGroup({
         {section.rows.map((row, rowIndex) => (
           <div
             key={rowIndex}
-            className="tide-form-row grid gap-3"
+            className="tide-form-row grid gap-y-3 gap-x-6"
             style={
               {
                 "--tide-form-columns": row.length,

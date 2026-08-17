@@ -172,7 +172,7 @@ What to try, in the order the slices were built:
 - **Add line**, which follows the shared `sales.InvoiceLine.inline_edit`
   layout, and whose Product lookup returns Description and Unit Price from the
   server rather than the browser;
-- **Posted Sales Summary** from the Invoice list, and **Preview Invoice** from a
+- **Posted Sales Summary** from the Invoice list, and **Preview** from a
   saved Invoice — both offer CSV, standalone HTML, and PDF export, each rebuilt
   and reauthorized server-side;
 - the address bar, which carries the open view and record as `?view=` and

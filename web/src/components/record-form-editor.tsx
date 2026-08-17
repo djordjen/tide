@@ -156,7 +156,7 @@ function EditorGroup({
         {section.rows.map((row, rowIndex) => (
           <div
             key={rowIndex}
-            className="tide-form-row grid gap-3"
+            className="tide-form-row grid gap-y-3 gap-x-6"
             style={
               {
                 "--tide-form-columns": row.length,
@@ -452,31 +452,30 @@ function ReferenceEditor({
           </span>
         ) : null}
       </label>
-      <div className="flex min-w-0 gap-2">
-        <div
-          className={cn(
-            // The same well as `ui/input.tsx`: this holds the chosen value,
-            // so it dresses like the text controls, and only the select
-            // button beside it dresses like one.
-            "flex h-9 min-w-0 flex-1 items-center rounded-lg border border-input bg-muted/55 px-3 text-sm shadow-xs dark:bg-input/40",
-            error && "border-destructive/65",
-          )}
-          aria-live="polite"
-        >
-          <TideDisplayValue
-            api={api}
-            column={field}
-            record={{ [field.name]: value }}
-            className="truncate"
-          />
-        </div>
+      <div
+        className={cn(
+          // One combobox-shaped well: the chosen value with its picker on
+          // the trailing edge, the way a select carries its chevron. The
+          // well is the same dress as `ui/input.tsx`; only the embedded
+          // button is clickable.
+          "flex h-9 min-w-0 items-center gap-1 rounded-lg border border-input bg-muted/55 pr-1 pl-3 text-sm shadow-xs dark:bg-input/40",
+          error && "border-destructive/65",
+        )}
+        aria-live="polite"
+      >
+        <TideDisplayValue
+          api={api}
+          column={field}
+          record={{ [field.name]: value }}
+          className="min-w-0 flex-1 truncate"
+        />
         <Button
           id={id}
           data-tide-editor
           type="button"
-          variant="outline"
+          variant="ghost"
           size="icon"
-          className="shrink-0"
+          className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
           disabled={disabled}
           aria-label={`Select ${field.label}`}
           title={`Select ${field.label}`}
