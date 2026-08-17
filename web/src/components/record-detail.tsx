@@ -184,6 +184,15 @@ export function RecordDetail({
   })
   const tabs = useMemo(() => formTabs(form.sections), [form.sections])
   const [selectedTab, setSelectedTab] = useState(tabs[0] ?? "")
+  // Which collection's tab is open in the panel below the record. Null means
+  // "the first one"; the choice survives Previous/Next inside one form and
+  // resets when the form itself changes.
+  const [activeCollection, setActiveCollection] = useState<string | null>(
+    null,
+  )
+  useEffect(() => {
+    setActiveCollection(null)
+  }, [form.view])
   const [draft, setDraft] = useState<TideFormDraft>(() =>
     formDraft(form),
   )
@@ -848,6 +857,30 @@ export function RecordDetail({
           (section) => (section.tab ?? "General") === selectedTab,
         )
       : form.sections
+  // With no declared tabs, collections leave the record card for their own
+  // tabbed panel below it: the record's fields keep the full card width, and
+  // a second collection is a visible tab rather than more page. A YAML tab
+  // layout keeps its declared shape and renders sections exactly where the
+  // author put them.
+  const splitCollections =
+    tabs.length === 0
+      ? visibleSections.filter(
+          (
+            section,
+          ): section is TidePresentationFormCollection =>
+            section.kind === "collection",
+        )
+      : []
+  const openCollection =
+    splitCollections.find(
+      (section) => section.name === activeCollection,
+    ) ??
+    splitCollections[0] ??
+    null
+  const cardSections =
+    splitCollections.length > 0
+      ? visibleSections.filter((section) => section.kind === "group")
+      : visibleSections
   const display = record
     ? formatRecordDisplay(
         form.display_template,
@@ -874,6 +907,70 @@ export function RecordDetail({
 
   // While this is mounted the tab is its to name; the browse yields.
   useDocumentTitle(documentTitle(heading, application))
+
+  // One renderer for a collection wherever it appears -- inline in a declared
+  // tab layout, or in the default collections panel -- so the draft handlers
+  // exist once.
+  function renderCollectionSection(
+    section: TidePresentationFormCollection,
+    withHeading: boolean,
+  ) {
+    if (
+      editorActive &&
+      (mode === "create" || record) &&
+      editableCollections.has(section.name)
+    ) {
+      return (
+        <EditableCollection
+          key={`collection-${section.name}`}
+          api={api}
+          section={section}
+          forms={forms}
+          rows={collectionDrafts[section.name] ?? []}
+          errors={collectionErrors[section.name] ?? []}
+          editable
+          heading={withHeading}
+          disabled={busy}
+          onRowsChange={(rows) => {
+            setCollectionDrafts((current) => ({
+              ...current,
+              [section.name]: rows,
+            }))
+            if (conflictReview) {
+              setConflictReview(null)
+              setConflictChoices({})
+              setConflictOpen(false)
+            } else {
+              setSaveError(null)
+            }
+            setActionError(null)
+            setActionNotice(null)
+          }}
+          onErrorsChange={(errors) =>
+            setCollectionErrors((current) => ({
+              ...current,
+              [section.name]: errors,
+            }))
+          }
+        />
+      )
+    }
+    const source = editorActive
+      ? ((record ?? draft) as TideRecord)
+      : record
+    if (!source) {
+      return null
+    }
+    return (
+      <DetailCollection
+        key={`collection-${section.name}`}
+        api={api}
+        record={source}
+        section={section}
+        heading={withHeading}
+      />
+    )
+  }
 
   return (
     <main className="flex min-h-0 flex-1 flex-col p-4 md:p-6">
@@ -1037,14 +1134,15 @@ export function RecordDetail({
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border bg-card shadow-sm">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto">
+        <div className="rounded-2xl border bg-card shadow-sm">
         {mode === "update" && !record && query.isPending ? (
           <DetailSkeleton />
         ) : editorActive && (mode === "create" || record) ? (
           <div className="space-y-5 p-4 md:p-5">
             <RecordFormEditor
               api={api}
-              form={{ ...form, sections: visibleSections }}
+              form={{ ...form, sections: cardSections }}
               forms={forms}
               draft={draft}
               editableFields={editableFields}
@@ -1090,59 +1188,18 @@ export function RecordDetail({
                 setActionNotice(null)
               }}
             />
-            {visibleSections
+            {cardSections
               .filter(
                 (
                   section,
                 ): section is TidePresentationFormCollection =>
                   section.kind === "collection",
               )
-              .map((section) => (
-                editableCollections.has(section.name) ? (
-                  <EditableCollection
-                    key={`collection-${section.name}`}
-                    api={api}
-                    section={section}
-                    forms={forms}
-                    rows={collectionDrafts[section.name] ?? []}
-                    errors={collectionErrors[section.name] ?? []}
-                    editable
-                    disabled={busy}
-                    onRowsChange={(rows) => {
-                      setCollectionDrafts((current) => ({
-                        ...current,
-                        [section.name]: rows,
-                      }))
-                      if (conflictReview) {
-                        setConflictReview(null)
-                        setConflictChoices({})
-                        setConflictOpen(false)
-                      } else {
-                        setSaveError(null)
-                      }
-                      setActionError(null)
-                      setActionNotice(null)
-                    }}
-                    onErrorsChange={(errors) =>
-                      setCollectionErrors((current) => ({
-                        ...current,
-                        [section.name]: errors,
-                      }))
-                    }
-                  />
-                ) : (
-                  <DetailCollection
-                    key={`collection-${section.name}`}
-                    api={api}
-                    record={(record ?? draft) as TideRecord}
-                    section={section}
-                  />
-                )
-              ))}
+              .map((section) => renderCollectionSection(section, true))}
           </div>
         ) : record ? (
           <div className="space-y-5 p-4 md:p-5">
-            {visibleSections.map((section, index) =>
+            {cardSections.map((section, index) =>
               section.kind === "group" ? (
                 <DetailGroup
                   key={`group-${index}-${section.label}`}
@@ -1153,15 +1210,53 @@ export function RecordDetail({
                   writable={writable}
                 />
               ) : (
-                <DetailCollection
-                  key={`collection-${section.name}`}
-                  api={api}
-                  record={record}
-                  section={section}
-                />
+                renderCollectionSection(section, true)
               ),
             )}
           </div>
+        ) : null}
+        </div>
+
+        {openCollection &&
+        (record || (editorActive && mode === "create")) ? (
+          // The collections panel: a sibling of the record card, so the rows
+          // get the full width the record's own fields keep. Every collection
+          // is a tab; the strip shows even for one, naming the panel and the
+          // pattern a second collection joins.
+          <section aria-label={`${form.label} collections`}>
+            <div
+              role="tablist"
+              aria-label={`${form.label} collections`}
+              className="mb-3 flex gap-1 overflow-x-auto rounded-xl border bg-card p-1"
+            >
+              {splitCollections.map((section) => (
+                <button
+                  key={section.name}
+                  id={`collection-tab-${section.name}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={section.name === openCollection.name}
+                  aria-controls={`collection-panel-${section.name}`}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-sm font-medium whitespace-nowrap outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40",
+                    section.name === openCollection.name
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                  )}
+                  onClick={() => setActiveCollection(section.name)}
+                >
+                  {section.label}
+                </button>
+              ))}
+            </div>
+            <div
+              id={`collection-panel-${openCollection.name}`}
+              role="tabpanel"
+              aria-labelledby={`collection-tab-${openCollection.name}`}
+            >
+              {renderCollectionSection(openCollection, false)}
+            </div>
+          </section>
         ) : null}
       </div>
 
@@ -1259,7 +1354,14 @@ export function RecordDetail({
             return (
               <Button
                 key={action.name}
-                className="bg-emerald-600 text-white hover:bg-emerald-600/90 dark:bg-emerald-600 dark:text-white"
+                // While the draft is dirty the natural next step is Save, and
+                // two filled buttons shout over each other -- the domain
+                // action steps back to an outline until the record is clean.
+                variant={dirty ? "outline" : "default"}
+                className={cn(
+                  !dirty &&
+                    "bg-emerald-600 text-white hover:bg-emerald-600/90 dark:bg-emerald-600 dark:text-white",
+                )}
                 disabled={busy || (!state?.enabled && !dirty)}
                 title={
                   !state?.enabled && !dirty

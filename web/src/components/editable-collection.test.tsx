@@ -17,9 +17,18 @@ describe("a collection widget that knows no application", () => {
     renderCollection([])
 
     expect(screen.getByText("Stops")).toBeDefined()
-    expect(screen.getByText("No Stops")).toBeDefined()
     expect(document.body.textContent).not.toContain("invoice")
     expect(document.body.textContent).not.toContain("line item")
+  })
+
+  it("invites the first row instead of shrugging at the emptiness", () => {
+    renderCollection([])
+
+    // An empty screen is an invitation to act: the state names the control
+    // that resolves it, in the manifest's own words.
+    expect(
+      screen.getByText("No Stops yet — Add Stop starts one."),
+    ).toBeDefined()
   })
 
   it("labels each row control with the record the manifest names", () => {
@@ -28,6 +37,19 @@ describe("a collection widget that knows no application", () => {
     expect(screen.getByRole("button", { name: "Add Stop" })).toBeDefined()
     expect(screen.getByRole("button", { name: "Apply Stop" })).toBeDefined()
     expect(screen.getByRole("button", { name: "Remove Stop" })).toBeDefined()
+  })
+
+  it("says which row the editor below the table is editing", () => {
+    renderCollection([
+      { id: 1, position: "1" },
+      { id: 2, position: "2" },
+    ])
+
+    // The editor edits the highlighted row, and its heading says so even
+    // when the highlight has scrolled away.
+    expect(
+      screen.getByRole("heading", { name: "Stop · row 1 of 2" }),
+    ).toBeDefined()
   })
 })
 

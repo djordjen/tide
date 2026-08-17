@@ -100,10 +100,13 @@ export function DetailCollection({
   api,
   record,
   section,
+  heading = true,
 }: {
   api: TideApi
   record: TideRecord
   section: TidePresentationFormCollection
+  /** False when a tab already names the collection. */
+  heading?: boolean
 }) {
   const protectedFields = record._tide?.protected_fields ?? []
   const protectedCollection = protectedFields.includes(section.name)
@@ -112,8 +115,15 @@ export function DetailCollection({
 
   return (
     <section className="min-w-0 rounded-xl border bg-muted/20 p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h2 className={sectionHeadingClass}>{section.label}</h2>
+      <div
+        className={cn(
+          "mb-3 flex items-center gap-3",
+          heading ? "justify-between" : "justify-end",
+        )}
+      >
+        {heading ? (
+          <h2 className={sectionHeadingClass}>{section.label}</h2>
+        ) : null}
         <Badge variant="outline">
           {protectedCollection ? "Protected" : `${rows.length} rows`}
         </Badge>
@@ -127,7 +137,7 @@ export function DetailCollection({
         ) : rows.length === 0 ? (
           <div className="flex min-h-44 flex-col items-center justify-center text-sm text-muted-foreground">
             <Rows3 className="mb-2 size-5" />
-            No collection records
+            No {section.label}
           </div>
         ) : (
           <table className="w-full min-w-max border-collapse text-sm">

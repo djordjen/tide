@@ -177,6 +177,24 @@ three-column summary fits 375px without cutting a column; and a one-row lines
 table stopped reserving a hundred pixels of emptiness that pushed its own
 editors below the fold.
 
+The record screen now ranks its parts. Group names are eyebrow headings under
+the one display-face title; text controls are filled wells while buttons keep
+the raised card background, so "type here" and "click here" stop wearing the
+same coat; the label column narrowed from 10rem to 8rem, which is the
+difference between `MORA - Mora ...` and the customer's actual name; and
+read-only values share their label's baseline. Collections left the record
+card entirely: with no YAML-declared tabs, every collection renders in one
+tabbed panel below the record -- one tab per collection, the first open, the
+strip visible even for one -- so the record's fields keep the full card width
+and a second collection is a visible tab rather than more page. A YAML tab
+layout keeps its declared shape. The line editor is an inner card wearing the
+selection's primary as a left accent, the same edge the selected table row
+carries, and its heading says which row it is editing ("Line details · row 2
+of 3"). An empty editable collection invites the first row in the manifest's
+own words; a domain action steps back to an outline while the draft is dirty,
+because the natural next step is Save and two filled buttons shout over each
+other.
+
 A reference picker showed the literal word `uniqueid` where the record's display value belonged. `display: uniqueid` compiles to a template with no placeholder, meaning the name of the field to show, and the two web formatters resolving the same declaration disagreed about that: one substituted `{braces}` only and returned everything else verbatim. Both now read one rule. Field labels are 14px and wrap instead of 12px and truncating, which was sized for a label stacked above its control; the colour was already 5.6:1 on the light card and 6.4:1 on the dark one.
 
 The closed-set field editor is a code-owned `Select` rather than a native one, so its popup is styled like the rest of the application. The general scalar editor now uses the vendored `Input`, whose styling it had been carrying a drifted second copy of. A boolean is still a native tick box and the phone navigation is still a native select, both for stated reasons.

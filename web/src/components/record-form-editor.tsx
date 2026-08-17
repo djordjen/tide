@@ -64,6 +64,8 @@ interface RecordFormEditorProps {
   errors: TideFormErrors
   disabled: boolean
   idScope?: string
+  /** Appended to the first group's heading, e.g. "· row 2 of 3". */
+  headingSuffix?: string
   onChange: (name: string, value: unknown) => void
   onApplyValues: (values: Record<string, unknown>) => void
 }
@@ -77,10 +79,14 @@ export function RecordFormEditor({
   errors,
   disabled,
   idScope,
+  headingSuffix,
   onChange,
   onApplyValues,
 }: RecordFormEditorProps) {
   const record = draft as TideRecord
+  const firstGroup = form.sections.findIndex(
+    (section) => section.kind === "group",
+  )
   return (
     <>
       {form.sections.map((section, index) =>
@@ -96,6 +102,9 @@ export function RecordFormEditor({
             errors={errors}
             disabled={disabled}
             idScope={idScope}
+            headingSuffix={
+              index === firstGroup ? headingSuffix : undefined
+            }
             onChange={onChange}
             onApplyValues={onApplyValues}
           />
@@ -115,6 +124,7 @@ function EditorGroup({
   errors,
   disabled,
   idScope,
+  headingSuffix,
   onChange,
   onApplyValues,
 }: {
@@ -127,12 +137,16 @@ function EditorGroup({
   errors: TideFormErrors
   disabled: boolean
   idScope?: string
+  headingSuffix?: string
   onChange: (name: string, value: unknown) => void
   onApplyValues: (values: Record<string, unknown>) => void
 }) {
   return (
     <section>
-      <h2 className={`mb-3 ${sectionHeadingClass}`}>{section.label}</h2>
+      <h2 className={`mb-3 ${sectionHeadingClass}`}>
+        {section.label}
+        {headingSuffix ? ` ${headingSuffix}` : ""}
+      </h2>
       <div className="space-y-3">
         {section.rows.map((row, rowIndex) => (
           <div
@@ -439,7 +453,7 @@ function ReferenceEditor({
             // The same well as `ui/input.tsx`: this holds the chosen value,
             // so it dresses like the text controls, and only `Select…`
             // beside it dresses like a button.
-            "flex h-9 min-w-0 flex-1 items-center rounded-lg border border-input bg-muted/55 px-3 text-sm shadow-xs dark:bg-input/25",
+            "flex h-9 min-w-0 flex-1 items-center rounded-lg border border-input bg-muted/55 px-3 text-sm shadow-xs dark:bg-input/40",
             error && "border-destructive/65",
           )}
           aria-live="polite"

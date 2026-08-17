@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, within } from "@testing-library/react"
+import { cleanup, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, expect, it, vi } from "vitest"
 
@@ -8,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { connectWithToken } from "@/test/connect"
 
 afterEach(() => {
+  cleanup()
   vi.unstubAllGlobals()
   window.localStorage.clear()
 })
@@ -83,7 +84,9 @@ it("opens a shared-layout detail and navigates without replacing the shell", asy
   expect(
     screen.getByLabelText("Number is read-only"),
   ).toBeInTheDocument()
-  expect(screen.getByRole("heading", { name: "Lines" })).toBeInTheDocument()
+  // Collections live in their own tabbed panel below the record now, so the
+  // collection's name is a tab, not a heading inside the record card.
+  expect(screen.getByRole("tab", { name: "Lines" })).toBeInTheDocument()
   expect(screen.getByText("Demo line 1")).toBeInTheDocument()
   const totalHeader = screen.getByRole("columnheader", { name: "Total" })
   expect(totalHeader).toHaveClass("text-right")
@@ -119,6 +122,66 @@ it("opens a shared-layout detail and navigates without replacing the shell", asy
   expect(
     screen.getByRole("heading", { name: "Invoices" }),
   ).toBeInTheDocument()
+})
+
+it("gathers every collection into one tabbed panel below the record", async () => {
+  // A second collection must not be a silent omission on this surface any
+  // more than it was on the terminal: each one is a tab, the first is open,
+  // and switching shows the other's rows in the same panel.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: false,
+          mode: null,
+          login_path: null,
+          session_path: null,
+          logout_path: null,
+        })
+      }
+      if (url.endsWith("/_tide/session")) {
+        return jsonResponse(session)
+      }
+      if (url.endsWith("/_tide/presentation")) {
+        return jsonResponse(twoCollectionPresentation())
+      }
+      if (url.endsWith("/invoices/_query")) {
+        return jsonResponse({
+          records: [summary(1, "INV-2026-0001", "posted")],
+          next_cursor: null,
+        })
+      }
+      if (url.endsWith("/invoices/1")) {
+        return jsonResponse({
+          ...invoice(1, "INV-2026-0001", "posted", []),
+          approvals: [{ id: 9, approver: "Mira Novak" }],
+        })
+      }
+      throw new Error(`Unexpected URL ${url}`)
+    }),
+  )
+
+  const user = userEvent.setup()
+  renderApp()
+  await connectWithToken(user)
+  await user.dblClick(
+    await screen.findByRole("row", { name: /INV-2026-0001/ }),
+  )
+  await screen.findByRole("heading", { name: "Invoice — INV-2026-0001" })
+
+  const lines = screen.getByRole("tab", { name: "Lines" })
+  const approvals = screen.getByRole("tab", { name: "Approvals" })
+  expect(lines).toHaveAttribute("aria-selected", "true")
+  expect(approvals).toHaveAttribute("aria-selected", "false")
+  expect(screen.getByText("Demo line 1")).toBeInTheDocument()
+  expect(screen.queryByText("Mira Novak")).toBeNull()
+
+  await user.click(approvals)
+  expect(await screen.findByText("Mira Novak")).toBeInTheDocument()
+  expect(screen.queryByText("Demo line 1")).toBeNull()
+  expect(approvals).toHaveAttribute("aria-selected", "true")
 })
 
 function renderApp() {
@@ -248,6 +311,35 @@ const invoiceView = {
   page_size: 25,
   operations: ["list", "get", "update"],
   detail_view: "sales.Invoice.edit",
+}
+
+function twoCollectionPresentation() {
+  const form = presentation.forms["sales.Invoice.edit"]
+  return {
+    ...presentation,
+    forms: {
+      "sales.Invoice.edit": {
+        ...form,
+        sections: [
+          ...form.sections,
+          {
+            kind: "collection",
+            name: "approvals",
+            label: "Approvals",
+            entity: "sales.InvoiceApproval",
+            columns: [
+              {
+                ...plainColumn,
+                name: "approver",
+                label: "Approver",
+              },
+            ],
+            tab: null,
+          },
+        ],
+      },
+    },
+  }
 }
 
 const presentation = {

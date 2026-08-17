@@ -31,6 +31,8 @@ interface EditableCollectionProps {
   errors: TideFormErrors[]
   editable: boolean
   disabled: boolean
+  /** False when a tab already names the collection, so the panel says it once. */
+  heading?: boolean
   onRowsChange: (rows: TideRecord[]) => void
   onErrorsChange: (errors: TideFormErrors[]) => void
 }
@@ -43,6 +45,7 @@ export function EditableCollection({
   errors,
   editable,
   disabled,
+  heading = true,
   onRowsChange,
   onErrorsChange,
 }: EditableCollectionProps) {
@@ -165,8 +168,10 @@ export function EditableCollection({
     >
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <h2 className={sectionHeadingClass}>{section.label}</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
+          {heading ? (
+            <h2 className={sectionHeadingClass}>{section.label}</h2>
+          ) : null}
+          <p className={cn("text-xs text-muted-foreground", heading && "mt-1")}>
             Select a row to edit its details. Calculated values are finalized
             by the server when the record is saved.
           </p>
@@ -184,7 +189,11 @@ export function EditableCollection({
         {rows.length === 0 ? (
           <div className="flex min-h-44 flex-col items-center justify-center text-sm text-muted-foreground">
             <ListChecks className="mb-2 size-5" />
-            No {section.label}
+            {/* An empty screen is an invitation to act: name the control
+                that resolves it, in the manifest's own words. */}
+            {actions.has("add")
+              ? `No ${section.label} yet — Add ${section.record_label} starts one.`
+              : `No ${section.label}`}
           </div>
         ) : (
           <table className="w-full min-w-max border-collapse text-sm">
@@ -231,11 +240,21 @@ export function EditableCollection({
                       }
                     }}
                   >
-                    {section.columns.map((column) => (
+                    {section.columns.map((column, columnIndex) => (
                       <td
                         key={column.name}
                         className={cn(
                           "max-w-96 border-r px-3 py-2.5 last:border-r-0",
+                          // The same primary edge the editor card below
+                          // wears, so the highlighted row and the fields
+                          // editing it read as one thing. Every first cell
+                          // carries the width, so selection never shifts
+                          // the columns.
+                          columnIndex === 0 &&
+                            "border-l-2 border-l-transparent",
+                          columnIndex === 0 &&
+                            active &&
+                            "border-l-primary",
                           column.alignment === "right"
                             ? "text-right tabular-nums"
                             : column.alignment === "center"
@@ -273,6 +292,7 @@ export function EditableCollection({
             errors={errors[selectedIndex ?? 0] ?? {}}
             disabled={disabled || !editable}
             idScope={section.name}
+            headingSuffix={`· row ${(selectedIndex ?? 0) + 1} of ${rows.length}`}
             onChange={(name, value) =>
               updateSelected({ [name]: value })
             }
