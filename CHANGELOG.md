@@ -200,9 +200,16 @@ captions are bands with their own background, spanning their panel edge to
 edge -- the floating eyebrow that preceded them read as one more field label.
 Tabs are underlines on a hairline rail rather than filled pills. Record
 navigation is a pair of chevrons and the reference picker is an ellipsis
-button; their names live on as accessible labels, and the words they no
-longer print were width. Field rows and panel padding tightened a step
-throughout.
+button riding inside its own well, combobox-fashion; their names live on as
+accessible labels, and the words they no longer print were width. The native
+date input's calendar indicator sits at the trailing edge where every other
+control puts one, a label sits 8px from its control while field columns sit
+24px apart -- proximity now says what belongs to what -- and field rows and
+panel padding tightened a step throughout. With the record itself as the
+scope, a lone record report is simply **Preview**, and the invoicing
+application's own action labels dropped the object they repeated: **Post**
+and **Void**, changed in the YAML where a label belongs, so every surface
+follows.
 
 A reference picker showed the literal word `uniqueid` where the record's display value belonged. `display: uniqueid` compiles to a template with no placeholder, meaning the name of the field to show, and the two web formatters resolving the same declaration disagreed about that: one substituted `{braces}` only and returned everything else verbatim. Both now read one rule. Field labels are 14px and wrap instead of 12px and truncating, which was sized for a label stacked above its control; the colour was already 5.6:1 on the light card and 6.4:1 on the dark one.
 

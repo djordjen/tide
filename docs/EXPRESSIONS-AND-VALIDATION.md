@@ -282,7 +282,7 @@ before commit or before a named action, not on every keystroke.
 ```yaml
 actions:
   post:
-    label: Post invoice
+    label: Post
     shortcut: Ctrl+P
     enabled_when: "status == 'draft' and count(lines) > 0"
     permission: sales.invoice.post

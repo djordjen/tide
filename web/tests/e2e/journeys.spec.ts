@@ -149,12 +149,12 @@ test("drafts an invoice through both lookups and posts it", async ({
   await expect(created).toContainText("Draft")
 
   await page.getByRole("button", { name: "Open" }).click()
-  await page.getByRole("button", { name: "Post invoice" }).click()
+  await page.getByRole("button", { name: "Post" }).click()
 
-  await expect(page.getByText("Post invoice completed successfully.")).toBeVisible()
+  await expect(page.getByText("Post completed successfully.")).toBeVisible()
   await expect(page.getByText("Posted", { exact: true })).toBeVisible()
   // The action is spent: `enabled_when` no longer holds.
-  await expect(page.getByRole("button", { name: "Post invoice" })).toBeDisabled()
+  await expect(page.getByRole("button", { name: "Post" })).toBeDisabled()
 })
 
 test("previews the report the server rendered and exports it", async ({

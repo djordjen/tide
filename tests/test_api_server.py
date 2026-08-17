@@ -255,7 +255,7 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
         assert invoice_form["actions"] == [
             {
                 "name": "post",
-                "label": "Post invoice",
+                "label": "Post",
                 "idempotent": True,
             }
         ]

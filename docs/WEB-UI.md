@@ -222,7 +222,7 @@ When a form has unsaved changes, Web first sends the ordinary ETag-protected
 update. An action disabled for the stored record may therefore become available
 after draft changes such as adding the first line; Web rechecks the fresh
 server-returned action state before invoking it with the returned ETag. The
-**Post invoice** result replaces the current form data in place, immediately
+**Post** result replaces the current form data in place, immediately
 locking fields and disabling the action according to the returned record state.
 
 Report discovery is equally narrow. The presentation manifest exposes only an

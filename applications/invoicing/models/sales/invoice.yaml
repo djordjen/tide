@@ -123,7 +123,9 @@ validations:
 
 actions:
   post:
-    label: Post invoice
+    # Just "Post": the record screen is already the invoice, so the object
+    # in the label was the surface repeating itself.
+    label: Post
     shortcut: Ctrl+P
     # The state half of this guard is derived from the transition below; only
     # the business half is written here.
@@ -142,7 +144,7 @@ actions:
   # Not named `cancel`: that is the form action bar's built-in discard, and a
   # domain action sharing the name never reaches a form. TIDE276 refuses it.
   void:
-    label: Void invoice
+    label: Void
     permission: sales.invoice.void
     execute: actions.void_invoice
     expose: {rest: true, mcp: true}

@@ -372,7 +372,7 @@ status:
 
 actions:
   post:
-    label: Post invoice
+    label: Post
     permission: sales.invoice.post
     execute: actions.post_invoice
     enabled_when: "count(lines) > 0"
