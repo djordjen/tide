@@ -74,6 +74,11 @@ export function DetailGroup({
                       />
                     ) : null}
                   </div>
+                  {/* Left-aligned like every other form value: a number
+                      flushed to the far column edge floats away from its
+                      label, and the editor never does that. Right
+                      alignment belongs to tables, where digits line up
+                      down a column. */}
                   <TideDisplayValue
                     api={api}
                     column={field}
@@ -81,8 +86,7 @@ export function DetailGroup({
                     wrap
                     className={cn(
                       readOnlyValueClass,
-                      field.alignment === "right" &&
-                        "text-right tabular-nums",
+                      field.alignment === "right" && "tabular-nums",
                     )}
                   />
                 </div>
