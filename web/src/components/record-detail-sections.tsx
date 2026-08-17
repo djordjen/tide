@@ -12,7 +12,7 @@ import {
   fieldLabelRowClass,
   fieldLabelTextClass,
   readOnlyValueClass,
-  sectionHeadingClass,
+  sectionCaptionClass,
 } from "./form-field"
 import type {
   TideFormPresentation,
@@ -45,8 +45,8 @@ export function DetailGroup({
 }) {
   return (
     <section>
-      <h2 className={`mb-3 ${sectionHeadingClass}`}>{section.label}</h2>
-      <div className="space-y-3">
+      <h2 className={sectionCaptionClass}>{section.label}</h2>
+      <div className="space-y-2.5 px-4 py-4 md:px-5">
         {section.rows.map((row, rowIndex) => (
           <div
             key={rowIndex}
@@ -114,21 +114,17 @@ export function DetailCollection({
   const rows = Array.isArray(raw) ? (raw as TideRecord[]) : []
 
   return (
-    <section className="min-w-0 rounded-xl border bg-muted/20 p-4">
-      <div
-        className={cn(
-          "mb-3 flex items-center gap-3",
-          heading ? "justify-between" : "justify-end",
-        )}
-      >
-        {heading ? (
-          <h2 className={sectionHeadingClass}>{section.label}</h2>
-        ) : null}
-        <Badge variant="outline">
-          {protectedCollection ? "Protected" : `${rows.length} rows`}
-        </Badge>
-      </div>
-      <div className="max-h-80 overflow-auto rounded-lg border bg-background">
+    <section className="min-w-0 overflow-hidden rounded-xl border bg-muted/20">
+      {heading ? (
+        <h2 className={sectionCaptionClass}>{section.label}</h2>
+      ) : null}
+      <div className="p-3">
+        <div className="mb-3 flex items-center justify-end gap-3">
+          <Badge variant="outline">
+            {protectedCollection ? "Protected" : `${rows.length} rows`}
+          </Badge>
+        </div>
+        <div className="max-h-80 overflow-auto rounded-lg border bg-background">
         {protectedCollection ? (
           <div className="flex min-h-44 items-center justify-center gap-2 text-sm text-muted-foreground">
             <LockKeyhole className="size-4" />
@@ -190,6 +186,7 @@ export function DetailCollection({
             </tbody>
           </table>
         )}
+        </div>
       </div>
     </section>
   )

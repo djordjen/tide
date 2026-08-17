@@ -8,6 +8,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   CirclePlus,
+  Ellipsis,
   LoaderCircle,
   Search,
   X,
@@ -52,7 +53,7 @@ import {
   fieldGroupClass,
   fieldLabelClass,
   readOnlyValueClass,
-  sectionHeadingClass,
+  sectionCaptionClass,
 } from "./form-field"
 
 interface RecordFormEditorProps {
@@ -143,11 +144,15 @@ function EditorGroup({
 }) {
   return (
     <section>
-      <h2 className={`mb-3 ${sectionHeadingClass}`}>
+      <h2 className={sectionCaptionClass}>
         {section.label}
-        {headingSuffix ? ` ${headingSuffix}` : ""}
+        {headingSuffix ? (
+          <span className="font-normal text-muted-foreground">
+            {headingSuffix}
+          </span>
+        ) : null}
       </h2>
-      <div className="space-y-3">
+      <div className="space-y-2.5 px-4 py-4 md:px-5">
         {section.rows.map((row, rowIndex) => (
           <div
             key={rowIndex}
@@ -451,8 +456,8 @@ function ReferenceEditor({
         <div
           className={cn(
             // The same well as `ui/input.tsx`: this holds the chosen value,
-            // so it dresses like the text controls, and only `Select…`
-            // beside it dresses like a button.
+            // so it dresses like the text controls, and only the select
+            // button beside it dresses like one.
             "flex h-9 min-w-0 flex-1 items-center rounded-lg border border-input bg-muted/55 px-3 text-sm shadow-xs dark:bg-input/40",
             error && "border-destructive/65",
           )}
@@ -470,13 +475,16 @@ function ReferenceEditor({
           data-tide-editor
           type="button"
           variant="outline"
+          size="icon"
+          className="shrink-0"
           disabled={disabled}
           aria-label={`Select ${field.label}`}
+          title={`Select ${field.label}`}
           aria-describedby={describedBy}
           aria-invalid={Boolean(error)}
           onClick={() => setOpen(true)}
         >
-          Select…
+          <Ellipsis />
         </Button>
       </div>
       <FieldMessage

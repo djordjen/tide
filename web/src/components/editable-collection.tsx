@@ -21,7 +21,7 @@ import {
   type TideFormErrors,
 } from "@/lib/form-draft"
 import { cn } from "@/lib/utils"
-import { sectionHeadingClass } from "./form-field"
+import { sectionCaptionClass } from "./form-field"
 
 interface EditableCollectionProps {
   api: TideApi
@@ -163,19 +163,18 @@ export function EditableCollection({
     // recessed region, so where the record's own fields end and its rows
     // begin is a visible boundary rather than an inference.
     <section
-      className="min-w-0 rounded-xl border bg-muted/20 p-4"
+      className="min-w-0 overflow-hidden rounded-xl border bg-muted/20"
       data-tide-collection={section.name}
     >
+      {heading ? (
+        <h2 className={sectionCaptionClass}>{section.label}</h2>
+      ) : null}
+      <div className="p-3">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <div>
-          {heading ? (
-            <h2 className={sectionHeadingClass}>{section.label}</h2>
-          ) : null}
-          <p className={cn("text-xs text-muted-foreground", heading && "mt-1")}>
-            Select a row to edit its details. Calculated values are finalized
-            by the server when the record is saved.
-          </p>
-        </div>
+        <p className="text-xs text-muted-foreground">
+          Select a row to edit its details. Calculated values are finalized
+          by the server when the record is saved.
+        </p>
         <Badge variant="outline">
           {rows.length} draft {rows.length === 1 ? "row" : "rows"}
         </Badge>
@@ -281,8 +280,8 @@ export function EditableCollection({
         // The editor of the highlighted row, not another form section: an
         // inner card on the recessed region, wearing the selection's primary
         // as a left accent so the table row and the fields editing it read
-        // as one thing.
-        <div className="mt-4 rounded-lg border border-l-2 border-l-primary/55 bg-background p-4 shadow-xs">
+        // as one thing. Its group caption renders as the card's own band.
+        <div className="mt-3 overflow-hidden rounded-lg border border-l-2 border-l-primary/55 bg-background shadow-xs">
           <RecordFormEditor
             api={api}
             form={form}
@@ -302,7 +301,7 @@ export function EditableCollection({
       ) : null}
 
       {editable ? (
-        <div className="mt-5 flex flex-wrap items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           {actions.has("add") ? (
             <Button
               type="button"
@@ -338,6 +337,7 @@ export function EditableCollection({
           ) : null}
         </div>
       ) : null}
+      </div>
     </section>
   )
 }

@@ -59,11 +59,12 @@ export { fieldLabelTextClass }
 export const readOnlyValueClass = "min-h-6 text-sm md:pt-2"
 
 /**
- * A section heading is an eyebrow, not a second title.
+ * A section caption is a band, not a floating label.
  *
- * The page has one title, in the display face. Group names such as "Invoice"
- * or "Lines" mark structure below it, and at the same size as the field
- * labels they marked nothing -- three type levels were rendering as one.
+ * The eyebrow that preceded it read as one more field label; a caption with
+ * its own background names the panel the way the reference application's
+ * group captions do, and the band spans its panel edge to edge so the
+ * boundary is drawn, not implied.
  */
-export const sectionHeadingClass =
-  "text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase"
+export const sectionCaptionClass =
+  "flex items-center gap-1.5 border-b bg-muted/55 px-4 py-2 text-sm font-semibold md:px-5"

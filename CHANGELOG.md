@@ -195,6 +195,15 @@ own words; a domain action steps back to an outline while the draft is dirty,
 because the natural next step is Save and two filled buttons shout over each
 other.
 
+A study of the reference EMS application then tightened the dress. Group
+captions are bands with their own background, spanning their panel edge to
+edge -- the floating eyebrow that preceded them read as one more field label.
+Tabs are underlines on a hairline rail rather than filled pills. Record
+navigation is a pair of chevrons and the reference picker is an ellipsis
+button; their names live on as accessible labels, and the words they no
+longer print were width. Field rows and panel padding tightened a step
+throughout.
+
 A reference picker showed the literal word `uniqueid` where the record's display value belonged. `display: uniqueid` compiles to a template with no placeholder, meaning the name of the field to show, and the two web formatters resolving the same declaration disagreed about that: one substituted `{braces}` only and returned everything else verbatim. Both now read one rule. Field labels are 14px and wrap instead of 12px and truncating, which was sized for a label stacked above its control; the colour was already 5.6:1 on the light card and 6.4:1 on the dark one.
 
 The closed-set field editor is a code-owned `Select` rather than a native one, so its popup is styled like the rest of the application. The general scalar editor now uses the vendored `Input`, whose styling it had been carrying a drifted second copy of. A boolean is still a native tick box and the phone navigation is still a native select, both for stated reasons.

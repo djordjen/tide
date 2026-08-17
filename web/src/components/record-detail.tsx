@@ -1110,7 +1110,7 @@ export function RecordDetail({
 
       {tabs.length > 0 ? (
         <div
-          className="mb-3 flex shrink-0 gap-1 overflow-x-auto rounded-xl border bg-card p-1"
+          className="mb-3 flex shrink-0 gap-1 overflow-x-auto border-b"
           role="tablist"
           aria-label={`${form.label} sections`}
         >
@@ -1121,10 +1121,10 @@ export function RecordDetail({
               role="tab"
               aria-selected={tab === selectedTab}
               className={cn(
-                "rounded-lg px-3 py-1.5 text-sm font-medium whitespace-nowrap outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40",
+                "-mb-px rounded-t-md border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40",
                 tab === selectedTab
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
               )}
               onClick={() => setSelectedTab(tab)}
             >
@@ -1139,7 +1139,10 @@ export function RecordDetail({
         {mode === "update" && !record && query.isPending ? (
           <DetailSkeleton />
         ) : editorActive && (mode === "create" || record) ? (
-          <div className="space-y-5 p-4 md:p-5">
+          // No padding of its own: each group carries a full-bleed caption
+          // band and pads its fields, so the card divides into captioned
+          // panels the way the reference application's do.
+          <div className="divide-y">
             <RecordFormEditor
               api={api}
               form={{ ...form, sections: cardSections }}
@@ -1195,10 +1198,17 @@ export function RecordDetail({
                 ): section is TidePresentationFormCollection =>
                   section.kind === "collection",
               )
-              .map((section) => renderCollectionSection(section, true))}
+              .map((section) => (
+                <div
+                  key={`inline-${section.name}`}
+                  className="p-4 md:p-5"
+                >
+                  {renderCollectionSection(section, true)}
+                </div>
+              ))}
           </div>
         ) : record ? (
-          <div className="space-y-5 p-4 md:p-5">
+          <div className="divide-y">
             {cardSections.map((section, index) =>
               section.kind === "group" ? (
                 <DetailGroup
@@ -1210,7 +1220,12 @@ export function RecordDetail({
                   writable={writable}
                 />
               ) : (
-                renderCollectionSection(section, true)
+                <div
+                  key={`inline-${section.name}`}
+                  className="p-4 md:p-5"
+                >
+                  {renderCollectionSection(section, true)}
+                </div>
               ),
             )}
           </div>
@@ -1227,7 +1242,7 @@ export function RecordDetail({
             <div
               role="tablist"
               aria-label={`${form.label} collections`}
-              className="mb-3 flex gap-1 overflow-x-auto rounded-xl border bg-card p-1"
+              className="mb-3 flex gap-1 overflow-x-auto border-b"
             >
               {splitCollections.map((section) => (
                 <button
@@ -1238,10 +1253,10 @@ export function RecordDetail({
                   aria-selected={section.name === openCollection.name}
                   aria-controls={`collection-panel-${section.name}`}
                   className={cn(
-                    "rounded-lg px-3 py-1.5 text-sm font-medium whitespace-nowrap outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40",
+                    "-mb-px rounded-t-md border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40",
                     section.name === openCollection.name
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                      ? "border-primary text-primary"
+                      : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
                   )}
                   onClick={() => setActiveCollection(section.name)}
                 >
@@ -1277,20 +1292,27 @@ export function RecordDetail({
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           {mode === "update" ? (
             <div className="flex items-center gap-2">
+              {/* Icon-only, like the reference application's record
+                  navigation: the chevrons say everything the words said,
+                  and the words were width. The names live on as labels. */}
               <Button
                 variant="outline"
+                size="icon"
+                aria-label="Previous"
+                title="Previous record"
                 disabled={!canPrevious || navigationPending || dirty}
                 onClick={onPrevious}
               >
                 <ChevronLeft />
-                Previous
               </Button>
               <Button
                 variant="outline"
+                size="icon"
+                aria-label="Next"
+                title="Next record"
                 disabled={!canNext || navigationPending || dirty}
                 onClick={onNext}
               >
-                Next
                 <ChevronRight />
               </Button>
               <span className="hidden text-xs text-muted-foreground xl:inline">
