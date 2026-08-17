@@ -182,6 +182,8 @@ it("gathers every collection into one tabbed panel below the record", async () =
   expect(await screen.findByText("Mira Novak")).toBeInTheDocument()
   expect(screen.queryByText("Demo line 1")).toBeNull()
   expect(approvals).toHaveAttribute("aria-selected", "true")
+  // One row is one row on the read-only side too.
+  expect(screen.getByText("1 row")).toBeInTheDocument()
 })
 
 function renderApp() {

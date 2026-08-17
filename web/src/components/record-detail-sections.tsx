@@ -121,7 +121,9 @@ export function DetailCollection({
       <div className="p-3">
         <div className="mb-3 flex items-center justify-end gap-3">
           <Badge variant="outline">
-            {protectedCollection ? "Protected" : `${rows.length} rows`}
+            {protectedCollection
+              ? "Protected"
+              : `${rows.length} ${rows.length === 1 ? "row" : "rows"}`}
           </Badge>
         </div>
         <div className="max-h-80 overflow-auto rounded-lg border bg-background">

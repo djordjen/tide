@@ -199,12 +199,24 @@ select {
   }
 }
 
-/* The native date control keeps its own picker, but `display: flex` on the
-   input leaves the indicator beside the text instead of at the trailing
-   edge; the auto margin sends it where every other trailing control sits. */
+/* The native date control keeps its own picker, but Chrome lays the
+   indicator out beside the text instead of at the trailing edge, and its
+   shadow layout ignores auto margins -- so the indicator is positioned
+   absolutely, where every other control puts its trailing affordance. The
+   reserved padding keeps a long value from running underneath it. */
+input[type="date"],
+input[type="datetime-local"] {
+  position: relative;
+  padding-right: 2.25rem;
+}
+
 input[type="date"]::-webkit-calendar-picker-indicator,
 input[type="datetime-local"]::-webkit-calendar-picker-indicator {
-  margin-left: auto;
+  position: absolute;
+  right: 0.65rem;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0.8;
 }
 
 ::selection {
