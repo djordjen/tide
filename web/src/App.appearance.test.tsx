@@ -45,6 +45,24 @@ it("marks the row an application's rules judged, and leaves the others alone", a
   expect(total).toHaveAttribute("data-emphasis", "danger")
 })
 
+it("leaves out a field the rules hid on this record", async () => {
+  // Presentation, not permission: the value is in the payload and the
+  // renderer simply does not put it on the screen. A field a principal may
+  // not read is withheld by the server and shows as protected instead.
+  stubServer()
+  const user = userEvent.setup()
+  renderApp()
+  await connectWithToken(user)
+
+  await user.dblClick(await screen.findByRole("row", { name: /INV-2026-0002/ }))
+  // The card mounts before the record arrives, so wait for the record.
+  await screen.findByRole("heading", { name: /INV-2026-0002/ })
+  const card = screen.getByTestId("record-card")
+
+  expect(within(card).getByText(/^Total/)).toBeInTheDocument()
+  expect(within(card).queryByText(/^Reference/)).not.toBeInTheDocument()
+})
+
 it("leaves an emphasis it has never heard of undrawn", async () => {
   // A server may be a version ahead of the bundle it is serving. An unknown
   // emphasis is dropped rather than turned into a class that does not exist,
@@ -76,7 +94,7 @@ it("carries the same verdict onto the record the row opens", async () => {
 
   // Scoped to the card: the browse behind it is hidden rather than
   // unmounted, and its column header is also called Total.
-  const card = document.querySelector<HTMLElement>("[data-tide-record-card]")!
+  const card = screen.getByTestId("record-card")
   expect(card).toHaveAttribute("data-emphasis", "warning")
   // The field is writable here, so its value is an input and the label is
   // what can carry the mark.
@@ -144,16 +162,22 @@ const plainInvoice = {
   id: 1,
   number: "INV-2026-0001",
   total: "100.00",
-  _tide: { writable_fields: ["total"] },
+  reference: "PO-12",
+  _tide: { writable_fields: ["total", "reference"] },
 }
 
 const paintedInvoice = {
   id: 2,
   number: "INV-2026-0002",
   total: "1200.00",
+  reference: "PO-77",
   _tide: {
-    writable_fields: ["total"],
-    appearance: { record: "warning", fields: { total: "danger" } },
+    writable_fields: ["total", "reference"],
+    appearance: {
+      record: "warning",
+      fields: { total: "danger" },
+      hidden: ["reference"],
+    },
   },
 }
 
@@ -162,6 +186,7 @@ const futureInvoice = {
   id: 3,
   number: "INV-2026-0003",
   total: "300.00",
+  reference: "PO-99",
   _tide: {
     writable_fields: ["total"],
     appearance: {
@@ -208,8 +233,8 @@ const session = {
     "sales.Invoice": {
       operations: ["list", "get", "update"],
       draft_operations: [],
-      readable_fields: ["id", "number", "total"],
-      writable_fields: ["total"],
+      readable_fields: ["id", "number", "total", "reference"],
+      writable_fields: ["total", "reference"],
       actions: [],
       audit: false,
     },
@@ -259,6 +284,25 @@ const presentation = {
       label: "Invoice",
       display_template: "{number}",
       fields: {
+        reference: {
+          ...plainColumn,
+          name: "reference",
+          label: "Reference",
+          values: [],
+          writable: true,
+          required: false,
+          help: null,
+          max_length: 30,
+          choices: [],
+          regex: null,
+          numeric_mask: null,
+          precision: null,
+          scale: null,
+          minimum: null,
+          maximum: null,
+          has_default: false,
+          default_value: null,
+        },
         total: {
           ...totalColumn,
           values: [],
@@ -278,7 +322,12 @@ const presentation = {
         },
       },
       sections: [
-        { kind: "group", label: "Invoice", rows: [["total"]], tab: null },
+        {
+          kind: "group",
+          label: "Invoice",
+          rows: [["total", "reference"]],
+          tab: null,
+        },
       ],
     },
   },

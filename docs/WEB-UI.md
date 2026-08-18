@@ -172,7 +172,11 @@ invisible until it is rebuilt.
   opens wears the same edge on its card, and a rule naming fields marks the
   value in the grid and the field's label on the record. An emphasis this
   bundle does not know is dropped rather than drawn wrong, since a server may
-  be one version ahead;
+  be one version ahead. A rule that disables a field needs no renderer support
+  at all — the field simply leaves `writable_fields`, which the record screen
+  already reads — and a rule that hides one keeps it off the record screen
+  entirely, which is presentation and not a permission: the value is in the
+  payload, and withholding one is a field permission's job;
 - save-then-action execution for changed drafts using the saved record's fresh
   ETag plus a unique idempotency key where the action requires one;
 - capability-filtered record and summary report discovery, including each

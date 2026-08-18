@@ -42,6 +42,7 @@ from tide.presentation import (
     action_label,
     action_state,
     field_is_immutable,
+    record_appearance,
     browse_columns,
     field_label,
     FormLayoutSection,
@@ -401,6 +402,13 @@ class RecordEditScreen(Screen[Any]):
         self.session = session
         self.select_after_save = select_after_save
         self.entity = model.entity(session.entity)
+        # One resolution of the entity's appearance rules for this record: the
+        # locks it declares reach `_field_is_editable` through the same helper
+        # `immutable_when` does, and the fields it hides never compose.
+        self.appearance = record_appearance(
+            self.entity.metadata.get("appearance") or (),
+            session.original,
+        )
         self.layout_sections = form_layout_sections(view, self.entity)
         self.scalar_fields = tuple(
             name
@@ -543,6 +551,8 @@ class RecordEditScreen(Screen[Any]):
             for column_fields in _layout_columns(rows):
                 with Grid(classes="field-column"):
                     for field_name in column_fields:
+                        if field_name in self.appearance.hidden:
+                            continue
                         field = self.entity.field(field_name)
                         editable = self._field_is_editable(
                             self.entity,
@@ -1221,7 +1231,7 @@ class RecordEditScreen(Screen[Any]):
             self.context,
         ):
             return False
-        return not _field_is_immutable(field, original)
+        return not _field_is_immutable(field, original, self.appearance)
 
     def _pane_is_editable(self, pane: _CollectionPane | None) -> bool:
         if pane is None or pane.protected:

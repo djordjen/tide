@@ -1168,6 +1168,7 @@ export function RecordDetail({
             row wore, so opening a marked row does not lose the mark. */}
         <div
           data-tide-record-card
+          data-testid="record-card"
           data-emphasis={recordVerdict}
           className={cn(
             "rounded-2xl border bg-card shadow-sm",
@@ -1187,6 +1188,7 @@ export function RecordDetail({
               forms={forms}
               views={views}
               appearance={record?._tide?.appearance?.fields}
+              hidden={record?._tide?.appearance?.hidden}
               draft={draft}
               editableFields={editableFields}
               errors={fieldErrors}

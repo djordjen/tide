@@ -76,6 +76,8 @@ interface RecordFormEditorProps {
   idScope?: string
   /** The entity's appearance verdict for this record, field by field. */
   appearance?: Record<string, string>
+  /** Fields an appearance rule hides on this record. */
+  hidden?: string[]
   /** Appended to the first group's heading, e.g. "· row 2 of 3". */
   headingSuffix?: string
   onChange: (name: string, value: unknown) => void
@@ -93,6 +95,7 @@ export function RecordFormEditor({
   disabled,
   idScope,
   appearance,
+  hidden,
   headingSuffix,
   onChange,
   onApplyValues,
@@ -118,6 +121,7 @@ export function RecordFormEditor({
             disabled={disabled}
             idScope={idScope}
             appearance={appearance}
+            hidden={hidden}
             headingSuffix={
               index === firstGroup ? headingSuffix : undefined
             }
@@ -142,6 +146,7 @@ function EditorGroup({
   disabled,
   idScope,
   appearance,
+  hidden,
   headingSuffix,
   onChange,
   onApplyValues,
@@ -157,6 +162,7 @@ function EditorGroup({
   disabled: boolean
   idScope?: string
   appearance?: Record<string, string>
+  hidden?: string[]
   headingSuffix?: string
   onChange: (name: string, value: unknown) => void
   onApplyValues: (values: Record<string, unknown>) => void
@@ -183,6 +189,12 @@ function EditorGroup({
             }
           >
             {row.map((name) => {
+              // A rule hid this field on this record. Presentation only: the
+              // value arrived and the server would still accept a write --
+              // withholding one is a permission's job, not a rule's.
+              if (hidden?.includes(name)) {
+                return null
+              }
               const field = form.fields[name]
               const editable = editableFields.has(name)
               // The label carries a field's verdict rather than the control:

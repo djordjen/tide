@@ -115,7 +115,7 @@
     },
     "AppearanceSource": {
       "additionalProperties": false,
-      "description": "One conditional appearance rule: what a record means, on sight.\n\n`when` is a boolean expression over this entity's own fields, evaluated by\nthe same engine as an action's guards. `fields` names what the rule speaks\nfor; naming none means the record as a whole -- the grid row, the record\nheading. Rules are ordered and the first match owns a target, so precedence\nis read off the page rather than assigned as a number.\n\n`emphasis` is a name and never a colour: the framework renders it in a\nlight theme, a dark one and a terminal, and an author cannot write a hex\nvalue that works in all three. Nothing here authorizes or refuses\nanything -- `immutable_when` locks a field and permissions hide one.",
+      "description": "One conditional appearance rule: what a record means, on sight.\n\n`when` is a boolean expression over this entity's own fields, evaluated by\nthe same engine as an action's guards. `fields` names what the rule speaks\nfor; naming none means the record as a whole -- the grid row, the record\nheading. Rules are ordered and the first match owns a target, so precedence\nis read off the page rather than assigned as a number.\n\n`emphasis` is a name and never a colour: the framework renders it in a\nlight theme, a dark one and a terminal, and an author cannot write a hex\nvalue that works in all three.\n\n`enabled: false` locks what the rule speaks for -- enforced where\n`immutable_when` is enforced, so the service refuses the write and every\nsurface honours it, rather than the browser alone. `visible: false` hides\na field from a screen and is presentation only: it is **not** a\npermission, and a principal who may read the field still reads it over\nREST. Both are subtractive; a rule may not grant either, since granting\nwould have to overrule a workflow lock or a permission.",
       "properties": {
         "name": {
           "title": "Name",
@@ -126,15 +126,47 @@
           "type": "string"
         },
         "emphasis": {
-          "enum": [
-            "info",
-            "success",
-            "warning",
-            "danger",
-            "muted"
+          "anyOf": [
+            {
+              "enum": [
+                "info",
+                "success",
+                "warning",
+                "danger",
+                "muted"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "title": "Emphasis",
-          "type": "string"
+          "default": null,
+          "title": "Emphasis"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabled"
+        },
+        "visible": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Visible"
         },
         "fields": {
           "default": [],
@@ -147,8 +179,7 @@
       },
       "required": [
         "name",
-        "when",
-        "emphasis"
+        "when"
       ],
       "title": "AppearanceSource",
       "type": "object"

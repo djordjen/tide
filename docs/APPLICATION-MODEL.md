@@ -448,16 +448,45 @@ a name and never a colour: the framework renders it in a light theme, a dark
 one and a terminal, and no hex value an author could write works in all three.
 The author says what a record means; each renderer says what that looks like.
 
+A rule may also carry `enabled: false` or `visible: false`:
+
+```yaml
+appearance:
+  - name: priced_currency
+    when: "total > 0"
+    fields: [currency]
+    enabled: false
+  - name: unposted_stamps
+    when: "status == 'draft'"
+    fields: [posted_at, posted_by]
+    visible: false
+```
+
+`enabled: false` locks what the rule speaks for — a field, or every ordinarily
+writable field when the rule names none, the way a transition's `locks_record`
+does. It is **enforced where `immutable_when` is enforced**: the service
+refuses the write, so REST and MCP honour it and not just the browser, and the
+locked fields leave `writable_fields` so no renderer offers the edit in the
+first place. There is deliberately no second list on the wire saying the same
+thing.
+
+`visible: false` hides a field from a screen. It is presentation only and
+**not a permission**: the value is still in the record the API returns, and a
+principal who must not read it is stopped by a field permission instead. It
+requires `fields:` — hiding a whole record is narrowing which records appear,
+which is a named filter or a row policy, both of which paging and counts
+already account for (`TIDE282`).
+
+Both effects are subtractive. A rule may not *grant* either (`TIDE281`),
+because granting would have to overrule the workflow lock or the permission
+that withheld the thing.
+
 Rules are evaluated server-side, per record, and travel as
 `_tide.appearance` — absent when nothing matched, so an application that
 declares no rules pays nothing. A condition that cannot be evaluated applies
 nothing, which is the opposite of `immutable_when`: withholding an edit is
 caution, while painting a record a colour that means something it is not is a
 lie about the data.
-
-Nothing here authorizes or refuses anything. Conditionally read-only is
-`immutable_when`, evaluated per record and carried as `writable_fields`, and
-a field a principal may not see is removed by permissions rather than dimmed.
 
 ## Schema evolution
 

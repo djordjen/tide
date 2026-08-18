@@ -12,6 +12,7 @@ from typing import Any, Callable, Mapping, Sequence
 from uuid import UUID, uuid4
 
 from tide.compiler.expressions import PARAMETER_PATTERN, evaluate_expression
+from tide.appearance import record_appearance
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity
 from tide.data.repository import (
     DeleteCollection,
@@ -880,8 +881,20 @@ class RecordsService:
             raise ValidationFailed(
                 [ValidationIssue("unknown_field", f"unknown field {name!r}", (name,)) for name in sorted(unknown)]
             )
+        # One resolution of the entity's appearance rules for the whole write,
+        # so a rule that disables a field is refused here rather than only
+        # withheld by whichever renderer happened to ask.
+        appearance = record_appearance(
+            entity.metadata.get("appearance") or (),
+            session.original,
+        )
         for field_name in session.changed_fields:
             self._enforce_field_write(entity, field_name, context, source)
+            if appearance.locks_record or field_name in appearance.locked:
+                raise ImmutableFieldError(
+                    field_name,
+                    "an appearance rule disables it for this record",
+                )
             immutable_when = entity.fields[field_name].metadata.get("immutable_when")
             if immutable_when and bool(evaluate_expression(immutable_when, session.original)):
                 raise ImmutableFieldError(field_name, f"condition {immutable_when!r} is true")

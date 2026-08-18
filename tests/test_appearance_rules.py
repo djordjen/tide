@@ -23,7 +23,13 @@ from textual.widgets import DataTable
 from tide import CompilationFailed, compile_project
 from tide.api.server import DevelopmentTokenAuthenticator, build_fastapi_app
 from tide.data import InMemoryRepository
-from tide.runtime import Channel, Principal, RequestContext
+from tide.presentation import record_appearance
+from tide.runtime import (
+    Channel,
+    ImmutableFieldError,
+    Principal,
+    RequestContext,
+)
 from tide.services import ActionService, RecordsService
 from tide.tui import TideApp
 
@@ -49,13 +55,16 @@ BROWSE = (
 
 EDIT = (
     "view: demo.Item.edit\nentity: demo.Item\nkind: form\n"
-    "layout:\n- group: Item\n  rows:\n  - - name\n    - status\n  - - days_left\n"
+    "layout:\n- group: Item\n  rows:\n  - - name\n    - status\n"
+    "  - - days_left\n    - note\n"
 )
 
 RULES = (
     "appearance:\n"
-    "- {name: retired, when: \"status == 'retired'\", emphasis: muted}\n"
+    "- {name: retired, when: \"status == 'retired'\", emphasis: muted,"
+    " enabled: false}\n"
     "- {name: expired, when: 'days_left < 0', emphasis: danger, fields: [days_left]}\n"
+    "- {name: quiet, when: 'days_left < 0', fields: [note], visible: false}\n"
 )
 
 
@@ -82,6 +91,7 @@ def _project(tmp_path: Path, rules: str = RULES, name: str = "appearance") -> Pa
             "  name: {type: string, length: 40, required: true}\n"
             "  status: {type: choice, choices: [active, retired], default: active}\n"
             "  days_left: {type: integer}\n"
+            "  note: {type: string, length: 60}\n"
             f"{rules}",
         ),
     ):
@@ -97,7 +107,7 @@ def test_the_rules_compile_in_the_order_they_were_written(tmp_path: Path) -> Non
     model = compile_project(_project(tmp_path))
 
     rules = model.entity("demo.Item").metadata["appearance"]
-    assert [rule["name"] for rule in rules] == ["retired", "expired"]
+    assert [rule["name"] for rule in rules] == ["retired", "expired", "quiet"]
     assert rules[0]["emphasis"] == "muted"
     assert rules[0]["when"] == "status == 'retired'"
     assert tuple(rules[0].get("fields") or ()) == ()
@@ -126,6 +136,18 @@ def test_the_rules_compile_in_the_order_they_were_written(tmp_path: Path) -> Non
         (
             "appearance:\n- {name: a, when: 'name', emphasis: danger}\n",
             "TIDE307",
+        ),
+        # Rules subtract and never grant: granting would have to overrule the
+        # workflow lock and the permission that withheld the thing.
+        (
+            "appearance:\n- {name: a, when: 'days_left < 0', enabled: true}\n",
+            "TIDE281",
+        ),
+        # Hiding a whole record is filtering, which named filters and row
+        # policies already do -- and which paging and counts depend on.
+        (
+            "appearance:\n- {name: a, when: 'days_left < 0', visible: false}\n",
+            "TIDE282",
         ),
     ],
 )
@@ -200,6 +222,7 @@ def test_the_record_envelope_carries_the_verdict(tmp_path: Path) -> None:
         assert painted.json()["_tide"]["appearance"] == {
             "record": "muted",
             "fields": {"days_left": "danger"},
+            "hidden": ["note"],
         }
         # A record no rule matched says nothing at all, so an application
         # without rules pays no bytes for the feature.
@@ -232,6 +255,75 @@ def test_a_query_page_carries_the_verdict_for_every_row(tmp_path: Path) -> None:
         assert "appearance" not in (rows[1].get("_tide") or {})
 
     asyncio.run(exercise())
+
+
+def test_a_rule_may_lock_a_record_and_hide_a_field(tmp_path: Path) -> None:
+    """The two effects that are not colour, resolved in the same pass."""
+
+    model = compile_project(_project(tmp_path))
+    rules = model.entity("demo.Item").metadata["appearance"]
+
+    retired = record_appearance(rules, {"status": "retired", "days_left": 30})
+    assert retired.record == "muted"
+    assert retired.locks_record is True
+    assert retired.hidden == frozenset()
+
+    expired = record_appearance(rules, {"status": "active", "days_left": -5})
+    assert expired.locks_record is False
+    assert expired.hidden == frozenset({"note"})
+
+
+def test_a_locked_record_offers_no_writable_fields(tmp_path: Path) -> None:
+    """`enabled: false` feeds the answer the renderers already read.
+
+    Not a second list beside `writable_fields`: a renderer that learned to
+    honour one and not the other is exactly the drift this avoids.
+    """
+
+    app = _app(_project(tmp_path))
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            locked = await client.get("/api/v1/items/2", headers=_headers())
+            open_ = await client.get("/api/v1/items/1", headers=_headers())
+
+        assert "writable_fields" not in (locked.json().get("_tide") or {})
+        assert "name" in open_.json()["_tide"]["writable_fields"]
+
+    asyncio.run(exercise())
+
+
+def test_the_service_refuses_a_write_a_rule_disabled(tmp_path: Path) -> None:
+    """Enforced where `immutable_when` is enforced, so REST and MCP honour it.
+
+    A rule the browser respects and the API does not is decoration; the
+    renderer never offering the edit and the service refusing it are the same
+    claim made twice on purpose.
+    """
+
+    model = compile_project(_project(tmp_path))
+    repository = InMemoryRepository()
+    repository.seed(
+        "demo.Item",
+        (
+            {"id": 1, "name": "Bridge PC", "status": "active", "days_left": 30},
+            {"id": 2, "name": "Old radar", "status": "retired", "days_left": -5},
+        ),
+    )
+    records = RecordsService(model, repository)
+    context = RequestContext(
+        principal=Principal("p", roles=frozenset({"operator"})),
+        channel=Channel.TUI,
+    )
+
+    open_session = records.begin_edit("demo.Item", 1, context)
+    open_session.set("name", "Renamed")
+    records.commit(open_session, context)
+
+    locked = records.begin_edit("demo.Item", 2, context)
+    locked.set("name", "Renamed")
+    with pytest.raises(ImmutableFieldError):
+        records.commit(locked, context)
 
 
 def test_the_terminal_paints_the_row_the_same_rules_judged(
@@ -277,6 +369,64 @@ def test_the_terminal_paints_the_row_the_same_rules_judged(
     assert all(_style_of(cell) == "dim" for cell in plain) is False
     assert _style_of(painted[0]) == "dim"
     assert _style_of(painted[2]) == "red"
+
+
+def test_the_terminal_leaves_out_a_field_the_rules_hid(tmp_path: Path) -> None:
+    """The other surface with a record form, reading the same verdict.
+
+    Asserted on both records rather than one: a form that never composed the
+    field would pass the hidden half on its own.
+    """
+
+    model = compile_project(_project(tmp_path))
+    repository = InMemoryRepository()
+    repository.seed(
+        "demo.Item",
+        (
+            {
+                "id": 1,
+                "name": "Bridge PC",
+                "status": "active",
+                "days_left": 30,
+                "note": "in service",
+            },
+            {
+                "id": 2,
+                "name": "Old radar",
+                "status": "active",
+                "days_left": -5,
+                "note": "past its date",
+            },
+        ),
+    )
+    application = TideApp(
+        model,
+        RecordsService(model, repository),
+        RequestContext(
+            principal=Principal("p", roles=frozenset({"operator"})),
+            channel=Channel.TUI,
+        ),
+    )
+
+    async def drive() -> tuple[int, int]:
+        async with application.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            application.open_record(1)
+            for _ in range(5):
+                await pilot.pause()
+            shown = len(application.screen.query("#field-note"))
+            application.screen.dismiss(None)
+            for _ in range(5):
+                await pilot.pause()
+            application.open_record(2)
+            for _ in range(5):
+                await pilot.pause()
+            return shown, len(application.screen.query("#field-note"))
+
+    shown, hidden = asyncio.run(drive())
+
+    assert shown == 1
+    assert hidden == 0
 
 
 def _style_of(cell: Any) -> str | None:

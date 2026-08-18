@@ -90,9 +90,24 @@ server-side, per record, beside the workflow locks and action guards, and the
 verdict travels as `_tide.appearance` on record responses **and on query
 pages** -- a rule that only shows its colour once the record is open is not a
 warning. Nothing matched means nothing is sent, so an application with no
-rules pays nothing. `enabled` and `visible` are deliberately not effects:
-conditionally read-only is already `immutable_when`, and a field a principal
-may not see is removed by permissions rather than dimmed.
+rules pays nothing.
+
+A rule may also carry `enabled: false` or `visible: false`. `enabled: false`
+locks what it speaks for -- a field, or every ordinarily writable field when
+it names none -- and is enforced where `immutable_when` is enforced, so the
+service refuses the write and REST and MCP honour it rather than the browser
+alone; the locked fields simply leave `writable_fields`, so there is no second
+list on the wire saying what the first already says. `visible: false` hides a
+field from a screen and is presentation only: the value is still in the record
+the API returns, and a principal who must not read it is stopped by a field
+permission. It requires `fields:`, since hiding a record is narrowing which
+records appear, which named filters and row policies already do and which
+paging and counts account for (`TIDE282`). Both are subtractive -- a rule may
+not grant either (`TIDE281`) -- because granting would have to overrule the
+workflow lock or the permission that withheld the thing. The evaluator moved
+to its own module (`tide/appearance.py`) so the service can enforce a lock
+without importing the presentation layer, which reaches the data layer, which
+reaches back into the service.
 
 ### Terminal client
 

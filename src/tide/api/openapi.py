@@ -47,6 +47,16 @@ class TideRecordAppearance(BaseModel):
         min_length=1,
         exclude_if=lambda value: value is None,
     )
+    hidden: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        exclude_if=lambda value: value is None,
+        description=(
+            "Fields an appearance rule hides on this record. Presentation "
+            "only: this is not a permission, and a principal who may read "
+            "the field still receives its value."
+        ),
+    )
 
 
 class TideRecordActionState(BaseModel):

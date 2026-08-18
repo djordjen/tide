@@ -1132,6 +1132,29 @@ def _validate_entities(
                     (*rule_path, "name"),
                 )
             declared_rules.add(rule.name)
+            for effect in ("enabled", "visible"):
+                if getattr(rule, effect) is True:
+                    _add(
+                        diagnostics,
+                        "TIDE281",
+                        f"appearance rule {rule.name!r} may not grant "
+                        f"{effect}: a rule subtracts, and granting would have "
+                        "to overrule the workflow lock or the permission that "
+                        "withheld it",
+                        document,
+                        (*rule_path, effect),
+                    )
+            if rule.visible is False and not rule.fields:
+                _add(
+                    diagnostics,
+                    "TIDE282",
+                    f"appearance rule {rule.name!r} hides a record rather than "
+                    "a field; narrowing which records appear is a named "
+                    "filter or a row policy, both of which paging and counts "
+                    "already account for",
+                    document,
+                    (*rule_path, "visible"),
+                )
             # A boolean, checked here rather than at evaluation: a rule keyed
             # on a string fires for every record that has one, and the only
             # symptom is a screen that is the wrong colour everywhere.

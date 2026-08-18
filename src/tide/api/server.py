@@ -79,7 +79,12 @@ from tide.observability import (
     reset_correlation_id,
     resolve_correlation_id,
 )
-from tide.presentation import action_state, field_is_immutable, record_appearance
+from tide.presentation import (
+    action_state,
+    field_is_immutable,
+    record_appearance,
+    RecordAppearance,
+)
 from tide.runtime import (
     AuthorizationError,
     ActionDisabled,
@@ -1869,11 +1874,16 @@ def _wire_record_with_state(
         values,
         records.reference_displays(entity.name, (values,), context),
     )
+    appearance = _record_appearance(
+        entity.metadata.get("appearance") or (),
+        values,
+    )
     writable_fields = _record_writable_fields(
         records,
         entity,
         values,
         context,
+        appearance,
     )
     if writable_fields:
         projected.setdefault("_tide", {})["writable_fields"] = list(
@@ -1887,7 +1897,7 @@ def _wire_record_with_state(
     )
     if action_states:
         projected.setdefault("_tide", {})["actions"] = action_states
-    _apply_appearance(projected, entity, values)
+    _apply_appearance(projected, entity, values, appearance)
     return projected
 
 
@@ -1895,6 +1905,7 @@ def _apply_appearance(
     projected: dict[str, Any],
     entity: NormalizedEntity,
     values: Mapping[str, Any],
+    resolved: RecordAppearance | None = None,
 ) -> dict[str, Any]:
     """Attach the entity's appearance verdict, when it has anything to say.
 
@@ -1902,17 +1913,22 @@ def _apply_appearance(
     bytes for the feature and a renderer needs no default to compare against.
     """
 
-    appearance = _record_appearance(
+    appearance = resolved or _record_appearance(
         entity.metadata.get("appearance") or (),
         values,
     )
-    if not appearance:
-        return projected
     verdict: dict[str, Any] = {}
     if appearance.record is not None:
         verdict["record"] = appearance.record
     if appearance.fields:
         verdict["fields"] = dict(appearance.fields)
+    if appearance.hidden:
+        verdict["hidden"] = sorted(appearance.hidden)
+    # A lock is not carried here: it has already left the record through
+    # `writable_fields`, which every renderer reads. Two lists saying one
+    # thing is how one of them starts saying something else.
+    if not verdict:
+        return projected
     projected.setdefault("_tide", {})["appearance"] = verdict
     return projected
 
@@ -1922,6 +1938,7 @@ def _record_writable_fields(
     entity: NormalizedEntity,
     values: Mapping[str, Any],
     context: RequestContext,
+    appearance: RecordAppearance | None = None,
 ) -> tuple[str, ...]:
     """Return advisory field state after server-side workflow evaluation."""
 
@@ -1942,7 +1959,7 @@ def _record_writable_fields(
             or not records.security.can_write_field(entity.name, name, context)
         ):
             continue
-        if _field_is_immutable(field, values):
+        if _field_is_immutable(field, values, appearance):
             continue
         result.append(name)
     return tuple(result)

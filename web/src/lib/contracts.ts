@@ -303,6 +303,12 @@ export interface TideProtectionMetadata {
   appearance?: {
     record?: string
     fields?: Record<string, string>
+    /**
+     * Fields a rule hides on this record. Presentation only: the value is
+     * right here in the payload, and a field a principal may not read is
+     * withheld by the server as `protected_fields` instead.
+     */
+    hidden?: string[]
   }
 }
 

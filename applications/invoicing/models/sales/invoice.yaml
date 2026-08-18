@@ -128,6 +128,13 @@ appearance:
     emphasis: warning
     fields: [total]
 
+# `enabled:` and `visible:` are deliberately not used here. Both change what
+# this application does -- a locked currency refuses a write the tutorial
+# makes, hidden stamps reorder the terminal's form -- and invoicing is the
+# reference whose flows the documentation walks through. They are covered
+# end to end by the fixture application in `tests/test_appearance_rules.py`,
+# for the same reason the two-collection fixture exists.
+
 validations:
   - id: invoice_has_lines
     when: "status == 'posted'"

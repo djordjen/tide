@@ -239,16 +239,33 @@ class AppearanceSource(SourceModel):
 
     `emphasis` is a name and never a colour: the framework renders it in a
     light theme, a dark one and a terminal, and an author cannot write a hex
-    value that works in all three. Nothing here authorizes or refuses
-    anything -- `immutable_when` locks a field and permissions hide one.
+    value that works in all three.
+
+    `enabled: false` locks what the rule speaks for -- enforced where
+    `immutable_when` is enforced, so the service refuses the write and every
+    surface honours it, rather than the browser alone. `visible: false` hides
+    a field from a screen and is presentation only: it is **not** a
+    permission, and a principal who may read the field still reads it over
+    REST. Both are subtractive; a rule may not grant either, since granting
+    would have to overrule a workflow lock or a permission.
     """
 
     name: str
     when: str
-    emphasis: TideEmphasis
+    emphasis: TideEmphasis | None = None
+    enabled: bool | None = None
+    visible: bool | None = None
     fields: tuple[str, ...] = ()
 
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @model_validator(mode="after")
+    def _declares_an_effect(self) -> AppearanceSource:
+        if self.emphasis is None and self.enabled is None and self.visible is None:
+            raise ValueError(
+                "appearance rule must declare emphasis, enabled or visible"
+            )
+        return self
 
 
 RESERVED_ACTION_NAMES = frozenset({"cancel", "save"})
