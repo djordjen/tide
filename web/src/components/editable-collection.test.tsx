@@ -39,6 +39,24 @@ describe("a collection widget that knows no application", () => {
     expect(screen.getByRole("button", { name: "Remove Stop" })).toBeDefined()
   })
 
+  it("keeps the row controls above the rows they act on", () => {
+    // Below the table they sit under an editor card that changes height with
+    // every row selected, so the control you want is somewhere new each time.
+    // Above it, they are where they were when you last used them -- and on a
+    // phone they are on the screen at all.
+    renderCollection([
+      { id: 1, position: "1" },
+      { id: 2, position: "2" },
+    ])
+
+    const add = screen.getByRole("button", { name: "Add Stop" })
+    const table = screen.getByRole("table")
+    expect(
+      add.compareDocumentPosition(table) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
   it("says which row the editor below the table is editing", () => {
     renderCollection([
       { id: 1, position: "1" },

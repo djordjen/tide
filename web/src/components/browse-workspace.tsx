@@ -510,13 +510,16 @@ export function BrowseWorkspace({
           }
           setActiveIdentity(null)
         }}
-        onSaved={(record, mode) => {
+        onSaved={(record, mode, next) => {
           const identity = identityOf(record)
           setSelectedIdentity(identity)
           setFeedback(
             `${form.label} ${mode === "create" ? "created" : "updated"} successfully.`,
           )
-          if (mode === "create") {
+          // `Save and New` asked for the next one, so the create screen stays
+          // where it is -- with the grid refreshed underneath it, ready for
+          // whenever the run ends.
+          if (mode === "create" && next !== "new") {
             setCreating(false)
             setActiveIdentity(null)
           }

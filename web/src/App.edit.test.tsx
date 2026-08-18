@@ -375,6 +375,143 @@ it("will not discard an unsaved edit to a keystroke", async () => {
   )
 })
 
+it("hands back a fresh form after Save and New, and leaves after Save", async () => {
+  // Data entry arrives in runs -- a stack of paper forms, one after the
+  // other. `Save and New` is the run: the record is written, the form comes
+  // back empty with its defaults, and the cursor is already in the first
+  // field. Plain `Save` still ends the run at the grid.
+  const created: Array<Record<string, unknown>> = []
+  let rows = [product(1, "P00001", "Support", "10.00")]
+
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: false,
+          mode: null,
+          login_path: null,
+          session_path: null,
+          logout_path: null,
+        })
+      }
+      if (url.endsWith("/_tide/session")) {
+        return jsonResponse(session)
+      }
+      if (url.endsWith("/_tide/presentation")) {
+        return jsonResponse(presentation)
+      }
+      if (url.endsWith("/products/_query")) {
+        return jsonResponse({ records: rows, next_cursor: null })
+      }
+      if (url.endsWith("/products") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>
+        created.push(body)
+        const saved = product(
+          created.length + 1,
+          String(body.code),
+          String(body.name),
+          String(body.unit_price),
+        )
+        rows = [...rows, saved]
+        return jsonResponse(saved, { status: 201 })
+      }
+      throw new Error(`Unexpected URL ${url}`)
+    }),
+  )
+
+  const user = userEvent.setup()
+  renderApp()
+  await connectWithToken(user)
+
+  await user.click(await screen.findByRole("button", { name: "New" }))
+  await user.type(await screen.findByLabelText(/^Code/), "P00002")
+  await user.type(screen.getByLabelText(/^Unit Price/), "19.99")
+  await user.type(screen.getByLabelText(/^Name/), "Web support")
+  await user.click(screen.getByRole("button", { name: "Save and New" }))
+
+  expect(
+    await screen.findByText("Product created. Continue with the next one."),
+  ).toBeInTheDocument()
+  expect(
+    screen.getByRole("heading", { name: "New Product" }),
+  ).toBeInTheDocument()
+  const code = screen.getByLabelText(/^Code/)
+  expect(code).toHaveValue("")
+  expect(screen.getByLabelText(/^Name/)).toHaveValue("")
+  // A fresh draft, defaults and all -- not a cleared copy of what was saved.
+  expect(screen.getByRole("checkbox", { name: "Active" })).toBeChecked()
+  await waitFor(() => expect(code).toHaveFocus())
+
+  await user.type(code, "P00003")
+  await user.type(screen.getByLabelText(/^Unit Price/), "5.00")
+  await user.type(screen.getByLabelText(/^Name/), "Phone support")
+  await user.click(screen.getByRole("button", { name: "Save" }))
+
+  expect(
+    await screen.findByText("Product created successfully."),
+  ).toBeInTheDocument()
+  expect(
+    screen.queryByRole("heading", { name: "New Product" }),
+  ).not.toBeInTheDocument()
+  expect(created.map((body) => body.code)).toEqual(["P00002", "P00003"])
+})
+
+it("offers Save and New only where there is a next record to start", async () => {
+  // An open record is one record. Saving it and starting another is a
+  // different journey from the one this screen is on, and the button that
+  // means it belongs to the screen that creates.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: false,
+          mode: null,
+          login_path: null,
+          session_path: null,
+          logout_path: null,
+        })
+      }
+      if (url.endsWith("/_tide/session")) {
+        return jsonResponse(session)
+      }
+      if (url.endsWith("/_tide/presentation")) {
+        return jsonResponse(presentation)
+      }
+      if (url.endsWith("/products/_query")) {
+        return jsonResponse({
+          records: [product(1, "P00001", "Support", "10.00")],
+          next_cursor: null,
+        })
+      }
+      if (url.endsWith("/products/1") && init?.method === "GET") {
+        return jsonResponse(product(1, "P00001", "Support", "10.00"), {
+          headers: { ETag: '"7"' },
+        })
+      }
+      throw new Error(`Unexpected URL ${url}`)
+    }),
+  )
+
+  const user = userEvent.setup()
+  renderApp()
+  await connectWithToken(user)
+  await user.dblClick(await screen.findByRole("row", { name: /P00001/ }))
+  expect(
+    await screen.findByRole("heading", {
+      name: "Product — P00001 - Support",
+    }),
+  ).toBeInTheDocument()
+
+  expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument()
+  expect(
+    screen.queryByRole("button", { name: "Save and New" }),
+  ).not.toBeInTheDocument()
+})
+
 function leaveIsGuarded(): boolean {
   const leaving = new Event("beforeunload", { cancelable: true })
   window.dispatchEvent(leaving)

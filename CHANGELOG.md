@@ -214,6 +214,21 @@ editable well's door keeps its new tab deliberately, since a side trip from
 an open draft must not be able to lose it, and grid links stay out of the
 tab order so the grid's roving tab stop keeps owning the keyboard.
 
+Three more of the reference application's habits followed. Entry arrives in
+runs -- a stack of paper forms, one after the other -- so the create screen
+gained **Save and New**: the record is written, the form comes back empty with
+the model's defaults in place and the cursor in the first field, and the grid
+behind it refreshes for whenever the run ends. Plain Save still closes to the
+grid, and a record that already exists is offered neither, because it is one
+record. A collection's row controls moved above the rows they act on; below
+the table they sat under an editor card whose height changes with every row
+selected, so the control being reached for was somewhere new each time. And
+the sidebar names the application version the manifest already carried, so a
+support conversation can start with which build is on the screen, and grows a
+filter box once the navigation passes ten entries -- a group whose every entry
+the filter removed leaves with them, since a heading over nothing is a promise
+the list is not keeping.
+
 A study of the reference EMS application then tightened the dress. Group
 captions are bands with their own background, spanning their panel edge to
 edge -- the floating eyebrow that preceded them read as one more field label.

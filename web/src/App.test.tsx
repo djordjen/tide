@@ -358,6 +358,88 @@ it("opens a development server with no credential to type", async () => {
   })
 })
 
+it("says which build of the application is on the screen", async () => {
+  // A support conversation starts with which version you are looking at, and
+  // the manifest already carries it -- so the sidebar can answer without
+  // anyone opening a terminal.
+  stubManifest(presentation)
+
+  const user = userEvent.setup()
+  renderApp()
+  await connectWithToken(user)
+
+  expect(
+    await screen.findByText("TIDE Invoicing · v0.1.0"),
+  ).toBeInTheDocument()
+})
+
+it("offers a filter once the navigation outgrows the sidebar", async () => {
+  // Two views are a list you read. Eleven are a list you hunt through.
+  stubManifest(wideNavigation)
+
+  const user = userEvent.setup()
+  renderApp()
+  await connectWithToken(user)
+
+  const navigation = await screen.findByRole("navigation", {
+    name: "Application navigation",
+  })
+  expect(navigation).toHaveTextContent("Price Lists")
+
+  await user.type(screen.getByLabelText("Filter navigation"), "cust")
+  expect(navigation).toHaveTextContent("Customers")
+  expect(navigation).not.toHaveTextContent("Price Lists")
+  // A group whose every item was filtered out leaves with them: a heading
+  // over nothing is a promise the list is not keeping.
+  expect(navigation).not.toHaveTextContent("Sales")
+
+  await user.clear(screen.getByLabelText("Filter navigation"))
+  await user.type(screen.getByLabelText("Filter navigation"), "zzz")
+  expect(navigation).toHaveTextContent("No matching views")
+})
+
+it("keeps the filter away from a navigation you can read at a glance", async () => {
+  stubManifest(presentation)
+
+  const user = userEvent.setup()
+  renderApp()
+  await connectWithToken(user)
+  await screen.findByRole("navigation", { name: "Application navigation" })
+
+  expect(
+    screen.queryByLabelText("Filter navigation"),
+  ).not.toBeInTheDocument()
+})
+
+/** The three calls every screen needs before it can render anything. */
+function stubManifest(manifest: unknown) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: false,
+          mode: null,
+          login_path: null,
+          session_path: null,
+          logout_path: null,
+        })
+      }
+      if (url.endsWith("/_tide/session")) {
+        return jsonResponse(session)
+      }
+      if (url.endsWith("/_tide/presentation")) {
+        return jsonResponse(manifest)
+      }
+      if (url.includes("/_query")) {
+        return jsonResponse({ records: [], next_cursor: null })
+      }
+      throw new Error(`Unexpected URL ${url}`)
+    }),
+  )
+}
+
 function renderApp() {
   const client = new QueryClient({
     defaultOptions: {
@@ -469,4 +551,53 @@ const presentation = {
     },
   },
   forms: {},
+}
+
+/** The reference application's shape: one working view, then the reference
+ *  data behind it -- more names than a sidebar shows without scrolling. */
+const MASTER_DATA = [
+  "Customers",
+  "Products",
+  "Suppliers",
+  "Warehouses",
+  "Currencies",
+  "Tax Codes",
+  "Payment Terms",
+  "Countries",
+  "Regions",
+  "Price Lists",
+]
+
+const wideNavigation = {
+  ...presentation,
+  navigation: [
+    presentation.navigation[0],
+    {
+      label: "Master Data",
+      items: MASTER_DATA.map((label) => ({
+        view: `master.${label.replace(/ /g, "")}.browse`,
+        entity: `master.${label.replace(/ /g, "")}`,
+        label,
+      })),
+    },
+  ],
+  views: {
+    "sales.Invoice.browse": invoiceView,
+    ...Object.fromEntries(
+      MASTER_DATA.map((label) => {
+        const name = label.replace(/ /g, "")
+        return [
+          `master.${name}.browse`,
+          {
+            ...invoiceView,
+            view: `master.${name}.browse`,
+            entity: `master.${name}`,
+            label,
+            resource_path: `/api/v1/${name.toLowerCase()}`,
+            query_path: `/api/v1/${name.toLowerCase()}/_query`,
+          },
+        ]
+      }),
+    ),
+  },
 }

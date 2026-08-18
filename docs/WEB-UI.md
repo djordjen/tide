@@ -72,7 +72,11 @@ invisible until it is rebuilt.
 ## What is implemented
 
 - responsive application shell with grouped, capability-filtered navigation,
-  which below the sidebar's breakpoint collapses into one workspace select.
+  which below the sidebar's breakpoint collapses into one workspace select. It
+  names the application and the version the manifest reports, so a support
+  conversation can start with which build is on the screen; from ten entries
+  up the navigation gains a filter box, and a group whose every entry is
+  filtered out leaves with them rather than heading an empty space.
   **375px is the supported floor and is checked**: the Web UI is the only TIDE
   surface a phone can run, since the terminal client cannot, so a layout that
   holds only at desk widths is a defect rather than a trade-off;
@@ -113,7 +117,9 @@ invisible until it is rebuilt.
 - inline collection wording and row numbering taken from the manifest —
   `record_label` names the rows and `sequence_field` names the field a new row
   is numbered by, so the widget carries no application's field names or
-  vocabulary;
+  vocabulary. The row controls sit above the rows they act on: below the table
+  they lived under an editor card whose height changes with every row
+  selected, so the control being reached for was somewhere new each time;
 - clearly distinguished workflow-locked and writable fields, based on safe
   per-record state evaluated by the server. A writable field is an input; a
   locked one is the value as text. Neither is wrapped in a card: a field spends
@@ -139,6 +145,11 @@ invisible until it is rebuilt.
   cursor-boundary loading and Page Up/Page Down shortcuts;
 - capability-gated **New** and **Save** workflows for flat scalar Customer and
   Product forms;
+- **Save and New** on the create screen, because entry arrives in runs: the
+  record is written and the form comes back empty with the model's defaults
+  in place and the cursor in the first field, while the grid behind it
+  refreshes for whenever the run ends. Plain **Save** still closes to the
+  grid, and an existing record is offered neither — it is one record;
 - typed Boolean, choice, text, email, date, datetime, integer, and exact
   decimal controls, including metadata defaults, required state, length,
   regular-expression, numeric-mask, precision/scale, range, and choice hints;

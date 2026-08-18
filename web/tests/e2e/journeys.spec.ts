@@ -81,19 +81,40 @@ test("creates a record, edits it, and finds the server kept it", async ({
   await signIn(page)
   await page.getByRole("button", { name: "Customers" }).click()
 
+  // Two entries in one run. The first ends with `Save and New`, which writes
+  // the record and hands the form back empty; only the second closes to the
+  // grid. Every `Save` locator below is exact for that reason -- Playwright
+  // matches an accessible name by substring, and "Save and New" contains it.
+  const first = `${code}X`
   await page.getByRole("button", { name: "New" }).click()
+  await page.getByRole("textbox", { name: "Code" }).fill(first)
+  await page.getByRole("textbox", { name: "Name" }).fill(`${first} Holdings`)
+  await page
+    .getByRole("textbox", { name: "Email" })
+    .fill(`${first.toLowerCase()}@e2e.example`)
+  await page.getByRole("button", { name: "Save and New" }).click()
+  await expect(
+    page.getByRole("heading", { level: 1, name: "New Customer" }),
+  ).toBeVisible()
+  await expect(page.getByRole("textbox", { name: "Code" })).toHaveValue("")
+
   await page.getByRole("textbox", { name: "Code" }).fill(code)
   await page.getByRole("textbox", { name: "Name" }).fill(`${code} Holdings`)
   await page
     .getByRole("textbox", { name: "Email" })
     .fill(`${code.toLowerCase()}@e2e.example`)
-  await page.getByRole("button", { name: "Save" }).click()
+  await page.getByRole("button", { name: "Save", exact: true }).click()
   await expect(createdRow(page)).toContainText(code)
+  // The one the run did not close on is on the server too, not just cleared
+  // off the screen.
+  await expect(
+    page.getByRole("row", { name: new RegExp(first) }),
+  ).toBeVisible()
 
   await page.getByRole("button", { name: "Open" }).click()
   await page.getByRole("textbox", { name: "Name" }).fill(`${code} Renamed`)
-  await page.getByRole("button", { name: "Save" }).click()
-  await expect(page.getByRole("button", { name: "Save" })).toBeDisabled()
+  await page.getByRole("button", { name: "Save", exact: true }).click()
+  await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled()
 
   // A reload proves the server holds this, not the tab: the session cookie
   // survives, and the view and the open record both come back out of the
@@ -139,7 +160,7 @@ test("drafts an invoice through both lookups and posts it", async ({
 
   await page.getByRole("textbox", { name: "Quantity" }).fill("3")
   await page.getByRole("button", { name: "Apply Line" }).click()
-  await page.getByRole("button", { name: "Save" }).click()
+  await page.getByRole("button", { name: "Save", exact: true }).click()
 
   // Number allocated by the application's own action, total computed from the
   // line by the expression engine. The browser sent neither.
@@ -197,7 +218,7 @@ test("refuses a stale save and offers the change for review", async ({
   await products.getByRole("button", { name: "Select" }).click()
   await page.getByRole("textbox", { name: "Quantity" }).fill("9")
   await page.getByRole("button", { name: "Apply Line" }).click()
-  await page.getByRole("button", { name: "Save" }).click()
+  await page.getByRole("button", { name: "Save", exact: true }).click()
   await expect(createdRow(page)).toContainText("2,160.00")
 
   // This tab opens the invoice first, so it is holding the version the other
@@ -210,11 +231,11 @@ test("refuses a stale save and offers the change for review", async ({
   const other = await context.newPage()
   await other.goto(page.url())
   await other.getByRole("textbox", { name: "Currency" }).fill("USD")
-  await other.getByRole("button", { name: "Save" }).click()
-  await expect(other.getByRole("button", { name: "Save" })).toBeDisabled()
+  await other.getByRole("button", { name: "Save", exact: true }).click()
+  await expect(other.getByRole("button", { name: "Save", exact: true })).toBeDisabled()
 
   await page.getByRole("textbox", { name: "Currency" }).fill("GBP")
-  await page.getByRole("button", { name: "Save" }).click()
+  await page.getByRole("button", { name: "Save", exact: true }).click()
 
   const conflict = page.getByRole("dialog", { name: "Record changed elsewhere" })
   await expect(conflict).toBeVisible()
@@ -223,12 +244,12 @@ test("refuses a stale save and offers the change for review", async ({
 
   await conflict.getByRole("button", { name: "Use my Currency" }).click()
   await conflict.getByRole("button", { name: "Apply resolution" }).click()
-  await page.getByRole("button", { name: "Save" }).click()
+  await page.getByRole("button", { name: "Save", exact: true }).click()
 
   await expect(page.getByRole("textbox", { name: "Currency" })).toHaveValue(
     "GBP",
   )
-  await expect(page.getByRole("button", { name: "Save" })).toBeDisabled()
+  await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled()
 })
 
 test("browses and opens a record without touching the mouse", async ({

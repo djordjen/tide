@@ -7,6 +7,7 @@ import {
   LogOut,
   Menu,
   Moon,
+  Search,
   ShieldCheck,
   Sun,
   Waves,
@@ -28,6 +29,15 @@ import { useUrlParameter } from "@/lib/url-state"
 
 /** Leaving a view closes whatever record was open in it. */
 const CLEARED_BY_VIEW = ["record"] as const
+
+/**
+ * Where a navigation stops being read and starts being hunted through.
+ *
+ * Under this many entries the whole list is on the screen at once and a
+ * filter box is a control in the way of it. The reference application this
+ * renderer is measured against carries several times this many.
+ */
+const NAVIGATION_FILTER_MINIMUM = 10
 
 interface AppShellProps {
   api: TideApi
@@ -66,6 +76,23 @@ export function AppShell({
       connection.presentation.navigation.flatMap((group) => group.items),
     [connection.presentation.navigation],
   )
+  const [navigationFilter, setNavigationFilter] = useState("")
+  const filterable = allItems.length >= NAVIGATION_FILTER_MINIMUM
+  const navigationGroups = useMemo(() => {
+    const needle = navigationFilter.trim().toLowerCase()
+    if (!needle) {
+      return connection.presentation.navigation
+    }
+    return connection.presentation.navigation
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) =>
+          item.label.toLowerCase().includes(needle),
+        ),
+      }))
+      // A heading over nothing is a promise the list is not keeping.
+      .filter((group) => group.items.length > 0)
+  }, [connection.presentation.navigation, navigationFilter])
 
   function toggleTheme() {
     const next = theme === "light" ? "dark" : "light"
@@ -105,19 +132,49 @@ export function AppShell({
             <p className="font-display truncate text-sm font-semibold">
               TIDE Framework
             </p>
+            {/* Which application, and which build of it: the manifest
+                carries the version, so asking costs nobody a terminal. */}
             <p className="truncate text-xs text-sidebar-foreground/55">
-              {connection.presentation.application}
+              {connection.presentation.application} · v
+              {connection.presentation.application_version}
             </p>
           </div>
         </div>
         <TideLine className="mb-1 ml-5 w-14 text-sidebar-primary/70" />
         <Separator className="bg-sidebar-border" />
 
+        {filterable ? (
+          // Outside the scrolling list on purpose: the box a long list is
+          // being narrowed with has to stay where it was typed into.
+          <div className="px-3 pt-4">
+            <div className="relative">
+              <Search className="pointer-events-none absolute top-2.5 left-3 size-4 text-sidebar-foreground/40" />
+              <input
+                aria-label="Filter navigation"
+                className="h-9 w-full rounded-lg border border-sidebar-border bg-sidebar-accent/40 pr-3 pl-9 text-sm outline-none placeholder:text-sidebar-foreground/40 focus:ring-2 focus:ring-sidebar-ring"
+                placeholder="Filter views"
+                value={navigationFilter}
+                onChange={(event) =>
+                  setNavigationFilter(event.target.value)
+                }
+              />
+            </div>
+          </div>
+        ) : null}
+
         <nav
           aria-label="Application navigation"
-          className="flex-1 overflow-y-auto px-3 py-5"
+          className={cn(
+            "flex-1 overflow-y-auto px-3 pb-5",
+            filterable ? "pt-4" : "pt-5",
+          )}
         >
-          {connection.presentation.navigation.map((group) => (
+          {navigationGroups.length === 0 ? (
+            <p className="px-2 text-sm text-sidebar-foreground/45">
+              No matching views
+            </p>
+          ) : null}
+          {navigationGroups.map((group) => (
             <div className="mb-6" key={group.label}>
               <p className="mb-2 px-2 text-[0.68rem] font-semibold tracking-[0.13em] text-sidebar-foreground/45 uppercase">
                 {group.label}

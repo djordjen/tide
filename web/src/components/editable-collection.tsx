@@ -172,12 +172,52 @@ export function EditableCollection({
         <h2 className={sectionCaptionClass}>{section.label}</h2>
       ) : null}
       <div className="p-3">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">
-          Select a row to edit its details. Calculated values are finalized
-          by the server when the record is saved.
-        </p>
-        <Badge variant="outline">
+      {/* The toolbar belongs above the rows it acts on, the way the
+          reference application places it. Below the table it sat under an
+          editor card whose height changes with every row selected, so the
+          control you reached for was somewhere new each time. */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        {editable ? (
+          <>
+            {actions.has("add") ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={disabled}
+                onClick={addLine}
+              >
+                <CirclePlus />
+                Add {section.record_label}
+              </Button>
+            ) : null}
+            {actions.has("apply") ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={disabled || selectedIndex === null}
+                onClick={applyLine}
+              >
+                <ListChecks />
+                Apply {section.record_label}
+              </Button>
+            ) : null}
+            {actions.has("remove") ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={disabled || selectedIndex === null}
+                onClick={removeLine}
+              >
+                <Trash2 />
+                Remove {section.record_label}
+              </Button>
+            ) : null}
+          </>
+        ) : null}
+        <Badge className="ml-auto" variant="outline">
           {rows.length} draft {rows.length === 1 ? "row" : "rows"}
         </Badge>
       </div>
@@ -279,6 +319,15 @@ export function EditableCollection({
         )}
       </div>
 
+      {rows.length > 0 ? (
+        // Under the rows, because it is about the values in them: the totals
+        // that will not move while you type are the server's to settle.
+        <p className="mt-2 text-xs text-muted-foreground">
+          Calculated values are finalized by the server when the record is
+          saved.
+        </p>
+      ) : null}
+
       {selected ? (
         // The editor of the highlighted row, not another form section: an
         // inner card on the recessed region, wearing the selection's primary
@@ -304,43 +353,6 @@ export function EditableCollection({
         </div>
       ) : null}
 
-      {editable ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          {actions.has("add") ? (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={disabled}
-              onClick={addLine}
-            >
-              <CirclePlus />
-              Add {section.record_label}
-            </Button>
-          ) : null}
-          {actions.has("apply") ? (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={disabled || selectedIndex === null}
-              onClick={applyLine}
-            >
-              <ListChecks />
-              Apply {section.record_label}
-            </Button>
-          ) : null}
-          {actions.has("remove") ? (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={disabled || selectedIndex === null}
-              onClick={removeLine}
-            >
-              <Trash2 />
-              Remove {section.record_label}
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
       </div>
     </section>
   )

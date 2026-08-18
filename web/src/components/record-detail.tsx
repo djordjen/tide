@@ -19,6 +19,7 @@ import {
   LoaderCircle,
   Play,
   Save,
+  SaveAll,
   ShieldCheck,
   X,
 } from "lucide-react"
@@ -77,6 +78,7 @@ import {
 } from "@/lib/form-draft"
 import {
   focusFirstCollectionError,
+  focusFirstEditor,
   focusFirstError,
 } from "@/lib/form-focus"
 import { cn } from "@/lib/utils"
@@ -99,16 +101,24 @@ interface RecordDetailProps {
   onPrevious: () => void
   onNext: () => void
   onClose: () => void
-  onSaved: (record: TideRecord, mode: "create" | "update") => void
+  onSaved: (
+    record: TideRecord,
+    mode: "create" | "update",
+    next: SaveIntent,
+  ) => void
   onActionCompleted: (record: TideRecord, label: string) => void
   onPreviewReport: (report: TidePresentationReport) => void
 }
+
+/** What the save was for: this record, or this one and the next. */
+type SaveIntent = "close" | "new"
 
 interface SaveAttempt {
   payload: Record<string, unknown>
   fieldNames: string[]
   originalValues: Record<string, unknown>
   draftValues: Record<string, unknown>
+  intent: SaveIntent
 }
 
 interface PendingConflictReview {
@@ -211,7 +221,7 @@ export function RecordDetail({
     error: TideApiError
     savedBeforeAction: boolean
   } | null>(null)
-  const [actionNotice, setActionNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [rebaseNotice, setRebaseNotice] = useState<string | null>(null)
   const [conflictReview, setConflictReview] =
     useState<PendingConflictReview | null>(null)
@@ -337,7 +347,7 @@ export function RecordDetail({
       setFieldErrors({})
       setSaveError(null)
       setActionError(null)
-      setActionNotice(null)
+      setNotice(null)
       setRebaseNotice(null)
       setConflictReview(null)
       setConflictChoices({})
@@ -353,7 +363,7 @@ export function RecordDetail({
       setFieldErrors({})
       setSaveError(null)
       setActionError(null)
-      setActionNotice(null)
+      setNotice(null)
       setRebaseNotice(null)
       setConflictReview(null)
       setConflictChoices({})
@@ -371,11 +381,11 @@ export function RecordDetail({
             payload,
             snapshot?.etag ?? null,
           ),
-    onSuccess: (saved) => {
+    onSuccess: (saved, attempt) => {
       setFieldErrors({})
       setSaveError(null)
       setActionError(null)
-      setActionNotice(null)
+      setNotice(null)
       setRebaseNotice(null)
       setConflictReview(null)
       setConflictChoices({})
@@ -388,7 +398,17 @@ export function RecordDetail({
         setDraft(formDraft(form, saved.record))
         setCollectionDrafts(collectionDraftState(form, saved.record))
       }
-      onSaved(saved.record, mode)
+      if (mode === "create" && attempt.intent === "new") {
+        // The next one, from the model rather than from what was just typed:
+        // a fresh draft carries the author's defaults back in, which a
+        // cleared copy of the saved record would not.
+        setDraft(formDraft(form))
+        setCollectionDrafts(collectionDraftState(form))
+        setCollectionErrors({})
+        setNotice(`${form.label} created. Continue with the next one.`)
+        focusFirstEditor(form, editableFields)
+      }
+      onSaved(saved.record, mode, attempt.intent)
     },
     onError: async (mutationError, attempt) => {
       const apiError =
@@ -467,7 +487,7 @@ export function RecordDetail({
       setConflictReview(null)
       setConflictChoices({})
       setConflictOpen(false)
-      setActionNotice(`${action.label} completed successfully.`)
+      setNotice(`${action.label} completed successfully.`)
       onActionCompleted(completed.record, action.label)
     },
     onError: async (mutationError, attempt) => {
@@ -503,11 +523,12 @@ export function RecordDetail({
             fieldNames: attempt.saveAttempt.fieldNames,
             originalValues,
             draftValues: originalValues,
+            intent: "close",
           })
         }
         return
       }
-      setActionNotice(null)
+      setNotice(null)
       setActionError({
         label: attempt.action.label,
         error: failure.apiError,
@@ -540,7 +561,7 @@ export function RecordDetail({
   ) {
     setConflictLoading(true)
     setActionError(null)
-    setActionNotice(null)
+    setNotice(null)
     setConflictReview(null)
     setConflictChoices({})
     setConflictOpen(false)
@@ -640,7 +661,7 @@ export function RecordDetail({
     )
   }
 
-  function save() {
+  function save(intent: SaveIntent = "close") {
     const payload = preparePayload()
     if (payload === null) {
       return
@@ -650,16 +671,17 @@ export function RecordDetail({
     }
     setSaveError(null)
     setActionError(null)
-    setActionNotice(null)
+    setNotice(null)
     setRebaseNotice(null)
     setConflictReview(null)
     setConflictChoices({})
     setConflictOpen(false)
-    saveMutation.mutate(buildSaveAttempt(payload))
+    saveMutation.mutate(buildSaveAttempt(payload, intent))
   }
 
   function buildSaveAttempt(
     payload: Record<string, unknown>,
+    intent: SaveIntent = "close",
   ): SaveAttempt {
     const fieldNames =
       mode === "update"
@@ -679,6 +701,7 @@ export function RecordDetail({
       fieldNames,
       originalValues,
       draftValues: { ...originalValues, ...payload },
+      intent,
     }
   }
 
@@ -709,7 +732,7 @@ export function RecordDetail({
     }
     setSaveError(null)
     setActionError(null)
-    setActionNotice(null)
+    setNotice(null)
     setRebaseNotice(null)
     setConflictReview(null)
     setConflictChoices({})
@@ -790,7 +813,7 @@ export function RecordDetail({
     setFieldErrors({})
     setSaveError(null)
     setActionError(null)
-    setActionNotice(null)
+    setNotice(null)
     setConflictReview(null)
     setConflictChoices({})
     setConflictOpen(false)
@@ -947,7 +970,7 @@ export function RecordDetail({
               setSaveError(null)
             }
             setActionError(null)
-            setActionNotice(null)
+            setNotice(null)
           }}
           onErrorsChange={(errors) =>
             setCollectionErrors((current) => ({
@@ -1087,13 +1110,13 @@ export function RecordDetail({
         </div>
       ) : null}
 
-      {actionNotice ? (
+      {notice ? (
         <div
           role="status"
           className="mb-4 flex shrink-0 items-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/8 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300"
         >
           <CircleCheck className="size-4 shrink-0" />
-          {actionNotice}
+          {notice}
         </div>
       ) : null}
 
@@ -1174,7 +1197,7 @@ export function RecordDetail({
                   setSaveError(null)
                 }
                 setActionError(null)
-                setActionNotice(null)
+                setNotice(null)
               }}
               onApplyValues={(values) => {
                 setDraft((current) => ({ ...current, ...values }))
@@ -1193,7 +1216,7 @@ export function RecordDetail({
                   setSaveError(null)
                 }
                 setActionError(null)
-                setActionNotice(null)
+                setNotice(null)
               }}
             />
             {cardSections
@@ -1339,12 +1362,31 @@ export function RecordDetail({
               >
                 Cancel
               </Button>
+              {/* Only where there is a next record to start. Entry comes in
+                  runs, and this is the run: the record is written and the
+                  form comes back empty rather than closing to the grid and
+                  being reopened for the one after it. */}
+              {mode === "create" ? (
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  title="Save this record and start another"
+                  onClick={() => save("new")}
+                >
+                  {busy ? (
+                    <LoaderCircle className="animate-spin" />
+                  ) : (
+                    <SaveAll />
+                  )}
+                  Save and New
+                </Button>
+              ) : null}
               <Button
                 disabled={
                   busy ||
                   (mode === "update" && !dirty)
                 }
-                onClick={save}
+                onClick={() => save()}
               >
                 {busy ? (
                   <LoaderCircle className="animate-spin" />
