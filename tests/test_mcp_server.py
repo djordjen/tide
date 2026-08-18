@@ -114,14 +114,14 @@ def test_streamable_http_mcp_executes_secured_runtime_workflow() -> None:
                         post_result = await session.call_tool(
                             "post_sales_invoice",
                             {
-                                "identity": 9,
+                                "identity": 10,
                                 "expected_version": 1,
                                 "idempotency_key": "mcp-post-invoice-9",
                             },
                         )
                         audit_result = await session.read_resource(
                             "tide://runtime/tide_invoicing/entities/"
-                            "sales.Invoice/records/9/audit"
+                            "sales.Invoice/records/10/audit"
                         )
 
         assert initialized.serverInfo.name == "TIDE Invoicing Runtime"
@@ -172,7 +172,7 @@ def test_streamable_http_mcp_executes_secured_runtime_workflow() -> None:
         assert invoice_result.isError is False
         assert invoice_result.structuredContent is not None
         assert invoice_result.structuredContent["record"]["number"] == (
-            "INV-2026-000009"
+            "INV-2026-000010"
         )
         assert invoice_result.structuredContent["record"]["total"] == "39.90"
         assert post_result.isError is False
@@ -181,7 +181,7 @@ def test_streamable_http_mcp_executes_secured_runtime_workflow() -> None:
         assert post_result.structuredContent["action"] == "post"
         assert post_result.structuredContent["record"]["status"] == "posted"
         audit = json.loads(audit_result.contents[0].text)  # type: ignore[union-attr]
-        assert audit["identity"] == 9
+        assert audit["identity"] == 10
         assert {event["kind"] for event in audit["events"]} == {
             "action",
             "record",
@@ -302,7 +302,7 @@ def _app(
 ) -> object:
     model = compile_project(INVOICING)
     repository = InMemoryRepository()
-    assert seed_demo_data(model, repository) == 14
+    assert seed_demo_data(model, repository) == 15
     records = RecordsService(model, repository)
     actions = ActionService(model, records)
     assert configure_application_runtime(model, records, actions) is True

@@ -37,7 +37,7 @@ INVOICING = ROOT / "applications" / "invoicing"
 def reporting() -> tuple[ReportService, RequestContext]:
     model = compile_project(INVOICING)
     repository = InMemoryRepository()
-    assert seed_demo_data(model, repository) == 14
+    assert seed_demo_data(model, repository) == 15
     records = RecordsService(model, repository)
     service = ReportService(model, records)
     context = RequestContext(

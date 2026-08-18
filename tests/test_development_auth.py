@@ -41,7 +41,7 @@ def _app(
 ) -> Any:
     model = compile_project(INVOICING)
     repository = InMemoryRepository()
-    assert seed_demo_data(model, repository) == 14
+    assert seed_demo_data(model, repository) == 15
     records = RecordsService(model, repository)
     actions = ActionService(model, records)
     configure_application_runtime(model, records, actions)

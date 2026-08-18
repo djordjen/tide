@@ -157,7 +157,7 @@ def test_remote_facades_browse_create_edit_lookup_and_post_via_http() -> None:
         invoice.set("lines", [selected])
 
         created = records.commit(invoice, context)
-        assert created["number"] == "INV-2026-000009"
+        assert created["number"] == "INV-2026-000010"
         assert created["total"] == Decimal("170.00")
         assert invoice.expected_version == 1
 
@@ -397,7 +397,7 @@ def test_remote_textual_preview_uses_the_server_report_document(
 def _app(role: str) -> tuple[object, object]:
     model = compile_project(INVOICING)
     repository = InMemoryRepository()
-    assert seed_demo_data(model, repository) == 14
+    assert seed_demo_data(model, repository) == 15
     records = RecordsService(model, repository)
     actions = ActionService(model, records)
     assert configure_application_runtime(model, records, actions)

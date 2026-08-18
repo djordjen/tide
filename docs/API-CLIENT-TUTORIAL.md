@@ -80,12 +80,12 @@ Connected to TIDE Invoicing 0.1.0 as development:api (auditor, sales_clerk).
 Customer: ADRIA - Adria Consulting
 Product: CONS - Consulting hour (85.00)
 Validation example: rejected an invalid date with HTTP 422 (invalid_request).
-Created INV-2026-000009 with ETag "1".
+Created INV-2026-000010 with ETag "1".
 Updated currency to USD with ETag "2".
 Concurrency example: rejected the stale ETag with HTTP 412 (stale_version).
 Posted once and replayed safely with ETag "3".
 Audit: replayed post event, correlation 7e... .
-Report: Invoice (1 line(s)), suggested filename invoice-INV-2026-000009.
+Report: Invoice (1 line(s)), suggested filename invoice-INV-2026-000010.
 Tutorial completed; all writes went through the TIDE API.
 ```
 

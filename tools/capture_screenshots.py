@@ -120,7 +120,10 @@ async def _capture_invoice_editor(destination: Path) -> None:
         await _wait_until(
             pilot,
             lambda: isinstance(app.screen, RecordEditScreen)
-            and len(app.screen.query("#collection-records")) == 1,
+            and any(
+                widget.id and widget.id.startswith("collection-records")
+                for widget in app.screen.query("*")
+            ),
             "the invoice editor",
         )
         _write(destination, app.export_screenshot(title="Edit invoice INV-2026-0002"))
@@ -136,10 +139,10 @@ async def _capture_product_lookup(destination: Path) -> None:
         await _wait_until(
             pilot,
             lambda: isinstance(app.screen, RecordEditScreen)
-            and len(app.screen.query("#line-product")) == 1,
+            and len(app.screen.query("#line-lines--product")) == 1,
             "the invoice editor",
         )
-        app.screen.query_one("#line-product", LookupField).focus()
+        app.screen.query_one("#line-lines--product", LookupField).focus()
         await pilot.press("space")
         await _wait_until(
             pilot,

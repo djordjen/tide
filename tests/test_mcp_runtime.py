@@ -150,7 +150,18 @@ def test_search_tool_reuses_typed_query_security_and_principal_bound_cursors() -
         context,
     )
     assert [record["id"] for record in second.records] == [6, 8]
-    assert second.next_cursor is None
+    assert second.next_cursor is not None
+
+    # A fifth draft -- the empty one the appearance rule exists for -- so the
+    # walk needs a third page. Asserted to the end rather than trimmed, since
+    # where the cursor stops is the property under test.
+    third = service.search(
+        "sales.Invoice",
+        query.model_copy(update={"cursor": second.next_cursor}),
+        context,
+    )
+    assert [record["id"] for record in third.records] == [9]
+    assert third.next_cursor is None
 
     with pytest.raises(InvalidQueryCursor):
         service.search(
@@ -333,7 +344,7 @@ def test_mcp_versioned_action_requires_observation_and_is_idempotent() -> None:
 def _service() -> RuntimeMcpService:
     model = compile_project(INVOICING)
     repository = InMemoryRepository()
-    assert seed_demo_data(model, repository) == 14
+    assert seed_demo_data(model, repository) == 15
     records = RecordsService(model, repository)
     actions = ActionService(model, records)
     assert configure_application_runtime(model, records, actions) is True

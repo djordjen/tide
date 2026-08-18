@@ -270,7 +270,7 @@ def test_client_fails_closed_for_contract_and_transport_hazards() -> None:
 def _app(role: str) -> tuple[object, object]:
     model = compile_project(INVOICING)
     repository = InMemoryRepository()
-    assert seed_demo_data(model, repository) == 14
+    assert seed_demo_data(model, repository) == 15
     records = RecordsService(model, repository)
     actions = ActionService(model, records)
     assert configure_application_runtime(model, records, actions)

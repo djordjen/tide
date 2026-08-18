@@ -22,7 +22,7 @@ from textual.widgets import DataTable
 
 from tide import CompilationFailed, compile_project
 from tide.api.server import DevelopmentTokenAuthenticator, build_fastapi_app
-from tide.data import InMemoryRepository
+from tide.data import InMemoryRepository, QuerySpec
 from tide.presentation import record_appearance
 from tide.runtime import (
     Channel,
@@ -31,9 +31,10 @@ from tide.runtime import (
     RequestContext,
 )
 from tide.services import ActionService, RecordsService
-from tide.tui import TideApp
+from tide.tui import TideApp, seed_demo_data
 
 TOKEN = "tide-development-token-that-is-long-enough"
+INVOICING = Path(__file__).parents[1] / "applications" / "invoicing"
 
 MANIFEST = (
     'schema_version: "0.1"\n'
@@ -176,6 +177,39 @@ def test_an_emphasis_outside_the_closed_set_is_refused(tmp_path: Path) -> None:
                 name="closed",
             )
         )
+
+
+def test_the_shipped_example_demonstrates_the_rules_it_declares() -> None:
+    """A demo that never fires its own rule teaches nothing.
+
+    Invoicing's `nothing_to_post` marks a draft that totals zero, and for its
+    first weeks nothing in the seed matched it -- the feature was declared,
+    documented and invisible until somebody made an empty draft by hand. The
+    seed now carries one, and this is why: remove it and the browser's first
+    screen stops showing a rule the application still declares.
+    """
+
+    model = compile_project(INVOICING)
+    repository = InMemoryRepository()
+    seed_demo_data(model, repository)
+    records = RecordsService(model, repository)
+    context = RequestContext(
+        principal=Principal("demo", roles=frozenset({"sales_clerk"})),
+        channel=Channel.TUI,
+    )
+    rules = model.entity("sales.Invoice").metadata["appearance"]
+
+    verdicts = [
+        record_appearance(rules, row)
+        for row in records.query_page(
+            "sales.Invoice", QuerySpec(limit=50), context
+        ).records
+    ]
+
+    assert any(verdict.record == "muted" for verdict in verdicts)
+    assert any(
+        verdict.fields.get("total") == "warning" for verdict in verdicts
+    )
 
 
 def _app(project: Path) -> Any:

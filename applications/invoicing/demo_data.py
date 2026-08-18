@@ -31,6 +31,11 @@ def load_demo_data() -> dict[str, tuple[dict[str, Any], ...]]:
         _invoice(6, "INV-2026-0006", date(2026, 7, 11), 3, "draft", 1, "6.5", "85.00"),
         _invoice(7, "INV-2026-0007", date(2026, 7, 13), 1, "posted", 3, "2", "1200.00"),
         _invoice(8, "INV-2026-0008", date(2026, 7, 15), 2, "draft", 2, "3", "240.00"),
+        # A draft nobody has priced yet: no lines, so it totals zero and
+        # cannot be posted. It is here because `appearance` declares
+        # `nothing_to_post`, and a rule the demo never fires is a rule
+        # nobody meets.
+        _empty_invoice(9, "INV-2026-0009", date(2026, 7, 17), 3),
     )
     return {
         "crm.Customer": customers,
@@ -79,6 +84,34 @@ def _product(identity: int, code: str, name: str, price: str) -> dict[str, Any]:
         "name": name,
         "unit_price": Decimal(price),
         "active": True,
+    }
+
+
+def _empty_invoice(
+    identity: int,
+    number: str,
+    invoice_date: date,
+    customer: int,
+) -> dict[str, Any]:
+    """A draft with no lines: the state every invoice starts in.
+
+    `total` is stored rather than computed here for the same reason every
+    other seeded value is: seeding writes rows directly, so what the column
+    holds is what this module puts in it.
+    """
+
+    return {
+        "id": identity,
+        "number": number,
+        "invoice_date": invoice_date,
+        "currency": "EUR",
+        "status": "draft",
+        "posted_at": None,
+        "posted_by": None,
+        "version": 1,
+        "customer": customer,
+        "lines": [],
+        "total": Decimal("0.00"),
     }
 
 

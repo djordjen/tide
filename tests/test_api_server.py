@@ -1161,7 +1161,7 @@ def test_readiness_fails_closed_without_leaking_dependency_errors() -> None:
 
     model = compile_project(INVOICING)
     repository = UnavailableRepository()
-    assert seed_demo_data(model, repository) == 14
+    assert seed_demo_data(model, repository) == 15
     records = RecordsService(model, repository)
     logger, log_handler = _recording_logger()
     app = build_fastapi_app(
@@ -1210,7 +1210,7 @@ def test_readiness_fails_closed_without_leaking_dependency_errors() -> None:
 def test_http_correlation_is_returned_logged_and_shared_with_crud_audit() -> None:
     model = compile_project(INVOICING)
     repository = InMemoryRepository()
-    assert seed_demo_data(model, repository) == 14
+    assert seed_demo_data(model, repository) == 15
     records = RecordsService(model, repository)
     actions = ActionService(model, records)
     assert configure_application_runtime(model, records, actions)
@@ -1529,10 +1529,10 @@ def test_server_creates_and_patches_through_records_service() -> None:
         assert rejected_system_field.status_code == 422
         assert rejected_system_field.json()["issues"][0]["fields"] == ["id"]
         assert created_invoice.status_code == 201
-        assert created_invoice.json()["number"] == "INV-2026-000009"
+        assert created_invoice.json()["number"] == "INV-2026-000010"
         assert created_invoice.json()["total"] == "170.00"
         assert created_invoice.headers["etag"] == '"1"'
-        assert created_invoice.headers["location"] == "/api/v1/invoices/9"
+        assert created_invoice.headers["location"] == "/api/v1/invoices/10"
         assert missing_precondition.status_code == 428
         assert missing_precondition.json()["code"] == "precondition_required"
         assert updated.status_code == 200
@@ -2486,6 +2486,8 @@ def test_a_listed_record_carries_the_name_of_what_it_points_at() -> None:
             "LOV - Lovćen Studio",
             "ADRIA - Adria Consulting",
             "MORA - Mora Trade",
+            # The empty draft the appearance rule exists for.
+            "LOV - Lovćen Studio",
         ]
 
     asyncio.run(exercise())
@@ -2572,7 +2574,7 @@ def _app(
 ) -> Any:
     model = model or compile_project(INVOICING)
     repository = InMemoryRepository()
-    assert seed_demo_data(model, repository) == 14
+    assert seed_demo_data(model, repository) == 15
     records = RecordsService(model, repository)
     actions = ActionService(model, records)
     assert configure_application_runtime(model, records, actions)

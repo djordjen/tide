@@ -109,6 +109,16 @@ to its own module (`tide/appearance.py`) so the service can enforce a lock
 without importing the presentation layer, which reaches the data layer, which
 reaches back into the service.
 
+The invoicing demo seeds a ninth invoice: a draft with no lines, which totals
+zero and therefore cannot be posted. It exists because `nothing_to_post`
+declares that state interesting and nothing in the seed matched it -- a rule
+the demo never fires is a rule nobody meets, and the checked-in screenshots
+now show both of the application's rules rather than one. The seeded numbers
+reach `INV-2026-0009`, so a fresh run allocates `INV-2026-000010` first.
+Regenerating the terminal screenshots also found two stale selectors in
+`tools/capture_screenshots.py`, left behind when collections gained per-name
+widget ids; the tool runs outside CI, so nothing had said so.
+
 ### Terminal client
 
 The initial Textual adapter now interprets resolved browse and

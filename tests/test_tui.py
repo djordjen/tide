@@ -821,20 +821,20 @@ def test_textual_browse_search_named_filters_and_sorting() -> None:
             clear_button.press()
             await _wait_until(
                 pilot,
-                lambda: table.row_count == 8,
+                lambda: table.row_count == 9,
             )
-            assert table.row_count == 8
+            assert table.row_count == 9
 
             app.query_one("#named-filter", Select).value = "drafts"
             await _wait_until(
                 pilot,
-                lambda: table.row_count == 4
+                lambda: table.row_count == 5
                 and all(
-                    table.get_row_at(index)[3] == "Draft" for index in range(4)
+                    table.get_row_at(index)[3] == "Draft" for index in range(5)
                 ),
             )
-            assert table.row_count == 4
-            assert all(table.get_row_at(index)[3] == "Draft" for index in range(4))
+            assert table.row_count == 5
+            assert all(table.get_row_at(index)[3] == "Draft" for index in range(5))
             assert "Draft invoices" in str(
                 app.query_one("#browse-status", Static).content
             )
@@ -844,20 +844,20 @@ def test_textual_browse_search_named_filters_and_sorting() -> None:
             assert table.row_count == 0
 
             clear_button.press()
-            await _wait_until(pilot, lambda: table.row_count == 8)
-            assert table.row_count == 8
+            await _wait_until(pilot, lambda: table.row_count == 9)
+            assert table.row_count == 9
             app.query_one("#sort-field", Select).value = "total"
             await _wait_until(
                 pilot,
-                lambda: table.row_count == 8
-                and str(table.get_row_at(0)[-1]) == "240.00",
+                lambda: table.row_count == 9
+                and str(table.get_row_at(0)[-1]) == "0.00",
             )
-            assert str(table.get_row_at(0)[-1]) == "240.00"
+            assert str(table.get_row_at(0)[-1]) == "0.00"
 
             app.query_one("#sort-direction", Button).press()
             await _wait_until(
                 pilot,
-                lambda: table.row_count == 8
+                lambda: table.row_count == 9
                 and str(table.get_row_at(0)[-1]) == "2,400.00",
             )
             assert str(table.get_row_at(0)[-1]) == "2,400.00"
@@ -886,7 +886,7 @@ def test_tide_run_demo_constructs_textual_app(monkeypatch) -> None:
     assert app.view.name == "sales.Invoice.browse"
     assert app.page_size == 3
     assert app.context.principal.roles == frozenset({"sales_clerk"})
-    assert len(app.records.repository.all("sales.Invoice")) == 8
+    assert len(app.records.repository.all("sales.Invoice")) == 9
 
 
 def test_tide_run_database_constructs_durable_runtime(
@@ -1524,8 +1524,8 @@ def test_textual_invoice_create_uses_generator_and_inline_line_editor() -> None:
             screen.action_save()
             await pilot.pause()
 
-            stored = app.records.repository.get("sales.Invoice", 9)
-            assert stored["number"] == "INV-2026-000009"
+            stored = app.records.repository.get("sales.Invoice", 10)
+            assert stored["number"] == "INV-2026-000010"
             assert stored["invoice_date"] == date(2026, 7, 20)
             assert stored["status"] == "draft"
             assert stored["customer"] == 1
@@ -1864,7 +1864,7 @@ def _demo_app(
 ) -> TideApp:
     model = compile_project(project)
     repository = InMemoryRepository()
-    assert seed_demo_data(model, repository) == 14
+    assert seed_demo_data(model, repository) == 15
     records = RecordsService(model, repository)
     actions = ActionService(model, records)
     assert configure_application_runtime(model, records, actions)
