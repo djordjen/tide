@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict
 
 from tide.api.contracts import TIDE_WIRE_VERSION, TideFilterOperator
+from tide.model.source import TideSummaryFunction
 
 
 class TideMcpFieldSchema(BaseModel):
@@ -65,6 +66,16 @@ class TideMcpRecord(BaseModel):
     record: dict[str, Any]
 
 
+class TideMcpSummaryValue(BaseModel):
+    """One answered aggregate on an MCP search page."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    field: str
+    function: TideSummaryFunction
+    value: Any = None
+
+
 class TideMcpPage(BaseModel):
     """One authorized bounded result page returned by an MCP query tool."""
 
@@ -75,6 +86,8 @@ class TideMcpPage(BaseModel):
     entity: str
     records: tuple[dict[str, Any], ...]
     next_cursor: str | None = None
+    summaries: tuple[TideMcpSummaryValue, ...] | None = None
+    """Whole-filtered-set answers, present only when the query asked."""
 
 
 class TideMcpMutationResult(BaseModel):

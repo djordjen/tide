@@ -98,6 +98,9 @@ invisible until it is rebuilt.
   sidebar;
 - server-side search, named filters, sorting, and opaque-cursor loading;
 - automatic incremental loading near the bottom of the visible grid;
+- a summary footer under the grid when the view declares `summaries:` —
+  each answer sits under its column, follows the active search and filter,
+  and describes the whole filtered set rather than the rows loaded so far;
 - row virtualization, so loaded records do not all become DOM elements;
 - exact decimal and metadata-defined date formatting;
 - authorized reference display through generated REST resources;

@@ -127,6 +127,15 @@ export interface TidePresentationNamedFilter {
   conditions: TideFilterInput[]
 }
 
+export interface TideSummaryRequest {
+  field: string
+  function: string
+}
+
+export interface TideSummaryValue extends TideSummaryRequest {
+  value: unknown
+}
+
 export interface TideBrowsePresentation {
   view: string
   entity: string
@@ -139,6 +148,12 @@ export interface TideBrowsePresentation {
   search_label: string | null
   named_filters: TidePresentationNamedFilter[]
   sortable_fields: string[]
+  /**
+   * What the footer asks of every page query, already column-filtered.
+   * Optional because a bundle can be newer than the server it is served
+   * by, and a browse against such a server still has to draw.
+   */
+  summaries?: TideSummaryRequest[]
   page_size: number
   operations: TideOperation[]
   detail_view: string | null
@@ -329,6 +344,8 @@ export interface TideRecordSnapshot {
 export interface TideRecordPage {
   records: TideRecord[]
   next_cursor: string | null
+  /** Whole-filtered-set answers; null or absent when the query asked for none. */
+  summaries?: TideSummaryValue[] | null
 }
 
 export interface TideReferenceSelectionResult {
@@ -340,6 +357,7 @@ export interface TideQueryInput {
   sort: TideSortInput[]
   limit: number
   cursor: string | null
+  summaries?: TideSummaryRequest[]
 }
 
 export interface TideConnection {

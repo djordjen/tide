@@ -10,6 +10,11 @@ settings:
 columns: [number, invoice_date, customer, status, total]
 search: [number, customer]
 
+# Footer answers for the whole filtered set, not the visible page.
+summaries:
+  number: count
+  total: sum
+
 filters:
   drafts:
     label: Draft invoices

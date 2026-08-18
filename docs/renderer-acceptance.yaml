@@ -27,6 +27,9 @@ reference_contract:
         customer: left
         status: left
         total: right
+      summaries:
+        number: count
+        total: sum
   forms:
     sales.Invoice.edit:
       sections:
@@ -339,4 +342,27 @@ capabilities:
             runner: web
           - path: tests/test_api_server.py
             selector: test_manifest_offers_required_parameter_summaries_with_their_metadata
+            runner: python
+
+  - id: browse_summaries
+    tier: roadmap
+    description: A browse view's declared summaries are requested with each page query and answered for the whole filtered set, drawn as a terminal bar and a browser footer band under their columns.
+    renderers:
+      tui:
+        status: covered
+        evidence:
+          - path: tests/test_tui.py
+            selector: test_textual_browse_summary_bar_answers_for_the_whole_set
+            runner: python
+          - path: tests/test_api_remote.py
+            selector: test_remote_facades_browse_create_edit_lookup_and_post_via_http
+            runner: python
+      web:
+        status: covered
+        evidence:
+          - path: web/src/App.summaries.test.tsx
+            selector: asks for the declared summaries and lays the answers under their columns
+            runner: web
+          - path: tests/test_api_server.py
+            selector: test_manifest_summaries_are_filtered_with_their_columns
             runner: python

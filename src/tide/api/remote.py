@@ -181,7 +181,12 @@ class RemoteRecordsService:
         if query.after is not None:
             raise ValueError("query cursor boundaries are server-owned")
         remote = self.client.query_records(entity_name, query)
-        return QueryPage(remote.records, remote.next_cursor, remote.references)
+        return QueryPage(
+            remote.records,
+            remote.next_cursor,
+            remote.references,
+            summaries=remote.summaries,
+        )
 
     def lookup_records(
         self,

@@ -152,6 +152,9 @@ export function BrowseWorkspace({
           sort,
           limit: view.page_size,
           cursor: pageParam,
+          // The manifest already filtered the declaration to columns this
+          // principal can read, so what it says to ask is safe to ask.
+          ...(view.summaries?.length ? { summaries: view.summaries } : {}),
         },
         signal,
       ),
@@ -163,6 +166,9 @@ export function BrowseWorkspace({
     () => query.data?.pages.flatMap((page) => page.records) ?? [],
     [query.data],
   )
+  // Every page answers for the whole filtered set, so the newest fetch is
+  // the freshest copy of the same truth.
+  const summaries = query.data?.pages.at(-1)?.summaries ?? null
 
   useEffect(() => {
     scrollReset.current?.()
@@ -461,6 +467,7 @@ export function BrowseWorkspace({
         view={view}
         views={views}
         records={records}
+        summaries={summaries}
         loading={query.isPending}
         fetchingMore={query.isFetchingNextPage}
         hasMore={query.hasNextPage}

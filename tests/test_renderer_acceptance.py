@@ -375,6 +375,7 @@ def _check_contract(
         assert resolved["browse"][view_name] == {
             "columns": expected["columns"],
             "alignments": expected["alignments"],
+            "summaries": expected.get("summaries", {}),
         }, f"{renderer} browse layout drifted for {view_name}"
 
     for view_name, expected in contract["forms"].items():
@@ -411,6 +412,7 @@ def _shared_resolution(model: Any, contract: dict[str, Any]) -> dict[str, Any]:
                 name: field_alignment(entity.field(name), model.formats)
                 for name in columns
             },
+            "summaries": dict(view.data.get("summaries") or {}),
         }
     return {
         "navigation": [
@@ -453,6 +455,12 @@ def _tui_resolution(model: Any, contract: dict[str, Any]) -> dict[str, Any]:
                     app.entity.field(name), "", model.formats
                 ).justify
                 for name in app.columns
+            },
+            # The app's own resolution, after its readability filter -- the
+            # acceptance role reads every summarized column, so a drop here
+            # is a drift and not a permission.
+            "summaries": {
+                request.field: request.function for request in app.summaries
             },
         }
 
@@ -504,6 +512,10 @@ def _web_resolution(model: Any, contract: dict[str, Any]) -> dict[str, Any]:
                 "alignments": {
                     column.name: column.alignment
                     for column in manifest.views[view_name].columns
+                },
+                "summaries": {
+                    item.field: item.function
+                    for item in manifest.views[view_name].summaries
                 },
             }
             for view_name in contract["browse"]

@@ -18,7 +18,7 @@ from tide.api.client import (
 )
 from tide.api.server import DevelopmentTokenAuthenticator, build_fastapi_app
 from tide.data import InMemoryRepository
-from tide.data import FilterCondition, QuerySpec, SortField
+from tide.data import FilterCondition, QuerySpec, SortField, SummaryRequest
 from tide.runtime import Principal
 from tide.runtime.application import configure_application_runtime
 from tide.reporting import render_html, render_pdf
@@ -206,6 +206,49 @@ def test_client_round_trips_types_mutations_versions_and_actions() -> None:
     assert posted.etag == '"3"'
     assert stale.value.status_code == 412
     assert stale.value.code == "stale_version"
+
+
+def test_client_round_trips_summaries_with_typed_values() -> None:
+    model, app = _app("sales_clerk")
+
+    with _http_client(app) as transport:
+        client = TideApiClient(model, BASE_URL, TOKEN, http_client=transport)
+        client.connect()
+        drafts = QuerySpec(
+            filters=(FilterCondition("status", "eq", "draft"),),
+            limit=2,
+            summaries=(
+                SummaryRequest("total", "sum"),
+                SummaryRequest("total", "avg"),
+                SummaryRequest("number", "count"),
+                SummaryRequest("invoice_date", "min"),
+            ),
+        )
+        page = client.query_records("sales.Invoice", drafts)
+        walked = client.query_records(
+            "sales.Invoice",
+            QuerySpec(filters=drafts.filters, limit=100),
+        )
+
+    assert len(page.records) == 2
+    assert len(walked.records) > 2
+    totals = [record["total"] for record in walked.records]
+    expected_sum = sum(totals, Decimal("0"))
+    # Typed equality is the claim: the wire carried strings and the client
+    # hands back the Decimals and dates a local page would hold.
+    assert page.summaries == (
+        (SummaryRequest("total", "sum"), expected_sum),
+        (
+            SummaryRequest("total", "avg"),
+            (expected_sum / len(totals)).quantize(Decimal("0.01")),
+        ),
+        (SummaryRequest("number", "count"), len(totals)),
+        (
+            SummaryRequest("invoice_date", "min"),
+            min(record["invoice_date"] for record in walked.records),
+        ),
+    )
+    assert walked.summaries == ()
 
 
 def test_client_restores_protected_values_without_confusing_them_with_null() -> None:

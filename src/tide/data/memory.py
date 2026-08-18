@@ -14,6 +14,7 @@ from tide.data.repository import (
     DeleteReference,
     DeletedRecord,
     DuplicateIdentityError,
+    FilterCondition,
     NO_PARAMETERS,
     OnDeleted,
     OnWritten,
@@ -21,6 +22,7 @@ from tide.data.repository import (
     RelationshipLoadPlan,
     RowPolicyMismatch,
     SortField,
+    SummaryRequest,
     UnitOfWorkBypassed,
     UnitOfWorkClosed,
     UnitOfWorkFailed,
@@ -163,21 +165,13 @@ class InMemoryRepository:
             raise ValueError("query cursor boundary requires an effective sort")
         if query.after is not None and len(query.after) != len(query.sort):
             raise ValueError("query cursor boundary does not match the effective sort")
-        records = self.all(entity)
-        if relationships is not None:
-            records = [
-                _apply_relationship_plan(entity, record, relationships, depth=0)
-                for record in records
-            ]
-        records = [
-            record
-            for record in records
-            if all(bool(evaluate_expression(criteria, record, parameters=criteria_parameters)) for criteria in row_criteria)
-        ]
-        for condition in query.filters:
-            records = [
-                record for record in records if matches_filter(record, condition)
-            ]
+        records = self._visible_rows(
+            entity,
+            query.filters,
+            row_criteria=row_criteria,
+            criteria_parameters=criteria_parameters,
+            relationships=relationships,
+        )
         if query.after is not None:
             records = [
                 record
@@ -190,6 +184,77 @@ class InMemoryRepository:
                 reverse=sort.descending,
             )
         return records[: query.limit]
+
+    def _visible_rows(
+        self,
+        entity: str,
+        filters: tuple[FilterCondition, ...],
+        *,
+        row_criteria: tuple[str, ...],
+        criteria_parameters: Mapping[str, Any],
+        relationships: RelationshipLoadPlan | None,
+    ) -> list[dict[str, Any]]:
+        """The rows a query and its summaries share, selected in one place."""
+
+        records = self.all(entity)
+        if relationships is not None:
+            records = [
+                _apply_relationship_plan(entity, record, relationships, depth=0)
+                for record in records
+            ]
+        records = [
+            record
+            for record in records
+            if all(bool(evaluate_expression(criteria, record, parameters=criteria_parameters)) for criteria in row_criteria)
+        ]
+        for condition in filters:
+            records = [
+                record for record in records if matches_filter(record, condition)
+            ]
+        return records
+
+    @scoped(writes=False)
+    def aggregate(
+        self,
+        entity: str,
+        summaries: tuple[SummaryRequest, ...],
+        *,
+        filters: tuple[FilterCondition, ...] = (),
+        row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
+        relationships: RelationshipLoadPlan | None = None,
+    ) -> dict[SummaryRequest, Any]:
+        if not summaries:
+            return {}
+        rows = self._visible_rows(
+            entity,
+            filters,
+            row_criteria=row_criteria,
+            criteria_parameters=criteria_parameters,
+            relationships=relationships,
+        )
+        result: dict[SummaryRequest, Any] = {}
+        for request in summaries:
+            # SQL semantics on purpose: aggregates answer for values, not
+            # rows, and over no values everything but count is None.
+            values = [
+                row[request.field]
+                for row in rows
+                if row.get(request.field) is not None
+            ]
+            if request.function == "count":
+                result[request] = len(values)
+            elif request.function == "sum":
+                result[request] = sum(values) if values else None
+            elif request.function == "min":
+                result[request] = min(values) if values else None
+            elif request.function == "max":
+                result[request] = max(values) if values else None
+            else:
+                raise ValueError(
+                    f"unknown summary function {request.function!r}"
+                )
+        return result
 
     @scoped(writes=False)
     def get(

@@ -8,6 +8,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from tide.model.source import TideSummaryFunction
+
 
 TIDE_WIRE_VERSION = "0.1"
 TideOperation = Literal["list", "get", "create", "update", "delete"]
@@ -127,6 +129,15 @@ class TideSortInput(BaseModel):
     descending: bool = False
 
 
+class TideSummaryInput(BaseModel):
+    """One aggregate requested over the query's whole filtered set."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    field: str = Field(min_length=1)
+    function: TideSummaryFunction
+
+
 class TideQueryInput(BaseModel):
     """Structured query body; values are normalized against entity metadata."""
 
@@ -136,6 +147,7 @@ class TideQueryInput(BaseModel):
     sort: tuple[TideSortInput, ...] = ()
     limit: int = Field(default=100, ge=1, le=500)
     cursor: str | None = Field(default=None, min_length=1)
+    summaries: tuple[TideSummaryInput, ...] = ()
 
 
 class TideReferenceSelectionInput(BaseModel):
@@ -556,6 +568,13 @@ class TideBrowsePresentation(BaseModel):
     search_label: str | None = None
     named_filters: tuple[TidePresentationNamedFilter, ...] = ()
     sortable_fields: tuple[str, ...] = ()
+    summaries: tuple[TideSummaryInput, ...] = ()
+    """What the view's footer asks of every page query, column-filtered.
+
+    A summary whose column this principal cannot read leaves the manifest
+    with the column, so the grid never sends a request the server would
+    refuse.
+    """
     page_size: int = Field(ge=1, le=500)
     operations: tuple[TideOperation, ...] = ()
     detail_view: str | None = None

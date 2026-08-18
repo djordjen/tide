@@ -25,7 +25,7 @@ from tide.compiler.normalized import (
     NormalizedField,
     ResolvedView,
 )
-from tide.data import FilterCondition, QuerySpec, SortField
+from tide.data import FilterCondition, QuerySpec, SortField, SummaryRequest
 from tide.presentation import (
     browse_columns,
     application_navigation,
@@ -142,6 +142,12 @@ class TideApp(App[None]):
         height: 1fr;
         margin: 0 1;
         border: round $primary;
+    }
+
+    #browse-summary {
+        height: 1;
+        padding: 0 2;
+        content-align: left middle;
     }
 
     #browse-status {
@@ -339,6 +345,10 @@ class TideApp(App[None]):
             yield Button("Refresh", id="refresh-page")
             yield Button("Quit", id="quit-app")
         yield BrowseDataTable(id="records")
+        # Composed whether or not this view declares summaries, and toggled
+        # by display: remounting a widget per workspace races Textual's
+        # scheduled removals, a display flag has no lifecycle.
+        yield Static("", id="browse-summary")
         yield Static("Loading…", id="browse-status")
         yield Footer()
 
@@ -690,6 +700,11 @@ class TideApp(App[None]):
         self._query_loading = False
         self._query_error = None
         self.query_one("#records", DataTable).clear()
+        summary_bar = self.query_one("#browse-summary", Static)
+        summary_bar.display = bool(self.summaries)
+        # Cleared rather than left standing: the filter just changed, and a
+        # stale total over the previous set would be a confident lie.
+        summary_bar.update("")
         self._update_record_controls()
         self._request_next_batch()
 
@@ -701,6 +716,21 @@ class TideApp(App[None]):
         self.named_filters = browse_named_filters(view)
         self.columns = _browse_columns(view, self.entity)
         self.sort_fields = browse_sortable_fields(self.columns, self.entity)
+        declared_summaries = view.data.get("summaries") or {}
+        # The same filter the manifest applies for the browser: a summary
+        # over a field this principal cannot read is a refusal, and the
+        # columns already render such values as Protected rather than
+        # failing the browse.
+        self.summaries = tuple(
+            SummaryRequest(str(name), str(function))
+            for name, function in declared_summaries.items()
+            if str(name) in self.columns
+            and self.records.security.can_read_field(
+                self.entity.name,
+                str(name),
+                self.context,
+            )
+        )
         self._audit_allowed = bool(
             self.audit_history is not None
             and self.audit_history.can_view(self.entity.name, self.context)
@@ -845,6 +875,9 @@ class TideApp(App[None]):
             ),
             limit=self.page_size,
             cursor=cursor,
+            # Only the first batch asks: the answers describe the whole
+            # filtered set, so scrolling further changes nothing they say.
+            summaries=self.summaries if cursor is None else (),
         )
         self._query_loading = True
         self._update_browse_status()
@@ -908,6 +941,8 @@ class TideApp(App[None]):
         self._next_cursor = page.next_cursor
         self._query_loading = False
         self._query_error = None
+        if page.summaries:
+            self._update_summary_bar(page.summaries)
         self._update_record_controls()
         self._update_browse_status()
         table.refresh(layout=True)
@@ -1001,6 +1036,33 @@ class TideApp(App[None]):
         delete.disabled = not (has_records and self._delete_allowed)
         audit.disabled = not (has_records and self._audit_allowed)
         self._update_report_control(has_records)
+
+    def _update_summary_bar(
+        self,
+        summaries: tuple[tuple[SummaryRequest, Any], ...],
+    ) -> None:
+        bar = self._browse_widget("#browse-summary", Static)
+        if bar is None:
+            return
+        parts: list[str] = []
+        for request, value in summaries:
+            field = self.entity.field(request.field)
+            word = _SUMMARY_WORDS.get(request.function, request.function)
+            if value is None:
+                text = "—"
+            elif request.function == "count":
+                # A count is a number of values, never money.
+                text = f"{value:,}"
+            elif request.function == "avg" and str(
+                field.metadata["type"]
+            ) != "decimal":
+                # An integer column's mean carries places of its own that
+                # the column's formatting would not know to draw.
+                text = str(value)
+            else:
+                text = self._format_value(field, {request.field: value})
+            parts.append(f"{_field_label(field)} {word} {text}")
+        bar.update("  ·  ".join(parts))
 
     def _update_browse_status(self) -> None:
         status = self._browse_widget("#browse-status", Static)
@@ -1210,6 +1272,16 @@ def _select_browse_view(
 
 
 _browse_columns = browse_columns
+
+# The renderer's own words for the closed set; a function this bundle does
+# not know is labelled by its wire name rather than dropped.
+_SUMMARY_WORDS = {
+    "sum": "Sum",
+    "count": "Count",
+    "avg": "Avg",
+    "min": "Min",
+    "max": "Max",
+}
 
 
 def _primary_key(entity: NormalizedEntity) -> str:

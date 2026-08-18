@@ -9,7 +9,7 @@ from threading import RLock
 import time
 from typing import Any, Protocol
 
-from tide.data.repository import FilterCondition, SortField
+from tide.data.repository import FilterCondition, SortField, SummaryRequest
 from tide.runtime.errors import InvalidQueryCursor
 from tide.services.references import NO_REFERENCE_DISPLAYS, ReferenceDisplays
 
@@ -43,6 +43,13 @@ class QueryPage:
     Resolved with the page, because a grid draws its reference columns
     at the moment it draws the rows and would otherwise buy each name
     separately.
+    """
+    summaries: tuple[tuple[SummaryRequest, Any], ...] = ()
+    """Each requested aggregate beside its value, in request order.
+
+    Computed over the whole filtered set the page walks, never the visible
+    slice -- and only when the query asked, so a page that did not carries
+    nothing rather than an empty answer.
     """
 
 

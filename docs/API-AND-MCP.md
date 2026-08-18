@@ -376,6 +376,15 @@ URLs while preserving the same allow-listed field/operator/type validation,
 row policies, protected projections, deterministic ordering, bounded page
 size, and principal-bound cursors as local service calls.
 
+The same body may carry `summaries`, a list of `{field, function}` requests
+from the closed set `sum`/`count`/`avg`/`min`/`max`; the page envelope answers
+with a `summaries` list of `{field, function, value}` computed over the whole
+filtered set under the caller's row policies, so an API or MCP consumer can
+ask what the draft invoices come to without paging through them. The MCP
+`search` tool accepts and answers the identical shape. Semantics -- null
+handling, the exact `avg` contract, and what is refused -- are in
+[the query contract](QUERY-AND-CONCURRENCY.md).
+
 ## Domain actions
 
 First-class actions map predictably to REST:

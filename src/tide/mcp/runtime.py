@@ -18,7 +18,7 @@ from tide.api.wire import (
 from tide.labels import humanize as _humanize
 from tide.presentation import field_label
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
-from tide.data import FilterCondition, QuerySpec, SortField
+from tide.data import FilterCondition, QuerySpec, SortField, SummaryRequest
 from tide.mcp.contracts import (
     TideMcpActionSchema,
     TideMcpEntitySchema,
@@ -26,6 +26,7 @@ from tide.mcp.contracts import (
     TideMcpMutationResult,
     TideMcpPage,
     TideMcpRecord,
+    TideMcpSummaryValue,
 )
 from tide.runtime import (
     ConcurrencyError,
@@ -190,6 +191,10 @@ class RuntimeMcpService:
                 sort=sort,
                 limit=query.limit,
                 cursor=query.cursor,
+                summaries=tuple(
+                    SummaryRequest(item.field, item.function)
+                    for item in query.summaries
+                ),
             ),
             context,
         )
@@ -201,6 +206,18 @@ class RuntimeMcpService:
                 for record in page.records
             ),
             next_cursor=page.next_cursor,
+            summaries=(
+                tuple(
+                    TideMcpSummaryValue(
+                        field=request.field,
+                        function=request.function,
+                        value=value,
+                    )
+                    for request, value in page.summaries
+                )
+                if page.summaries
+                else None
+            ),
         )
 
     def audit(

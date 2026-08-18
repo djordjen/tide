@@ -597,6 +597,268 @@ def test_view_tabs_collections_and_action_bars_are_compiler_validated(
     assert any("must be an inline_edit view" in message for message in messages)
 
 
+def test_browse_summaries_compile_onto_the_resolved_view(tmp_path: Path) -> None:
+    project = tmp_path / "summarized"
+    models = project / "models"
+    views = project / "views"
+    models.mkdir(parents=True)
+    views.mkdir()
+    (project / "tide.yaml").write_text(
+        "\n".join(
+            [
+                'schema_version: "0.1"',
+                "application: {name: Summarized, version: 0.1.0}",
+                "model: {paths: [models]}",
+                "views: {paths: [views]}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (models / "item.yaml").write_text(
+        "\n".join(
+            [
+                "entity: demo.Item",
+                "fields:",
+                "  id: {type: integer, primary_key: true}",
+                "  name: {type: string}",
+                "  price: {type: decimal, precision: 10, scale: 2}",
+                "  quantity: {type: integer}",
+                "  stocked_on: {type: date}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (views / "browse.yaml").write_text(
+        "\n".join(
+            [
+                "view: demo.Item.browse",
+                "entity: demo.Item",
+                "kind: browse",
+                "columns: [name, price, quantity, stocked_on]",
+                "summaries:",
+                "  name: count",
+                "  price: sum",
+                "  quantity: avg",
+                "  stocked_on: max",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    model = compile_project(project)
+
+    view = model.views["demo.Item.browse"]
+    assert view.data["summaries"] == {
+        "name": "count",
+        "price": "sum",
+        "quantity": "avg",
+        "stocked_on": "max",
+    }
+    assert view.origins["summaries.price"].layer == "view overlay"
+
+
+def test_browse_summaries_are_compiler_validated(tmp_path: Path) -> None:
+    project = tmp_path / "invalid-summaries"
+    models = project / "models"
+    views = project / "views"
+    models.mkdir(parents=True)
+    views.mkdir()
+    (project / "tide.yaml").write_text(
+        "\n".join(
+            [
+                'schema_version: "0.1"',
+                "application: {name: Invalid Summaries, version: 0.1.0}",
+                "model: {paths: [models]}",
+                "views: {paths: [views]}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (models / "root.yaml").write_text(
+        "\n".join(
+            [
+                "entity: demo.Root",
+                "fields:",
+                "  id: {type: integer, primary_key: true}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (models / "thing.yaml").write_text(
+        "\n".join(
+            [
+                "entity: demo.Thing",
+                "fields:",
+                "  id: {type: integer, primary_key: true}",
+                "  name: {type: string}",
+                "  price: {type: decimal, precision: 10, scale: 2}",
+                "  happened_on: {type: date}",
+                "  flag: {type: boolean}",
+                "  root: {type: reference, target: demo.Root}",
+                "  derived: {type: decimal, computed: {expression: price}}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (views / "no-columns.yaml").write_text(
+        "\n".join(
+            [
+                "view: demo.Thing.no_columns",
+                "entity: demo.Thing",
+                "kind: browse",
+                "summaries: {price: sum}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (views / "not-shown.yaml").write_text(
+        "\n".join(
+            [
+                "view: demo.Thing.not_shown",
+                "entity: demo.Thing",
+                "kind: browse",
+                "columns: [name]",
+                "summaries: {price: sum}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (views / "form.yaml").write_text(
+        "\n".join(
+            [
+                "view: demo.Thing.edit",
+                "entity: demo.Thing",
+                "kind: form",
+                "layout:",
+                "  - {group: Thing, rows: [[name]]}",
+                "summaries: {name: count}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (views / "wrong-types.yaml").write_text(
+        "\n".join(
+            [
+                "view: demo.Thing.wrong_types",
+                "entity: demo.Thing",
+                "kind: browse",
+                "columns: [name, happened_on, flag, root, derived]",
+                "summaries:",
+                "  name: sum",
+                "  happened_on: avg",
+                "  flag: min",
+                "  root: max",
+                "  derived: count",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (views / "unknown-field.yaml").write_text(
+        "\n".join(
+            [
+                "view: demo.Thing.unknown_field",
+                "entity: demo.Thing",
+                "kind: browse",
+                "columns: [name]",
+                "summaries: {ghost: count}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(project)
+
+    placement = {
+        diagnostic.message
+        for diagnostic in caught.value.diagnostics
+        if diagnostic.code == "TIDE283"
+    }
+    assert "summaries require columns in the same view" in placement
+    assert "summary column 'price' is not among the view's columns" in placement
+    assert "summaries are a browse-view declaration" in placement
+    legality = {
+        diagnostic.message
+        for diagnostic in caught.value.diagnostics
+        if diagnostic.code == "TIDE284"
+    }
+    assert "sum requires a numeric column; 'name' is string" in legality
+    assert "avg requires a numeric column; 'happened_on' is date" in legality
+    assert "min requires an orderable column; 'flag' is boolean" in legality
+    assert "max requires an orderable column; 'root' is reference" in legality
+    assert "column 'derived' is not stored and cannot be summarized" in legality
+    assert any(
+        diagnostic.code == "TIDE215" and "ghost" in diagnostic.message
+        for diagnostic in caught.value.diagnostics
+    )
+
+
+def test_summary_functions_come_from_the_closed_set(tmp_path: Path) -> None:
+    project = tmp_path / "unknown-summary-function"
+    models = project / "models"
+    views = project / "views"
+    models.mkdir(parents=True)
+    views.mkdir()
+    (project / "tide.yaml").write_text(
+        "\n".join(
+            [
+                'schema_version: "0.1"',
+                "application: {name: Unknown Function, version: 0.1.0}",
+                "model: {paths: [models]}",
+                "views: {paths: [views]}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (models / "item.yaml").write_text(
+        "\n".join(
+            [
+                "entity: demo.Item",
+                "fields:",
+                "  id: {type: integer, primary_key: true}",
+                "  price: {type: decimal, precision: 10, scale: 2}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (views / "browse.yaml").write_text(
+        "\n".join(
+            [
+                "view: demo.Item.browse",
+                "entity: demo.Item",
+                "kind: browse",
+                "columns: [price]",
+                "summaries: {price: total}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(project)
+
+    assert any(
+        diagnostic.code == "TIDE103" and diagnostic.path == ("summaries", "price")
+        for diagnostic in caught.value.diagnostics
+    )
+
+
+def test_summary_function_legality_covers_the_closed_set() -> None:
+    from typing import get_args
+
+    from tide.model.source import (
+        SUMMARIZABLE_FIELD_TYPES,
+        SUMMARY_FUNCTIONS,
+        FieldType,
+    )
+
+    assert set(SUMMARIZABLE_FIELD_TYPES) == set(SUMMARY_FUNCTIONS)
+    field_types = set(get_args(FieldType))
+    for allowed in SUMMARIZABLE_FIELD_TYPES.values():
+        assert allowed <= field_types
+    assert "collection" not in SUMMARIZABLE_FIELD_TYPES["count"]
+
+
 def test_record_report_contract_is_compiler_validated(tmp_path: Path) -> None:
     project = tmp_path / "invalid-report"
     (project / "models").mkdir(parents=True)

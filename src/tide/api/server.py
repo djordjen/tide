@@ -71,7 +71,7 @@ from tide.api.wire import (
     wire_record as _wire_record,
 )
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
-from tide.data import FilterCondition, QuerySpec, SortField
+from tide.data import FilterCondition, QuerySpec, SortField, SummaryRequest
 from tide.observability import (
     CORRELATION_HEADER,
     bind_correlation_id,
@@ -1797,6 +1797,10 @@ def _query_endpoint(
                     sort=sort,
                     limit=payload.limit,
                     cursor=payload.cursor,
+                    summaries=tuple(
+                        SummaryRequest(item.field, item.function)
+                        for item in payload.summaries
+                    ),
                 ),
                 context,
             )
@@ -1806,27 +1810,42 @@ def _query_endpoint(
             raise _bad_request(str(error)) from error
         except (KeyError, TypeError, ValueError, InvalidOperation) as error:
             raise _bad_request("structured query is invalid") from error
-        return page_model.model_validate(
-            {
-                "records": [
-                    # A page carries the appearance verdict too. A rule that
-                    # only shows its colour once the record is open is not a
-                    # warning; it is a reward for having already looked.
-                    _apply_appearance(
-                        _wire_record(
-                            records.model,
-                            entity,
-                            record,
-                            page.references,
-                        ),
+        envelope: dict[str, Any] = {
+            "records": [
+                # A page carries the appearance verdict too. A rule that
+                # only shows its colour once the record is open is not a
+                # warning; it is a reward for having already looked.
+                _apply_appearance(
+                    _wire_record(
+                        records.model,
                         entity,
                         record,
-                    )
-                    for record in page.records
-                ],
-                "next_cursor": page.next_cursor,
-            }
-        )
+                        page.references,
+                    ),
+                    entity,
+                    record,
+                )
+                for record in page.records
+            ],
+            "next_cursor": page.next_cursor,
+        }
+        if page.summaries:
+            # `_wire_value` already speaks every summary's type: a count is
+            # an integer, a decimal sum a string, a date bound ISO text and
+            # an empty set's answer null.
+            envelope["summaries"] = [
+                {
+                    "field": request.field,
+                    "function": request.function,
+                    "value": _wire_value(
+                        records.model,
+                        entity.fields[request.field],
+                        value,
+                    ),
+                }
+                for request, value in page.summaries
+            ]
+        return page_model.model_validate(envelope)
 
     query_records.__name__ = f"query_{entity.name.replace('.', '_')}"
     return query_records

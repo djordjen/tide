@@ -64,6 +64,7 @@ from tide.data.repository import (
     UnitOfWorkClosed,
     UnitOfWorkFailed,
     scoped,
+    SummaryRequest,
     WriteIntegrityError,
     SortField,
 )
@@ -512,23 +513,14 @@ class SQLAlchemyRepository:
             raise ValueError("query cursor boundary requires an effective sort")
         if query.after is not None and len(query.after) != len(query.sort):
             raise ValueError("query cursor boundary does not match the effective sort")
-        normalized_entity = self.model.entity(entity)
         table = self.table(entity)
-        predicates = [
-            translate_expression(
-                criteria,
-                model=self.model,
-                entity=normalized_entity,
-                columns=table.c,
-                tables=self._tables,
-                relationship_criteria=_plan_relationship_criteria(relationships),
-                parameters=criteria_parameters,
-            )
-            for criteria in row_criteria
-        ]
-        predicates.extend(
-            _filter_predicate(normalized_entity, table, condition)
-            for condition in query.filters
+        predicates = self._criteria_predicates(
+            entity,
+            table,
+            query.filters,
+            row_criteria=row_criteria,
+            criteria_parameters=criteria_parameters,
+            relationships=relationships,
         )
         if query.after is not None:
             predicates.append(
@@ -549,6 +541,87 @@ class SQLAlchemyRepository:
                 column.desc() if sort.descending else column.asc(),
             )
         return statement.limit(query.limit)
+
+    def _criteria_predicates(
+        self,
+        entity: str,
+        table: Any,
+        filters: tuple[FilterCondition, ...],
+        *,
+        row_criteria: tuple[str, ...],
+        criteria_parameters: Mapping[str, Any],
+        relationships: RelationshipLoadPlan | None,
+    ) -> list[Any]:
+        """The WHERE a query and its summaries share, built in one place."""
+
+        normalized_entity = self.model.entity(entity)
+        predicates = [
+            translate_expression(
+                criteria,
+                model=self.model,
+                entity=normalized_entity,
+                columns=table.c,
+                tables=self._tables,
+                relationship_criteria=_plan_relationship_criteria(relationships),
+                parameters=criteria_parameters,
+            )
+            for criteria in row_criteria
+        ]
+        predicates.extend(
+            _filter_predicate(normalized_entity, table, condition)
+            for condition in filters
+        )
+        return predicates
+
+    _SUMMARY_EXPRESSIONS = {
+        "sum": func.sum,
+        "count": func.count,
+        "min": func.min,
+        "max": func.max,
+    }
+
+    @scoped(writes=False)
+    def aggregate(
+        self,
+        entity: str,
+        summaries: tuple[SummaryRequest, ...],
+        *,
+        filters: tuple[FilterCondition, ...] = (),
+        row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
+        relationships: RelationshipLoadPlan | None = None,
+    ) -> dict[SummaryRequest, Any]:
+        if not summaries:
+            return {}
+        table = self.table(entity)
+        expressions = []
+        for request in summaries:
+            column = table.c.get(request.field)
+            if column is None:
+                raise QueryTranslationError(
+                    f"field {entity}.{request.field} is not stored and "
+                    "cannot be summarized in SQL"
+                )
+            expression = self._SUMMARY_EXPRESSIONS.get(request.function)
+            if expression is None:
+                raise ValueError(
+                    f"unknown summary function {request.function!r}"
+                )
+            expressions.append(expression(column))
+        statement = select(*expressions).select_from(table)
+        predicates = self._criteria_predicates(
+            entity,
+            table,
+            filters,
+            row_criteria=row_criteria,
+            criteria_parameters=criteria_parameters,
+            relationships=relationships,
+        )
+        if predicates:
+            statement = statement.where(and_(*predicates))
+        with self._reading() as connection:
+            row = connection.execute(statement).one()
+        return {request: row[index] for index, request in enumerate(summaries)}
 
     @scoped(writes=False)
     def get(

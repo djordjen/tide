@@ -329,6 +329,22 @@ including browse columns, form controls, or a collection section and its action
 bar. It remains presentation metadata, not an authorization rule; services
 continue to enforce field and entity security independently.
 
+## Browse summaries
+
+A browse view's `summaries:` mapping asks for one aggregate per shown column
+from the closed set `sum`/`count`/`avg`/`min`/`max` (see
+[METADATA-V0](METADATA-V0.md) for validation and
+[the query contract](QUERY-AND-CONCURRENCY.md) for semantics). The author
+declares the function; each renderer owns the words and the placement. The
+terminal draws a one-line bar under the table -- `Number Count 9  ·  Total
+Sum 18,397.15` -- and the browser a footer band whose answers sit under their
+columns. Both request the aggregates with the page query, so the values follow
+every search, named filter, and row policy, and answer for the whole filtered
+set rather than the rows fetched so far. The presentation manifest carries the
+declaration to remote renderers filtered the way columns are: a summary over
+a field the principal cannot read leaves the manifest with its column, so a
+grid never sends a request the server would refuse.
+
 ## Semantic layouts
 
 Shared layouts describe structure rather than pixel or terminal coordinates:

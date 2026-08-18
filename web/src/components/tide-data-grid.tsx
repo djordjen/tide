@@ -45,6 +45,7 @@ import type {
   TidePresentationManifest,
   TideRecord,
   TideSortInput,
+  TideSummaryValue,
 } from "@/lib/contracts"
 import { recordEmphasis, rowEmphasisClass } from "@/lib/emphasis"
 import { formatCellValue } from "@/lib/format"
@@ -67,6 +68,8 @@ interface TideDataGridProps {
   /** For reference cells' doors to their records. */
   views?: TidePresentationManifest["views"]
   records: TideRecord[]
+  /** The whole filtered set's answers, from the newest page fetched. */
+  summaries?: TideSummaryValue[] | null
   loading: boolean
   fetchingMore: boolean
   hasMore: boolean
@@ -86,6 +89,7 @@ export function TideDataGrid({
   view,
   views,
   records,
+  summaries,
   loading,
   fetchingMore,
   hasMore,
@@ -99,6 +103,7 @@ export function TideDataGrid({
 }: TideDataGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const headerRef = useRef<HTMLDivElement>(null)
+  const footerRef = useRef<HTMLDivElement>(null)
   const draggedColumn = useRef<string | null>(null)
   const layoutChanged = useRef(false)
   const didInitialFit = useRef(false)
@@ -328,6 +333,16 @@ export function TideDataGrid({
               ),
             ),
           ]
+          // The footer is content too: a best-fit column must hold its own
+          // answer, or the sum ends in an ellipsis.
+          const summary = summaries?.find(
+            (item) => item.field === column.name,
+          )
+          if (summary) {
+            values.push(
+              `${summaryWord(summary.function)}  ${summaryText(column, summary)}`,
+            )
+          }
           const measured = Math.max(
             ...values.map((value) =>
               context ? context.measureText(value).width : value.length * 7,
@@ -343,7 +358,7 @@ export function TideDataGrid({
       layoutChanged.current = personal
       setColumnSizing(sizes)
     },
-    [records, view.columns],
+    [records, summaries, view.columns],
   )
 
   useEffect(() => {
@@ -556,6 +571,9 @@ export function TideDataGrid({
           if (headerRef.current) {
             headerRef.current.scrollLeft = event.currentTarget.scrollLeft
           }
+          if (footerRef.current) {
+            footerRef.current.scrollLeft = event.currentTarget.scrollLeft
+          }
         }}
       >
         {loading && records.length === 0 ? (
@@ -676,8 +694,98 @@ export function TideDataGrid({
           </div>
         )}
       </div>
+
+      {summaries && summaries.length > 0 ? (
+        // A band, not a grid row: it lives outside `role="grid"` so the
+        // roving tab stop and the row count stay about records. It shares
+        // the header's grid template and scroll offset, so every answer
+        // sits under the column it describes.
+        <div
+          ref={footerRef}
+          className="shrink-0 overflow-hidden border-t bg-muted/55"
+        >
+          <div
+            data-testid="grid-summary-row"
+            className="grid h-8 border-l-2 border-l-transparent select-none"
+            style={{
+              gridTemplateColumns: gridTemplate,
+              width: contentWidth,
+            }}
+          >
+            {visibleColumns.map((gridColumn) => {
+              const column = view.columns.find(
+                (item) => item.name === gridColumn.id,
+              )!
+              // First match decides: a view's declaration carries at most
+              // one summary per column.
+              const summary = summaries.find(
+                (item) => item.field === gridColumn.id,
+              )
+              return (
+                <div
+                  key={gridColumn.id}
+                  data-testid={
+                    summary ? `grid-summary-${column.name}` : undefined
+                  }
+                  className={cn(
+                    "flex min-w-0 items-center gap-1.5 border-r border-border/45 px-3 text-xs last:border-r-0",
+                    column.alignment === "right"
+                      ? "justify-end"
+                      : column.alignment === "center"
+                        ? "justify-center"
+                        : "justify-start",
+                  )}
+                >
+                  {summary ? (
+                    <>
+                      <span className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                        {summaryWord(summary.function)}
+                      </span>
+                      <span className="truncate font-semibold tabular-nums">
+                        {summaryText(column, summary)}
+                      </span>
+                    </>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
     </section>
   )
+}
+
+const SUMMARY_WORDS: Record<string, string> = {
+  sum: "Sum",
+  count: "Count",
+  avg: "Avg",
+  min: "Min",
+  max: "Max",
+}
+
+function summaryWord(functionName: string): string {
+  // A server may know a function this bundle does not; its own name is a
+  // better label than nothing.
+  return SUMMARY_WORDS[functionName] ?? functionName
+}
+
+function summaryText(
+  column: TidePresentationColumn,
+  summary: TideSummaryValue,
+): string {
+  if (summary.value === null || summary.value === undefined) {
+    return "—"
+  }
+  if (summary.function === "count") {
+    // A count is a number of values, never money -- the column's own
+    // format would dress 9 up as 9.00.
+    const count = Number(summary.value)
+    return Number.isFinite(count)
+      ? count.toLocaleString()
+      : String(summary.value)
+  }
+  return formatCellValue(column, summary.value)
 }
 
 function GridSkeleton({

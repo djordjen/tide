@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 from copy import deepcopy
 from datetime import date, datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
 from enum import StrEnum
 import re
 from typing import Any, Callable, Mapping, Sequence
@@ -24,9 +24,11 @@ from tide.data.repository import (
     RelationshipLoadPlan,
     Repository,
     RowPolicyMismatch,
+    SummaryRequest,
     WriteIntegrityError,
     SortField,
 )
+from tide.model.source import SUMMARIZABLE_FIELD_TYPES, SUMMARY_FUNCTIONS
 from tide.display import display_fields, record_display
 from tide.labels import declared_values
 from tide.runtime.context import RequestContext
@@ -450,11 +452,14 @@ class RecordsService:
             raise ValueError("query sort fields must not be repeated")
         for field_name in [condition.field for condition in query.filters] + [
             sort.field for sort in query.sort
-        ]:
+        ] + [request.field for request in query.summaries]:
             if field_name not in entity.fields:
                 raise QueryFieldError(f"unknown query field {field_name!r}")
             if not self.security.can_read_field(entity_name, field_name, context):
-                raise AuthorizationError(f"field {field_name!r} cannot be used for filtering or sorting")
+                raise AuthorizationError(
+                    f"field {field_name!r} cannot be used to filter, sort "
+                    "or summarize"
+                )
             field = entity.fields[field_name]
             computed = field.metadata.get("computed")
             if field.metadata["type"] == "collection" or (
@@ -462,6 +467,21 @@ class RecordsService:
             ):
                 raise ValueError(
                     f"field {field_name!r} is not stored and cannot be queried"
+                )
+        seen_summaries: set[SummaryRequest] = set()
+        for request in query.summaries:
+            if request in seen_summaries:
+                raise ValueError("summary requests must not be repeated")
+            seen_summaries.add(request)
+            if request.function not in SUMMARY_FUNCTIONS:
+                raise ValueError(
+                    f"unknown summary function {request.function!r}"
+                )
+            field_type = str(entity.fields[request.field].metadata["type"])
+            if field_type not in SUMMARIZABLE_FIELD_TYPES[request.function]:
+                raise ValueError(
+                    f"{request.function} cannot summarize {field_type} "
+                    f"field {request.field!r}"
                 )
         normalized_filters = tuple(
             _normalize_filter(self.model, entity, condition)
@@ -549,7 +569,69 @@ class RecordsService:
             records=projected,
             next_cursor=next_cursor,
             references=self.reference_displays(entity_name, projected, context),
+            summaries=self._page_summaries(
+                entity,
+                entity_name,
+                query.summaries,
+                normalized_filters,
+                context,
+            ),
         )
+
+    def _page_summaries(
+        self,
+        entity: NormalizedEntity,
+        entity_name: str,
+        requests: tuple[SummaryRequest, ...],
+        filters: tuple[FilterCondition, ...],
+        context: RequestContext,
+    ) -> tuple[tuple[SummaryRequest, Any], ...]:
+        """Answer each summary over the whole set the page's query admits.
+
+        The repository receives the page's own filters, row criteria and
+        parameters -- and none of its sort, limit or cursor boundary --
+        so the values describe everything the caller could page through.
+        ``avg`` never reaches the repository: it is sum over count, divided
+        here so null handling and rounding are one contract, not one per
+        dialect.
+        """
+
+        if not requests:
+            return ()
+        primitives: list[SummaryRequest] = []
+        for request in requests:
+            wanted = (
+                (SummaryRequest(request.field, "sum"), SummaryRequest(request.field, "count"))
+                if request.function == "avg"
+                else (request,)
+            )
+            for primitive in wanted:
+                if primitive not in primitives:
+                    primitives.append(primitive)
+        computed = self.repository.aggregate(
+            entity_name,
+            tuple(primitives),
+            filters=filters,
+            row_criteria=self.security.row_criteria(entity_name, "list"),
+            criteria_parameters=self.security.policy_parameters(context),
+            relationships=self._relationship_plan(
+                entity_name,
+                context,
+                operations=("list",),
+            ),
+        )
+        results: list[tuple[SummaryRequest, Any]] = []
+        for request in requests:
+            if request.function == "avg":
+                value = _summary_average(
+                    computed[SummaryRequest(request.field, "sum")],
+                    computed[SummaryRequest(request.field, "count")],
+                    scale=_summary_scale(entity.fields[request.field].metadata),
+                )
+            else:
+                value = computed[request]
+            results.append((request, value))
+        return tuple(results)
 
     def reference_displays(
         self,
@@ -1506,6 +1588,28 @@ class RecordsService:
 
 def _primary_key(entity: NormalizedEntity) -> str:
     return entity.primary_key.name
+
+
+def _summary_scale(metadata: Mapping[str, Any]) -> int:
+    """The scale an average carries: the field's own, or two places.
+
+    Two is the fallback for integer fields -- a mean of integers is still a
+    mean -- and for a decimal that declared no scale.
+    """
+
+    scale = metadata.get("scale")
+    return scale if isinstance(scale, int) else 2
+
+
+def _summary_average(total: Any, count: Any, *, scale: int) -> Decimal | None:
+    """Exact sum over count, in the rounding the expression engine uses."""
+
+    if not count or total is None:
+        return None
+    quantum = Decimal(1).scaleb(-scale)
+    return (Decimal(total) / Decimal(count)).quantize(
+        quantum, rounding=ROUND_HALF_EVEN
+    )
 
 
 def _audit_changes(

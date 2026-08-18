@@ -45,12 +45,27 @@ class SortField:
 
 
 @dataclass(frozen=True, slots=True)
+class SummaryRequest:
+    """One aggregate over one stored field of the filtered set.
+
+    Repositories answer for ``sum``, ``count``, ``min`` and ``max`` -- the
+    functions a database computes natively and identically. ``avg`` is the
+    records service dividing sum by count, so its null handling and rounding
+    are written once instead of per dialect.
+    """
+
+    field: str
+    function: str
+
+
+@dataclass(frozen=True, slots=True)
 class QuerySpec:
     filters: tuple[FilterCondition, ...] = ()
     sort: tuple[SortField, ...] = ()
     limit: int = 100
     cursor: str | None = None
     after: tuple[Any, ...] | None = field(default=None, repr=False, compare=False)
+    summaries: tuple[SummaryRequest, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -396,6 +411,25 @@ class Repository(Protocol):
         criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
         relationships: RelationshipLoadPlan | None = None,
     ) -> list[dict[str, Any]]: ...
+
+    def aggregate(
+        self,
+        entity: str,
+        summaries: tuple[SummaryRequest, ...],
+        *,
+        filters: tuple[FilterCondition, ...] = (),
+        row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
+        relationships: RelationshipLoadPlan | None = None,
+    ) -> dict[SummaryRequest, Any]:
+        """Answer each request over the whole filtered set.
+
+        The same filters, row criteria and parameters as the page query --
+        and none of its sort, limit or cursor boundary, because a summary
+        describes the set, not the slice. SQL semantics for absence: an
+        aggregate over no values is None, except ``count``, which is 0.
+        """
+        ...
 
     def get(
         self,

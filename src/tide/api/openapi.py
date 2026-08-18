@@ -21,12 +21,28 @@ from pydantic.json_schema import models_json_schema
 
 from tide.labels import humanize as _humanize
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
-from tide.model.source import TideEmphasis
+from tide.model.source import TideEmphasis, TideSummaryFunction
 
 OPENAPI_VERSION = "3.1.0"
 DEFAULT_BASE_PATH = "/api/v1"
 READ_OPERATIONS = frozenset({"list", "get"})
 REST_OPERATIONS = frozenset({"list", "get", "create", "update", "delete"})
+
+
+class TideSummaryValue(BaseModel):
+    """One answered aggregate on a query page.
+
+    The value speaks the summarized field's wire type: decimal sums and
+    averages travel as strings, counts as integers, date bounds as ISO
+    text -- and an aggregate over no values is null, except count, which
+    is 0.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    field: str
+    function: TideSummaryFunction
+    value: Any = None
 
 
 class TideRecordAppearance(BaseModel):
@@ -296,6 +312,17 @@ def _build_page_models(
                     description=(
                         "Opaque continuation token. Repeat the same query shape when "
                         "requesting the next page."
+                    ),
+                ),
+            ),
+            summaries=(
+                list[TideSummaryValue] | None,
+                Field(
+                    default=None,
+                    description=(
+                        "Each requested aggregate beside its value, computed over "
+                        "the whole filtered set rather than this page. Null when "
+                        "the query asked for none."
                     ),
                 ),
             ),

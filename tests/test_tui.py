@@ -866,6 +866,55 @@ def test_textual_browse_search_named_filters_and_sorting() -> None:
     asyncio.run(exercise())
 
 
+def test_textual_browse_summary_bar_answers_for_the_whole_set() -> None:
+    app = _demo_app(page_size=3)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            table = app.query_one("#records", DataTable)
+            # The first batch is three rows; the bar arrives with it and
+            # answers for all nine, because a summary describes the filtered
+            # set and not the fetched slice. (Prefetch keeps loading after
+            # this, which changes the table and must not change the bar.)
+            await _wait_until(
+                pilot,
+                lambda: table.row_count > 0
+                and "Count 9"
+                in str(app.query_one("#browse-summary", Static).content),
+            )
+
+            totals = [
+                record["total"]
+                for record in app.records.repository.all("sales.Invoice")
+            ]
+            expected_sum = f"{sum(totals):,.2f}"
+            bar = app.query_one("#browse-summary", Static)
+            assert bar.display
+            # The whole line, exactly: "Count 9" is also a substring of a
+            # count the column's money format wrongly dressed as 9.00.
+            assert str(bar.content) == (
+                f"Number Count 9  ·  Total Sum {expected_sum}"
+            )
+
+            # The bar follows the filter, not the scroll position.
+            app.query_one("#named-filter", Select).value = "drafts"
+            await _wait_until(
+                pilot,
+                lambda: "Count 5"
+                in str(app.query_one("#browse-summary", Static).content),
+            )
+
+            # A view that declares no summaries shows no bar.
+            app.query_one("#browse-view", Select).value = "crm.Customer.browse"
+            await _wait_until(
+                pilot,
+                lambda: not app.query_one("#browse-summary", Static).display,
+            )
+
+    asyncio.run(exercise())
+
+
 def test_tide_run_demo_constructs_textual_app(monkeypatch) -> None:
     launched: list[TideApp] = []
     monkeypatch.setattr(TideApp, "run", lambda self: launched.append(self))

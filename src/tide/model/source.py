@@ -111,6 +111,32 @@ SCALAR_FIELD_TYPES: tuple[str, ...] = tuple(
 )
 
 
+TideSummaryFunction = Literal["sum", "count", "avg", "min", "max"]
+"""The closed set a browse `summaries:` declaration may ask for.
+
+Declared beside the authoring schema the way `TideEmphasis` is, and imported
+by the compiler's validation, the records service and the wire model rather
+than retyped in any of them.
+"""
+
+SUMMARY_FUNCTIONS: tuple[str, ...] = get_args(TideSummaryFunction)
+
+_ORDERABLE_FIELD_TYPES = frozenset({"integer", "decimal", "string", "date", "datetime"})
+
+# Which field types each summary function accepts. Keyed by the closed set
+# above -- a test asserts the two agree, since the keys cannot be derived
+# without restating the values.
+SUMMARIZABLE_FIELD_TYPES: Mapping[str, frozenset[str]] = {
+    "sum": frozenset({"integer", "decimal"}),
+    "avg": frozenset({"integer", "decimal"}),
+    "min": _ORDERABLE_FIELD_TYPES,
+    "max": _ORDERABLE_FIELD_TYPES,
+    # A count of non-null values is meaningful for anything holding one value
+    # per record; a collection is navigation, not a value.
+    "count": frozenset(get_args(FieldType)) - {"collection"},
+}
+
+
 class SelectionAssignmentSource(SourceModel):
     source: str = Field(alias="from", min_length=1)
     overwrite: Literal["always", "when_blank"] = "always"
@@ -391,6 +417,7 @@ class ViewSource(SourceModel):
     fields: dict[str, dict[str, Any]] = Field(default_factory=dict)
     columns: tuple[str, ...] = ()
     search: tuple[str, ...] = ()
+    summaries: dict[str, TideSummaryFunction] = Field(default_factory=dict)
     filters: dict[str, FilterSource] = Field(default_factory=dict)
     layout: tuple[Any, ...] = ()
     actions: tuple[str, ...] = ()

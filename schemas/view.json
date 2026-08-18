@@ -118,6 +118,20 @@
       "title": "Search",
       "type": "array"
     },
+    "summaries": {
+      "additionalProperties": {
+        "enum": [
+          "sum",
+          "count",
+          "avg",
+          "min",
+          "max"
+        ],
+        "type": "string"
+      },
+      "title": "Summaries",
+      "type": "object"
+    },
     "filters": {
       "additionalProperties": {
         "$ref": "#/$defs/FilterSource"

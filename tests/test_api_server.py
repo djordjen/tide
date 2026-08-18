@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from decimal import Decimal
 import logging
 from pathlib import Path
 from types import SimpleNamespace
@@ -194,6 +195,10 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
             "customer",
             "status",
             "total",
+        ]
+        assert invoice_view["summaries"] == [
+            {"field": "number", "function": "count"},
+            {"field": "total", "function": "sum"},
         ]
         assert invoice_view["columns"][1]["format_options"] == {
             "decimal_places": None,
@@ -2560,6 +2565,107 @@ def test_a_queried_page_names_its_references_the_same_way_a_listed_one_does() ->
         }
 
     asyncio.run(exercise())
+
+def test_manifest_summaries_are_filtered_with_their_columns() -> None:
+    app = _app("summary_viewer")
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            presentation = await client.get(
+                "/api/v1/_tide/presentation",
+                headers=_authorization(),
+            )
+
+        assert presentation.status_code == 200
+        invoice_view = presentation.json()["views"]["sales.Invoice.browse"]
+        # `summary_viewer` cannot read `total`, so the column is filtered
+        # from its manifest -- and a summary the grid could never request
+        # must leave with it, or the first page load answers 403.
+        assert "total" not in [
+            column["name"] for column in invoice_view["columns"]
+        ]
+        assert invoice_view["summaries"] == [
+            {"field": "number", "function": "count"},
+        ]
+
+    asyncio.run(exercise())
+
+
+def test_a_queried_page_can_carry_summaries_for_its_whole_set() -> None:
+    app = _app("sales_clerk")
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            filters = [{"field": "customer", "operator": "eq", "value": 2}]
+            queried = await client.post(
+                "/api/v1/invoices/_query",
+                headers=_authorization(),
+                json={
+                    "filters": filters,
+                    "limit": 1,
+                    "summaries": [
+                        {"field": "total", "function": "sum"},
+                        {"field": "number", "function": "count"},
+                    ],
+                },
+            )
+            assert queried.status_code == 200
+            body = queried.json()
+            assert len(body["records"]) == 1
+
+            everything = await client.post(
+                "/api/v1/invoices/_query",
+                headers=_authorization(),
+                json={"filters": filters, "limit": 100},
+            )
+            walked = everything.json()["records"]
+            assert len(walked) > 1
+            # The summary answers for the whole filtered set while the page
+            # shows one record -- the walk over the same filter is the
+            # yardstick, so no demo value is pinned here.
+            assert body["summaries"] == [
+                {
+                    "field": "total",
+                    "function": "sum",
+                    "value": str(sum(Decimal(record["total"]) for record in walked)),
+                },
+                {"field": "number", "function": "count", "value": len(walked)},
+            ]
+            # A page that did not ask carries no answers.
+            assert everything.json()["summaries"] is None
+
+    asyncio.run(exercise())
+
+
+def test_summary_requests_are_refused_like_any_bad_query() -> None:
+    app = _app("sales_clerk")
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            unknown_field = await client.post(
+                "/api/v1/invoices/_query",
+                headers=_authorization(),
+                json={"summaries": [{"field": "ghost", "function": "count"}]},
+            )
+            assert unknown_field.status_code == 400
+
+            wrong_type = await client.post(
+                "/api/v1/invoices/_query",
+                headers=_authorization(),
+                json={"summaries": [{"field": "number", "function": "sum"}]},
+            )
+            assert wrong_type.status_code == 400
+
+            # The closed set is the wire schema itself.
+            unknown_function = await client.post(
+                "/api/v1/invoices/_query",
+                headers=_authorization(),
+                json={"summaries": [{"field": "total", "function": "median"}]},
+            )
+            assert unknown_function.status_code == 422
+
+    asyncio.run(exercise())
+
 
 def _app(
     role: str | None,

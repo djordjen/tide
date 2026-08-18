@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from tide import compile_project
-from tide.api.contracts import TideFilterInput, TideQueryInput, TideSortInput
+from tide.api.contracts import (
+    TideFilterInput,
+    TideQueryInput,
+    TideSortInput,
+    TideSummaryInput,
+)
 from tide.data import InMemoryRepository
 from tide.mcp import RuntimeMcpService, runtime_mcp_exposures
 from tide.model.source import EntitySource
@@ -169,6 +175,46 @@ def test_search_tool_reuses_typed_query_security_and_principal_bound_cursors() -
             query.model_copy(update={"cursor": first.next_cursor}),
             _context("sales_clerk", identifier="mcp:another-clerk"),
         )
+
+
+def test_search_summaries_answer_for_the_whole_set_in_wire_form() -> None:
+    service = _service()
+    context = _context("sales_clerk", identifier="mcp:clerk")
+    query = TideQueryInput(
+        filters=(TideFilterInput(field="status", operator="eq", value="draft"),),
+        limit=2,
+        summaries=(
+            TideSummaryInput(field="total", function="sum"),
+            TideSummaryInput(field="number", function="count"),
+        ),
+    )
+
+    page = service.search("sales.Invoice", query, context)
+    assert len(page.records) == 2
+
+    # Walk the same query to its end; the summary must equal the walk, so
+    # no demo value is pinned here.
+    walked = list(page.records)
+    cursor = page.next_cursor
+    while cursor is not None:
+        more = service.search(
+            "sales.Invoice",
+            query.model_copy(update={"cursor": cursor}),
+            context,
+        )
+        walked.extend(more.records)
+        cursor = more.next_cursor
+    assert len(walked) > len(page.records)
+    expected = sum((record["total"] for record in walked), Decimal("0"))
+
+    dumped = page.model_dump(mode="json")
+    assert dumped["summaries"] == [
+        {"field": "total", "function": "sum", "value": str(expected)},
+        {"field": "number", "function": "count", "value": len(walked)},
+    ]
+
+    plain = service.search("sales.Invoice", TideQueryInput(), context)
+    assert plain.summaries is None
 
 
 def test_mcp_capability_and_authorization_both_fail_closed() -> None:

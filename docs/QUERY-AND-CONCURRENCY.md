@@ -22,6 +22,30 @@ cursors are opaque, versioned, and bound to the model, entity, normalized
 filter, effective sort, page size, principal, and effective permissions. The
 token itself contains no field values in readable form.
 
+## Summaries
+
+A query may ask for aggregates beside its page: `QuerySpec.summaries` carries
+`(field, function)` requests from the closed set `sum`, `count`, `avg`,
+`min`, `max`, and `QueryPage.summaries` answers each in request order. Over
+REST the request is the `summaries` list on the `_query` body and the answer
+is a `summaries` list on the page envelope (`{"field", "function", "value"}`,
+null when the query asked for none); the MCP `search` tool speaks the same
+shape. A summary answers for the **whole filtered set** -- the same filters,
+row policies and policy parameters as the page, and none of its sort, limit
+or cursor boundary -- so the value is true however far the caller has paged,
+and the request is deliberately not part of the cursor's bound shape.
+
+The semantics are SQL's: aggregates answer for values, not rows, so `count`
+counts non-null values and a null never joins a `sum`. Over an empty set
+everything but `count` is null, and `count` is 0. `avg` never reaches a
+database: it is the service dividing sum by count exactly and rounding
+half-even to the field's declared scale (two places for an integer column),
+so both repositories and every dialect answer identically. A summary over an
+unknown field, a field the caller cannot read, an unstored column, or a type
+the function cannot answer is refused the way a bad filter is; an exact
+duplicate request is refused, while distinct functions over one field --
+`min` and `max` of a date is a period -- are legitimate.
+
 `RecordsService.query_page()` returns a `QueryPage` containing an immutable
 record tuple and an optional `next_cursor`. `RecordsService.query()` remains a
 list-returning compatibility wrapper. Clients obtain the next page by repeating

@@ -137,6 +137,28 @@ and `remove`. Omitted sequences use renderer defaults. Collection `view` values
 must resolve to an `inline_edit` view for the collection target entity. Invalid
 tab, action-bar, or inline-view presentation reports `TIDE244`.
 
+A browse view may declare `summaries:`, a mapping from column name to one of
+the closed set `sum`, `count`, `avg`, `min`, `max`:
+
+```yaml
+columns: [number, invoice_date, customer, status, total]
+summaries:
+  number: count
+  total: sum
+```
+
+Each named column must appear in the same view's `columns:` -- diagnostics run
+before view resolution, so a summary against inherited columns would have
+nothing to look at -- and the function must fit the field: `sum` and `avg`
+require an integer or decimal column, `min` and `max` an orderable one
+(integer, decimal, string, date, datetime), while `count` accepts any stored
+non-collection field and counts its non-null values. Collection columns and
+virtual computed fields cannot be summarized. Misplaced summaries report
+`TIDE283`; a function/type mismatch reports `TIDE284`. The values are computed
+server-side over the query's whole filtered set -- never the visible page --
+and ride the page envelope; see
+[queries](QUERY-AND-CONCURRENCY.md) for the wire contract.
+
 `tide view explain` returns the resolved view plus provenance for every leaf or
 replaced collection, including the layer, source file, and source property path.
 
@@ -201,6 +223,8 @@ An action's `transition` block has its own codes, described under
 | `TIDE280` | two `appearance` rules declared under one name |
 | `TIDE281` | an `appearance` rule granting `enabled` or `visible` rather than subtracting |
 | `TIDE282` | an `appearance` rule hiding a record rather than a field |
+| `TIDE283` | `summaries` on a non-browse view, without `columns:` beside it, or naming an unshown column |
+| `TIDE284` | a summary function its column's type cannot answer, or an unstored column |
 
 `TIDE276` is separate and applies to any action: an entity may not name one
 `cancel` or `save`. A view's `actions:` list mixes domain actions with the form

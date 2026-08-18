@@ -26,6 +26,7 @@ from tide.api.contracts import (
     TidePresentationReport,
     TideReportParameter,
     TideSessionInfo,
+    TideSummaryInput,
 )
 from tide.api.openapi import RestExposure
 from tide.labels import declared_values, humanize
@@ -169,6 +170,13 @@ def build_presentation_manifest(
                 sortable_fields=browse_sortable_fields(
                     field_names,
                     entity,
+                ),
+                summaries=tuple(
+                    TideSummaryInput(field=name, function=str(function))
+                    for name, function in (
+                        view.data.get("summaries") or {}
+                    ).items()
+                    if name in field_names
                 ),
                 page_size=int(
                     view.data.get("settings", {}).get("page_size", 50)

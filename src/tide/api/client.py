@@ -23,10 +23,11 @@ from tide.api.contracts import (
     TideReportDocument,
     TideSessionInfo,
     TideSortInput,
+    TideSummaryInput,
 )
 from tide.api.openapi import DEFAULT_BASE_PATH, REST_OPERATIONS, rest_exposures
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
-from tide.data import QuerySpec
+from tide.data import QuerySpec, SummaryRequest
 from tide.runtime import TideRuntimeError
 from tide.reporting.document import (
     ReportCell,
@@ -75,6 +76,12 @@ class TideApiPage:
     Sent with the page, so a grid draws its reference columns without a
     round trip each. Empty from a server that does not send them, which
     leaves the caller doing what it did before.
+    """
+    summaries: tuple[tuple[SummaryRequest, Any], ...] = ()
+    """Each requested aggregate beside its typed value, in request order.
+
+    Decoded the way record values are, so a remote page's sum is the same
+    Decimal a local page would carry. Empty when the query asked for none.
     """
 
 
@@ -286,6 +293,10 @@ class TideApiClient:
             ),
             limit=query.limit,
             cursor=query.cursor,
+            summaries=tuple(
+                TideSummaryInput(field=item.field, function=item.function)
+                for item in query.summaries
+            ),
         )
         response = self._request(
             "POST",
@@ -308,6 +319,9 @@ class TideApiClient:
             ),
             next_cursor=next_cursor,
             references=ReferenceDisplays(references),
+            summaries=_decode_summaries(
+                self.model, entity, body.get("summaries")
+            ),
         )
 
     def apply_reference_selection(
@@ -917,6 +931,63 @@ def _decode_reference_displays(
         if identity is not None:
             result[(field.target_entity, identity)] = display
     return result
+
+
+def _decode_summaries(
+    model: ApplicationModel,
+    entity: NormalizedEntity,
+    raw: Any,
+) -> tuple[tuple[SummaryRequest, Any], ...]:
+    """Rebuild a page's typed summary values from their wire form.
+
+    Strict the way `_decode_record` is: an entry naming an unknown field,
+    an unexpected key, or a value of the wrong wire type refuses the page
+    rather than guessing.
+    """
+
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise TideApiContractError(f"{entity.name} page summaries are invalid")
+    result: list[tuple[SummaryRequest, Any]] = []
+    for item in raw:
+        if not isinstance(item, Mapping) or set(item) != {
+            "field",
+            "function",
+            "value",
+        }:
+            raise TideApiContractError(
+                f"{entity.name} page summaries are invalid"
+            )
+        field_name = str(item["field"])
+        function = item["function"]
+        field = entity.fields.get(field_name)
+        if field is None or not isinstance(function, str):
+            raise TideApiContractError(
+                f"{entity.name} page summaries are invalid"
+            )
+        value = item["value"]
+        try:
+            if value is None:
+                decoded: Any = None
+            elif function == "count":
+                if not isinstance(value, int) or isinstance(value, bool):
+                    raise TypeError
+                decoded = value
+            elif function == "avg":
+                # An average is a derived decimal whatever the field's own
+                # type; an integer column's mean still carries places.
+                if not isinstance(value, str):
+                    raise TypeError
+                decoded = Decimal(value)
+            else:
+                decoded = _decode_field(model, field, value)
+        except (TypeError, ValueError, InvalidOperation) as error:
+            raise TideApiContractError(
+                f"{entity.name} page summaries are invalid"
+            ) from error
+        result.append((SummaryRequest(field_name, function), decoded))
+    return tuple(result)
 
 
 def _decode_draft(

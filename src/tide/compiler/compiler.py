@@ -31,6 +31,7 @@ from tide.compiler.source import SourceDocument, YamlSourceError, load_yaml_docu
 from tide.diagnostics import CompilationFailed, Diagnostic, Severity, SourceLocation
 from tide.model.source import (
     RESERVED_ACTION_NAMES,
+    SUMMARIZABLE_FIELD_TYPES,
     ActionSource,
     EntitySource,
     FieldSource,
@@ -1793,6 +1794,7 @@ def _validate_views(
             )
         for field_name in (*view.columns, *view.search, *view.fields.keys()):
             _require_field(entity, field_name, document, ("view",), diagnostics)
+        _validate_view_summaries(view, entity, document, diagnostics)
         for field_name, configuration in view.fields.items():
             field = entity.fields.get(field_name)
             if field is None:
@@ -2382,6 +2384,7 @@ def _resolve_views(
             "fields",
             "columns",
             "search",
+            "summaries",
             "filters",
             "layout",
             "actions",
@@ -2461,6 +2464,78 @@ def _view_kind(view: ViewSource) -> str:
         return view.kind
     suffix = view.view.rsplit(".", 1)[-1]
     return {"browse": "browse", "edit": "form", "lookup": "lookup", "inline_edit": "inline_edit"}.get(suffix, "form")
+
+
+def _validate_view_summaries(
+    view: ViewSource,
+    entity: EntitySource,
+    document: SourceDocument,
+    diagnostics: list[Diagnostic],
+) -> None:
+    if not view.summaries:
+        return
+    if _view_kind(view) != "browse":
+        _add(
+            diagnostics,
+            "TIDE283",
+            "summaries are a browse-view declaration",
+            document,
+            ("summaries",),
+        )
+        return
+    if not view.columns:
+        # Requiring the columns beside their summaries keeps the check
+        # source-level: diagnostics run before view resolution, so a summary
+        # against inherited columns would have nothing to look at.
+        _add(
+            diagnostics,
+            "TIDE283",
+            "summaries require columns in the same view",
+            document,
+            ("summaries",),
+        )
+        return
+    for field_name, function in view.summaries.items():
+        field = entity.fields.get(field_name)
+        if field is None:
+            _require_field(
+                entity, field_name, document, ("summaries",), diagnostics
+            )
+            continue
+        if field_name not in view.columns:
+            _add(
+                diagnostics,
+                "TIDE283",
+                f"summary column {field_name!r} is not among the view's columns",
+                document,
+                ("summaries", field_name),
+            )
+            continue
+        if field.type == "collection" or (
+            field.computed is not None
+            and field.computed.materialization == "virtual"
+        ):
+            _add(
+                diagnostics,
+                "TIDE284",
+                f"column {field_name!r} is not stored and cannot be summarized",
+                document,
+                ("summaries", field_name),
+            )
+            continue
+        if field.type not in SUMMARIZABLE_FIELD_TYPES[function]:
+            requirement = (
+                "a numeric column"
+                if function in {"sum", "avg"}
+                else "an orderable column"
+            )
+            _add(
+                diagnostics,
+                "TIDE284",
+                f"{function} requires {requirement}; {field_name!r} is {field.type}",
+                document,
+                ("summaries", field_name),
+            )
 
 
 def _validate_reports(

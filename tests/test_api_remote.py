@@ -19,7 +19,13 @@ from tide.api.remote import (
     RemoteReportService,
 )
 from tide.api.server import DevelopmentTokenAuthenticator, build_fastapi_app
-from tide.data import FilterCondition, InMemoryRepository, QuerySpec, SortField
+from tide.data import (
+    FilterCondition,
+    InMemoryRepository,
+    QuerySpec,
+    SortField,
+    SummaryRequest,
+)
 from tide.runtime import AuthorizationError, Channel, Principal, RequestContext
 from tide.runtime.application import configure_application_runtime
 from tide.services import (
@@ -130,11 +136,15 @@ def test_remote_facades_browse_create_edit_lookup_and_post_via_http() -> None:
                 filters=(FilterCondition("status", "eq", "draft"),),
                 sort=(SortField("invoice_date", descending=True),),
                 limit=2,
+                summaries=(SummaryRequest("number", "count"),),
             ),
             context,
         )
         assert len(page.records) == 2
         assert all(record["status"] == "draft" for record in page.records)
+        # The remote page keeps the summary a local QueryPage would carry,
+        # and the count answers past this two-record slice.
+        assert page.summaries == ((SummaryRequest("number", "count"), 5),)
 
         invoice = records.create("sales.Invoice", context)
         line = records.create("sales.InvoiceLine", context).values

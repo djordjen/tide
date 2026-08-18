@@ -123,6 +123,29 @@ decision log had noticed and filed it as luck rather than intent ("seeded
 values are four digits and generated ones six"), and it stayed invisible only
 because the two never appeared side by side. The ninth invoice put them there.
 The generator now renders the width the application's own history uses.
+
+A query may now ask for aggregates beside its page. `QuerySpec` carries
+`(field, function)` requests from a closed set -- `sum`, `count`, `avg`,
+`min`, `max` -- and the page answers each over the **whole filtered set**:
+the same filters, search and row policies as the records, and none of the
+sort, limit or cursor, so the value is true however far anyone has paged.
+Both repositories answer identically because the primitives are the four
+aggregates every database computes the same way, and `avg` never reaches
+one: it is the service dividing sum by count exactly and rounding half-even
+to the field's declared scale. The semantics are SQL's -- aggregates answer
+for values, so a count is of non-null values, a null joins no sum, and an
+empty set answers null for everything but `count`'s zero. A summary over a
+field the caller cannot read is refused the way reading it would be. On the
+wire the request is a `summaries` list on the `_query` body, the answer a
+`summaries` list on the page envelope, and the MCP `search` tool speaks the
+same shape -- so an agent can ask what the draft invoices come to without
+paging through them. A browse view declares what its footer wants with
+`summaries:`, one function per shown column, checked by the compiler against
+the column list and each field's type (`TIDE283`, `TIDE284`); the
+presentation manifest carries the declaration filtered the way columns are,
+so a principal who cannot read a column is never handed a request the server
+would refuse. The invoicing browse declares a count of numbers and a sum of
+totals, which is also where the demo's footer comes from.
 Regenerating the terminal screenshots also found two stale selectors in
 `tools/capture_screenshots.py`, left behind when collections gained per-name
 widget ids; the tool runs outside CI, so nothing had said so.
@@ -285,6 +308,17 @@ and its label on the record; the terminal, which has no wash to give a row,
 colours the row's cells. Neither ever sees a rule -- the server sends a
 verdict -- and an emphasis a renderer does not know is left undrawn rather
 than drawn wrong, since a server may be one version ahead of the bundle.
+
+Both also answer a browse view's `summaries:` declaration. The browser draws
+a footer band under the grid, each answer beneath the column it describes in
+that column's own format and alignment, scrolled with the columns and living
+outside the grid's keyboard pattern; the terminal draws a one-line bar under
+the table. The author picks the function and each renderer owns its words --
+`Sum`, `Count` -- and a count is printed as a number of values, never in the
+column's money dress. The values follow every search and named filter and
+answer for the whole filtered set, so three loaded rows under a bar that says
+nine is the feature working, not a mismatch. An aggregate over nothing is a
+dash, and a view that declares nothing pays nothing.
 
 A study of the reference EMS application then tightened the dress. Group
 captions are bands with their own background, spanning their panel edge to
