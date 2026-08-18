@@ -198,6 +198,7 @@ An action's `transition` block has its own codes, described under
 | `TIDE277` | a value map on something other than a stored integer, string or boolean field |
 | `TIDE278` | a value whose type is not the field's -- `true` in an integer map |
 | `TIDE279` | the same code captioned twice |
+| `TIDE280` | two `appearance` rules declared under one name |
 
 `TIDE276` is separate and applies to any action: an entity may not name one
 `cancel` or `save`. A view's `actions:` list mixes domain actions with the form

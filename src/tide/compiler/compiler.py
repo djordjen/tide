@@ -1118,6 +1118,41 @@ def _validate_entities(
                         expected_type="boolean",
                     )
 
+        declared_rules: set[str] = set()
+        for index, rule in enumerate(entity.appearance):
+            rule_path: tuple[str | int, ...] = ("appearance", index)
+            if rule.name in declared_rules:
+                _add(
+                    diagnostics,
+                    "TIDE280",
+                    f"appearance rule {rule.name!r} is declared twice; the "
+                    "first match owns a target, so the second could only be "
+                    "read by counting",
+                    document,
+                    (*rule_path, "name"),
+                )
+            declared_rules.add(rule.name)
+            # A boolean, checked here rather than at evaluation: a rule keyed
+            # on a string fires for every record that has one, and the only
+            # symptom is a screen that is the wrong colour everywhere.
+            _validate_expression_at(
+                rule.when,
+                entity,
+                entities,
+                document,
+                (*rule_path, "when"),
+                diagnostics,
+                expected_type="boolean",
+            )
+            for field_name in rule.fields:
+                _require_field(
+                    entity,
+                    field_name,
+                    document,
+                    (*rule_path, "fields"),
+                    diagnostics,
+                )
+
         for field_name, field in entity.fields.items():
             field_path = ("fields", field_name)
             if database_mode == "legacy" and _is_persisted_field(field):

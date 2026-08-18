@@ -419,6 +419,46 @@ workflow language the [decision log](DECISIONS.md) defers. There are no
 parallel branches, no timers, no cross-entity effects; anything beyond a guard,
 a lock and a stamp belongs in the action's Python handler.
 
+## Conditional appearance
+
+An entity may declare `appearance:` rules — what a record means on sight,
+before anyone opens it:
+
+```yaml
+appearance:
+  - name: cancelled
+    when: "status == 'cancelled'"
+    emphasis: muted
+  - name: nothing_to_post
+    when: "status == 'draft' and total == 0"
+    emphasis: warning
+    fields: [total]
+```
+
+`when` is a boolean expression over the entity's own fields, checked by the
+same compiler pass as an action's guards, so a rule keyed on a string is
+refused rather than firing for every record that has one. `fields` names what
+the rule speaks for; naming none means the record as a whole, which is the
+grid row and the record card. Rules are ordered and the first match owns a
+target, so precedence is read off the page rather than assigned as a number —
+declaring two rules under one name is `TIDE280`.
+
+`emphasis` is one of `info`, `success`, `warning`, `danger` and `muted`. It is
+a name and never a colour: the framework renders it in a light theme, a dark
+one and a terminal, and no hex value an author could write works in all three.
+The author says what a record means; each renderer says what that looks like.
+
+Rules are evaluated server-side, per record, and travel as
+`_tide.appearance` — absent when nothing matched, so an application that
+declares no rules pays nothing. A condition that cannot be evaluated applies
+nothing, which is the opposite of `immutable_when`: withholding an edit is
+caution, while painting a record a colour that means something it is not is a
+lie about the data.
+
+Nothing here authorizes or refuses anything. Conditionally read-only is
+`immutable_when`, evaluated per record and carried as `writable_fields`, and
+a field a principal may not see is removed by permissions rather than dimmed.
+
 ## Schema evolution
 
 Alembic executes migrations but does not decide model semantics. TIDE must

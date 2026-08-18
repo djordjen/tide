@@ -36,3 +36,33 @@ def table_label(
     """Return a column label aligned with the values beneath it."""
 
     return Text(value, justify=field_alignment(field, formats), no_wrap=True)
+
+
+EMPHASIS_STYLES: Mapping[str, str] = {
+    "info": "cyan",
+    "success": "green",
+    "warning": "yellow",
+    "danger": "red",
+    "muted": "dim",
+}
+"""What an `appearance:` emphasis is, in the only palette a terminal has.
+
+The browser draws the same verdict as a left edge and a wash. Neither is the
+author's to choose, which is the point of naming the meaning rather than the
+colour: a hex value that suits a light theme has nothing to say here.
+"""
+
+
+def emphasized(cell: str | Text, emphasis: str | None) -> str | Text:
+    """Return the cell wearing the style an appearance rule asked for.
+
+    An emphasis this terminal has no style for is left alone rather than
+    rendered as nothing, the same way the browser drops one it cannot draw.
+    """
+
+    style = EMPHASIS_STYLES.get(emphasis or "")
+    if not style:
+        return cell
+    text = cell.copy() if isinstance(cell, Text) else Text(cell, no_wrap=True)
+    text.stylize(style)
+    return text

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
-from typing import Any, Iterable, Literal, Mapping
+from dataclasses import dataclass, field as dataclass_field
+from types import MappingProxyType
+from typing import Any, Iterable, Literal, Mapping, get_args
 
 from tide.compiler.expressions import evaluate_expression
 from tide.labels import humanize as _humanize
@@ -17,6 +18,7 @@ from tide.compiler.normalized import (
     ResolvedView,
 )
 from tide.data import FilterCondition
+from tide.model.source import TideEmphasis
 from tide.display import (
     display_fields as display_fields,
     display_value as display_value,
@@ -366,6 +368,73 @@ def action_state(
     except (AttributeError, KeyError, TypeError, ValueError):
         return ActionState(visible=False, enabled=False)
     return ActionState(visible=visible, enabled=enabled)
+
+
+EMPHASIS_VALUES: tuple[str, ...] = get_args(TideEmphasis)
+"""The closed set an ``appearance`` rule may ask for, from the schema itself.
+
+Names rather than colours. The framework owns its palette in a light theme, a
+dark one and a terminal, so an author who wrote ``#FFFF88`` would have authored
+something that works in one of the three. The author says what the record
+means; the renderer says what that looks like -- the same split as labels.
+"""
+
+
+def _no_fields() -> Mapping[str, str]:
+    """An empty verdict that still answers ``.get`` and cannot be shared."""
+
+    return MappingProxyType({})
+
+
+@dataclass(frozen=True, slots=True)
+class RecordAppearance:
+    """What an entity's ``appearance`` rules say about one record."""
+
+    record: str | None = None
+    fields: Mapping[str, str] = dataclass_field(default_factory=_no_fields)
+
+    def __bool__(self) -> bool:
+        return self.record is not None or bool(self.fields)
+
+
+def record_appearance(
+    rules: Iterable[Mapping[str, Any]],
+    values: Mapping[str, Any],
+) -> RecordAppearance:
+    """Resolve an entity's appearance rules against one record.
+
+    The first matching rule owns a target, so precedence is the order the
+    rules are written in rather than a priority number kept somewhere else.
+    A rule naming ``fields`` speaks for those fields; one naming none speaks
+    for the record as a whole, which is the grid row and the record heading.
+
+    A condition that cannot be evaluated applies nothing -- the opposite of
+    ``field_is_immutable``, and both fail safe for what they are. Withholding
+    an edit is caution; painting a record a colour that means something it is
+    not is a lie about the data.
+    """
+
+    record: str | None = None
+    fields: dict[str, str] = {}
+    for rule in rules:
+        emphasis = str(rule.get("emphasis") or "")
+        condition = rule.get("when")
+        if not emphasis or not condition:
+            continue
+        try:
+            matched = bool(evaluate_expression(str(condition), values))
+        except (AttributeError, KeyError, TypeError, ValueError):
+            continue
+        if not matched:
+            continue
+        targets = tuple(rule.get("fields") or ())
+        if not targets:
+            if record is None:
+                record = emphasis
+            continue
+        for name in targets:
+            fields.setdefault(str(name), emphasis)
+    return RecordAppearance(record=record, fields=fields)
 
 
 def field_is_immutable(

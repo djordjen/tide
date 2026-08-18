@@ -219,6 +219,38 @@ class ValidationSource(SourceModel):
     model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
 
 
+TideEmphasis = Literal["info", "success", "warning", "danger", "muted"]
+"""The closed set an `appearance` rule may ask for.
+
+Declared here, where the authoring schema is, and imported by the evaluator
+and the wire model rather than retyped in either: three copies of a closed set
+is two chances for one of them to close differently.
+"""
+
+
+class AppearanceSource(SourceModel):
+    """One conditional appearance rule: what a record means, on sight.
+
+    `when` is a boolean expression over this entity's own fields, evaluated by
+    the same engine as an action's guards. `fields` names what the rule speaks
+    for; naming none means the record as a whole -- the grid row, the record
+    heading. Rules are ordered and the first match owns a target, so precedence
+    is read off the page rather than assigned as a number.
+
+    `emphasis` is a name and never a colour: the framework renders it in a
+    light theme, a dark one and a terminal, and an author cannot write a hex
+    value that works in all three. Nothing here authorizes or refuses
+    anything -- `immutable_when` locks a field and permissions hide one.
+    """
+
+    name: str
+    when: str
+    emphasis: TideEmphasis
+    fields: tuple[str, ...] = ()
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
 RESERVED_ACTION_NAMES = frozenset({"cancel", "save"})
 """Names the form action bar already uses, so an entity may not reuse them.
 
@@ -326,6 +358,7 @@ class EntitySource(SourceModel):
     presentation: dict[Literal["browse", "form", "lookup", "inline_edit"], dict[str, Any]] = Field(default_factory=dict)
     fields: dict[str, FieldSource]
     validations: tuple[ValidationSource, ...] = ()
+    appearance: tuple[AppearanceSource, ...] = ()
     actions: dict[str, ActionSource] = Field(default_factory=dict)
     filters: dict[str, FilterSource] = Field(default_factory=dict)
 

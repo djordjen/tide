@@ -78,6 +78,22 @@ runtime restarts and processes while storing only hashes of bearer tokens. An
 adapter-independent, read-only OpenAPI 3.1 preview now generates typed
 Pydantic record/page schemas and explicitly exposed list/get contracts.
 
+An entity may declare `appearance:` rules -- what a record means on sight,
+before anyone opens it. A rule is a boolean `when` over the entity's own
+fields, an `emphasis` from a closed set (`info`, `success`, `warning`,
+`danger`, `muted`), and optionally the `fields` it speaks for; naming none
+speaks for the record. Rules are ordered and the first match owns a target, so
+precedence is read off the page instead of assigned as a number. The compiler
+checks the condition is a question rather than a value, that named fields
+exist, and that no two rules share a name (`TIDE280`). Evaluation is
+server-side, per record, beside the workflow locks and action guards, and the
+verdict travels as `_tide.appearance` on record responses **and on query
+pages** -- a rule that only shows its colour once the record is open is not a
+warning. Nothing matched means nothing is sent, so an application with no
+rules pays nothing. `enabled` and `visible` are deliberately not effects:
+conditionally read-only is already `immutable_when`, and a field a principal
+may not see is removed by permissions rather than dimmed.
+
 ### Terminal client
 
 The initial Textual adapter now interprets resolved browse and
@@ -228,6 +244,14 @@ support conversation can start with which build is on the screen, and grows a
 filter box once the navigation passes ten entries -- a group whose every entry
 the filter removed leaves with them, since a heading over nothing is a promise
 the list is not keeping.
+
+Both renderers now draw an application's conditional appearance rules. The
+browser gives a marked row a left edge and a wash, carries the same edge onto
+the card of the record it opens, and marks a named field's value in the grid
+and its label on the record; the terminal, which has no wash to give a row,
+colours the row's cells. Neither ever sees a rule -- the server sends a
+verdict -- and an emphasis a renderer does not know is left undrawn rather
+than drawn wrong, since a server may be one version ahead of the bundle.
 
 A study of the reference EMS application then tightened the dress. Group
 captions are bands with their own background, spanning their panel edge to

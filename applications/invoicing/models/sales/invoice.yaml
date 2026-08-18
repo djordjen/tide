@@ -114,6 +114,20 @@ fields:
       materialization: stored
     audit: values
 
+# What a record says about itself on sight, before anyone opens it. Nothing
+# here authorizes or refuses: `immutable_when` locks a field and permissions
+# hide one. The first matching rule owns a target, so order is the precedence.
+appearance:
+  - name: cancelled
+    when: "status == 'cancelled'"
+    emphasis: muted
+  - name: nothing_to_post
+    # A draft with no lines totals zero and cannot be posted -- the validation
+    # says so at the commit, and this says so in the list.
+    when: "status == 'draft' and total == 0"
+    emphasis: warning
+    fields: [total]
+
 validations:
   - id: invoice_has_lines
     when: "status == 'posted'"

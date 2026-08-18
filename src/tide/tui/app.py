@@ -33,12 +33,13 @@ from tide.presentation import (
     browse_named_filters,
     browse_search_field,
     browse_sortable_fields,
+    record_appearance,
     record_label,
 )
 from tide.runtime import DeleteRestricted, RequestContext, TideRuntimeError
 from tide.reporting import ReportService
 from tide.security import PROTECTED
-from tide.tui.table import table_cell, table_label
+from tide.tui.table import emphasized, table_cell, table_label
 from tide.services import (
     ActionService,
     AuditHistoryReader,
@@ -929,21 +930,41 @@ class TideApp(App[None]):
         with self._reference_cache_lock:
             self._reference_cache.update(page.references.entries)
         primary_key = _primary_key(entity)
+        # The entity's own appearance rules, evaluated here for the same
+        # reason the browser's are evaluated on the server: one implementation
+        # decides, and two surfaces cannot disagree about which rows matter.
+        rules = entity.metadata.get("appearance") or ()
         rendered_rows = tuple(
             (
                 str(record[primary_key]),
-                tuple(
-                    table_cell(
-                        entity.field(field_name),
-                        self._format_value(entity.field(field_name), record),
-                        self.model.formats,
-                    )
-                    for field_name in columns
-                ),
+                self._row_cells(entity, columns, record, rules),
             )
             for record in page.records
         )
         return page, rendered_rows
+
+    def _row_cells(
+        self,
+        entity: NormalizedEntity,
+        columns: tuple[str, ...],
+        record: Mapping[str, Any],
+        rules: Any,
+    ) -> tuple[Any, ...]:
+        appearance = record_appearance(rules, record)
+        return tuple(
+            emphasized(
+                table_cell(
+                    entity.field(field_name),
+                    self._format_value(entity.field(field_name), record),
+                    self.model.formats,
+                ),
+                # A rule that named this field speaks for it; otherwise the
+                # record's own verdict reaches every cell of its row, since a
+                # terminal row has no background of its own to tint.
+                appearance.fields.get(field_name) or appearance.record,
+            )
+            for field_name in columns
+        )
 
     def _apply_load_error(self, error: Exception) -> None:
         self._query_loading = False

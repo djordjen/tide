@@ -166,6 +166,13 @@ invisible until it is rebuilt.
   reevaluation, and a fresh ETag-backed form for review before saving again;
 - metadata-ordered, capability-gated domain actions with server-evaluated
   per-record visibility and enabled state;
+- **conditional appearance**: an entity's `appearance:` rules are evaluated by
+  the server per record and arrive as a verdict, so the browser never sees a
+  rule. A marked row wears a left edge and a wash in the grid, the record it
+  opens wears the same edge on its card, and a rule naming fields marks the
+  value in the grid and the field's label on the record. An emphasis this
+  bundle does not know is dropped rather than drawn wrong, since a server may
+  be one version ahead;
 - save-then-action execution for changed drafts using the saved record's fresh
   ETag plus a unique idempotency key where the action requires one;
 - capability-filtered record and summary report discovery, including each

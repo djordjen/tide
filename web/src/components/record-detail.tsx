@@ -60,6 +60,7 @@ import {
   type TideRecordConflict,
 } from "@/lib/conflicts"
 import { documentTitle, useDocumentTitle } from "@/lib/document-title"
+import { cardEmphasisClass, recordEmphasis } from "@/lib/emphasis"
 import { formatRecordDisplay } from "@/lib/format"
 import {
   changedMutationPayload,
@@ -916,6 +917,7 @@ export function RecordDetail({
       ? `New ${form.label}`
       : String(identity)
   const writable = new Set(record?._tide?.writable_fields ?? [])
+  const recordVerdict = recordEmphasis(record)
   const visibleActions =
     mode === "update"
       ? (form.actions ?? []).filter(
@@ -1162,7 +1164,16 @@ export function RecordDetail({
       ) : null}
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto">
-        <div className="rounded-2xl border bg-card shadow-sm">
+        {/* The card wears the record's own verdict as the left edge the grid
+            row wore, so opening a marked row does not lose the mark. */}
+        <div
+          data-tide-record-card
+          data-emphasis={recordVerdict}
+          className={cn(
+            "rounded-2xl border bg-card shadow-sm",
+            cardEmphasisClass(recordVerdict),
+          )}
+        >
         {mode === "update" && !record && query.isPending ? (
           <DetailSkeleton />
         ) : editorActive && (mode === "create" || record) ? (
@@ -1175,6 +1186,7 @@ export function RecordDetail({
               form={{ ...form, sections: cardSections }}
               forms={forms}
               views={views}
+              appearance={record?._tide?.appearance?.fields}
               draft={draft}
               editableFields={editableFields}
               errors={fieldErrors}

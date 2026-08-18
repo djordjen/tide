@@ -64,10 +64,19 @@ def test_preview_generates_typed_pydantic_record_and_page_models() -> None:
     record_metadata = schemas["TideProtectionMetadata"]
     assert set(record_metadata["properties"]) == {
         "actions",
+        "appearance",
         "protected_fields",
         "references",
         "writable_fields",
     }
+    assert record_metadata["properties"]["appearance"]["anyOf"][0] == {
+        "$ref": "#/components/schemas/TideRecordAppearance"
+    }
+    # The emphasis set is closed in the published contract too, so a generated
+    # client knows the whole of what it may be handed.
+    assert schemas["TideRecordAppearance"]["properties"]["record"]["anyOf"][0][
+        "enum"
+    ] == ["info", "success", "warning", "danger", "muted"]
     assert record_metadata["properties"]["actions"]["anyOf"][0][
         "additionalProperties"
     ] == {"$ref": "#/components/schemas/TideRecordActionState"}

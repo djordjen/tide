@@ -113,6 +113,46 @@
       "title": "ActionSource",
       "type": "object"
     },
+    "AppearanceSource": {
+      "additionalProperties": false,
+      "description": "One conditional appearance rule: what a record means, on sight.\n\n`when` is a boolean expression over this entity's own fields, evaluated by\nthe same engine as an action's guards. `fields` names what the rule speaks\nfor; naming none means the record as a whole -- the grid row, the record\nheading. Rules are ordered and the first match owns a target, so precedence\nis read off the page rather than assigned as a number.\n\n`emphasis` is a name and never a colour: the framework renders it in a\nlight theme, a dark one and a terminal, and an author cannot write a hex\nvalue that works in all three. Nothing here authorizes or refuses\nanything -- `immutable_when` locks a field and permissions hide one.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "when": {
+          "title": "When",
+          "type": "string"
+        },
+        "emphasis": {
+          "enum": [
+            "info",
+            "success",
+            "warning",
+            "danger",
+            "muted"
+          ],
+          "title": "Emphasis",
+          "type": "string"
+        },
+        "fields": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Fields",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "when",
+        "emphasis"
+      ],
+      "title": "AppearanceSource",
+      "type": "object"
+    },
     "ComputedSource": {
       "additionalProperties": false,
       "properties": {
@@ -1154,6 +1194,14 @@
         "$ref": "#/$defs/ValidationSource"
       },
       "title": "Validations",
+      "type": "array"
+    },
+    "appearance": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/AppearanceSource"
+      },
+      "title": "Appearance",
       "type": "array"
     },
     "actions": {

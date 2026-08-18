@@ -36,6 +36,11 @@ import type {
   TideRecord,
 } from "@/lib/contracts"
 import { useDialogFocus } from "@/lib/dialog-focus"
+import {
+  asEmphasis,
+  textEmphasisClass,
+  type TideEmphasis,
+} from "@/lib/emphasis"
 import { referenceRecordHref } from "@/lib/reference-link"
 import {
   acceptsNumericDraft,
@@ -69,6 +74,8 @@ interface RecordFormEditorProps {
   errors: TideFormErrors
   disabled: boolean
   idScope?: string
+  /** The entity's appearance verdict for this record, field by field. */
+  appearance?: Record<string, string>
   /** Appended to the first group's heading, e.g. "· row 2 of 3". */
   headingSuffix?: string
   onChange: (name: string, value: unknown) => void
@@ -85,6 +92,7 @@ export function RecordFormEditor({
   errors,
   disabled,
   idScope,
+  appearance,
   headingSuffix,
   onChange,
   onApplyValues,
@@ -109,6 +117,7 @@ export function RecordFormEditor({
             errors={errors}
             disabled={disabled}
             idScope={idScope}
+            appearance={appearance}
             headingSuffix={
               index === firstGroup ? headingSuffix : undefined
             }
@@ -132,6 +141,7 @@ function EditorGroup({
   errors,
   disabled,
   idScope,
+  appearance,
   headingSuffix,
   onChange,
   onApplyValues,
@@ -146,6 +156,7 @@ function EditorGroup({
   errors: TideFormErrors
   disabled: boolean
   idScope?: string
+  appearance?: Record<string, string>
   headingSuffix?: string
   onChange: (name: string, value: unknown) => void
   onApplyValues: (values: Record<string, unknown>) => void
@@ -174,6 +185,11 @@ function EditorGroup({
             {row.map((name) => {
               const field = form.fields[name]
               const editable = editableFields.has(name)
+              // The label carries a field's verdict rather than the control:
+              // an input already speaks in colour for its own error and
+              // disabled states, and a second meaning in the same place is
+              // one a reader has to disambiguate.
+              const emphasis = asEmphasis(appearance?.[name])
               return (
                 <div
                   key={name}
@@ -191,12 +207,21 @@ function EditorGroup({
                       error={errors[name]}
                       disabled={disabled}
                       idScope={idScope}
+                      emphasis={emphasis}
                       onChange={(value) => onChange(name, value)}
                       onApplyValues={onApplyValues}
                     />
                   ) : (
                     <>
-                      <p className={fieldLabelClass}>{field.label}</p>
+                      <p
+                        className={cn(
+                          fieldLabelClass,
+                          textEmphasisClass(emphasis),
+                        )}
+                        data-emphasis={emphasis}
+                      >
+                        {field.label}
+                      </p>
                       <TideDisplayValue
                         api={api}
                         column={field}
@@ -228,6 +253,7 @@ function FieldEditor({
   error,
   disabled,
   idScope,
+  emphasis,
   onChange,
   onApplyValues,
 }: {
@@ -241,6 +267,7 @@ function FieldEditor({
   error?: string
   disabled: boolean
   idScope?: string
+  emphasis?: TideEmphasis
   onChange: (value: unknown) => void
   onApplyValues: (values: Record<string, unknown>) => void
 }) {
@@ -263,6 +290,7 @@ function FieldEditor({
         error={error}
         disabled={disabled}
         idScope={idScope}
+        emphasis={emphasis}
         onApplyValues={onApplyValues}
       />
     )
@@ -273,7 +301,11 @@ function FieldEditor({
       <div className={fieldGroupClass}>
         {/* The box belongs in the value column with every other control, so
             the label is its own element rather than text beside the input. */}
-        <label htmlFor={id} className={fieldLabelClass}>
+        <label
+          htmlFor={id}
+          className={cn(fieldLabelClass, textEmphasisClass(emphasis))}
+          data-emphasis={emphasis}
+        >
           {field.label}
         </label>
         <div className="flex min-h-9 items-center">
@@ -311,7 +343,8 @@ function FieldEditor({
     <div className={fieldGroupClass}>
       <label
         htmlFor={id}
-        className={fieldLabelClass}
+        className={cn(fieldLabelClass, textEmphasisClass(emphasis))}
+        data-emphasis={emphasis}
       >
         {field.label}
         {field.required ? (
@@ -433,6 +466,7 @@ function ReferenceEditor({
   error,
   disabled,
   idScope,
+  emphasis,
   onApplyValues,
 }: {
   api: TideApi
@@ -446,6 +480,7 @@ function ReferenceEditor({
   error?: string
   disabled: boolean
   idScope?: string
+  emphasis?: TideEmphasis
   onApplyValues: (values: Record<string, unknown>) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -463,7 +498,8 @@ function ReferenceEditor({
     <div className={fieldGroupClass}>
       <label
         htmlFor={id}
-        className={fieldLabelClass}
+        className={cn(fieldLabelClass, textEmphasisClass(emphasis))}
+        data-emphasis={emphasis}
       >
         {field.label}
         {field.required ? (

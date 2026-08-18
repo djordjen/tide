@@ -79,7 +79,7 @@ from tide.observability import (
     reset_correlation_id,
     resolve_correlation_id,
 )
-from tide.presentation import action_state, field_is_immutable
+from tide.presentation import action_state, field_is_immutable, record_appearance
 from tide.runtime import (
     AuthorizationError,
     ActionDisabled,
@@ -1734,11 +1734,18 @@ def _list_endpoint(
         return page_model.model_validate(
             {
                 "records": [
-                    _wire_record(
-                        records.model,
+                    # A page carries the appearance verdict too. A rule that
+                    # only shows its colour once the record is open is not a
+                    # warning; it is a reward for having already looked.
+                    _apply_appearance(
+                        _wire_record(
+                            records.model,
+                            entity,
+                            record,
+                            page.references,
+                        ),
                         entity,
                         record,
-                        page.references,
                     )
                     for record in page.records
                 ],
@@ -1797,11 +1804,18 @@ def _query_endpoint(
         return page_model.model_validate(
             {
                 "records": [
-                    _wire_record(
-                        records.model,
+                    # A page carries the appearance verdict too. A rule that
+                    # only shows its colour once the record is open is not a
+                    # warning; it is a reward for having already looked.
+                    _apply_appearance(
+                        _wire_record(
+                            records.model,
+                            entity,
+                            record,
+                            page.references,
+                        ),
                         entity,
                         record,
-                        page.references,
                     )
                     for record in page.records
                 ],
@@ -1873,6 +1887,33 @@ def _wire_record_with_state(
     )
     if action_states:
         projected.setdefault("_tide", {})["actions"] = action_states
+    _apply_appearance(projected, entity, values)
+    return projected
+
+
+def _apply_appearance(
+    projected: dict[str, Any],
+    entity: NormalizedEntity,
+    values: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Attach the entity's appearance verdict, when it has anything to say.
+
+    Absent when no rule matched, so an application declaring none pays no
+    bytes for the feature and a renderer needs no default to compare against.
+    """
+
+    appearance = _record_appearance(
+        entity.metadata.get("appearance") or (),
+        values,
+    )
+    if not appearance:
+        return projected
+    verdict: dict[str, Any] = {}
+    if appearance.record is not None:
+        verdict["record"] = appearance.record
+    if appearance.fields:
+        verdict["fields"] = dict(appearance.fields)
+    projected.setdefault("_tide", {})["appearance"] = verdict
     return projected
 
 
@@ -1910,6 +1951,7 @@ def _record_writable_fields(
 
 _action_state = action_state
 _field_is_immutable = field_is_immutable
+_record_appearance = record_appearance
 
 def _record_action_states(
     records: RecordsService,

@@ -7,6 +7,7 @@ import type {
   TidePresentationManifest,
   TideRecord,
 } from "@/lib/contracts"
+import { fieldEmphasis, textEmphasisClass } from "@/lib/emphasis"
 import {
   formatCellValue,
   formatReferenceDisplay,
@@ -166,6 +167,9 @@ export function TideDisplayValue({
     )
   }
 
+  // What the application's own rules made of this field on this record. The
+  // value is where a rule lands in a grid: a list is nothing but values.
+  const emphasis = fieldEmphasis(record, column.name)
   return (
     <span
       className={cn(
@@ -174,8 +178,11 @@ export function TideDisplayValue({
         protectedFields.includes(column.name) &&
           "italic text-muted-foreground",
         referenceQuery.isLoading && "text-muted-foreground",
+        textEmphasisClass(emphasis),
+        emphasis && "font-medium",
         className,
       )}
+      data-emphasis={emphasis}
       title={text}
     >
       {text || "—"}

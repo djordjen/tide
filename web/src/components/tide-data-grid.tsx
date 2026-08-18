@@ -46,6 +46,7 @@ import type {
   TideRecord,
   TideSortInput,
 } from "@/lib/contracts"
+import { recordEmphasis, rowEmphasisClass } from "@/lib/emphasis"
 import { formatCellValue } from "@/lib/format"
 import {
   clampColumnWidth,
@@ -463,7 +464,10 @@ export function TideDataGrid({
       >
         <div
           role="row"
-          className="grid h-10 select-none"
+          // The same transparent left edge every data row carries, so the
+          // header's columns and the rows' columns start in one place
+          // whether or not a rule claimed the row.
+          className="grid h-10 border-l-2 border-l-transparent select-none"
           style={{
             gridTemplateColumns: gridTemplate,
             width: contentWidth,
@@ -585,16 +589,24 @@ export function TideDataGrid({
               const selected =
                 selectedIdentity !== null &&
                 String(identity) === String(selectedIdentity)
+              const emphasis = recordEmphasis(row.original)
               return (
                 <div
                   key={row.id}
                   role="row"
                   data-row-index={virtualRow.index}
+                  data-emphasis={emphasis}
                   tabIndex={virtualRow.index === activeIndex ? 0 : -1}
                   aria-selected={selected}
                   aria-rowindex={virtualRow.index + 1}
                   className={cn(
-                    "absolute top-0 left-0 grid cursor-default border-b border-border/55 text-sm outline-none hover:bg-accent/35 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/45",
+                    // Every row carries the edge, transparent unless a rule
+                    // claimed it: a border that appears would move the columns
+                    // of the row it appeared on and no others.
+                    "absolute top-0 left-0 grid cursor-default border-b border-l-2 border-border/55 border-l-transparent text-sm outline-none hover:bg-accent/35 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/45",
+                    rowEmphasisClass(emphasis),
+                    // Selection outranks a rule: the row a person is acting on
+                    // has to be the one that looks acted on.
                     selected && "bg-accent/70 hover:bg-accent/75",
                   )}
                   style={{

@@ -825,6 +825,11 @@ def _decode_record(
             "writable_fields",
             "actions",
             "references",
+            # Presentation rather than protection, and read by renderers
+            # rather than by this decoder -- but named here, because this
+            # check refuses everything it has not been told about, and a
+            # server with appearance rules would otherwise be undecodable.
+            "appearance",
         }:
             raise TideApiContractError(f"{entity.name} protection metadata is invalid")
         raw_protected = metadata.get("protected_fields") or []

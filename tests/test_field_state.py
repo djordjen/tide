@@ -14,7 +14,12 @@ from __future__ import annotations
 import pytest
 
 from tide.compiler.normalized import NormalizedField, immutable_mapping
-from tide.presentation import action_label, action_state, field_is_immutable
+from tide.presentation import (
+    action_label,
+    action_state,
+    field_is_immutable,
+    record_appearance,
+)
 
 
 def _field(name: str, **metadata: object) -> NormalizedField:
@@ -73,6 +78,61 @@ def test_a_field_is_locked_only_while_its_condition_holds() -> None:
 
     assert field_is_immutable(field, {"status": "draft"}) is False
     assert field_is_immutable(field, {"status": "posted"}) is True
+
+
+def test_the_first_matching_rule_owns_a_target() -> None:
+    """Declaration order is the precedence, so it is read off the page.
+
+    Two rules routinely match one record -- `cancelled` and `overdue` both
+    describe an invoice nobody is going to pay -- and a renderer can only
+    show one. Numbered priorities would put the answer somewhere other than
+    where the rules are written.
+    """
+
+    rules = (
+        {"name": "cancelled", "when": "status == 'cancelled'", "emphasis": "muted"},
+        {"name": "large", "when": "total > 100", "emphasis": "warning"},
+    )
+
+    appearance = record_appearance(rules, {"status": "cancelled", "total": 900})
+
+    assert appearance.record == "muted"
+
+
+def test_a_rule_that_names_fields_marks_those_and_not_the_record() -> None:
+    rules = (
+        {
+            "name": "large",
+            "when": "total > 100",
+            "emphasis": "warning",
+            "fields": ("total",),
+        },
+    )
+
+    appearance = record_appearance(rules, {"total": 900})
+
+    assert appearance.record is None
+    assert appearance.fields == {"total": "warning"}
+
+
+def test_a_condition_that_cannot_be_evaluated_paints_nothing() -> None:
+    """The opposite of `immutable_when`, and both fail safe for what they are.
+
+    Withholding an edit is caution. Painting a record a colour that means
+    something it is not is a lie about the data, so an unreadable condition
+    leaves the record as it was.
+    """
+
+    rules = ({"name": "large", "when": "total > 100", "emphasis": "warning"},)
+
+    appearance = record_appearance(rules, {})
+
+    assert appearance.record is None
+    assert bool(appearance) is False
+
+
+def test_an_entity_declaring_no_rules_carries_no_appearance() -> None:
+    assert bool(record_appearance((), {"status": "draft"})) is False
 
 
 def test_an_action_label_humanizes_like_every_other_name() -> None:

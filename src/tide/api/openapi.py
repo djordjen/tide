@@ -21,11 +21,32 @@ from pydantic.json_schema import models_json_schema
 
 from tide.labels import humanize as _humanize
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
+from tide.model.source import TideEmphasis
 
 OPENAPI_VERSION = "3.1.0"
 DEFAULT_BASE_PATH = "/api/v1"
 READ_OPERATIONS = frozenset({"list", "get"})
 REST_OPERATIONS = frozenset({"list", "get", "create", "update", "delete"})
+
+
+class TideRecordAppearance(BaseModel):
+    """What an entity's `appearance` rules say about one record.
+
+    Emphasis names, never colours: the renderer owns the palette. Absent
+    entirely when no rule matched.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    record: TideEmphasis | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    fields: dict[str, TideEmphasis] | None = Field(
+        default=None,
+        min_length=1,
+        exclude_if=lambda value: value is None,
+    )
 
 
 class TideRecordActionState(BaseModel):
@@ -60,6 +81,10 @@ class TideProtectionMetadata(BaseModel):
     references: dict[str, str] | None = Field(
         default=None,
         min_length=1,
+        exclude_if=lambda value: value is None,
+    )
+    appearance: TideRecordAppearance | None = Field(
+        default=None,
         exclude_if=lambda value: value is None,
     )
 
