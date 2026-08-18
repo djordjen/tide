@@ -430,7 +430,7 @@ def test_versioned_delete_requires_and_checks_observed_version(runtime) -> None:
                 "customer": 1,
                 # Every non-null column has to be supplied: a real schema
                 # rejects the partial record the in-memory store would accept.
-                "number": "INV-2026-000001",
+                "number": "INV-2026-0001",
                 "invoice_date": date(2026, 7, 14),
                 "currency": "EUR",
                 "status": "draft",
@@ -458,7 +458,7 @@ def test_headless_invoice_create_post_retry_and_protection(runtime) -> None:
     created = records.commit(session, clerk)
 
     assert created["id"] == 1
-    assert created["number"] == "INV-2026-000001"
+    assert created["number"] == "INV-2026-0001"
     assert created["version"] == 1
     assert created["lines"][0]["total"] == Decimal("10.50")
     assert created["total"] == Decimal("10.50")

@@ -530,7 +530,7 @@ def test_managed_schema_and_master_detail_round_trip(sql_runtime) -> None:
         records.create("sales.Invoice", context(), invoice_values()), context()
     )
 
-    assert created["number"] == "INV-2026-000001"
+    assert created["number"] == "INV-2026-0001"
     assert created["total"] == Decimal("10.50")
     assert created["version"] == 1
     assert created["lines"][0]["total"] == Decimal("10.50")

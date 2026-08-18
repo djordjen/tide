@@ -66,14 +66,14 @@ def test_api_tutorial_runs_against_the_in_process_generated_server() -> None:
         )
 
     assert result.invoice_id == 10
-    assert result.invoice_number == "INV-2026-000010"
+    assert result.invoice_number == "INV-2026-0010"
     assert result.created_etag == '"1"'
     assert result.updated_etag == '"2"'
     assert result.posted_etag == '"3"'
     assert result.validation_error_code == "invalid_request"
     assert result.concurrency_error_code == "stale_version"
     assert result.audit_correlation_id
-    assert result.report_filename == "invoice-INV-2026-000010"
+    assert result.report_filename == "invoice-INV-2026-0010"
     assert any("rejected an invalid date" in line for line in output)
     assert any("rejected the stale ETag" in line for line in output)
     assert any("replayed safely" in line for line in output)

@@ -51,7 +51,7 @@ def load_sequence_floors() -> dict[str, int]:
     Seeding puts rows in without allocating, so without this the sequence
     would start at 1 and hand out numbers these records already show. Only
     this module can answer: `allocate_invoice_number` renders a number into
-    `INV-{year}-{sequence:06d}`, and nothing outside here can read that back.
+    `INV-{year}-{sequence:04d}`, and nothing outside here can read that back.
     """
 
     invoices = load_demo_data()["sales.Invoice"]

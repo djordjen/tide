@@ -114,7 +114,15 @@ zero and therefore cannot be posted. It exists because `nothing_to_post`
 declares that state interesting and nothing in the seed matched it -- a rule
 the demo never fires is a rule nobody meets, and the checked-in screenshots
 now show both of the application's rules rather than one. The seeded numbers
-reach `INV-2026-0009`, so a fresh run allocates `INV-2026-000010` first.
+reach `INV-2026-0009`, so a fresh run allocates `INV-2026-0010` first.
+
+That number used to read `INV-2026-000010`: `allocate_invoice_number`
+rendered six digits while the seeded history wrote four, so every invoice
+created in the demo looked unlike every invoice already in it. The 2026-08-04
+decision log had noticed and filed it as luck rather than intent ("seeded
+values are four digits and generated ones six"), and it stayed invisible only
+because the two never appeared side by side. The ninth invoice put them there.
+The generator now renders the width the application's own history uses.
 Regenerating the terminal screenshots also found two stale selectors in
 `tools/capture_screenshots.py`, left behind when collections gained per-name
 widget ids; the tool runs outside CI, so nothing had said so.

@@ -1525,7 +1525,7 @@ def test_textual_invoice_create_uses_generator_and_inline_line_editor() -> None:
             await pilot.pause()
 
             stored = app.records.repository.get("sales.Invoice", 10)
-            assert stored["number"] == "INV-2026-000010"
+            assert stored["number"] == "INV-2026-0010"
             assert stored["invoice_date"] == date(2026, 7, 20)
             assert stored["status"] == "draft"
             assert stored["customer"] == 1

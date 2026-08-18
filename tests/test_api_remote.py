@@ -157,7 +157,7 @@ def test_remote_facades_browse_create_edit_lookup_and_post_via_http() -> None:
         invoice.set("lines", [selected])
 
         created = records.commit(invoice, context)
-        assert created["number"] == "INV-2026-000010"
+        assert created["number"] == "INV-2026-0010"
         assert created["total"] == Decimal("170.00")
         assert invoice.expected_version == 1
 

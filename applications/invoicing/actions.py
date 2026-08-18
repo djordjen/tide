@@ -19,7 +19,7 @@ def allocate_invoice_number(sequence: int, invoice_date: Any) -> str:
     """Format a number allocated atomically by the persistence adapter."""
 
     year = getattr(invoice_date, "year", str(invoice_date)[:4])
-    return f"INV-{year}-{sequence:06d}"
+    return f"INV-{year}-{sequence:04d}"
 
 
 def post_invoice(

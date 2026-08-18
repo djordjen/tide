@@ -165,7 +165,7 @@ test("drafts an invoice through both lookups and posts it", async ({
   // Number allocated by the application's own action, total computed from the
   // line by the expression engine. The browser sent neither.
   const created = createdRow(page)
-  await expect(created).toContainText(/INV-\d{4}-\d{6}/)
+  await expect(created).toContainText(/INV-\d{4}-\d{4}/)
   await expect(created).toContainText("255.00")
   await expect(created).toContainText("Draft")
 
