@@ -543,7 +543,6 @@ export function TideDataGrid({
                       ? "descending"
                       : "none"
                 }
-                draggable
                 className={cn(
                   "group/header relative flex min-w-0 items-center border-r border-border/70 text-xs font-semibold text-foreground last:border-r-0",
                   column.alignment === "right"
@@ -552,12 +551,41 @@ export function TideDataGrid({
                       ? "justify-center"
                       : "justify-start",
                 )}
-                onDragStart={() => {
-                  draggedColumn.current = header.column.id
-                }}
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={() => moveColumn(header.column.id)}
               >
+                {/* The one drag source. The cell itself must not be
+                    draggable: grabbing the resize border then starts a
+                    native drag instead, which both shifts the column and
+                    swallows the mouseup the resize tracker is waiting
+                    for. The whole header stays the drop target.
+
+                    Revealed by opacity, never display: the pointer often
+                    leaves the header between mousedown and the drag
+                    threshold, and a source that goes display:none in that
+                    gap makes Chromium abort the drag before dragstart --
+                    the probe read zero drag events until this held.
+                    Overlaid absolutely so the label keeps the exact left
+                    edge of the cells below it. */}
+                <div
+                  draggable
+                  title={`Drag ${column.label} to reorder`}
+                  className="absolute top-0 left-0 z-10 flex h-full w-4 cursor-grab items-center justify-center bg-muted/70 text-muted-foreground/50 opacity-0 group-hover/header:opacity-100 hover:text-muted-foreground active:cursor-grabbing"
+                  onDragStart={(event) => {
+                    draggedColumn.current = header.column.id
+                    // Firefox will not start a drag without data aboard;
+                    // jsdom's synthetic events carry no dataTransfer.
+                    event.dataTransfer?.setData(
+                      "text/plain",
+                      header.column.id,
+                    )
+                    if (event.dataTransfer) {
+                      event.dataTransfer.effectAllowed = "move"
+                    }
+                  }}
+                >
+                  <GripVertical className="size-3" />
+                </div>
                 <button
                   type="button"
                   className={cn(
@@ -571,7 +599,6 @@ export function TideDataGrid({
                   disabled={!header.column.getCanSort()}
                   onClick={header.column.getToggleSortingHandler()}
                 >
-                  <GripVertical className="hidden size-3 shrink-0 text-muted-foreground/45 group-hover/header:block" />
                   <span className="truncate">{column.label}</span>
                   {header.column.getCanSort() ? (
                     sorted === "asc" ? (

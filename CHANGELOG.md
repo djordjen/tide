@@ -319,6 +319,14 @@ colours the row's cells. Neither ever sees a rule -- the server sends a
 verdict -- and an emphasis a renderer does not know is left undrawn rather
 than drawn wrong, since a server may be one version ahead of the bundle.
 
+Column reordering now starts only at the grip dots. The header cell used
+to be draggable as a whole, so grabbing the resize border started a
+native drag instead: the column appeared to shift, and because the drag
+swallowed the mouseup, the resize tracker kept resizing after the button
+was up. The grip is revealed by opacity rather than display, because a
+drag source that goes display:none between mousedown and the drag
+threshold makes Chromium abort the drag before it starts.
+
 The browser edits rows in place where a view asks for it. Double-click or
 Enter starts the edit by reading the record fresh -- what is writable, what
 an appearance rule locked and which version the row is are the server's
