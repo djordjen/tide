@@ -938,6 +938,70 @@ def test_filters_treat_a_stored_null_as_no_match(
     assert [customer["code"] for customer in matched] == expected
 
 
+def test_in_filters_match_membership_with_sql_null_semantics(runtime) -> None:
+    """`in` keeps rows whose column is any chosen value.
+
+    A null element means blanks count as chosen: SQL's IN alone never
+    matches NULL, so the adapter has to say `... OR column IS NULL` and the
+    in-memory store has to agree -- the blank checkbox in a column filter
+    is exactly this element.
+    """
+
+    _, repository, records, _ = runtime
+    repository.seed(
+        "crm.Customer",
+        [
+            {"id": 3, "code": "AMAIL", "name": "A", "email": "a@example.test", "active": True, "invoices": []},
+            {"id": 4, "code": "BMAIL", "name": "B", "email": "b@example.test", "active": True, "invoices": []},
+            {"id": 5, "code": "CMAIL", "name": "C", "email": "c@example.test", "active": True, "invoices": []},
+        ],
+    )
+    clerk = context("user:clerk", "sales_clerk")
+
+    def codes(*filters: FilterCondition) -> list[str]:
+        matched = records.query(
+            "crm.Customer", QuerySpec(filters=filters), clerk
+        )
+        return sorted(customer["code"] for customer in matched)
+
+    assert codes(FilterCondition("code", "in", ("AMAIL", "BMAIL"))) == [
+        "AMAIL",
+        "BMAIL",
+    ]
+    # ACME is the base seed's null-email row; OLD is hidden by row policy.
+    assert codes(FilterCondition("email", "in", (None,))) == ["ACME"]
+    assert codes(
+        FilterCondition("email", "in", ("a@example.test", None))
+    ) == ["ACME", "AMAIL"]
+    # A value nothing holds simply matches nothing.
+    assert codes(FilterCondition("code", "in", ("GHOST",))) == []
+
+
+def test_in_filters_are_typed_and_bounded(runtime) -> None:
+    _, _, records, _ = runtime
+    clerk = context("user:clerk", "sales_clerk")
+
+    with pytest.raises(ValueError, match="non-empty"):
+        records.query(
+            "crm.Customer",
+            QuerySpec(filters=(FilterCondition("code", "in", ()),)),
+            clerk,
+        )
+    with pytest.raises(ValueError, match="non-empty"):
+        records.query(
+            "crm.Customer",
+            QuerySpec(filters=(FilterCondition("code", "in", "AMAIL"),)),
+            clerk,
+        )
+    # Elements are typed the way scalar criteria are: "1" is not an integer.
+    with pytest.raises(ValueError, match="must be a integer"):
+        records.query(
+            "crm.Customer",
+            QuerySpec(filters=(FilterCondition("id", "in", ("1",)),)),
+            clerk,
+        )
+
+
 def test_post_requires_lines(runtime) -> None:
     _, _, records, actions = runtime
     clerk = context("user:clerk", "sales_clerk")

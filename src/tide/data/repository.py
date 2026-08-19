@@ -161,7 +161,7 @@ class DeletedRecord:
 
 
 FILTER_OPERATORS = frozenset(
-    {"eq", "ne", "lt", "lte", "gt", "gte", "contains", "icontains"}
+    {"eq", "ne", "lt", "lte", "gt", "gte", "contains", "icontains", "in"}
 )
 
 
@@ -170,12 +170,18 @@ def matches_filter(record: Mapping[str, Any], condition: FilterCondition) -> boo
 
     SQL evaluates every comparison involving NULL as unknown and drops the row,
     so a stored null matches nothing here either. Only a null *criterion* asks
-    about presence, which SQL spells `IS NULL` / `IS NOT NULL`.
+    about presence, which SQL spells `IS NULL` / `IS NOT NULL` -- and inside
+    an `in` list, a null element, which the adapter spells `OR IS NULL`.
     """
 
     if condition.operator not in FILTER_OPERATORS:
         raise ValueError(f"unsupported filter operator {condition.operator!r}")
     value = record.get(condition.field)
+    if condition.operator == "in":
+        chosen = tuple(condition.value)
+        if value is None:
+            return None in chosen
+        return value in chosen
     if condition.value is None:
         if condition.operator == "eq":
             return value is None
@@ -428,6 +434,26 @@ class Repository(Protocol):
         and none of its sort, limit or cursor boundary, because a summary
         describes the set, not the slice. SQL semantics for absence: an
         aggregate over no values is None, except ``count``, which is 0.
+        """
+        ...
+
+    def distinct(
+        self,
+        entity: str,
+        field: str,
+        *,
+        filters: tuple[FilterCondition, ...] = (),
+        row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
+        relationships: RelationshipLoadPlan | None = None,
+        limit: int = 200,
+    ) -> tuple[tuple[Any, ...], bool]:
+        """The column's distinct values under the same criteria a page has.
+
+        Ascending, nulls last -- the ordering pages use -- deduplicated,
+        and cut at ``limit`` with the second element saying whether it was:
+        a legacy column can hold more distinct values than any list should
+        receive.
         """
         ...
 

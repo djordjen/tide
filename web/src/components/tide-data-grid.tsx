@@ -27,6 +27,7 @@ import {
   Rows3,
 } from "lucide-react"
 
+import { ColumnValueFilter } from "@/components/column-value-filter"
 import { GridCellEditor } from "@/components/grid-cell-editor"
 import { TideDisplayValue } from "@/components/tide-display-value"
 import { Button } from "@/components/ui/button"
@@ -42,6 +43,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import type { TideApi } from "@/lib/api"
 import type {
   TideBrowsePresentation,
+  TideFilterInput,
   TidePresentationColumn,
   TidePresentationFormField,
   TidePresentationManifest,
@@ -61,6 +63,14 @@ import {
 import { cn } from "@/lib/utils"
 
 const ROW_HEIGHT = 43
+
+/** Per-column value filters, owned by the workspace. */
+export interface GridColumnFilters {
+  active: Record<string, unknown[]>
+  /** Every active condition except the named column's own value filter. */
+  conditionsExcept: (field: string) => TideFilterInput[]
+  onApply: (field: string, values: unknown[] | null) => void
+}
 
 /** The one row currently editing in place, owned by the workspace. */
 export interface GridInlineEdit {
@@ -82,6 +92,7 @@ interface TideDataGridProps {
   records: TideRecord[]
   /** The whole filtered set's answers, from the newest page fetched. */
   summaries?: TideSummaryValue[] | null
+  columnFilters?: GridColumnFilters | null
   inlineEdit?: GridInlineEdit | null
   onInlineChange?: (name: string, value: unknown) => void
   onInlineSave?: () => void
@@ -106,6 +117,7 @@ export function TideDataGrid({
   views,
   records,
   summaries,
+  columnFilters,
   inlineEdit,
   onInlineChange,
   onInlineSave,
@@ -362,8 +374,15 @@ export function TideDataGrid({
       }
       const sizes = Object.fromEntries(
         view.columns.map((column) => {
+          // The label is measured apart from the cells: its row also
+          // carries the sort chevron and the filter funnel, which the
+          // cells below it do not pay for.
+          const headerWidth =
+            (context
+              ? context.measureText(column.label).width
+              : column.label.length * 7) +
+            (view.filterable_fields?.includes(column.name) ? 30 : 10)
           const values = [
-            column.label,
             ...records.map((record) =>
               formatCellValue(
                 column,
@@ -386,6 +405,7 @@ export function TideDataGrid({
             ...values.map((value) =>
               context ? context.measureText(value).width : value.length * 7,
             ),
+            headerWidth,
             minimumColumnWidth(column) - 34,
           )
           return [
@@ -610,6 +630,21 @@ export function TideDataGrid({
                     )
                   ) : null}
                 </button>
+                {columnFilters &&
+                view.filterable_fields?.includes(column.name) ? (
+                  <ColumnValueFilter
+                    api={api}
+                    view={view}
+                    column={column}
+                    active={columnFilters.active[column.name] ?? null}
+                    otherConditions={columnFilters.conditionsExcept(
+                      column.name,
+                    )}
+                    onApply={(values) =>
+                      columnFilters.onApply(column.name, values)
+                    }
+                  />
+                ) : null}
                 <div
                   role="separator"
                   aria-label={`Resize ${column.label}`}

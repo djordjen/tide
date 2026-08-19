@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
 from enum import StrEnum
@@ -15,6 +16,7 @@ from tide.compiler.expressions import PARAMETER_PATTERN, evaluate_expression
 from tide.appearance import record_appearance
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity
 from tide.data.repository import (
+    FILTER_OPERATORS,
     DeleteCollection,
     DeletedRecord,
     DeleteReference,
@@ -453,21 +455,7 @@ class RecordsService:
         for field_name in [condition.field for condition in query.filters] + [
             sort.field for sort in query.sort
         ] + [request.field for request in query.summaries]:
-            if field_name not in entity.fields:
-                raise QueryFieldError(f"unknown query field {field_name!r}")
-            if not self.security.can_read_field(entity_name, field_name, context):
-                raise AuthorizationError(
-                    f"field {field_name!r} cannot be used to filter, sort "
-                    "or summarize"
-                )
-            field = entity.fields[field_name]
-            computed = field.metadata.get("computed")
-            if field.metadata["type"] == "collection" or (
-                computed and computed.get("materialization") == "virtual"
-            ):
-                raise ValueError(
-                    f"field {field_name!r} is not stored and cannot be queried"
-                )
+            self._require_queryable_field(entity, entity_name, field_name, context)
         seen_summaries: set[SummaryRequest] = set()
         for request in query.summaries:
             if request in seen_summaries:
@@ -576,6 +564,95 @@ class RecordsService:
                 normalized_filters,
                 context,
             ),
+        )
+
+    def _require_queryable_field(
+        self,
+        entity: NormalizedEntity,
+        entity_name: str,
+        field_name: str,
+        context: RequestContext,
+    ) -> None:
+        if field_name not in entity.fields:
+            raise QueryFieldError(f"unknown query field {field_name!r}")
+        if not self.security.can_read_field(entity_name, field_name, context):
+            raise AuthorizationError(
+                f"field {field_name!r} cannot be used to filter, sort "
+                "or summarize"
+            )
+        field = entity.fields[field_name]
+        computed = field.metadata.get("computed")
+        if field.metadata["type"] == "collection" or (
+            computed and computed.get("materialization") == "virtual"
+        ):
+            raise ValueError(
+                f"field {field_name!r} is not stored and cannot be queried"
+            )
+
+    def distinct_values(
+        self,
+        entity_name: str,
+        field_name: str,
+        filters: tuple[FilterCondition, ...],
+        context: RequestContext,
+        *,
+        limit: int = 200,
+    ) -> DistinctValues:
+        """The column's distinct values under the caller's conditions.
+
+        Bounded, policy-bound, ordered the way pages order, and -- for a
+        reference column -- named the way grids name references, through
+        the same batched display machinery, so the list reads "Canon"
+        rather than 14. A value whose target the caller may not read keeps
+        its identity and no name, exactly like the grid cell would.
+        """
+
+        entity = self.model.entity(entity_name)
+        self.security.authorize_entity(entity, "list", context)
+        if limit < 1 or limit > 500:
+            raise ValueError("distinct limit must be between 1 and 500")
+        self._require_queryable_field(entity, entity_name, field_name, context)
+        for condition in filters:
+            self._require_queryable_field(
+                entity, entity_name, condition.field, context
+            )
+        normalized = tuple(
+            _normalize_filter(self.model, entity, condition)
+            for condition in filters
+        )
+        values, truncated = self.repository.distinct(
+            entity_name,
+            field_name,
+            filters=normalized,
+            row_criteria=self.security.row_criteria(entity_name, "list"),
+            criteria_parameters=self.security.policy_parameters(context),
+            relationships=self._relationship_plan(
+                entity_name,
+                context,
+                operations=("list",),
+            ),
+            limit=limit,
+        )
+        field = entity.fields[field_name]
+        displays: dict[Any, str | None] = {}
+        if field.metadata["type"] == "reference" and field.target_entity:
+            resolved = self.reference_displays(
+                entity_name,
+                tuple(
+                    {field_name: value}
+                    for value in values
+                    if value is not None
+                ),
+                context,
+            )
+            displays = {
+                value: resolved.display(field.target_entity, value)
+                for value in values
+                if value is not None
+            }
+        return DistinctValues(
+            values=tuple((value, displays.get(value)) for value in values),
+            truncated=truncated,
         )
 
     def _page_summaries(
@@ -1586,6 +1663,18 @@ class RecordsService:
         values[field.name] = related
 
 
+@dataclass(frozen=True, slots=True)
+class DistinctValues:
+    """A column's bounded distinct values, each beside its display name.
+
+    The display is None for anything that is not a resolvable reference;
+    ``truncated`` says the column held more than the answer carries.
+    """
+
+    values: tuple[tuple[Any, str | None], ...]
+    truncated: bool
+
+
 def _primary_key(entity: NormalizedEntity) -> str:
     return entity.primary_key.name
 
@@ -1887,10 +1976,33 @@ def _normalize_filter(
 ) -> FilterCondition:
     field = entity.fields[condition.field]
     operator = condition.operator
-    allowed = {"eq", "ne", "lt", "lte", "gt", "gte", "contains", "icontains"}
-    if operator not in allowed:
+    if operator not in FILTER_OPERATORS:
         raise ValueError(f"unsupported filter operator {operator!r}")
     field_type = field.metadata["type"]
+    if operator == "in":
+        values = condition.value
+        if not isinstance(values, (list, tuple)) or len(values) == 0:
+            raise ValueError(
+                "in filters require a non-empty list of values"
+            )
+        element_type = field_type
+        if field_type == "reference" and field.target_entity:
+            target = model.entity(field.target_entity)
+            element_type = target.field(_primary_key(target)).metadata["type"]
+        coerced: list[Any] = []
+        for element in values:
+            if element is None:
+                # The blank entry: unset counts as chosen.
+                coerced.append(None)
+                continue
+            value, valid = _coerce_scalar(element_type, element)
+            if not valid:
+                raise ValueError(
+                    f"filter value for {condition.field!r} must be a "
+                    f"{element_type} value"
+                )
+            coerced.append(value)
+        return FilterCondition(condition.field, "in", tuple(coerced))
     if operator in {"contains", "icontains"}:
         if field_type not in {"string", "choice"} or not isinstance(
             condition.value, str

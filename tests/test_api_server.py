@@ -200,6 +200,15 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
             {"field": "number", "function": "count"},
             {"field": "total", "function": "sum"},
         ]
+        # Every shown stored column can carry a value filter, references
+        # included -- they filter by identity and enumerate with names.
+        assert invoice_view["filterable_fields"] == [
+            "number",
+            "invoice_date",
+            "customer",
+            "status",
+            "total",
+        ]
         # The browse edit mode travels with the view: invoices keep the
         # form, the flat product catalogue offers editing in the row.
         assert invoice_view["edit"] == "form"
@@ -2591,6 +2600,7 @@ def test_manifest_summaries_are_filtered_with_their_columns() -> None:
         assert invoice_view["summaries"] == [
             {"field": "number", "function": "count"},
         ]
+        assert "total" not in invoice_view["filterable_fields"]
 
     asyncio.run(exercise())
 
@@ -2637,6 +2647,169 @@ def test_a_queried_page_can_carry_summaries_for_its_whole_set() -> None:
             ]
             # A page that did not ask carries no answers.
             assert everything.json()["summaries"] is None
+
+    asyncio.run(exercise())
+
+
+def test_a_query_can_ask_for_membership_and_blanks() -> None:
+    app = _app("sales_clerk")
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            drafts_or_posted = await client.post(
+                "/api/v1/invoices/_query",
+                headers=_authorization(),
+                json={
+                    "filters": [
+                        {
+                            "field": "status",
+                            "operator": "in",
+                            "value": ["draft", "posted"],
+                        }
+                    ],
+                    "limit": 100,
+                },
+            )
+            assert drafts_or_posted.status_code == 200
+            statuses = {
+                record["status"]
+                for record in drafts_or_posted.json()["records"]
+            }
+            assert statuses == {"draft", "posted"}
+
+            # The blank element: rows where the column is empty count as
+            # chosen. Every seeded draft has no posted_by.
+            blanks = await client.post(
+                "/api/v1/invoices/_query",
+                headers=_authorization(),
+                json={
+                    "filters": [
+                        {
+                            "field": "posted_at",
+                            "operator": "in",
+                            "value": [None],
+                        }
+                    ],
+                    "limit": 100,
+                },
+            )
+            assert blanks.status_code == 200
+            assert all(
+                record["posted_at"] is None
+                for record in blanks.json()["records"]
+            )
+            assert len(blanks.json()["records"]) > 0
+
+            # A reference column takes the target's identities, typed.
+            by_customer = await client.post(
+                "/api/v1/invoices/_query",
+                headers=_authorization(),
+                json={
+                    "filters": [
+                        {"field": "customer", "operator": "in", "value": [1, 3]}
+                    ],
+                    "limit": 100,
+                },
+            )
+            assert by_customer.status_code == 200
+            assert {
+                record["customer"]
+                for record in by_customer.json()["records"]
+            } == {1, 3}
+
+            empty = await client.post(
+                "/api/v1/invoices/_query",
+                headers=_authorization(),
+                json={
+                    "filters": [
+                        {"field": "status", "operator": "in", "value": []}
+                    ]
+                },
+            )
+            assert empty.status_code == 400
+
+            not_a_list = await client.post(
+                "/api/v1/invoices/_query",
+                headers=_authorization(),
+                json={
+                    "filters": [
+                        {"field": "status", "operator": "in", "value": "draft"}
+                    ]
+                },
+            )
+            assert not_a_list.status_code == 400
+
+    asyncio.run(exercise())
+
+
+def test_a_column_can_be_enumerated_for_its_filter_list() -> None:
+    app = _app("sales_clerk")
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            statuses = await client.post(
+                "/api/v1/invoices/_distinct",
+                headers=_authorization(),
+                json={"field": "status"},
+            )
+            assert statuses.status_code == 200
+            body = statuses.json()
+            assert body["field"] == "status"
+            assert body["truncated"] is False
+            walked = await client.post(
+                "/api/v1/invoices/_query",
+                headers=_authorization(),
+                json={"limit": 100},
+            )
+            # The list is the walk's own set of values, ordered ascending --
+            # the yardstick is the same filtered set, so nothing is pinned.
+            assert [item["value"] for item in body["values"]] == sorted(
+                {record["status"] for record in walked.json()["records"]}
+            )
+            assert all(item["display"] is None for item in body["values"])
+
+            # Under a condition, only that slice's values answer.
+            drafts = await client.post(
+                "/api/v1/invoices/_distinct",
+                headers=_authorization(),
+                json={
+                    "field": "status",
+                    "filters": [
+                        {"field": "status", "operator": "eq", "value": "draft"}
+                    ],
+                },
+            )
+            assert [item["value"] for item in drafts.json()["values"]] == [
+                "draft"
+            ]
+
+            # A reference column answers identities beside their names.
+            customers = await client.post(
+                "/api/v1/invoices/_distinct",
+                headers=_authorization(),
+                json={"field": "customer"},
+            )
+            assert customers.status_code == 200
+            names = {
+                item["value"]: item["display"]
+                for item in customers.json()["values"]
+            }
+            assert names[1] == "ADRIA - Adria Consulting"
+            assert all(display is not None for display in names.values())
+
+            unknown = await client.post(
+                "/api/v1/invoices/_distinct",
+                headers=_authorization(),
+                json={"field": "ghost"},
+            )
+            assert unknown.status_code == 400
+
+            unreadable = await client.post(
+                "/api/v1/invoices/_distinct",
+                headers=_authorization(),
+                json={"field": "posted_by"},
+            )
+            assert unreadable.status_code == 403
 
     asyncio.run(exercise())
 

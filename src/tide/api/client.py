@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from tide.api.contracts import (
     TideAuditHistory,
+    TideDistinctInput,
     TideFilterInput,
     TidePresentationManifest,
     TideQueryInput,
@@ -25,9 +26,10 @@ from tide.api.contracts import (
     TideSortInput,
     TideSummaryInput,
 )
+from tide.services.records import DistinctValues
 from tide.api.openapi import DEFAULT_BASE_PATH, REST_OPERATIONS, rest_exposures
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
-from tide.data import QuerySpec, SummaryRequest
+from tide.data import FilterCondition, QuerySpec, SummaryRequest
 from tide.runtime import TideRuntimeError
 from tide.reporting.document import (
     ReportCell,
@@ -323,6 +325,68 @@ class TideApiClient:
                 self.model, entity, body.get("summaries")
             ),
         )
+
+    def distinct_values(
+        self,
+        entity_name: str,
+        field_name: str,
+        filters: tuple[FilterCondition, ...] = (),
+    ) -> DistinctValues:
+        """One column's bounded distinct values, typed the way records are."""
+
+        entity = self.model.entity(entity_name)
+        resource = self._resource(entity_name, "list")
+        payload = TideDistinctInput(
+            field=field_name,
+            filters=tuple(
+                TideFilterInput(
+                    field=item.field,
+                    operator=item.operator,
+                    value=_encode_generic(item.value),
+                )
+                for item in filters
+            ),
+        )
+        response = self._request(
+            "POST",
+            f"{resource}/_distinct",
+            expected=(200,),
+            json=payload.model_dump(mode="json"),
+        )
+        body = self._json_object(response)
+        raw_values = body.get("values")
+        truncated = body.get("truncated")
+        if (
+            body.get("field") != field_name
+            or not isinstance(raw_values, list)
+            or not isinstance(truncated, bool)
+        ):
+            raise TideApiContractError(
+                "server returned an invalid distinct answer"
+            )
+        field = entity.field(field_name)
+        values: list[tuple[Any, str | None]] = []
+        for item in raw_values:
+            if not isinstance(item, Mapping) or set(item) != {
+                "value",
+                "display",
+            }:
+                raise TideApiContractError(
+                    "server returned an invalid distinct answer"
+                )
+            display = item["display"]
+            if display is not None and not isinstance(display, str):
+                raise TideApiContractError(
+                    "server returned an invalid distinct answer"
+                )
+            try:
+                decoded = _decode_field(self.model, field, item["value"])
+            except (TypeError, ValueError, InvalidOperation) as error:
+                raise TideApiContractError(
+                    "server returned an invalid distinct answer"
+                ) from error
+            values.append((decoded, display))
+        return DistinctValues(values=tuple(values), truncated=truncated)
 
     def apply_reference_selection(
         self,

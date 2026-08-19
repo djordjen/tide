@@ -74,6 +74,31 @@ test("opens a record and reads the lines a field policy guards", async ({
   await expect(line).toContainText("480.00")
 })
 
+test("filters a column by its checked values, and the footer follows", async ({
+  page,
+}) => {
+  await signIn(page)
+  await expect(page.getByRole("row", { name: /INV-2026-0001/ })).toBeVisible()
+  await expect(page.getByTestId("grid-summary-number")).toHaveText(/Count9/)
+
+  // The funnel's list is the server's distinct answer; the gesture is the
+  // reference application's -- clear everything, choose what stays.
+  await page.getByRole("button", { name: "Filter Status" }).click()
+  const popover = page.getByRole("dialog", { name: "Status values" })
+  await popover.getByRole("checkbox", { name: "Select all" }).click()
+  await popover.getByRole("checkbox", { name: "Draft" }).click()
+  await popover.getByRole("button", { name: "Apply" }).click()
+
+  // Five seeded drafts -- and the summary footer answers for the same
+  // filtered set the rows come from, so the two agree on their own.
+  await expect(page.getByTestId("grid-summary-number")).toHaveText(/Count5/)
+  const statuses = page.getByRole("row").getByText("Draft", { exact: true })
+  await expect(statuses).toHaveCount(5)
+  await expect(
+    page.getByRole("row", { name: /INV-2026-0001/ }),
+  ).toHaveCount(0)
+})
+
 test("edits a row in place where the view says inline", async ({ page }) => {
   const code = unique("E2EP")
   await signIn(page)
@@ -294,7 +319,10 @@ test("browses and opens a record without touching the mouse", async ({
   // last column header has to land on a row and the next Tab has to leave the
   // rows entirely -- with eight rendered rows the old behaviour spent eight
   // stops here, and a browse of any size spent one per rendered row.
-  await page.getByRole("button", { name: "Total" }).focus()
+  // The last header control is now the Total column's funnel -- it stays
+  // in the tab order because, unlike a row's reference doors, it has no
+  // keyboard alternate. From it, one Tab still reaches the whole grid.
+  await page.getByRole("button", { name: "Filter Total" }).focus()
   await page.keyboard.press("Tab")
   const first = page.getByRole("row", { name: /INV-2026-0001/ })
   await expect(first).toBeFocused()

@@ -16,6 +16,28 @@ the ordering operators, and `contains`/`icontains` alike. A null *criterion*
 asks about presence instead: `eq` selects rows where the field is null, `ne`
 selects rows where it is set, and the remaining operators match nothing.
 
+`in` asks for membership: its value is a non-empty list of typed elements,
+each validated the way a scalar criterion is, and the row stays when its
+column equals any of them. A null element means blanks count as chosen --
+SQL's `IN` alone never matches NULL, so the adapters spell it
+`... OR column IS NULL` and the in-memory store agrees. A reference column
+takes the target's identities. Conditions still only AND together; `in` is
+the one disjunction the contract offers, scoped to one column's values.
+
+## Distinct values
+
+`RecordsService.distinct_values()` -- over REST, `POST
+/api/v1/{resource}/_distinct` with `{field, filters}` -- answers one
+column's distinct values under the caller's conditions: the same typed
+filters a page takes, the caller's row policies, ascending with a null
+last. The answer is **bounded** (200 values) and carries `truncated`,
+because a legacy column can hold more distinct values than any list should
+receive. A reference column answers identities beside their display names,
+resolved through the same batched, policy-bound machinery grids use -- a
+target the caller may not read keeps its identity and no name. The ask is
+validated the way a filter is: an unknown, unreadable, or unstored column
+is refused.
+
 Ordering must be deterministic. When the requested sort is not unique, the
 query service appends the entity primary key as a tie-breaker. Continuation
 cursors are opaque, versioned, and bound to the model, entity, normalized

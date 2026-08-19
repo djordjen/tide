@@ -463,6 +463,29 @@ def browse_sortable_fields(
     )
 
 
+def browse_filterable_fields(
+    columns: tuple[str, ...],
+    entity: NormalizedEntity,
+) -> tuple[str, ...]:
+    """Return displayed fields a per-column value filter can constrain.
+
+    The sortable rule plus references: a reference filters by identity and
+    enumerates beside its display names, while a collection is navigation
+    and a virtual computed field has no stored column to ask.
+    """
+
+    return tuple(
+        name
+        for name in columns
+        if entity.field(name).metadata["type"] != "collection"
+        and not (
+            entity.field(name).metadata.get("computed")
+            and entity.field(name).metadata["computed"].get("materialization")
+            == "virtual"
+        )
+    )
+
+
 def browse_named_filters(
     view: ResolvedView,
 ) -> dict[str, BrowseNamedFilter]:

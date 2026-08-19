@@ -98,6 +98,12 @@ invisible until it is rebuilt.
   sidebar;
 - server-side search, named filters, sorting, and opaque-cursor loading;
 - automatic incremental loading near the bottom of the visible grid;
+- a funnel on every stored column that opens its distinct values as a
+  checkbox list — served, bounded and policy-filtered by the server, with
+  references shown by name, a `(Blank)` entry for empty cells, search
+  within the list, and Apply/Cancel staging; checked values become an `in`
+  condition beside the named filter and the search, the funnel stays lit
+  while a column constrains the view, and checking everything releases it;
 - a summary footer under the grid when the view declares `summaries:` —
   each answer sits under its column, follows the active search and filter,
   and describes the whole filtered set rather than the rows loaded so far;

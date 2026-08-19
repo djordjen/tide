@@ -11,6 +11,7 @@ export type TideFilterOperator =
   | "gte"
   | "contains"
   | "icontains"
+  | "in"
 
 export interface TideFilterInput {
   field: string
@@ -132,6 +133,17 @@ export interface TideSummaryRequest {
   function: string
 }
 
+export interface TideDistinctValue {
+  value: unknown
+  display: string | null
+}
+
+export interface TideDistinctResult {
+  field: string
+  values: TideDistinctValue[]
+  truncated: boolean
+}
+
 export interface TideSummaryValue extends TideSummaryRequest {
   value: unknown
 }
@@ -148,6 +160,11 @@ export interface TideBrowsePresentation {
   search_label: string | null
   named_filters: TidePresentationNamedFilter[]
   sortable_fields: string[]
+  /**
+   * Shown columns a per-column value filter can constrain. Optional for
+   * the same version-skew reason as `summaries`; absence means no funnels.
+   */
+  filterable_fields?: string[]
   /**
    * What the footer asks of every page query, already column-filtered.
    * Optional because a bundle can be newer than the server it is served

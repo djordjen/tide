@@ -109,6 +109,7 @@ def test_schema_resource_contains_only_principal_visible_fields() -> None:
         "gte",
         "contains",
         "icontains",
+        "in",
     )
     assert schema.actions == ()
 

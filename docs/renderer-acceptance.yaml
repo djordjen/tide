@@ -366,3 +366,23 @@ capabilities:
           - path: tests/test_api_server.py
             selector: test_manifest_summaries_are_filtered_with_their_columns
             runner: python
+
+  - id: column_value_filters
+    tier: roadmap
+    description: Every stored browse column offers its distinct values as a server-answered checkbox list whose checked subset filters the set through the `in` operator; the summary footer follows the same filtered set.
+    renderers:
+      tui:
+        status: planned
+        note: The terminal keeps its search and named filters; the wire capability (`in`, `_distinct`) is shared and a terminal rendering is a later choice, recorded in DECISIONS on 2026-08-19.
+      web:
+        status: covered
+        evidence:
+          - path: web/src/App.column-filters.test.tsx
+            selector: filters the browse by the checked values of one column
+            runner: web
+          - path: tests/test_distinct_values.py
+            selector: test_distinct_values_answer_ordered_deduplicated_and_policy_bound
+            runner: python
+          - path: tests/test_runtime.py
+            selector: test_in_filters_match_membership_with_sql_null_semantics
+            runner: python

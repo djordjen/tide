@@ -3,6 +3,8 @@ import type {
   TideBrowserSessionInfo,
   TideBrowsePresentation,
   TideConnection,
+  TideDistinctResult,
+  TideFilterInput,
   TidePresentationLookup,
   TidePresentationManifest,
   TidePresentationFormAction,
@@ -373,6 +375,22 @@ export class TideApi {
       {
         method: "POST",
         body: JSON.stringify(query),
+      },
+      signal,
+    )
+  }
+
+  distinct(
+    view: TideBrowsePresentation,
+    field: string,
+    filters: TideFilterInput[],
+    signal?: AbortSignal,
+  ): Promise<TideDistinctResult> {
+    return this.request<TideDistinctResult>(
+      `${view.resource_path}/_distinct`,
+      {
+        method: "POST",
+        body: JSON.stringify({ field, filters }),
       },
       signal,
     )

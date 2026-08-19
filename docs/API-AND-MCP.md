@@ -376,6 +376,14 @@ URLs while preserving the same allow-listed field/operator/type validation,
 row policies, protected projections, deterministic ordering, bounded page
 size, and principal-bound cursors as local service calls.
 
+`POST /api/v1/{resource}/_distinct` answers one column's distinct values
+under the same typed conditions (`{field, filters}` in, values beside
+display names and a `truncated` flag out) -- what a column filter's
+checkbox list is made of, and equally a way for an API or MCP consumer to
+ask what a column holds without paging. The filter contract gained `in`
+for the answer's other half: membership over a list of typed values, with
+a null element meaning blanks count as chosen.
+
 The same body may carry `summaries`, a list of `{field, function}` requests
 from the closed set `sum`/`count`/`avg`/`min`/`max`; the page envelope answers
 with a `summaries` list of `{field, function, value}` computed over the whole

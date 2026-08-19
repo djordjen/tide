@@ -37,6 +37,9 @@ from tide.api.contracts import (
     TideAuditHistory,
     TideBrowserAuthenticationInfo,
     TideBrowserSessionInfo,
+    TideDistinctInput,
+    TideDistinctResult,
+    TideDistinctValue,
     TideEntityCapabilities,
     TidePresentationManifest,
     TidePasswordLoginInput,
@@ -1251,6 +1254,23 @@ def build_fastapi_app(
                 tags=[tag],
                 responses=_documented_errors(400, 401, 403, 422),
             )
+            distinct_endpoint = _distinct_endpoint(
+                records,
+                entity,
+                request_context,
+            )
+            app.add_api_route(
+                f"{resource_path}/_distinct",
+                distinct_endpoint,
+                methods=["POST"],
+                response_model=TideDistinctResult,
+                name=f"Distinct {entity.label}",
+                operation_id=(
+                    f"distinct{preview.record_models[entity_name].__name__.removesuffix('Record')}"
+                ),
+                tags=[tag],
+                responses=_documented_errors(400, 401, 403, 422),
+            )
         if "get" in exposure.operations:
             primary_key = _primary_key(entity)
             get_endpoint = _get_endpoint(
@@ -1782,6 +1802,7 @@ def _query_endpoint(
                         entity,
                         item.field,
                         item.value,
+                        item.operator,
                     ),
                 )
                 for item in payload.filters
@@ -1849,6 +1870,57 @@ def _query_endpoint(
 
     query_records.__name__ = f"query_{entity.name.replace('.', '_')}"
     return query_records
+
+
+def _distinct_endpoint(
+    records: RecordsService,
+    entity: NormalizedEntity,
+    context_dependency: Any,
+) -> Any:
+    def distinct_values(
+        payload: TideDistinctInput,
+        context: RequestContext = Depends(context_dependency),
+    ) -> TideDistinctResult:
+        try:
+            filters = tuple(
+                FilterCondition(
+                    item.field,
+                    item.operator,
+                    _decode_filter_value(
+                        records.model,
+                        entity,
+                        item.field,
+                        item.value,
+                        item.operator,
+                    ),
+                )
+                for item in payload.filters
+            )
+            answer = records.distinct_values(
+                entity.name,
+                payload.field,
+                filters,
+                context,
+            )
+        except QueryFieldError as error:
+            raise _bad_request(str(error)) from error
+        except (KeyError, TypeError, ValueError, InvalidOperation) as error:
+            raise _bad_request("distinct query is invalid") from error
+        field = entity.fields[payload.field]
+        return TideDistinctResult(
+            field=payload.field,
+            values=tuple(
+                TideDistinctValue(
+                    value=_wire_value(records.model, field, value),
+                    display=display,
+                )
+                for value, display in answer.values
+            ),
+            truncated=answer.truncated,
+        )
+
+    distinct_values.__name__ = f"distinct_{entity.name.replace('.', '_')}"
+    return distinct_values
 
 
 def _get_endpoint(

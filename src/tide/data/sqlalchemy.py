@@ -581,6 +581,45 @@ class SQLAlchemyRepository:
     }
 
     @scoped(writes=False)
+    def distinct(
+        self,
+        entity: str,
+        field: str,
+        *,
+        filters: tuple[FilterCondition, ...] = (),
+        row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
+        relationships: RelationshipLoadPlan | None = None,
+        limit: int = 200,
+    ) -> tuple[tuple[Any, ...], bool]:
+        if limit < 1:
+            raise ValueError("distinct limit must be at least 1")
+        table = self.table(entity)
+        column = table.c.get(field)
+        if column is None:
+            raise QueryTranslationError(
+                f"field {entity}.{field} is not stored and cannot be "
+                "enumerated in SQL"
+            )
+        statement = select(column).distinct()
+        predicates = self._criteria_predicates(
+            entity,
+            table,
+            filters,
+            row_criteria=row_criteria,
+            criteria_parameters=criteria_parameters,
+            relationships=relationships,
+        )
+        if predicates:
+            statement = statement.where(and_(*predicates))
+        statement = statement.order_by(
+            _sort_null_rank(column, False), column.asc()
+        ).limit(limit + 1)
+        with self._reading() as connection:
+            values = [row[0] for row in connection.execute(statement)]
+        return tuple(values[:limit]), len(values) > limit
+
+    @scoped(writes=False)
     def aggregate(
         self,
         entity: str,
@@ -1508,6 +1547,17 @@ def _filter_predicate(
         return column.contains(value)
     if condition.operator == "icontains":
         return func.lower(column).contains(value.casefold())
+    if condition.operator == "in":
+        chosen = tuple(value)
+        present = tuple(item for item in chosen if item is not None)
+        branches: list[ColumnElement[bool]] = []
+        if present:
+            branches.append(column.in_(present))
+        if len(present) != len(chosen):
+            # SQL's IN never matches NULL, and the blank entry in a column
+            # filter means exactly "rows where this is empty".
+            branches.append(column.is_(None))
+        return branches[0] if len(branches) == 1 else or_(*branches)
     raise ValueError(f"unsupported filter operator {condition.operator!r}")
 
 

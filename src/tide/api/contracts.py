@@ -32,6 +32,7 @@ TideFilterOperator = Literal[
     "gte",
     "contains",
     "icontains",
+    "in",
 ]
 TideAlignment = Literal["left", "center", "right"]
 TideCollectionAction = Literal["add", "apply", "remove"]
@@ -148,6 +149,39 @@ class TideQueryInput(BaseModel):
     limit: int = Field(default=100, ge=1, le=500)
     cursor: str | None = Field(default=None, min_length=1)
     summaries: tuple[TideSummaryInput, ...] = ()
+
+
+class TideDistinctInput(BaseModel):
+    """One column's distinct-values ask, under the caller's conditions."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    field: str = Field(min_length=1)
+    filters: tuple[TideFilterInput, ...] = ()
+
+
+class TideDistinctValue(BaseModel):
+    """One value a column holds, beside its display name when it has one."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    value: Any = None
+    display: str | None = None
+
+
+class TideDistinctResult(BaseModel):
+    """A bounded distinct-values answer for one column.
+
+    Ordered ascending with a null last, deduplicated, and cut at the
+    server's bound with ``truncated`` saying so -- a legacy column can
+    hold more distinct values than any list should receive.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    field: str
+    values: tuple[TideDistinctValue, ...] = ()
+    truncated: bool = False
 
 
 class TideReferenceSelectionInput(BaseModel):
@@ -568,6 +602,8 @@ class TideBrowsePresentation(BaseModel):
     search_label: str | None = None
     named_filters: tuple[TidePresentationNamedFilter, ...] = ()
     sortable_fields: tuple[str, ...] = ()
+    filterable_fields: tuple[str, ...] = ()
+    """Shown columns a per-column value filter can constrain."""
     summaries: tuple[TideSummaryInput, ...] = ()
     """What the view's footer asks of every page query, column-filtered.
 

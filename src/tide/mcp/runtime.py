@@ -176,6 +176,7 @@ class RuntimeMcpService:
                     entity,
                     item.field,
                     item.value,
+                    item.operator,
                 ),
             )
             for item in query.filters
@@ -545,9 +546,10 @@ def _field_schema(field: NormalizedField) -> TideMcpFieldSchema:
             "gte",
             "contains",
             "icontains",
+            "in",
         )
     else:
-        operators = ("eq", "ne", "lt", "lte", "gt", "gte")
+        operators = ("eq", "ne", "lt", "lte", "gt", "gte", "in")
     return TideMcpFieldSchema(
         name=field.name,
         label=field_label(field),

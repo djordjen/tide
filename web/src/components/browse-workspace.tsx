@@ -143,8 +143,18 @@ export function BrowseWorkspace({
   const selectedFilter = view.named_filters.find(
     (candidate) => candidate.name === filterName,
   )
+  // Per-column value filters: field -> the checked values, each becoming
+  // one `in` condition beside the named filter and the search. A null
+  // element is the blank checkbox -- rows where the column is empty.
+  const [valueFilters, setValueFilters] = useState<
+    Record<string, unknown[]>
+  >({})
+  useEffect(() => setValueFilters({}), [view.view])
   const filters = useMemo<TideFilterInput[]>(() => {
     const result = [...(selectedFilter?.conditions ?? [])]
+    for (const [field, values] of Object.entries(valueFilters)) {
+      result.push({ field, operator: "in", value: values })
+    }
     if (debouncedSearch && view.search_field) {
       result.push({
         field: view.search_field,
@@ -153,7 +163,7 @@ export function BrowseWorkspace({
       })
     }
     return result
-  }, [debouncedSearch, selectedFilter, view.search_field])
+  }, [debouncedSearch, selectedFilter, valueFilters, view.search_field])
 
   const query = useInfiniteQuery({
     queryKey: [
@@ -194,7 +204,31 @@ export function BrowseWorkspace({
     scrollReset.current?.()
     setSelectedIdentity(null)
     setFeedback(null)
-  }, [debouncedSearch, filterName, sort])
+  }, [debouncedSearch, filterName, sort, valueFilters])
+
+  const columnFilters = useMemo(
+    () => ({
+      active: valueFilters,
+      // A column's own list must reflect the other conditions and never
+      // its own, so an applied filter can be widened from its popup.
+      conditionsExcept: (field: string) =>
+        filters.filter(
+          (condition) =>
+            !(condition.operator === "in" && condition.field === field),
+        ),
+      onApply: (field: string, values: unknown[] | null) =>
+        setValueFilters((current) => {
+          const next = { ...current }
+          if (values === null) {
+            delete next[field]
+          } else {
+            next[field] = values
+          }
+          return next
+        }),
+    }),
+    [filters, valueFilters],
+  )
 
   const identityOf = useCallback(
     (record: TideRecord) => record[view.identity_field],
@@ -685,6 +719,7 @@ export function BrowseWorkspace({
         views={views}
         records={records}
         summaries={summaries}
+        columnFilters={columnFilters}
         inlineEdit={
           inlineEdit && form
             ? {

@@ -134,6 +134,17 @@ because a typo that silently fell back to form editing would be a switch
 nobody knows is off. The terminal deliberately ignores it and keeps its
 form. The manifest carries the resolved mode to remote renderers.
 
+The filter contract gained membership and enumeration. `in` takes a
+non-empty list of typed values and keeps rows whose column equals any of
+them -- with a null element meaning blanks count as chosen, because SQL's
+IN alone never matches NULL and both repositories must agree on what the
+blank checkbox means. `POST .../_distinct` answers one column's distinct
+values under the caller's conditions: bounded at 200 with a truncated
+flag, ordered ascending with a null last, row policies applied, and a
+reference column named through the same batched display machinery grids
+use. Conditions still only AND together; `in` is the one disjunction,
+scoped to one column's values.
+
 A query may now ask for aggregates beside its page. `QuerySpec` carries
 `(field, function)` requests from a closed set -- `sum`, `count`, `avg`,
 `min`, `max` -- and the page answers each over the **whole filtered set**:
@@ -326,6 +337,21 @@ swallowed the mouseup, the resize tracker kept resizing after the button
 was up. The grip is revealed by opacity rather than display, because a
 drag source that goes display:none between mousedown and the drag
 threshold makes Chromium abort the drag before it starts.
+
+Every stored column in the browser's grid now carries a funnel, the way
+the reference application's grids do. It opens the column's distinct
+values as a checkbox list -- served and bounded by the server, captioned
+codes as their captions, references by name, a `(Blank)` entry for empty
+cells, a search that narrows the list in place, and Apply/Cancel staging.
+The list arrives fully checked when the column is unconstrained and
+exactly as applied when it is, and it reflects every other active
+condition but never the column's own, so an applied filter can be widened
+from its own popup. Checked values become an `in` condition beside the
+named filter and the search; the funnel stays lit while its column
+constrains the view, and checking everything releases it, because a
+filter that admits every value is not a filter. The summary footer
+answers for the same filtered set, so the count follows the checkboxes
+with no extra wiring.
 
 The browser edits rows in place where a view asks for it. Double-click or
 Enter starts the edit by reading the record fresh -- what is writable, what

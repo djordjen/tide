@@ -251,6 +251,49 @@ def test_client_round_trips_summaries_with_typed_values() -> None:
     assert walked.summaries == ()
 
 
+def test_client_enumerates_a_column_with_typed_values_and_names() -> None:
+    model, app = _app("sales_clerk")
+
+    with _http_client(app) as transport:
+        client = TideApiClient(model, BASE_URL, TOKEN, http_client=transport)
+        client.connect()
+        statuses = client.distinct_values("sales.Invoice", "status")
+        drafts_only = client.distinct_values(
+            "sales.Invoice",
+            "status",
+            filters=(FilterCondition("status", "eq", "draft"),),
+        )
+        dates = client.distinct_values("sales.Invoice", "invoice_date")
+        customers = client.distinct_values("sales.Invoice", "customer")
+        # Membership over typed elements encodes the way scalars do; one
+        # seeded invoice totals 850.00.
+        by_total = client.query_records(
+            "sales.Invoice",
+            QuerySpec(
+                filters=(
+                    FilterCondition("total", "in", (Decimal("850.00"),)),
+                ),
+            ),
+        )
+
+    assert statuses.truncated is False
+    assert [value for value, _ in statuses.values] == [
+        "cancelled",
+        "draft",
+        "posted",
+    ]
+    assert all(display is None for _, display in statuses.values)
+    assert [value for value, _ in drafts_only.values] == ["draft"]
+    # Typed the way record values are: dates are dates again.
+    assert all(isinstance(value, date) for value, _ in dates.values)
+    named = dict(customers.values)
+    assert named[1] == "ADRIA - Adria Consulting"
+    assert all(display is not None for display in named.values())
+    assert [record["total"] for record in by_total.records] == [
+        Decimal("850.00")
+    ]
+
+
 def test_client_restores_protected_values_without_confusing_them_with_null() -> None:
     model, app = _app("summary_viewer")
 

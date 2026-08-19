@@ -136,9 +136,22 @@ def decode_filter_value(
     entity: NormalizedEntity,
     field_name: str,
     value: Any,
+    operator: str = "eq",
 ) -> Any:
     if field_name not in entity.fields:
         raise QueryFieldError(f"unknown query field {field_name!r}")
+    if operator == "in":
+        # Membership takes a list of typed elements; a null element means
+        # blanks count as chosen. The list itself must be a list -- one
+        # string is one value, not a set of characters.
+        if not isinstance(value, list) or not value:
+            raise QueryFieldError(
+                f"'in' filter for {field_name!r} requires a non-empty list"
+            )
+        return tuple(
+            decode_wire_value(model, entity.field(field_name), element)
+            for element in value
+        )
     return decode_wire_value(model, entity.field(field_name), value)
 
 

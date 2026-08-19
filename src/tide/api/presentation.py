@@ -41,6 +41,7 @@ from tide.presentation import (
     application_navigation,
     action_label,
     browse_columns,
+    browse_filterable_fields,
     browse_named_filters,
     browse_search_field,
     browse_sortable_fields,
@@ -168,6 +169,10 @@ def build_presentation_manifest(
                     for named_filter in filters.values()
                 ),
                 sortable_fields=browse_sortable_fields(
+                    field_names,
+                    entity,
+                ),
+                filterable_fields=browse_filterable_fields(
                     field_names,
                     entity,
                 ),

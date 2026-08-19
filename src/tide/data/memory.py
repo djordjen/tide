@@ -214,6 +214,33 @@ class InMemoryRepository:
         return records
 
     @scoped(writes=False)
+    def distinct(
+        self,
+        entity: str,
+        field: str,
+        *,
+        filters: tuple[FilterCondition, ...] = (),
+        row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
+        relationships: RelationshipLoadPlan | None = None,
+        limit: int = 200,
+    ) -> tuple[tuple[Any, ...], bool]:
+        if limit < 1:
+            raise ValueError("distinct limit must be at least 1")
+        rows = self._visible_rows(
+            entity,
+            filters,
+            row_criteria=row_criteria,
+            criteria_parameters=criteria_parameters,
+            relationships=relationships,
+        )
+        seen: set[Any] = set()
+        for row in rows:
+            seen.add(row.get(field))
+        ordered = sorted(seen, key=query_sort_key)
+        return tuple(ordered[:limit]), len(ordered) > limit
+
+    @scoped(writes=False)
     def aggregate(
         self,
         entity: str,
