@@ -417,7 +417,7 @@ export function TideDataGrid({
       layoutChanged.current = personal
       setColumnSizing(sizes)
     },
-    [records, summaries, view.columns],
+    [records, summaries, view.columns, view.filterable_fields],
   )
 
   useEffect(() => {
