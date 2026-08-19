@@ -329,6 +329,22 @@ including browse columns, form controls, or a collection section and its action
 bar. It remains presentation metadata, not an authorization rule; services
 continue to enforce field and entity security independently.
 
+## Browse edit modes
+
+`settings: {edit: inline}` on a browse view asks the browser to edit rows in
+place: double-click (or Enter) puts the selected row's writable scalar
+columns into compact editors, Enter saves, Escape cancels, and leaving a
+dirty row saves it -- the reference application's own contract. The row is
+not a second write path: entering an edit reads the record fresh (so
+`writable_fields`, appearance locks and the version are the server's
+current word), the draft/validate/diff helpers are the form's own, and the
+save is the same `PATCH` with `If-Match` the form sends -- a refused save
+keeps the row editing with the field marked, a stale one stops editing and
+says so. Reference and collection columns stay read-only in the row;
+creating still opens the form, which knows the fields a grid does not
+show. The default is `form`, the terminal always edits through its form,
+and an unknown value is refused wherever it is declared (`TIDE285`).
+
 ## Browse summaries
 
 A browse view's `summaries:` mapping asks for one aggregate per shown column

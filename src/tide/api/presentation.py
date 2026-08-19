@@ -178,6 +178,9 @@ def build_presentation_manifest(
                     ).items()
                     if name in field_names
                 ),
+                edit=str(
+                    view.data.get("settings", {}).get("edit", "form")
+                ),
                 page_size=int(
                     view.data.get("settings", {}).get("page_size", 50)
                 ),

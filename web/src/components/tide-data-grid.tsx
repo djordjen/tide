@@ -27,6 +27,7 @@ import {
   Rows3,
 } from "lucide-react"
 
+import { GridCellEditor } from "@/components/grid-cell-editor"
 import { TideDisplayValue } from "@/components/tide-display-value"
 import { Button } from "@/components/ui/button"
 import {
@@ -42,6 +43,7 @@ import type { TideApi } from "@/lib/api"
 import type {
   TideBrowsePresentation,
   TidePresentationColumn,
+  TidePresentationFormField,
   TidePresentationManifest,
   TideRecord,
   TideSortInput,
@@ -60,6 +62,16 @@ import { cn } from "@/lib/utils"
 
 const ROW_HEIGHT = 43
 
+/** The one row currently editing in place, owned by the workspace. */
+export interface GridInlineEdit {
+  identity: string
+  draft: Record<string, unknown>
+  editable: ReadonlySet<string>
+  errors: Record<string, string>
+  fields: Record<string, TidePresentationFormField>
+  saving: boolean
+}
+
 interface TideDataGridProps {
   api: TideApi
   application: string
@@ -70,6 +82,10 @@ interface TideDataGridProps {
   records: TideRecord[]
   /** The whole filtered set's answers, from the newest page fetched. */
   summaries?: TideSummaryValue[] | null
+  inlineEdit?: GridInlineEdit | null
+  onInlineChange?: (name: string, value: unknown) => void
+  onInlineSave?: () => void
+  onInlineCancel?: () => void
   loading: boolean
   fetchingMore: boolean
   hasMore: boolean
@@ -90,6 +106,10 @@ export function TideDataGrid({
   views,
   records,
   summaries,
+  inlineEdit,
+  onInlineChange,
+  onInlineSave,
+  onInlineCancel,
   loading,
   fetchingMore,
   hasMore,
@@ -261,6 +281,25 @@ export function TideDataGrid({
     if (node) {
       pendingFocus.current = null
       node.focus()
+    }
+  })
+
+  // Entering an edit puts the caret in the row's first editor, once per
+  // edited identity -- the editors render on this pass, so the focus waits
+  // for the node the same way the roving tab stop above does.
+  const focusedEdit = useRef<string | null>(null)
+  useEffect(() => {
+    const identity = inlineEdit?.identity ?? null
+    if (identity === null || focusedEdit.current === identity) {
+      focusedEdit.current = identity
+      return
+    }
+    const editor = scrollRef.current?.querySelector<HTMLElement>(
+      "[data-inline-editing] [data-tide-editor]",
+    )
+    if (editor) {
+      focusedEdit.current = identity
+      editor.focus()
     }
   })
 
@@ -607,6 +646,9 @@ export function TideDataGrid({
               const selected =
                 selectedIdentity !== null &&
                 String(identity) === String(selectedIdentity)
+              const editing =
+                inlineEdit != null &&
+                String(identity) === inlineEdit.identity
               const emphasis = recordEmphasis(row.original)
               return (
                 <div
@@ -614,6 +656,7 @@ export function TideDataGrid({
                   role="row"
                   data-row-index={virtualRow.index}
                   data-emphasis={emphasis}
+                  data-inline-editing={editing || undefined}
                   tabIndex={virtualRow.index === activeIndex ? 0 : -1}
                   aria-selected={selected}
                   aria-rowindex={virtualRow.index + 1}
@@ -626,6 +669,9 @@ export function TideDataGrid({
                     // Selection outranks a rule: the row a person is acting on
                     // has to be the one that looks acted on.
                     selected && "bg-accent/70 hover:bg-accent/75",
+                    // An editing row keeps the selection edge and drops the
+                    // wash: its own controls are the emphasis now.
+                    editing && "border-l-primary bg-background hover:bg-background",
                   )}
                   style={{
                     gridTemplateColumns: gridTemplate,
@@ -634,8 +680,25 @@ export function TideDataGrid({
                     width: contentWidth,
                   }}
                   onClick={() => onSelect(row.original)}
-                  onDoubleClick={() => onOpen(row.original)}
+                  onDoubleClick={() => {
+                    if (!editing) {
+                      onOpen(row.original)
+                    }
+                  }}
                   onKeyDown={(event) => {
+                    if (editing) {
+                      // The editors own the keyboard while the row edits:
+                      // arrows move the caret, Enter commits, Escape walks
+                      // away. Row navigation resumes when the edit ends.
+                      if (event.key === "Enter") {
+                        event.preventDefault()
+                        onInlineSave?.()
+                      } else if (event.key === "Escape") {
+                        event.preventDefault()
+                        onInlineCancel?.()
+                      }
+                      return
+                    }
                     if (event.key === "Enter") {
                       event.preventDefault()
                       onOpen(row.original)
@@ -662,6 +725,8 @@ export function TideDataGrid({
                     const column = view.columns.find(
                       (item) => item.name === cell.column.id,
                     )!
+                    const editableCell =
+                      editing && inlineEdit.editable.has(column.name)
                     return (
                       <div
                         key={cell.id}
@@ -673,18 +738,32 @@ export function TideDataGrid({
                             : column.alignment === "center"
                               ? "justify-center text-center"
                               : "justify-start text-left",
+                          editableCell && "px-1.5",
                         )}
                       >
-                        <TideDisplayValue
-                          api={api}
-                          column={column}
-                          record={row.original}
-                          views={views}
-                          // The grid's roving tab stop owns the keyboard;
-                          // the doors stay for the pointer and for Enter
-                          // on the opened record.
-                          linkTabIndex={-1}
-                        />
+                        {editableCell ? (
+                          <GridCellEditor
+                            column={column}
+                            field={inlineEdit.fields[column.name]}
+                            value={inlineEdit.draft[column.name]}
+                            error={inlineEdit.errors[column.name]}
+                            disabled={inlineEdit.saving}
+                            onChange={(value) =>
+                              onInlineChange?.(column.name, value)
+                            }
+                          />
+                        ) : (
+                          <TideDisplayValue
+                            api={api}
+                            column={column}
+                            record={row.original}
+                            views={views}
+                            // The grid's roving tab stop owns the keyboard;
+                            // the doors stay for the pointer and for Enter
+                            // on the opened record.
+                            linkTabIndex={-1}
+                          />
+                        )}
                       </div>
                     )
                   })}

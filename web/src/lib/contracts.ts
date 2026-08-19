@@ -154,6 +154,12 @@ export interface TideBrowsePresentation {
    * by, and a browse against such a server still has to draw.
    */
   summaries?: TideSummaryRequest[]
+  /**
+   * How this browse offers editing. Optional for the same version-skew
+   * reason; an older server means form editing, which is what absence
+   * defaults to everywhere this is read.
+   */
+  edit?: "form" | "inline"
   page_size: number
   operations: TideOperation[]
   detail_view: string | null

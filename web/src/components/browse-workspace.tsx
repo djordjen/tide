@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react"
-import { useInfiniteQuery } from "@tanstack/react-query"
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ChartNoAxesCombined,
   CircleCheck,
@@ -48,7 +48,16 @@ import type {
   TideRecord,
   TideSortInput,
 } from "@/lib/contracts"
-import { isEditableForm } from "@/lib/form-draft"
+import {
+  EDITABLE_SCALAR_TYPES,
+  changedMutationPayload,
+  formDraft,
+  isEditableForm,
+  issueFieldErrors,
+  validateFormDraft,
+  type TideFormDraft,
+  type TideFormErrors,
+} from "@/lib/form-draft"
 import { cn } from "@/lib/utils"
 
 /**
@@ -69,6 +78,17 @@ const RecordDetail = lazy(async () => ({
 const ReportPreview = lazy(async () => ({
   default: (await import("@/components/report-preview")).ReportPreview,
 }))
+
+interface InlineEditState {
+  identity: string
+  etag: string | null
+  /** The fresh GET this edit started from -- its values are the diff base. */
+  record: TideRecord
+  draft: TideFormDraft
+  editable: Set<string>
+  errors: TideFormErrors
+  saving: boolean
+}
 
 interface BrowseWorkspaceProps {
   api: TideApi
@@ -208,6 +228,203 @@ export function BrowseWorkspace({
       }
     },
     [form, identityOf, setActiveIdentity, view.operations],
+  )
+
+  // --- editing in the row -------------------------------------------------
+  // `edit: inline` on the view routes the open gesture here instead of the
+  // record screen. The row is not a second write path: a fresh GET decides
+  // what is writable, the form's own draft/validate/diff helpers shape the
+  // save, and the PATCH carries the GET's version. References and
+  // collections stay the form's business, so a cell edits scalars only.
+  const queryClient = useQueryClient()
+  const inlineMode =
+    view.edit === "inline" && form !== null && view.operations.includes("update")
+  const [inlineEdit, setInlineEdit] = useState<InlineEditState | null>(null)
+  useEffect(() => setInlineEdit(null), [view.view])
+
+  const inlineDirty = useCallback(
+    (state: InlineEditState) =>
+      form !== null &&
+      Object.keys(
+        changedMutationPayload(form, state.draft, state.editable, state.record),
+      ).length > 0,
+    [form],
+  )
+
+  const saveInlineEdit = useCallback(async (): Promise<boolean> => {
+    if (!inlineEdit || !form) {
+      return true
+    }
+    const clientErrors = validateFormDraft(
+      form,
+      inlineEdit.draft,
+      inlineEdit.editable,
+    )
+    if (Object.keys(clientErrors).length > 0) {
+      setInlineEdit({ ...inlineEdit, errors: clientErrors })
+      return false
+    }
+    const payload = changedMutationPayload(
+      form,
+      inlineEdit.draft,
+      inlineEdit.editable,
+      inlineEdit.record,
+    )
+    if (Object.keys(payload).length === 0) {
+      setInlineEdit(null)
+      return true
+    }
+    setInlineEdit({ ...inlineEdit, saving: true, errors: {} })
+    try {
+      await api.updateRecord(
+        view,
+        identityOf(inlineEdit.record),
+        payload,
+        inlineEdit.etag,
+      )
+    } catch (error) {
+      if (error instanceof TideApiError && error.issues.length > 0) {
+        const fieldErrors = issueFieldErrors(form, error.issues)
+        setInlineEdit({
+          ...inlineEdit,
+          saving: false,
+          errors: fieldErrors,
+        })
+        // The row has no room for a message strip, so the field's own
+        // words go to the feedback line; the cell carries the mark.
+        setFeedback(Object.values(fieldErrors)[0] ?? error.message)
+        return false
+      }
+      // A stale row is not this edit's to win: leave editing, say why, and
+      // let the refetch show what the record has become.
+      setInlineEdit(null)
+      setFeedback(
+        error instanceof TideApiError
+          ? error.message
+          : "The row could not be saved.",
+      )
+      if (error instanceof TideApiError && error.status === 412) {
+        void queryClient.invalidateQueries({
+          queryKey: ["browse", view.view],
+        })
+      }
+      return false
+    }
+    setInlineEdit(null)
+    void queryClient.invalidateQueries({ queryKey: ["browse", view.view] })
+    return true
+  }, [api, form, identityOf, inlineEdit, queryClient, view])
+
+  const startInlineEdit = useCallback(
+    async (record: TideRecord) => {
+      if (!inlineMode || !form) {
+        openRecord(record)
+        return
+      }
+      const identity = identityOf(record)
+      if (identity === null || identity === undefined) {
+        return
+      }
+      if (inlineEdit) {
+        if (String(identity) === inlineEdit.identity) {
+          return
+        }
+        if (inlineDirty(inlineEdit)) {
+          if (!(await saveInlineEdit())) {
+            return
+          }
+        } else {
+          setInlineEdit(null)
+        }
+      }
+      setSelectedIdentity(identity)
+      let snapshot
+      try {
+        snapshot = await api.getRecord(view, identity)
+      } catch (error) {
+        setFeedback(
+          error instanceof TideApiError
+            ? error.message
+            : "The record could not be read.",
+        )
+        return
+      }
+      const tide = snapshot.record._tide
+      const hidden = new Set(tide?.appearance?.hidden ?? [])
+      const editable = new Set(
+        view.columns
+          .map((column) => column.name)
+          .filter(
+            (name) =>
+              (tide?.writable_fields ?? []).includes(name) &&
+              !hidden.has(name) &&
+              form.fields[name] !== undefined &&
+              form.fields[name].field_type !== "reference" &&
+              EDITABLE_SCALAR_TYPES.has(form.fields[name].field_type),
+          ),
+      )
+      if (editable.size === 0) {
+        // Nothing this row can edit in place -- a fully locked record, or
+        // columns that are all references -- so the form says why.
+        openRecord(record)
+        return
+      }
+      setInlineEdit({
+        identity: String(identity),
+        etag: snapshot.etag,
+        record: snapshot.record,
+        draft: formDraft(form, snapshot.record),
+        editable,
+        errors: {},
+        saving: false,
+      })
+    },
+    [
+      api,
+      form,
+      identityOf,
+      inlineDirty,
+      inlineEdit,
+      inlineMode,
+      openRecord,
+      saveInlineEdit,
+      view,
+    ],
+  )
+
+  const changeInlineEdit = useCallback((name: string, value: unknown) => {
+    setInlineEdit((current) =>
+      current
+        ? {
+            ...current,
+            draft: { ...current.draft, [name]: value },
+            errors: Object.fromEntries(
+              Object.entries(current.errors).filter(([key]) => key !== name),
+            ),
+          }
+        : current,
+    )
+  }, [])
+
+  const selectRow = useCallback(
+    (record: TideRecord) => {
+      const identity = identityOf(record)
+      if (inlineEdit && String(identity) !== inlineEdit.identity) {
+        // Leaving a dirty row saves it, the way the reference application
+        // does; a refused save keeps the editing row selected instead.
+        if (inlineDirty(inlineEdit)) {
+          void saveInlineEdit().then((saved) => {
+            if (saved) {
+              setSelectedIdentity(identity)
+            }
+          })
+          return
+        }
+        setInlineEdit(null)
+      }
+      setSelectedIdentity(identity)
+    },
+    [identityOf, inlineDirty, inlineEdit, saveInlineEdit],
   )
   const navigate = useCallback(
     async (offset: -1 | 1) => {
@@ -468,6 +685,23 @@ export function BrowseWorkspace({
         views={views}
         records={records}
         summaries={summaries}
+        inlineEdit={
+          inlineEdit && form
+            ? {
+                identity: inlineEdit.identity,
+                draft: inlineEdit.draft,
+                editable: inlineEdit.editable,
+                errors: inlineEdit.errors,
+                fields: form.fields,
+                saving: inlineEdit.saving,
+              }
+            : null
+        }
+        onInlineChange={changeInlineEdit}
+        onInlineSave={() => {
+          void saveInlineEdit()
+        }}
+        onInlineCancel={() => setInlineEdit(null)}
         loading={query.isPending}
         fetchingMore={query.isFetchingNextPage}
         hasMore={query.hasNextPage}
@@ -477,8 +711,14 @@ export function BrowseWorkspace({
         sort={sort}
         onSort={setSort}
         selectedIdentity={selectedIdentity}
-        onSelect={(record) => setSelectedIdentity(identityOf(record))}
-        onOpen={openRecord}
+        onSelect={selectRow}
+        onOpen={(record) => {
+          if (inlineMode) {
+            void startInlineEdit(record)
+          } else {
+            openRecord(record)
+          }
+        }}
         registerScrollReset={(reset) => {
           scrollReset.current = reset
         }}

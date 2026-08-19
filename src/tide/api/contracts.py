@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from tide.model.source import TideSummaryFunction
+from tide.model.source import TideBrowseEditMode, TideSummaryFunction
 
 
 TIDE_WIRE_VERSION = "0.1"
@@ -574,6 +574,12 @@ class TideBrowsePresentation(BaseModel):
     A summary whose column this principal cannot read leaves the manifest
     with the column, so the grid never sends a request the server would
     refuse.
+    """
+    edit: TideBrowseEditMode = "form"
+    """How this browse offers editing: the record form, or in the row.
+
+    Presentation, not permission -- what a row will actually accept is
+    still the record's own `writable_fields` and the service's checks.
     """
     page_size: int = Field(ge=1, le=500)
     operations: tuple[TideOperation, ...] = ()

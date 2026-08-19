@@ -30,6 +30,7 @@ from tide.compiler.normalized import (
 from tide.compiler.source import SourceDocument, YamlSourceError, load_yaml_document
 from tide.diagnostics import CompilationFailed, Diagnostic, Severity, SourceLocation
 from tide.model.source import (
+    BROWSE_EDIT_MODES,
     RESERVED_ACTION_NAMES,
     SUMMARIZABLE_FIELD_TYPES,
     ActionSource,
@@ -48,7 +49,12 @@ SourceType = TypeVar("SourceType", bound=BaseModel)
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$")
 DISPLAY_FIELD = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 FRAMEWORK_VIEW_DEFAULTS: dict[str, dict[str, Any]] = {
-    "browse": {"page_size": 50, "incremental_search": True, "confirm_delete": True},
+    "browse": {
+        "page_size": 50,
+        "incremental_search": True,
+        "confirm_delete": True,
+        "edit": "form",
+    },
     "form": {"show_required_indicator": True, "validate_on_leave": True},
     "lookup": {"page_size": 20, "incremental_search": True, "close_after_selection": True},
     "inline_edit": {"show_column_headers": True, "allow_reorder": True},
@@ -153,6 +159,30 @@ def compile_project(project: str | Path = ".") -> ApplicationModel:
         views,
         diagnostics,
     )
+    # A browse `edit:` setting can be declared in four places; the closed
+    # set holds in all of them, because a typo that silently fell back to
+    # form editing would be a guard nobody knows is ignored.
+    if defaults_document is not None:
+        _validate_browse_edit_mode(
+            defaults_source.browse, defaults_document, ("browse",), diagnostics
+        )
+    for preset_name, preset in presets.items():
+        if preset.kind == "browse":
+            _validate_browse_edit_mode(
+                preset.settings,
+                preset_documents[preset_name],
+                ("presets", preset_name, "settings"),
+                diagnostics,
+            )
+    for entity_name, entity in entities.items():
+        browse_presentation = entity.presentation.get("browse")
+        if browse_presentation:
+            _validate_browse_edit_mode(
+                browse_presentation,
+                entity_documents[entity_name],
+                ("presentation", "browse"),
+                diagnostics,
+            )
     _validate_reports(reports, report_documents, entities, set(formats), diagnostics)
     permissions, roles, row_policies, field_policies = _validate_security(
         security_items,
@@ -1795,6 +1825,10 @@ def _validate_views(
         for field_name in (*view.columns, *view.search, *view.fields.keys()):
             _require_field(entity, field_name, document, ("view",), diagnostics)
         _validate_view_summaries(view, entity, document, diagnostics)
+        if _view_kind(view) == "browse":
+            _validate_browse_edit_mode(
+                view.settings, document, ("settings",), diagnostics
+            )
         for field_name, configuration in view.fields.items():
             field = entity.fields.get(field_name)
             if field is None:
@@ -2464,6 +2498,23 @@ def _view_kind(view: ViewSource) -> str:
         return view.kind
     suffix = view.view.rsplit(".", 1)[-1]
     return {"browse": "browse", "edit": "form", "lookup": "lookup", "inline_edit": "inline_edit"}.get(suffix, "form")
+
+
+def _validate_browse_edit_mode(
+    settings: Mapping[str, Any],
+    document: SourceDocument,
+    path: tuple[str | int, ...],
+    diagnostics: list[Diagnostic],
+) -> None:
+    mode = settings.get("edit")
+    if mode is not None and mode not in BROWSE_EDIT_MODES:
+        _add(
+            diagnostics,
+            "TIDE285",
+            f"unknown browse edit mode {mode!r}; expected 'form' or 'inline'",
+            document,
+            (*path, "edit"),
+        )
 
 
 def _validate_view_summaries(

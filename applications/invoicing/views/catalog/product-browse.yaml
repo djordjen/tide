@@ -5,6 +5,10 @@ kind: browse
 mode: overlay
 extends: standard_browse
 
+# Flat reference data is what editing in the row is for; invoices keep
+# the form, where their lines live.
+settings: {edit: inline}
+
 columns: [code, name, unit_price, active]
 search: [code, name]
 

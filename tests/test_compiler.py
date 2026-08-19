@@ -793,6 +793,159 @@ def test_browse_summaries_are_compiler_validated(tmp_path: Path) -> None:
     )
 
 
+def test_browse_edit_mode_resolves_with_provenance(tmp_path: Path) -> None:
+    project = tmp_path / "edit-modes"
+    models = project / "models"
+    views = project / "views"
+    models.mkdir(parents=True)
+    views.mkdir()
+    (project / "tide.yaml").write_text(
+        "\n".join(
+            [
+                'schema_version: "0.1"',
+                "application: {name: Edit Modes, version: 0.1.0}",
+                "model: {paths: [models]}",
+                "views: {paths: [views]}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (models / "item.yaml").write_text(
+        "\n".join(
+            [
+                "entity: demo.Item",
+                "fields:",
+                "  id: {type: integer, primary_key: true}",
+                "  name: {type: string}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (views / "browse.yaml").write_text(
+        "\n".join(
+            [
+                "view: demo.Item.browse",
+                "entity: demo.Item",
+                "kind: browse",
+                "columns: [name]",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (views / "quick.yaml").write_text(
+        "\n".join(
+            [
+                "view: demo.Item.quick",
+                "entity: demo.Item",
+                "kind: browse",
+                "columns: [name]",
+                "settings: {edit: inline}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    model = compile_project(project)
+
+    plain = model.views["demo.Item.browse"]
+    assert plain.data["settings"]["edit"] == "form"
+    assert plain.origins["settings.edit"].layer == "framework defaults"
+    quick = model.views["demo.Item.quick"]
+    assert quick.data["settings"]["edit"] == "inline"
+    assert quick.origins["settings.edit"].layer == "view overlay"
+
+
+def test_browse_edit_mode_is_a_closed_set_wherever_it_is_declared(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "invalid-edit-modes"
+    models = project / "models"
+    views = project / "views"
+    presentation = project / "presentation"
+    models.mkdir(parents=True)
+    views.mkdir()
+    presentation.mkdir()
+    (project / "tide.yaml").write_text(
+        "\n".join(
+            [
+                'schema_version: "0.1"',
+                "application: {name: Invalid Edit Modes, version: 0.1.0}",
+                "model: {paths: [models]}",
+                "views: {paths: [views]}",
+                "presentation:",
+                "  defaults: presentation/defaults.yaml",
+                "  presets: [presentation/presets.yaml]",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (presentation / "defaults.yaml").write_text(
+        "\n".join(
+            [
+                "browse:",
+                "  edit: banana",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (presentation / "presets.yaml").write_text(
+        "\n".join(
+            [
+                "presets:",
+                "  quick_browse:",
+                "    kind: browse",
+                "    settings: {edit: cell}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (models / "item.yaml").write_text(
+        "\n".join(
+            [
+                "entity: demo.Item",
+                "fields:",
+                "  id: {type: integer, primary_key: true}",
+                "  name: {type: string}",
+                "presentation:",
+                "  browse: {edit: grid}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (views / "browse.yaml").write_text(
+        "\n".join(
+            [
+                "view: demo.Item.browse",
+                "entity: demo.Item",
+                "kind: browse",
+                "columns: [name]",
+                "settings: {edit: rows}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(project)
+
+    offenders = [
+        diagnostic.message
+        for diagnostic in caught.value.diagnostics
+        if diagnostic.code == "TIDE285"
+    ]
+    # All four places a browse setting can be declared answer with the
+    # same refusal: application defaults, a preset, an entity's
+    # presentation block, and the view itself.
+    assert sorted(offenders) == sorted(
+        [
+            "unknown browse edit mode 'banana'; expected 'form' or 'inline'",
+            "unknown browse edit mode 'cell'; expected 'form' or 'inline'",
+            "unknown browse edit mode 'grid'; expected 'form' or 'inline'",
+            "unknown browse edit mode 'rows'; expected 'form' or 'inline'",
+        ]
+    )
+
+
 def test_summary_functions_come_from_the_closed_set(tmp_path: Path) -> None:
     project = tmp_path / "unknown-summary-function"
     models = project / "models"

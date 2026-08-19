@@ -74,6 +74,38 @@ test("opens a record and reads the lines a field policy guards", async ({
   await expect(line).toContainText("480.00")
 })
 
+test("edits a row in place where the view says inline", async ({ page }) => {
+  const code = unique("E2EP")
+  await signIn(page)
+  await page.getByRole("button", { name: "Products" }).click()
+
+  // Creating still belongs to the form -- a grid row hides required fields
+  // its columns do not show -- so the journey makes its own subject first.
+  await page.getByRole("button", { name: "New" }).click()
+  await page.getByRole("textbox", { name: "Code" }).fill(code)
+  await page.getByRole("textbox", { name: "Name" }).fill(`${code} Widget`)
+  await page.getByRole("textbox", { name: "Unit Price" }).fill("10.00")
+  await page.getByRole("button", { name: "Save", exact: true }).click()
+  await expect(createdRow(page)).toContainText(code)
+
+  // Double-click puts the row itself into edit: the writable columns become
+  // editors scoped by the fresh GET, and Enter is the save.
+  await page.getByRole("row", { name: new RegExp(code) }).dblclick()
+  const name = page.getByRole("textbox", { name: "Name" })
+  await expect(name).toHaveValue(`${code} Widget`)
+  await name.fill(`${code} Gadget`)
+  await name.press("Enter")
+  const row = page.getByRole("row", { name: new RegExp(code) })
+  await expect(row).toContainText(`${code} Gadget`)
+  await expect(page.getByRole("textbox", { name: "Name" })).toHaveCount(0)
+
+  // A reload proves the server holds the edit, not the tab.
+  await page.reload()
+  await expect(
+    page.getByRole("row", { name: new RegExp(code) }),
+  ).toContainText(`${code} Gadget`)
+})
+
 test("creates a record, edits it, and finds the server kept it", async ({
   page,
 }) => {

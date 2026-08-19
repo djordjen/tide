@@ -111,6 +111,17 @@ SCALAR_FIELD_TYPES: tuple[str, ...] = tuple(
 )
 
 
+TideBrowseEditMode = Literal["form", "inline"]
+"""How a browse offers editing: through the record form, or in the row.
+
+A browser capability by design -- the terminal always edits through its
+form -- but declared in application metadata, so the choice travels with
+the application rather than with a renderer build.
+"""
+
+BROWSE_EDIT_MODES: tuple[str, ...] = get_args(TideBrowseEditMode)
+
+
 TideSummaryFunction = Literal["sum", "count", "avg", "min", "max"]
 """The closed set a browse `summaries:` declaration may ask for.
 

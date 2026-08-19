@@ -200,6 +200,10 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
             {"field": "number", "function": "count"},
             {"field": "total", "function": "sum"},
         ]
+        # The browse edit mode travels with the view: invoices keep the
+        # form, the flat product catalogue offers editing in the row.
+        assert invoice_view["edit"] == "form"
+        assert manifest["views"]["catalog.Product.browse"]["edit"] == "inline"
         assert invoice_view["columns"][1]["format_options"] == {
             "decimal_places": None,
             "thousands_separator": False,

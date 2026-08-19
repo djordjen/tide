@@ -101,6 +101,11 @@ invisible until it is rebuilt.
 - a summary footer under the grid when the view declares `summaries:` —
   each answer sits under its column, follows the active search and filter,
   and describes the whole filtered set rather than the rows loaded so far;
+- editing in the row where the view declares `settings: {edit: inline}` —
+  double-click or Enter turns the writable scalar columns into editors
+  scoped by a fresh read of the record, Enter saves through the same
+  version-checked PATCH the form uses, Escape cancels, and leaving a dirty
+  row saves it; the demo's Products browse works this way;
 - row virtualization, so loaded records do not all become DOM elements;
 - exact decimal and metadata-defined date formatting;
 - authorized reference display through generated REST resources;

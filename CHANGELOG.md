@@ -124,6 +124,16 @@ values are four digits and generated ones six"), and it stayed invisible only
 because the two never appeared side by side. The ninth invoice put them there.
 The generator now renders the width the application's own history uses.
 
+A browse view may declare how the browser offers editing: `settings:
+{edit: inline}` puts the selected row's writable scalar columns into
+editors in place, while the default `form` keeps today's record screen.
+The setting rides the ordinary browse-settings layers -- application
+defaults, presets, an entity's presentation block, the view itself -- and
+the closed set is validated at every declaration site (`TIDE285`),
+because a typo that silently fell back to form editing would be a switch
+nobody knows is off. The terminal deliberately ignores it and keeps its
+form. The manifest carries the resolved mode to remote renderers.
+
 A query may now ask for aggregates beside its page. `QuerySpec` carries
 `(field, function)` requests from a closed set -- `sum`, `count`, `avg`,
 `min`, `max` -- and the page answers each over the **whole filtered set**:
@@ -308,6 +318,21 @@ and its label on the record; the terminal, which has no wash to give a row,
 colours the row's cells. Neither ever sees a rule -- the server sends a
 verdict -- and an emphasis a renderer does not know is left undrawn rather
 than drawn wrong, since a server may be one version ahead of the bundle.
+
+The browser edits rows in place where a view asks for it. Double-click or
+Enter starts the edit by reading the record fresh -- what is writable, what
+an appearance rule locked and which version the row is are the server's
+current word, not the page's memory -- and the columns that may change
+become compact editors: text and masked numbers, dates, a tick box, the
+captioned dropdown. Enter saves, Escape cancels, and leaving a dirty row
+saves it the way the reference application does. The save is the form's own
+diff through the same version-checked PATCH: nothing is sent that did not
+change, a refused save keeps the row editing with the offending cell marked
+and the field's words on the feedback line, and a stale row stops editing
+and says the record moved. References and collections stay the form's
+business, as does creating, which needs fields a grid does not show. The
+demo's Products browse works this way; invoices keep the form, where their
+lines live.
 
 Both also answer a browse view's `summaries:` declaration. The browser draws
 a footer band under the grid, each answer beneath the column it describes in

@@ -159,6 +159,17 @@ server-side over the query's whole filtered set -- never the visible page --
 and ride the page envelope; see
 [queries](QUERY-AND-CONCURRENCY.md) for the wire contract.
 
+A browse view's `edit` setting chooses how the browser offers editing:
+`form` (the default) opens the record screen, `inline` puts the selected
+row's writable scalar columns into editors in place. Like any browse
+setting it can be declared application-wide in `presentation/defaults.yaml`,
+in a preset, in an entity's `presentation:` block, or on the view, and the
+closed set is validated at every one of those sites (`TIDE285`) -- a typo
+that silently fell back to form editing would be a switch nobody knows is
+off. The terminal deliberately ignores it and always edits through its
+form; what a row will actually accept remains the record's own
+`writable_fields` and the service's checks, exactly as on the form.
+
 `tide view explain` returns the resolved view plus provenance for every leaf or
 replaced collection, including the layer, source file, and source property path.
 
@@ -225,6 +236,7 @@ An action's `transition` block has its own codes, described under
 | `TIDE282` | an `appearance` rule hiding a record rather than a field |
 | `TIDE283` | `summaries` on a non-browse view, without `columns:` beside it, or naming an unshown column |
 | `TIDE284` | a summary function its column's type cannot answer, or an unstored column |
+| `TIDE285` | a browse `edit:` setting outside `form`/`inline`, wherever it is declared |
 
 `TIDE276` is separate and applies to any action: an entity may not name one
 `cancel` or `save`. A view's `actions:` list mixes domain actions with the form
