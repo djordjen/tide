@@ -152,6 +152,21 @@ it("resets a password and clears the field it was typed into", async () => {
   expect(screen.getByLabelText("New password")).toHaveValue("")
 })
 
+it("says when a password last changed without printing a machine instant", async () => {
+  // Framework data has no author and therefore no declared format, so the
+  // renderer owns the default -- the same neutral one a datetime column falls
+  // back to. What it must not do is put a wire value on the screen.
+  stubServer()
+  const user = userEvent.setup()
+  await openAdministration(user)
+
+  await user.click(screen.getByRole("button", { name: "clerk" }))
+
+  const panel = await screen.findByText(/Last changed/)
+  expect(panel).toHaveTextContent("2026-08-21 09:05")
+  expect(panel.textContent ?? "").not.toMatch(/\d{4}-\d{2}-\d{2}T/)
+})
+
 it("is reachable by a principal with no browse views at all", async () => {
   // The administrator role grants `tide.users.administer` and nothing else,
   // so this identity has no navigation. The shell used to answer that with

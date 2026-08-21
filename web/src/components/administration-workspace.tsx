@@ -8,6 +8,10 @@ import { Input } from "@/components/ui/input"
 import { TideLine } from "@/components/tide-line"
 import { sectionCaptionClass } from "@/components/form-field"
 import { useDocumentTitle } from "@/lib/document-title"
+import {
+  DEFAULT_DATETIME_PATTERN,
+  formatIsoDate,
+} from "@/lib/format"
 import { TideApiError, type TideApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
@@ -378,7 +382,12 @@ export function AdministrationWorkspace({
                   </p>
                   <p className="mb-2 text-xs text-muted-foreground">
                     Replacing it ends every session this account has open. Last
-                    changed {account.password_changed_at}.
+                    changed{" "}
+                    {formatIsoDate(
+                      account.password_changed_at,
+                      DEFAULT_DATETIME_PATTERN,
+                    )}
+                    .
                   </p>
                   <div className="flex flex-wrap items-end gap-2">
                     <LabelledInput

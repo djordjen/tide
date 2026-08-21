@@ -35,7 +35,9 @@ export function formatCellValue(
     return formatIsoDate(
       value,
       column.format_options?.display ??
-        (column.field_type === "date" ? "%Y-%m-%d" : "%Y-%m-%d %H:%M"),
+        (column.field_type === "date"
+          ? DEFAULT_DATE_PATTERN
+          : DEFAULT_DATETIME_PATTERN),
     )
   }
   if (
@@ -119,7 +121,18 @@ function formatExactNumber(
   return `${sign}${whole}${decimalPlaces ? `.${fraction}` : ""}`
 }
 
-function formatIsoDate(value: string, pattern: string): string {
+/**
+ * The patterns a value falls back to when nothing declared one.
+ *
+ * Shared rather than written twice: a browse column with no `display:` and a
+ * timestamp the framework owns are both "nobody said, so the renderer
+ * decides", and the two would drift the moment one of them was changed.
+ */
+export const DEFAULT_DATE_PATTERN = "%Y-%m-%d"
+export const DEFAULT_DATETIME_PATTERN = "%Y-%m-%d %H:%M"
+
+/** Render an ISO instant through a `%Y`-style pattern, or give it back. */
+export function formatIsoDate(value: string, pattern: string): string {
   const match =
     /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?/.exec(
       value,
