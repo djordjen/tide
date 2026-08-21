@@ -593,6 +593,23 @@ class FieldPolicySource(SourceModel):
     write: str | None = None
 
 
+FRAMEWORK_PERMISSION_PREFIX = "tide."
+
+FRAMEWORK_PERMISSIONS: frozenset[str] = frozenset({"tide.users.administer"})
+"""Capabilities the framework itself answers for, rather than the application.
+
+`tide.` is reserved. An application declares one of these in `permissions:`
+and grants it to a role exactly like its own, so the single role expansion in
+`SecurityEngine` still decides everything and no second authority exists --
+but it may not invent one, because a permission nothing checks reads as a
+granted capability while granting nothing.
+
+Today there is one: `tide.users.administer` permits administering the
+identities TIDE owns. Where TIDE does not own them -- development
+authentication, or an identity provider -- there is nothing for it to reach.
+"""
+
+
 class SecurityDocumentSource(SourceModel):
     permissions: tuple[str, ...] = ()
     roles: dict[str, RoleSource] = Field(default_factory=dict)

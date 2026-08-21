@@ -47,6 +47,66 @@ TIDE distinguishes:
 Roles grant permission identifiers or policies; model fields should reference
 permission identifiers rather than embedding particular role names.
 
+## Administering identities
+
+Roles and permissions are compiled. Nothing at runtime creates a role or
+changes what one grants -- that is an authoring change, and it goes through
+the compiler like every other. What *is* administered at runtime is
+**assignment**: which identity holds which declared role, and whether an
+account may sign in at all.
+
+It exists exactly where TIDE owns the identities, which is the local username
+and password store (`--auth local`). Development authentication has no
+accounts, and an identity provider administers its own; in both, there is
+nothing here to reach, and the capability reports itself as unavailable rather
+than failing when used.
+
+The permission is `tide.users.administer`, declared by the application in the
+reserved [`tide.` namespace](METADATA-V0.md#the-reserved-tide-permission-namespace)
+and granted through a role like any other, so the same role expansion in
+`SecurityEngine` decides it. There is no second authority, no flag on the
+identity file, and no account that is an administrator by being first.
+
+An administrator may list the accounts, create one, replace an account's
+roles, enable or disable it, and replace its password. Two invariants hold
+wherever the request comes from:
+
+- an account may not be left with no roles -- an account nobody can sign in to
+  is a *disabled* account, and saying it through an empty role list would be
+  saying it unclearly;
+- the store may not be left with no **enabled** account that can administer it.
+  Removing the administering role from the last one, or disabling it, is
+  refused as a conflict. A disabled administrator does not count, because the
+  guard is about who can still sign in.
+
+Deleting an account is deliberately not offered. Disabling is reversible,
+keeps the history that references the account readable, and is what
+`tide auth` offers on the console.
+
+A password reset ends every session that account has open: the store stamps a
+session with a digest of the hash it was issued against, so signing out
+everywhere is a consequence of the reset rather than a second step somebody
+has to remember. Replacing a password requires no knowledge of the previous
+one, which is what makes it a *reset* -- and is why the permission that
+permits it is a permission an application grants deliberately.
+
+The bootstrap is unchanged and stays on the console, because a running server
+cannot be the only way to reach an application whose accounts have all been
+locked out:
+
+```powershell
+uv run tide auth create-user applications/invoicing `
+  --store .tide/local-users.sqlite3 `
+  --username admin --role administrator
+```
+
+An administrator can grant themselves any role the application declares. That
+is what administering identities means, and it is why the role is granted to
+few people rather than being made safe.
+
+Administration is not exposed over MCP. An agent that can grant itself a role
+is an agent with every role.
+
 ## Studio security preview
 
 TIDE Studio can project a compiled view as a selected role. It constructs a
@@ -428,3 +488,11 @@ permission gates bounded history through local/remote Textual and REST, whose
 projection also omits the stored idempotency-key hash. Collection-detail,
 failed CRUD attempts, MCP/report/export audit, retention, purge, and
 reconciliation remain future extensions under the same non-disclosure rule.
+
+Identity administration is recorded in the operational log rather than the
+audit store, which is entity-scoped: creating an account, changing what it
+holds, and resetting its password each emit a correlated event naming the
+principal who acted and the account acted on. The log's reviewed field list
+carries identity strings the framework owns and nothing else, so a password
+cannot reach a log even by being passed to the call -- everything outside the
+list is dropped rather than truncated or masked.

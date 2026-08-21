@@ -59,6 +59,24 @@ class LocalUser:
 
 
 @dataclass(frozen=True, slots=True)
+class LocalUserSummary:
+    """One account as administration sees it.
+
+    Deliberately not :class:`LocalUser` without a field: this carries no
+    password hash at all, so a listing cannot leak one by being projected
+    carelessly somewhere downstream. The timestamps are the two questions an
+    administrator actually asks of an account they did not create.
+    """
+
+    username: str
+    display_name: str
+    enabled: bool
+    roles: frozenset[str]
+    created_at: str
+    password_changed_at: str
+
+
+@dataclass(frozen=True, slots=True)
 class LocalLoginResult:
     session_id: str
     csrf_token: str
@@ -376,6 +394,56 @@ class LocalUserStore:
                 ((normalized_username, role) for role in sorted(normalized_roles)),
             )
         return normalized_roles
+
+    def list_users(self, *, limit: int | None = None) -> tuple[LocalUserSummary, ...]:
+        """Every account, by username, without any password material.
+
+        ``limit`` exists so a caller answering a request can ask for one more
+        than it will show and say out loud that it truncated, the way bounded
+        distinct values do. The store itself has no opinion about how many
+        accounts is too many.
+        """
+
+        if limit is not None and (
+            isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0
+        ):
+            raise ValueError("local user listing limit must be a positive integer")
+        self.validate()
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT username, display_name, enabled,
+                       created_at, password_changed_at
+                FROM tide_local_users
+                ORDER BY username
+                """
+                + ("LIMIT ?" if limit is not None else ""),
+                (limit,) if limit is not None else (),
+            ).fetchall()
+            usernames = {str(row["username"]) for row in rows}
+            roles: dict[str, set[str]] = {username: set() for username in usernames}
+            for username, role in connection.execute(
+                """
+                SELECT username, role
+                FROM tide_local_user_roles
+                ORDER BY username, role
+                """
+            ).fetchall():
+                # A role row for an account the page did not reach is not this
+                # listing's business; `limit` is the only way that happens.
+                if str(username) in roles:
+                    roles[str(username)].add(str(role))
+        return tuple(
+            LocalUserSummary(
+                username=str(row["username"]),
+                display_name=str(row["display_name"]),
+                enabled=bool(row["enabled"]),
+                roles=frozenset(roles[str(row["username"])]),
+                created_at=str(row["created_at"]),
+                password_changed_at=str(row["password_changed_at"]),
+            )
+            for row in rows
+        )
 
     def upgrade_password_hash(
         self,

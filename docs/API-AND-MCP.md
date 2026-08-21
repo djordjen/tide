@@ -115,8 +115,41 @@ identifier, and only those server-assigned roles, directly exposed operations,
 nested-draft operations, readable/writable fields, and exposed actions
 available to that principal through this server. A Boolean audit capability
 reports only whether the safe record-history route is available and does not
-disclose the permission name. It is capability information for rendering and
-early feedback, never a replacement for per-request authorization.
+disclose the permission name. A Boolean `administration` capability reports
+whether this principal may administer identities *and* whether this server
+owns any -- one flag, false unless both hold. It is capability information for
+rendering and early feedback, never a replacement for per-request
+authorization.
+
+### Identity administration
+
+Where the server owns the identities -- `--auth local`, and only there -- it
+registers a small administration surface behind `tide.users.administer`:
+
+```text
+GET    /api/v1/_tide/administration/roles
+GET    /api/v1/_tide/administration/users
+POST   /api/v1/_tide/administration/users
+PATCH  /api/v1/_tide/administration/users/{username}
+POST   /api/v1/_tide/administration/users/{username}/password
+```
+
+The roles resource reports the roles the application compiled and what each
+grants; it is read-only, because roles are authored, not administered. The
+users resource lists the accounts with their roles, whether each may sign in,
+and when it was created and last had its password changed -- never a hash, and
+never a field derived from one. `PATCH` carries `roles`, `enabled`, or both,
+and applies nothing when it carries neither. Replacing a password is its own
+route rather than a field, because it ends every session that account has
+open.
+
+Refusals are told apart: `403` for a caller without the permission, `404` for
+an account that does not exist, `409` where the store's current state refuses
+-- an account that already exists, or removing the last enabled administrator
+-- and `400` for a request that was simply wrong, such as a role the
+application does not define. A refusal never repeats a value it refused, since
+one of them is a password. The routes are absent, not merely denied, where
+TIDE owns no identities.
 
 The authenticated `GET /api/v1/_tide/presentation` resource is the Web
 renderer foundation. It projects the compiler-normalized application

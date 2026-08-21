@@ -53,7 +53,8 @@ The v0.1 compiler checks:
 - semantic format and presentation-preset references;
 - action handler shape, explicit action access, and shortcut conflicts;
 - static project-handler module/function resolution without importing code;
-- permission declarations, role grants, row policies, and field policies;
+- permission declarations, role grants, row policies, and field policies,
+  including the reserved `tide.` namespace (`TIDE286`);
 - the safe typed expression subset, relationship paths, parameters, expected
   result types, and computed field cycles;
 - action-only/system fields being read-only to adapters;
@@ -159,6 +160,36 @@ server-side over the query's whole filtered set -- never the visible page --
 and ride the page envelope; see
 [queries](QUERY-AND-CONCURRENCY.md) for the wire contract.
 
+### The reserved `tide.` permission namespace
+
+Permissions beginning `tide.` name capabilities the framework itself answers
+for, rather than capabilities of the application's own data. An application
+declares one in `permissions:` and grants it through a role exactly like its
+own, so the single role expansion still decides everything and no second
+authority exists -- but it may not invent one, because a permission nothing
+checks reads as a granted capability while granting nothing (`TIDE286`).
+
+There is one today:
+
+| Permission | Permits |
+|---|---|
+| `tide.users.administer` | administering the identities TIDE owns |
+
+```yaml
+permissions:
+  - tide.users.administer
+
+roles:
+  administrator:
+    grants:
+      - tide.users.administer
+```
+
+Holding it permits assigning *declared* roles to accounts, and enabling or
+disabling them. Roles and what they grant are compiled: creating a role, or
+changing its grants, is an authoring change that goes through the compiler
+like every other. See [security](SECURITY.md#administering-identities).
+
 A browse view's `edit` setting chooses how the browser offers editing:
 `form` (the default) opens the record screen, `inline` puts the selected
 row's writable scalar columns into editors in place. Like any browse
@@ -237,6 +268,7 @@ An action's `transition` block has its own codes, described under
 | `TIDE283` | `summaries` on a non-browse view, without `columns:` beside it, or naming an unshown column |
 | `TIDE284` | a summary function its column's type cannot answer, or an unstored column |
 | `TIDE285` | a browse `edit:` setting outside `form`/`inline`, wherever it is declared |
+| `TIDE286` | a `tide.`-prefixed permission the framework does not define |
 
 `TIDE276` is separate and applies to any action: an entity may not name one
 `cancel` or `save`. A view's `actions:` list mixes domain actions with the form

@@ -1234,3 +1234,86 @@ def test_project_discovery_cannot_escape_project_root(tmp_path: Path) -> None:
         compile_project(project)
 
     assert {diagnostic.code for diagnostic in caught.value.diagnostics} == {"TIDE012"}
+
+
+def _framework_permission_project(tmp_path: Path, *permissions: str) -> Path:
+    project = tmp_path / "framework-permissions"
+    models = project / "models"
+    security = project / "security"
+    models.mkdir(parents=True)
+    security.mkdir()
+    (project / "tide.yaml").write_text(
+        "\n".join(
+            [
+                'schema_version: "0.1"',
+                "application: {name: Framework Permissions, version: 0.1.0}",
+                "model: {paths: [models]}",
+                "security: {paths: [security]}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (models / "item.yaml").write_text(
+        "\n".join(
+            [
+                "entity: demo.Item",
+                "fields:",
+                "  id: {type: integer, primary_key: true}",
+                "  name: {type: string}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (security / "policies.yaml").write_text(
+        "\n".join(
+            [
+                "permissions:",
+                *[f"  - {permission}" for permission in permissions],
+                "roles:",
+                "  administrator:",
+                "    grants:",
+                *[f"      - {permission}" for permission in permissions],
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return project
+
+
+def test_the_framework_permission_namespace_is_reserved(tmp_path: Path) -> None:
+    """`tide.` names capabilities the framework itself answers for.
+
+    An application declares and grants them like any other permission, so the
+    one role expansion still decides everything -- but it may not invent one,
+    because a permission nothing checks reads as a granted capability and is
+    silence.
+    """
+
+    project = _framework_permission_project(
+        tmp_path,
+        "tide.users.administer",
+        "tide.users.delete",
+    )
+
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(project)
+
+    offenders = [
+        diagnostic.message
+        for diagnostic in caught.value.diagnostics
+        if diagnostic.code == "TIDE286"
+    ]
+    assert offenders == [
+        "unknown framework permission 'tide.users.delete'; "
+        "'tide.' is reserved and names 'tide.users.administer'"
+    ]
+
+
+def test_the_framework_permission_the_framework_defines_compiles(
+    tmp_path: Path,
+) -> None:
+    project = _framework_permission_project(tmp_path, "tide.users.administer")
+
+    model = compile_project(project)
+
+    assert model.roles["administrator"] == ("tide.users.administer",)

@@ -278,7 +278,14 @@ the same services.
 - interactive conflict inspection and permitted field-level merge assistance;
   **implemented through shared three-way comparison/resolution contracts plus
   local/remote TUI reload, safe-field rebase, and explicit Current/Mine choices**;
-- roles and permissions administration;
+- roles and permissions administration; **implemented for the identities
+  TIDE owns**, as a reserved `tide.users.administer` permission granted
+  through an ordinary role, REST routes that list the compiled roles and
+  administer account assignment, and a browser screen. Roles and their grants
+  stay compiled -- what is administered is which account holds which declared
+  role, and whether it may sign in. Under an identity provider the provider
+  administers, and the capability reports itself unavailable rather than
+  failing when used;
 - permission-gated action and CRUD audit history through local/remote TUI and
   REST, with safe protected logging; **implemented for domain-action lifecycle
   events and successful root create/update/delete changes; collection-detail,

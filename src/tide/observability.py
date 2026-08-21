@@ -28,6 +28,14 @@ _SAFE_LOG_FIELDS = (
     "status_code",
     "duration_ms",
     "error_type",
+    # Identity strings the framework owns, never application data: who acted
+    # and whose account they acted on. Administering an identity is one of the
+    # few things worth finding in a log a year later, and an event that cannot
+    # say whose account it changed is not worth writing down. Everything
+    # outside this list is still dropped, which is what keeps a password out
+    # of a log by construction rather than by remembering.
+    "principal",
+    "subject",
 )
 
 

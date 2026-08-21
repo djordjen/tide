@@ -625,6 +625,7 @@ def test_studio_service_previews_roles_and_terminal_constraints_without_data() -
     assert clerk.minimum_width == 100
     assert clerk.minimum_height is None
     assert clerk.available_roles == (
+        "administrator",
         "auditor",
         "invoice_poster",
         "sales_clerk",
@@ -1623,6 +1624,11 @@ def test_textual_studio_previews_selected_role_and_terminal_size() -> None:
 
             assert isinstance(app.screen, StudioPreviewScreen)
             preview = app.screen
+            # The picker opens on the application's first role. This test is
+            # about what a preview says, so it names the role it asks about
+            # rather than depending on which one sorts first.
+            preview.query_one("#studio-preview-role", Select).value = "auditor"
+            await pilot.pause()
             assert preview.preview.role == "auditor"
             assert preview.preview.fit == "fits"
             canvas = preview.query_one("#studio-preview-canvas", TextArea)

@@ -277,6 +277,81 @@ class TideAuditHistory(BaseModel):
     events: tuple[TideAuditEvent, ...] = ()
 
 
+class TideRoleGrants(BaseModel):
+    """One compiled role and the permissions it carries.
+
+    Read-only: roles come from the application's metadata, so administration
+    reports them rather than offering to change them.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str = Field(min_length=1)
+    grants: tuple[str, ...] = ()
+
+
+class TideRoleCatalogue(BaseModel):
+    """Every role this application compiled, and what each one grants."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    roles: tuple[TideRoleGrants, ...] = ()
+
+
+class TideLocalUser(BaseModel):
+    """One account TIDE owns, without any password material at all."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    username: str = Field(min_length=1)
+    display_name: str = Field(min_length=1)
+    enabled: bool
+    roles: tuple[str, ...] = ()
+    created_at: str = Field(min_length=1)
+    password_changed_at: str = Field(min_length=1)
+
+
+class TideLocalUserList(BaseModel):
+    """The accounts in this store, and whether the bound was reached."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    users: tuple[TideLocalUser, ...] = ()
+    truncated: bool = False
+
+
+class TideCreateLocalUserInput(BaseModel):
+    """A new account. The password is written as a hash and never read back."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=1024)
+    roles: tuple[str, ...] = Field(min_length=1)
+    display_name: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class TideUpdateLocalUserInput(BaseModel):
+    """What an administrator may change about an existing account.
+
+    A password reset is deliberately not here: it ends every session the
+    account has open, which is an operation rather than a field edit.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    roles: tuple[str, ...] | None = Field(default=None, min_length=1)
+    enabled: bool | None = None
+
+
+class TideLocalPasswordInput(BaseModel):
+    """A replacement password, checked against the local policy on arrival."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    password: str = Field(min_length=1, max_length=1024)
+
+
 class TideEntityCapabilities(BaseModel):
     """Operations the authenticated principal may attempt through this server."""
 
@@ -304,6 +379,10 @@ class TideSessionInfo(BaseModel):
     roles: tuple[str, ...] = ()
     reports: tuple[str, ...] = ()
     entities: dict[str, TideEntityCapabilities]
+    #: True only when both halves hold: this principal holds
+    #: `tide.users.administer`, and this server owns the identities there is
+    #: something to administer. A provider administers its own.
+    administration: bool = False
 
 
 class TideBrowserAuthenticationInfo(BaseModel):

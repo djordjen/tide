@@ -31,6 +31,8 @@ from tide.compiler.source import SourceDocument, YamlSourceError, load_yaml_docu
 from tide.diagnostics import CompilationFailed, Diagnostic, Severity, SourceLocation
 from tide.model.source import (
     BROWSE_EDIT_MODES,
+    FRAMEWORK_PERMISSION_PREFIX,
+    FRAMEWORK_PERMISSIONS,
     RESERVED_ACTION_NAMES,
     SUMMARIZABLE_FIELD_TYPES,
     ActionSource,
@@ -2960,6 +2962,22 @@ def _validate_security(
                     diagnostics,
                     "TIDE260",
                     "permission identifiers must be qualified dotted names",
+                    document,
+                    ("permissions", index),
+                )
+            if (
+                permission.startswith(FRAMEWORK_PERMISSION_PREFIX)
+                and permission not in FRAMEWORK_PERMISSIONS
+            ):
+                known = ", ".join(
+                    repr(name) for name in sorted(FRAMEWORK_PERMISSIONS)
+                )
+                _add(
+                    diagnostics,
+                    "TIDE286",
+                    f"unknown framework permission {permission!r}; "
+                    f"{FRAMEWORK_PERMISSION_PREFIX!r} is reserved and names "
+                    f"{known}",
                     document,
                     ("permissions", index),
                 )

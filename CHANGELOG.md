@@ -145,6 +145,16 @@ reference column named through the same batched display machinery grids
 use. Conditions still only AND together; `in` is the one disjunction,
 scoped to one column's values.
 
+Permissions beginning `tide.` are reserved for capabilities the framework
+itself answers for. An application declares one in `permissions:` and grants
+it through a role exactly like its own -- so the single role expansion still
+decides everything and administration is not a second authority -- but it may
+not invent one, because a permission nothing checks reads as a granted
+capability while granting nothing (`TIDE286`). There is one today,
+`tide.users.administer`, and the reference application declares a role that
+grants it and nothing else: administering who may sign in is not a reason to
+be able to sell anything.
+
 A query may now ask for aggregates beside its page. `QuerySpec` carries
 `(field, function)` requests from a closed set -- `sum`, `count`, `avg`,
 `min`, `max` -- and the page answers each over the **whole filtered set**:
@@ -557,6 +567,30 @@ domain action at `/mcp`. They reuse the same service authorization, generated
 inputs, protected values, exact types, concurrency, idempotency, correlation,
 audit history, and principal-bound cursors as REST.
 Use `start.bat mcp` for the equivalent persistent local SQL Server host.
+
+Where the server owns the identities -- `--auth local`, and only there -- it
+now registers an identity administration surface behind
+`tide.users.administer`: the compiled roles and what each grants, the accounts
+with their roles and sign-in state, creating one, replacing its roles,
+enabling or disabling it, and replacing its password. Roles themselves are
+compiled and stay that way; what is administered is *assignment*. Until now
+that lived only in `tide auth`, which means a console on the server, so
+withdrawing a role from somebody who left required SSH.
+
+Two invariants hold wherever the request comes from: an account may not be
+left with no roles, and the store may not be left with no *enabled* account
+that can administer it -- a disabled administrator does not count, because the
+guard is about who can still sign in. Deleting an account is deliberately not
+offered, since disabling is reversible and is what the console offers.
+Refusals are told apart -- 403 for the permission, 404 for an account that is
+not there, 409 where the store's state refuses, 400 for a request that was
+wrong -- and none of them repeats a value it refused, because one of them is a
+password. An account on the wire carries when its password last changed and
+nothing else about it; the store's listing never loads a hash at all, so there
+is no projection to remember. The bootstrap stays on the console, because a
+running server cannot be the only way into an application whose accounts are
+all locked out. Administration is not exposed over MCP: an agent that can
+grant itself a role is an agent with every role.
 
 The separate `tide mcp dev` stdio server exposes compiled project resources and
 can turn an AI-authored sequence of logical TIDE operations into a deterministic

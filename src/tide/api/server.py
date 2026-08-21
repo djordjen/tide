@@ -37,17 +37,24 @@ from tide.api.contracts import (
     TideAuditHistory,
     TideBrowserAuthenticationInfo,
     TideBrowserSessionInfo,
+    TideCreateLocalUserInput,
     TideDistinctInput,
     TideDistinctResult,
     TideDistinctValue,
     TideEntityCapabilities,
+    TideLocalPasswordInput,
+    TideLocalUser,
+    TideLocalUserList,
     TidePresentationManifest,
     TidePasswordLoginInput,
     TideQueryInput,
     TideReferenceSelectionInput,
     TideReferenceSelectionResult,
     TideReportDocument,
+    TideRoleCatalogue,
+    TideRoleGrants,
     TideSessionInfo,
+    TideUpdateLocalUserInput,
 )
 from tide.api.config import (
     DEFAULT_MAX_REQUEST_BODY_BYTES,
@@ -55,7 +62,18 @@ from tide.api.config import (
 )
 from tide.api.development_auth import is_loopback_host_header
 from tide.api.inputs import build_writable_models, field_is_writable
-from tide.api.local_auth import LocalAuthenticationBusy
+from tide.api.administration import (
+    AdministrationConflict,
+    AdministrationDenied,
+    AdministrationError,
+    UnknownLocalUser,
+    UserAdministration,
+)
+from tide.api.local_auth import (
+    LocalAuthenticationBusy,
+    LocalPasswordAuth,
+    LocalUserSummary,
+)
 from tide.api.openapi import (
     DEFAULT_BASE_PATH,
     REST_OPERATIONS,
@@ -967,6 +985,168 @@ def build_fastapi_app(
             )
             return response
 
+    # Administering identities exists exactly where TIDE owns them. The store
+    # is the password authenticator's, rather than a second thing to configure:
+    # one identity file, named once, and no way for the two to disagree about
+    # which accounts exist.
+    administration = (
+        UserAdministration(browser_auth.store, model, records.security)
+        if isinstance(browser_auth, LocalPasswordAuth)
+        else None
+    )
+    administration_path = f"{base_path.rstrip('/')}/_tide/administration"
+
+    if administration is not None:
+
+        def _log_administration(
+            event: str,
+            context: RequestContext,
+            *,
+            subject: str,
+            operation: str,
+        ) -> None:
+            log_runtime_event(
+                runtime_logger,
+                logging.INFO,
+                event,
+                channel=Channel.REST.value,
+                correlation_id=context.correlation_id,
+                operation=operation,
+                principal=context.principal.identifier,
+                subject=subject,
+            )
+
+        @app.get(
+            f"{administration_path}/roles",
+            tags=["TIDE"],
+            summary="Compiled roles and what they grant",
+            response_model=TideRoleCatalogue,
+            responses=_documented_errors(401, 403),
+        )
+        def administration_roles(
+            context: RequestContext = Depends(request_context),
+        ) -> TideRoleCatalogue:
+            try:
+                roles = administration.roles(context)
+            except AdministrationError as error:
+                raise _administration_refused(error) from error
+            return TideRoleCatalogue(
+                roles=tuple(
+                    TideRoleGrants(name=role.name, grants=role.grants)
+                    for role in roles
+                )
+            )
+
+        @app.get(
+            f"{administration_path}/users",
+            tags=["TIDE"],
+            summary="Accounts this application owns",
+            response_model=TideLocalUserList,
+            responses=_documented_errors(401, 403),
+        )
+        def administration_users(
+            context: RequestContext = Depends(request_context),
+        ) -> TideLocalUserList:
+            try:
+                listing = administration.list_users(context)
+            except AdministrationError as error:
+                raise _administration_refused(error) from error
+            return TideLocalUserList(
+                users=tuple(_local_user(user) for user in listing.users),
+                truncated=listing.truncated,
+            )
+
+        @app.post(
+            f"{administration_path}/users",
+            tags=["TIDE"],
+            summary="Create an account",
+            response_model=TideLocalUser,
+            status_code=201,
+            responses=_documented_errors(400, 401, 403, 409),
+        )
+        def administration_create_user(
+            payload: TideCreateLocalUserInput,
+            context: RequestContext = Depends(request_context),
+        ) -> TideLocalUser:
+            try:
+                created = administration.create_user(
+                    context,
+                    username=payload.username,
+                    password=payload.password,
+                    roles=payload.roles,
+                    display_name=payload.display_name,
+                )
+            except AdministrationError as error:
+                raise _administration_refused(error) from error
+            _log_administration(
+                "administration.user_created",
+                context,
+                subject=created.username,
+                operation="create_user",
+            )
+            return _local_user(created)
+
+        @app.patch(
+            f"{administration_path}/users/{{username}}",
+            tags=["TIDE"],
+            summary="Change an account's roles or whether it may sign in",
+            response_model=TideLocalUser,
+            responses=_documented_errors(400, 401, 403, 404, 409),
+        )
+        def administration_update_user(
+            username: str,
+            payload: TideUpdateLocalUserInput,
+            context: RequestContext = Depends(request_context),
+        ) -> TideLocalUser:
+            if payload.roles is None and payload.enabled is None:
+                raise _bad_request(
+                    "an account update must change roles or enabled"
+                )
+            try:
+                changed = administration.user(context, username)
+                if payload.roles is not None:
+                    changed = administration.set_roles(
+                        context, username, payload.roles
+                    )
+                if payload.enabled is not None:
+                    changed = administration.set_enabled(
+                        context, username, payload.enabled
+                    )
+            except AdministrationError as error:
+                raise _administration_refused(error) from error
+            _log_administration(
+                "administration.user_updated",
+                context,
+                subject=changed.username,
+                operation="update_user",
+            )
+            return _local_user(changed)
+
+        @app.post(
+            f"{administration_path}/users/{{username}}/password",
+            tags=["TIDE"],
+            summary="Replace an account's password",
+            status_code=204,
+            responses=_documented_errors(400, 401, 403, 404),
+        )
+        def administration_reset_password(
+            username: str,
+            payload: TideLocalPasswordInput,
+            context: RequestContext = Depends(request_context),
+        ) -> Response:
+            try:
+                subject = administration.user(context, username)
+                administration.set_password(context, username, payload.password)
+            except AdministrationError as error:
+                raise _administration_refused(error) from error
+            _log_administration(
+                "administration.password_reset",
+                context,
+                subject=subject.username,
+                operation="reset_password",
+            )
+            return Response(status_code=204)
+
     @app.get(
         f"{base_path.rstrip('/')}/_tide/session",
         tags=["TIDE"],
@@ -1059,6 +1239,10 @@ def build_fastapi_app(
                 and report_service.can_generate(report_name, context)
             ),
             entities=capabilities,
+            administration=(
+                administration is not None
+                and administration.can_administer(context)
+            ),
         )
 
     @app.get(
@@ -2286,6 +2470,49 @@ def _non_loopback_host() -> JSONResponse:
                 ),
             }
         },
+    )
+
+
+def _local_user(user: LocalUserSummary) -> TideLocalUser:
+    """Project one account for the wire. There is no hash to withhold."""
+
+    return TideLocalUser(
+        username=user.username,
+        display_name=user.display_name,
+        enabled=user.enabled,
+        roles=tuple(sorted(user.roles)),
+        created_at=user.created_at,
+        password_changed_at=user.password_changed_at,
+    )
+
+
+def _administration_refused(error: AdministrationError) -> HTTPException:
+    """Answer with what the caller can act on.
+
+    A conflict is the store's current state refusing -- an account that is
+    already there, the last way back in -- and is worth telling apart from a
+    request that was simply wrong. The message never repeats a value that was
+    refused, because one of them is a password.
+    """
+
+    if isinstance(error, AdministrationDenied):
+        return HTTPException(
+            status_code=403,
+            detail={"code": "forbidden", "message": str(error)},
+        )
+    if isinstance(error, UnknownLocalUser):
+        return HTTPException(
+            status_code=404,
+            detail={"code": "not_found", "message": str(error)},
+        )
+    if isinstance(error, AdministrationConflict):
+        return HTTPException(
+            status_code=409,
+            detail={"code": "conflict", "message": str(error)},
+        )
+    return HTTPException(
+        status_code=400,
+        detail={"code": "invalid_request", "message": str(error)},
     )
 
 

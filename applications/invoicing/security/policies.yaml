@@ -16,6 +16,10 @@ permissions:
   - sales.invoice.audit
   - sales.invoice.detail
 
+  # Reserved by the framework rather than defined here: it permits
+  # administering the identities TIDE owns, and it is checked by TIDE.
+  - tide.users.administer
+
 roles:
   sales_clerk:
     grants:
@@ -46,6 +50,12 @@ roles:
   summary_viewer:
     grants:
       - sales.invoice.read
+
+  # Deliberately grants nothing about invoices. Administering who may
+  # sign in is not a reason to be able to sell anything.
+  administrator:
+    grants:
+      - tide.users.administer
 
   invoice_poster:
     grants:
