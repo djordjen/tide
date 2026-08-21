@@ -183,6 +183,15 @@ widget ids; the tool runs outside CI, so nothing had said so.
 
 ### Terminal client
 
+Every terminal screen composes `TideHeader` rather than Textual's `Header`.
+The one it replaces registers four title watchers when it mounts, and their
+callback queries the `HeaderTitle` its own `compose` has not mounted yet,
+catching only `NoScreen`. In that window -- one message cycle, and wider on a
+loaded machine -- `NoMatches` leaves the callback, leaves the message pump,
+and ends the application. It cost one CI run on the Windows job. `TideHeader`
+puts the title into the widget as it is composed, so there is no moment when
+the answer is unknown, and tolerates the absence rather than dying of it.
+
 The initial Textual adapter now interprets resolved browse and
 form metadata for secured create/edit, inline InvoiceLine editing, validation,
 cancel/save, optimistic-concurrency feedback, and audited invoice posting. It

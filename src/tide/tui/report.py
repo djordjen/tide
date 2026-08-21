@@ -13,8 +13,9 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen, Screen
-from textual.widgets import Button, Footer, Header, Input, Static
+from textual.widgets import Button, Footer, Input, Static
 
+from tide.tui.header import TideHeader
 from tide.labels import humanize
 from tide.reporting import (
     PdfDependencyMissing,
@@ -79,7 +80,7 @@ class ReportPreviewScreen(Screen[None]):
         self.sub_title = f"Preview {document.title}"
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=False)
+        yield TideHeader(show_clock=False)
         yield Static(
             f"{self.document.report}  ·  {self.document.suggested_filename}",
             id="report-context",

@@ -20,7 +20,6 @@ from textual.widgets import (
     Button,
     DataTable,
     Footer,
-    Header,
     Input,
     Label,
     Select,
@@ -29,6 +28,7 @@ from textual.widgets import (
     TabPane,
 )
 
+from tide.tui.header import TideHeader
 from tide.labels import declared_values, value_caption, value_label
 from tide.compiler.normalized import (
     ApplicationModel,
@@ -479,7 +479,7 @@ class RecordEditScreen(Screen[Any]):
         return self.collections.get(self._active_collection)
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=False)
+        yield TideHeader(show_clock=False)
         yield Static(
             f"{self.view.name}  ·  "
             f"{_record_title(self.entity, self.session.values) or 'New record'}",

@@ -14,7 +14,6 @@ from textual.widgets import (
     Button,
     DataTable,
     Footer,
-    Header,
     Input,
     Select,
     Static,
@@ -24,6 +23,7 @@ from textual.widgets import (
 from textual.widget import Widget
 from textual.widgets.tree import TreeNode
 
+from tide.tui.header import TideHeader
 from tide.development.designer import DesignerDocumentReference
 from tide.development.studio import (
     StudioDocumentDetails,
@@ -340,7 +340,7 @@ class StudioApp(App[None]):
         self._view_field_relayouts = 0
 
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield TideHeader()
         yield Static(self._context_text(self.state), id="studio-context")
         with Horizontal(id="studio-workspace"):
             with Vertical(id="studio-navigation"):

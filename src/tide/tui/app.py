@@ -16,8 +16,16 @@ from textual.containers import Horizontal
 from textual.css.query import NoMatches
 from textual.message import Message
 from textual.widget import Widget
-from textual.widgets import Button, DataTable, Footer, Header, Input, Select, Static
+from textual.widgets import (
+    Button,
+    DataTable,
+    Footer,
+    Input,
+    Select,
+    Static,
+)
 
+from tide.tui.header import TideHeader
 from tide.labels import value_caption, value_label
 from tide.compiler.normalized import (
     ApplicationModel,
@@ -276,7 +284,7 @@ class TideApp(App[None]):
 
     def compose(self) -> ComposeResult:
         roles = ", ".join(sorted(self.context.principal.roles)) or "no role"
-        yield Header(show_clock=False)
+        yield TideHeader(show_clock=False)
         yield Static(
             self._context_text(roles),
             id="browse-context",

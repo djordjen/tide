@@ -8,8 +8,9 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.screen import Screen
-from textual.widgets import Button, DataTable, Footer, Header, Static
+from textual.widgets import Button, DataTable, Footer, Static
 
+from tide.tui.header import TideHeader
 from tide.services import (
     ActionAuditEvent,
     AuditEvent,
@@ -75,7 +76,7 @@ class AuditHistoryScreen(Screen[None]):
         self.record_title = record_title
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=False)
+        yield TideHeader(show_clock=False)
         yield Static(
             f"{self.record_title}  ·  Record history",
             id="audit-context",
