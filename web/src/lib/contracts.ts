@@ -43,6 +43,37 @@ export interface TideSessionInfo {
   roles: string[]
   reports: string[]
   entities: Record<string, TideEntityCapabilities>
+  /**
+   * True only where this principal may administer identities *and* this
+   * server owns some. A provider administers its own, and development
+   * authentication has no accounts at all.
+   */
+  administration: boolean
+}
+
+/** One compiled role and the permissions it carries. Never editable here. */
+export interface TideRoleGrants {
+  name: string
+  grants: string[]
+}
+
+export interface TideRoleCatalogue {
+  roles: TideRoleGrants[]
+}
+
+/** One account TIDE owns. There is no password material on the wire. */
+export interface TideLocalUser {
+  username: string
+  display_name: string
+  enabled: boolean
+  roles: string[]
+  created_at: string
+  password_changed_at: string
+}
+
+export interface TideLocalUserList {
+  users: TideLocalUser[]
+  truncated: boolean
 }
 
 export interface TideBrowserAuthenticationInfo {

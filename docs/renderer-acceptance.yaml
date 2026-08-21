@@ -386,3 +386,27 @@ capabilities:
           - path: tests/test_runtime.py
             selector: test_in_filters_match_membership_with_sql_null_semantics
             runner: python
+
+  - id: identity_administration
+    tier: roadmap
+    description: Where TIDE owns the identities, a principal holding `tide.users.administer` lists the compiled roles and administers account assignment - roles, sign-in, and password - without any of it becoming a way to author a role.
+    renderers:
+      tui:
+        status: not_applicable
+        note: >-
+          The console administers with `tide auth`, which is also the bootstrap
+          and the only way back into an application whose accounts are locked
+          out. A second terminal path to the same file would be a second thing
+          to keep in step; recorded in DECISIONS on 2026-08-21.
+      web:
+        status: covered
+        evidence:
+          - path: web/src/App.administration.test.tsx
+            selector: replaces an account's roles with exactly what is checked
+            runner: web
+          - path: tests/test_role_administration.py
+            selector: test_the_last_enabled_administrator_cannot_be_demoted
+            runner: python
+          - path: tests/test_role_administration.py
+            selector: test_the_routes_refuse_a_caller_without_the_permission
+            runner: python

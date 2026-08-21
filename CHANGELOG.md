@@ -348,6 +348,21 @@ was up. The grip is revealed by opacity rather than display, because a
 drag source that goes display:none between mousedown and the drag
 threshold makes Chromium abort the drag before it starts.
 
+Identity administration reaches the browser. A principal holding
+`tide.users.administer` gets an **Identities** entry below the application's
+navigation -- and in the workspace select a phone uses -- listing the accounts
+with their roles and sign-in state beside the compiled roles and what each
+grants. Accounts are created, regraded, disabled and given new passwords
+there; roles are reported and never offered for editing, because a role is
+authored in YAML. A refusal comes back in the server's own words, including
+the one that will not let the last enabled administrator take its own way
+back in. The screen is framework chrome rather than an application view: it
+travels in the same `?view=` parameter under a name no compiled view can
+hold, and it loads as its own chunk when it is opened. The reference
+application grants `administrator` nothing else, so the shell now answers a
+principal with no browse views at all by opening on Identities instead of
+"No available workspaces".
+
 Every stored column in the browser's grid now carries a funnel, the way
 the reference application's grids do. It opens the column's distinct
 values as a checkbox list -- served and bounded by the server, captioned

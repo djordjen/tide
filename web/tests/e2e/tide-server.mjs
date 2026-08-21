@@ -24,7 +24,11 @@ import { fileURLToPath } from "node:url"
 // path is clearer than a build step that would let it.
 const CREDENTIALS_FILE = ".tide/e2e-credentials.json"
 const USERNAME = "e2e"
-const ROLE = "sales_clerk"
+// Two roles: the application's own work, and administering who may sign in.
+// The reference application grants the second nothing else, so a journey that
+// wants both has to hold both -- which is also the arrangement a small
+// deployment actually runs.
+const ROLES = ["sales_clerk", "administrator"]
 
 const repository = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -71,8 +75,7 @@ const created = spawnSync(
     "End to end",
     "--password-env",
     "TIDE_E2E_PASSWORD",
-    "--role",
-    ROLE,
+    ...ROLES.flatMap((role) => ["--role", role]),
   ],
   {
     cwd: repository,

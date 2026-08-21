@@ -205,6 +205,21 @@ metadata. New and removed fields reconcile by stable field name. Best Fit
 measures only the loaded server window, runs once for a new personal layout,
 and does not repeatedly resize after every refresh.
 
+### Identity administration
+
+Where the server owns the identities (`--auth local`), a principal holding
+`tide.users.administer` gets an **Identities** entry below the application's
+navigation, and the workspace select on a phone gains the same destination. It
+lists the accounts with their roles and sign-in state, creates one, replaces
+the roles an account holds, enables or disables it, and replaces its password;
+beside it the compiled roles are listed with what each grants, read-only.
+
+It is framework chrome rather than an application view: the presentation
+manifest carries the application's own destinations and this is not one of
+them. It travels in the same `?view=` parameter under `_tide.administration`,
+a name no compiled view can hold, and it is loaded as its own chunk when it is
+opened rather than when the application is.
+
 ## Architecture and security
 
 The renderer uses React and TypeScript with Vite, Tailwind CSS, shadcn/ui-style

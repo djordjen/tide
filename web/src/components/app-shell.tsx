@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { lazy, Suspense, useMemo, useState } from "react"
 import {
   Boxes,
   ChevronDown,
@@ -10,6 +10,7 @@ import {
   Search,
   ShieldCheck,
   Sun,
+  UsersRound,
   Waves,
 } from "lucide-react"
 
@@ -27,8 +28,27 @@ import type { TideApi } from "@/lib/api"
 import type { TideConnection } from "@/lib/contracts"
 import { useUrlParameter } from "@/lib/url-state"
 
+/**
+ * Identity administration, loaded when it is opened rather than when the
+ * application is. It is framework chrome and most sessions never open it.
+ */
+const AdministrationWorkspace = lazy(async () => ({
+  default: (await import("@/components/administration-workspace"))
+    .AdministrationWorkspace,
+}))
+
 /** Leaving a view closes whatever record was open in it. */
 const CLEARED_BY_VIEW = ["record"] as const
+
+/**
+ * The one destination that is not an application view.
+ *
+ * It travels in the same `view` parameter, under a name the manifest can
+ * never hold: a view name is a compiled identifier and cannot begin with an
+ * underscore, so this can never collide with one and needs no second
+ * parameter to keep it apart.
+ */
+const TIDE_ADMINISTRATION = "_tide.administration"
 
 /**
  * Where a navigation stops being read and starts being hunted through.
@@ -56,17 +76,29 @@ export function AppShell({
     firstView ?? "",
     CLEARED_BY_VIEW,
   )
+  // True only where this principal may administer identities and this server
+  // owns some; the routes behind it are absent rather than denied elsewhere.
+  const canAdminister = connection.session.administration === true
+  // An identity whose only capability is administering has no navigation at
+  // all -- the reference application grants that role nothing else -- so with
+  // no views to show, this is where the shell opens.
+  const administering =
+    canAdminister &&
+    (requestedView === TIDE_ADMINISTRATION || firstView === undefined)
   // The address bar is a caller like any other, so a view it names is checked
   // against the manifest rather than trusted. A principal who cannot see the
   // view in a link they were sent gets their own default, not an empty shell.
-  const selectedView =
-    connection.presentation.views[requestedView] !== undefined
+  const selectedView = administering
+    ? TIDE_ADMINISTRATION
+    : connection.presentation.views[requestedView] !== undefined
       ? requestedView
       : (firstView ?? "")
   const [theme, setTheme] = useState<"light" | "dark">(() =>
     document.documentElement.classList.contains("dark") ? "dark" : "light",
   )
-  const view = connection.presentation.views[selectedView]
+  const view = administering
+    ? undefined
+    : connection.presentation.views[selectedView]
   const form =
     view?.detail_view !== null && view?.detail_view !== undefined
       ? (connection.presentation.forms[view.detail_view] ?? null)
@@ -101,7 +133,7 @@ export function AppShell({
     setTheme(next)
   }
 
-  if (!firstView || !view) {
+  if (!administering && (!firstView || !view)) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-background p-6">
         <div className="max-w-md rounded-2xl border bg-card p-8 text-center shadow-sm">
@@ -211,6 +243,35 @@ export function AppShell({
           ))}
         </nav>
 
+        {canAdminister ? (
+          // Framework chrome, not application navigation: the manifest carries
+          // the application's own destinations and this is not one of them, so
+          // it sits with the identity it belongs beside rather than inside a
+          // group the application named.
+          <div className="border-t border-sidebar-border px-3 py-2">
+            <button
+              type="button"
+              className={cn(
+                "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+                administering
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
+                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground",
+              )}
+              onClick={() => setSelectedView(TIDE_ADMINISTRATION)}
+            >
+              <UsersRound
+                className={cn(
+                  "size-4",
+                  administering
+                    ? "text-sidebar-primary"
+                    : "text-sidebar-foreground/45",
+                )}
+              />
+              <span>Identities</span>
+            </button>
+          </div>
+        ) : null}
+
         <div className="border-t border-sidebar-border p-3">
           <div className="flex items-center gap-3 rounded-xl px-3 py-2.5">
             <CircleUserRound className="size-8 shrink-0 text-sidebar-foreground/50" />
@@ -261,6 +322,9 @@ export function AppShell({
                   {item.label}
                 </option>
               ))}
+              {canAdminister ? (
+                <option value={TIDE_ADMINISTRATION}>Identities</option>
+              ) : null}
             </select>
             <ChevronDown className="pointer-events-none absolute top-2.5 right-3 size-4 text-muted-foreground" />
           </div>
@@ -269,7 +333,9 @@ export function AppShell({
             <p className="truncate text-sm text-muted-foreground">
               {connection.presentation.application}
               <span className="mx-2 text-border">/</span>
-              <span className="font-medium text-foreground">{view.label}</span>
+              <span className="font-medium text-foreground">
+                {view?.label ?? "Identities"}
+              </span>
             </p>
           </div>
           <div className="flex items-center gap-1">
@@ -304,17 +370,26 @@ export function AppShell({
           </div>
         </header>
 
-        <BrowseWorkspace
-          key={view.view}
-          api={api}
-          application={connection.presentation.application}
-          principal={connection.session.principal}
-          view={view}
-          form={form}
-          forms={connection.presentation.forms}
-          views={connection.presentation.views}
-          reports={connection.presentation.reports ?? {}}
-        />
+        {administering || !view ? (
+          <Suspense fallback={null}>
+            <AdministrationWorkspace
+              api={api}
+              application={connection.presentation.application}
+            />
+          </Suspense>
+        ) : (
+          <BrowseWorkspace
+            key={view.view}
+            api={api}
+            application={connection.presentation.application}
+            principal={connection.session.principal}
+            view={view}
+            form={form}
+            forms={connection.presentation.forms}
+            views={connection.presentation.views}
+            reports={connection.presentation.reports ?? {}}
+          />
+        )}
       </section>
     </div>
   )

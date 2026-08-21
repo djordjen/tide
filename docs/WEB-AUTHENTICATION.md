@@ -210,6 +210,43 @@ a present identity cannot be told from an absent one by how long the answer
 takes. That equalisation is why the first bound is conditional on throttling
 rather than on whether the user exists.
 
+### Administering accounts from the browser
+
+The commands above stay the bootstrap: they create the first account, and they
+are the way back in if every account that can administer has been locked out.
+Everything after that can happen in the application, so withdrawing a role from
+somebody who left does not need SSH.
+
+Grant a role that carries `tide.users.administer`:
+
+```powershell
+uv run tide auth create-user applications/invoicing `
+  --store .tide/local-auth.sqlite3 `
+  --username admin --role administrator
+```
+
+That account gets an **Identities** entry beside the application's own
+navigation. It lists the accounts with their roles and whether each may sign
+in, and it lists the roles the application compiled with what each grants --
+read-only, because a role is authored in YAML and compiled, never edited at
+runtime. What the screen changes is assignment: the roles an account holds,
+whether it may sign in, and its password.
+
+The reference application grants `administrator` nothing else, so an account
+holding only that role has no browse views at all and the browser opens on
+Identities. That is deliberate: administering who may sign in is not a reason
+to be able to read anything.
+
+Two refusals are worth expecting, because both are the server's and neither is
+the screen being careful on its own: an account may not be left with no roles,
+and the last **enabled** account that can administer may not be demoted or
+disabled. The message says which account it means.
+
+Replacing a password ends every session that account has open. It requires no
+knowledge of the previous one -- which is what makes it a reset, and why the
+permission is one an application grants deliberately. See
+[Administering identities](SECURITY.md#administering-identities).
+
 ## Optional browser OIDC flow
 
 The optional browser flow uses Authorization Code with PKCE (`S256`):

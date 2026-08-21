@@ -5,6 +5,8 @@ import type {
   TideConnection,
   TideDistinctResult,
   TideFilterInput,
+  TideLocalUser,
+  TideLocalUserList,
   TidePresentationLookup,
   TidePresentationManifest,
   TidePresentationFormAction,
@@ -18,6 +20,7 @@ import type {
   TideReportDownload,
   TideReportExportFormat,
   TidePresentationReport,
+  TideRoleCatalogue,
   TideSessionInfo,
 } from "@/lib/contracts"
 
@@ -363,6 +366,73 @@ export class TideApi {
       )
     }
     return { session, presentation }
+  }
+
+  /**
+   * Identity administration.
+   *
+   * Registered by the server only where TIDE owns the identities, so these
+   * are called only when `session.administration` says so -- otherwise the
+   * paths are not merely denied, they are not there.
+   */
+  administrationRoles(signal?: AbortSignal): Promise<TideRoleCatalogue> {
+    return this.request<TideRoleCatalogue>(
+      `${this.basePath}/_tide/administration/roles`,
+      { method: "GET" },
+      signal,
+    )
+  }
+
+  administrationUsers(signal?: AbortSignal): Promise<TideLocalUserList> {
+    return this.request<TideLocalUserList>(
+      `${this.basePath}/_tide/administration/users`,
+      { method: "GET" },
+      signal,
+    )
+  }
+
+  createLocalUser(
+    input: {
+      username: string
+      password: string
+      roles: string[]
+      display_name?: string
+    },
+    signal?: AbortSignal,
+  ): Promise<TideLocalUser> {
+    return this.request<TideLocalUser>(
+      `${this.basePath}/_tide/administration/users`,
+      { method: "POST", body: JSON.stringify(input) },
+      signal,
+    )
+  }
+
+  updateLocalUser(
+    username: string,
+    changes: { roles?: string[]; enabled?: boolean },
+    signal?: AbortSignal,
+  ): Promise<TideLocalUser> {
+    return this.request<TideLocalUser>(
+      `${this.basePath}/_tide/administration/users/${encodeURIComponent(username)}`,
+      { method: "PATCH", body: JSON.stringify(changes) },
+      signal,
+    )
+  }
+
+  /**
+   * Replace an account's password. Answers 204, so there is nothing to parse
+   * -- and nothing about the credential is ever read back.
+   */
+  async resetLocalPassword(
+    username: string,
+    password: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    await this.authorizedResponse(
+      `${this.basePath}/_tide/administration/users/${encodeURIComponent(username)}/password`,
+      { method: "POST", body: JSON.stringify({ password }) },
+      signal,
+    )
   }
 
   query(

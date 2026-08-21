@@ -188,6 +188,57 @@ test("creates a record, edits it, and finds the server kept it", async ({
   )
 })
 
+
+test("administers who holds which role, and refuses the last way back in", async ({
+  page,
+}) => {
+  // The account this run creates, and a password that exists only here: the
+  // store is built fresh for the run and thrown away with it.
+  const username = unique("clerk").toLowerCase()
+  const password = "a journey passphrase"
+
+  await signIn(page)
+  await page.getByRole("button", { name: "Identities" }).click()
+  const accounts = page.getByRole("table", { name: "Accounts" })
+  await expect(accounts.getByRole("button", { name: "e2e" })).toBeVisible()
+
+  // Roles are compiled, and this screen says so rather than offering to
+  // change them.
+  const roles = page.getByRole("region", { name: "Roles" })
+  await expect(roles).toContainText("tide.users.administer")
+  expect(await roles.getByRole("checkbox").count()).toBe(0)
+
+  await page.getByRole("button", { name: "New account" }).click()
+  await page.getByLabel("Username").fill(username)
+  await page.getByLabel("Display name").fill("Journey Clerk")
+  await page.getByLabel("Password", { exact: true }).fill(password)
+  await page.getByRole("checkbox", { name: "sales_clerk" }).check()
+  await page.getByRole("button", { name: "Create account" }).click()
+  await expect(page.getByRole("status")).toContainText(username)
+
+  // Replaced, not added to: the role it arrived with is gone.
+  await page.getByRole("checkbox", { name: "auditor" }).check()
+  await page.getByRole("checkbox", { name: "sales_clerk" }).uncheck()
+  await page.getByRole("button", { name: "Save roles" }).click()
+  const created = page.getByRole("row", { name: new RegExp(username) })
+  await expect(created).toContainText("auditor")
+  await expect(created).not.toContainText("sales_clerk")
+
+  await page.getByRole("button", { name: "Disable account" }).click()
+  await expect(created).toContainText("Disabled")
+
+  // The one account that can still administer cannot take that away from
+  // itself, because a console on the server would then be the only way back.
+  await accounts.getByRole("button", { name: "e2e" }).click()
+  await page.getByRole("button", { name: "Disable account" }).click()
+  await expect(page.getByRole("status")).toContainText(
+    "only enabled account that may administer",
+  )
+  await expect(
+    page.getByRole("row", { name: /e2e/ }),
+  ).toContainText("Enabled")
+})
+
 test("drafts an invoice through both lookups and posts it", async ({
   page,
 }) => {

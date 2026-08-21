@@ -112,6 +112,26 @@ test("keeps every control on screen at phone width", async ({ page }) => {
     "browse toolbar",
   ).toEqual([])
 
+  // Identity administration is framework chrome rather than an application
+  // view, so nothing above reaches it -- and below the sidebar's breakpoint
+  // the workspace select is the only way in, which is the route being
+  // measured here as much as the screen is.
+  await page
+    .getByRole("combobox", { name: "Current workspace" })
+    .selectOption("_tide.administration")
+  await expect(page.getByRole("table", { name: "Accounts" })).toBeVisible()
+  await page.getByRole("button", { name: "e2e" }).click()
+  await expect(page.getByRole("button", { name: "Save roles" })).toBeVisible()
+  expect(await escaping(page, page.locator("main")), "identities").toEqual([])
+  expect(
+    await colliding(page.locator("main")),
+    "identities overlaps",
+  ).toEqual([])
+  await page
+    .getByRole("combobox", { name: "Current workspace" })
+    .selectOption("sales.Invoice.browse")
+  await expect(page.getByRole("row", { name: /INV-2026-0001/ })).toBeVisible()
+
   // A draft: the editable renderer, with Save and the domain actions.
   await open(page, /INV-2026-0002/)
   await expect(page.getByText("Secured editor")).toBeVisible()
