@@ -2960,3 +2960,149 @@ def test_the_manifest_offers_only_the_export_a_principal_and_server_can_do() -> 
         )
 
     asyncio.run(exercise())
+
+
+def test_a_clerk_can_take_the_filtered_grid_away() -> None:
+    """The file answers for the query, not for the page the grid had."""
+
+    async def exercise() -> None:
+        async with _client(_app("sales_clerk")) as client:
+            response = await client.post(
+                "/api/v1/invoices/_export/csv",
+                json={
+                    "view": "sales.Invoice.browse",
+                    "filters": [
+                        {"field": "status", "operator": "eq", "value": "draft"}
+                    ],
+                    "sort": [{"field": "id", "descending": False}],
+                },
+                headers=_authorization(),
+            )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/csv")
+        assert "attachment" in response.headers["content-disposition"]
+        assert ".csv" in response.headers["content-disposition"]
+        assert response.headers["X-Tide-Export-Rows"] == "5"
+        assert response.headers["X-Tide-Export-Total"] == "5"
+        body = response.text
+        # The byte-order mark is what makes Excel read a UTF-8 CSV as UTF-8,
+        # so it is carried deliberately rather than tolerated.
+        assert body.startswith("﻿")
+        assert body.splitlines()[0] == (
+            "﻿Number,Invoice Date,Customer,Status,Total"
+        )
+        assert len(body.strip().splitlines()) == 6
+
+    asyncio.run(exercise())
+
+
+def test_taking_the_grid_away_is_refused_without_the_capability() -> None:
+    async def exercise() -> None:
+        async with _client(_app("auditor")) as client:
+            response = await client.post(
+                "/api/v1/invoices/_export/csv",
+                json={"view": "sales.Invoice.browse", "filters": [], "sort": []},
+                headers=_authorization(),
+            )
+
+        assert response.status_code == 403
+        assert response.json()["code"] == "forbidden"
+
+    asyncio.run(exercise())
+
+
+def test_an_unexportable_view_is_a_missing_thing_not_a_bad_request() -> None:
+    async def exercise() -> None:
+        async with _client(_app("sales_clerk")) as client:
+            unknown = await client.post(
+                "/api/v1/invoices/_export/csv",
+                json={"view": "sales.NotAView", "filters": [], "sort": []},
+                headers=_authorization(),
+            )
+            form = await client.post(
+                "/api/v1/invoices/_export/csv",
+                json={"view": "sales.Invoice.edit", "filters": [], "sort": []},
+                headers=_authorization(),
+            )
+
+        assert unknown.status_code == 404
+        assert form.status_code == 404
+        # A route that does not exist also answers 404, with FastAPI's own
+        # `{"detail": "Not Found"}`. Asserting the code is what tells a
+        # refusal apart from an absence -- without it this test passes
+        # against a server that has no export route at all.
+        assert unknown.json()["code"] == "not_found"
+        assert form.json()["code"] == "not_found"
+
+    asyncio.run(exercise())
+
+
+def test_an_unknown_export_format_never_reaches_the_handler() -> None:
+    """The path segment is a closed set, so a PDF of a grid is a 422."""
+
+    async def exercise() -> None:
+        async with _client(_app("sales_clerk")) as client:
+            response = await client.post(
+                "/api/v1/invoices/_export/pdf",
+                json={"view": "sales.Invoice.browse", "filters": [], "sort": []},
+                headers=_authorization(),
+            )
+
+        assert response.status_code == 422
+
+    asyncio.run(exercise())
+
+
+def test_an_export_is_written_down() -> None:
+    """An export is the one read worth finding in a log a year later."""
+
+    logger, handler = _recording_logger()
+
+    async def exercise() -> None:
+        async with _client(_app("sales_clerk", logger=logger)) as client:
+            response = await client.post(
+                "/api/v1/invoices/_export/csv",
+                json={"view": "sales.Invoice.browse", "filters": [], "sort": []},
+                headers=_authorization(),
+            )
+        assert response.status_code == 200
+
+        # The attribute is `tide_event`, not `event`.
+        written = [
+            record
+            for record in handler.records
+            if getattr(record, "tide_event", None) == "records.export"
+        ]
+        assert written, [
+            getattr(record, "tide_event", None) for record in handler.records
+        ]
+        fields = written[0].tide_fields
+        assert fields["subject"] == "sales.Invoice.browse"
+        assert fields["operation"] == "csv"
+        assert fields["principal"] == "api:test"
+        assert fields["rows"] == 9
+        assert fields["total"] == 9
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.skipif(not SPREADSHEET_AVAILABLE, reason="spreadsheet extra absent")
+def test_the_workbook_arrives_as_a_workbook() -> None:
+    async def exercise() -> None:
+        async with _client(_app("sales_clerk")) as client:
+            response = await client.post(
+                "/api/v1/invoices/_export/xlsx",
+                json={"view": "sales.Invoice.browse", "filters": [], "sort": []},
+                headers=_authorization(),
+            )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        assert ".xlsx" in response.headers["content-disposition"]
+        # A real zip container, not an error body with a hopeful header.
+        assert response.content[:2] == b"PK"
+
+    asyncio.run(exercise())

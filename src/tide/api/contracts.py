@@ -166,6 +166,21 @@ class TideDistinctInput(BaseModel):
     filters: tuple[TideFilterInput, ...] = ()
 
 
+class TideExportInput(BaseModel):
+    """One browse view's query, asked for as a file.
+
+    The same filters and sort the grid sent. The cursor and the page size are
+    the server's, because an export walks the whole set rather than a page --
+    and how far it walks is a bound the server owns, not the caller.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    view: str = Field(min_length=1)
+    filters: tuple[TideFilterInput, ...] = ()
+    sort: tuple[TideSortInput, ...] = ()
+
+
 class TideDistinctValue(BaseModel):
     """One value a column holds, beside its display name when it has one."""
 

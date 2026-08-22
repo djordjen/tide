@@ -39,6 +39,7 @@ from tide.api.contracts import (
     TideBrowserSessionInfo,
     TideCreateLocalUserInput,
     TideDistinctInput,
+    TideExportInput,
     TideDistinctResult,
     TideDistinctValue,
     TideEntityCapabilities,
@@ -83,8 +84,12 @@ from tide.api.openapi import (
     rest_exposures,
 )
 from tide.api.presentation import build_presentation_manifest
-from tide.reporting.browse import EXPORT as EXPORT_PERMISSION
-from tide.reporting.xlsx import SPREADSHEET_AVAILABLE
+from tide.reporting.browse import (
+    EXPORT as EXPORT_PERMISSION,
+    BrowseExportService,
+    UnknownBrowseView,
+)
+from tide.reporting.xlsx import SPREADSHEET_AVAILABLE, render_xlsx
 from tide.api.wire import (
     coerce_identity as _coerce_identity,
     decode_filter_value as _decode_filter_value,
@@ -997,6 +1002,7 @@ def build_fastapi_app(
         else None
     )
     administration_path = f"{base_path.rstrip('/')}/_tide/administration"
+    browse_exports = BrowseExportService(model, records)
 
     if administration is not None:
 
@@ -1453,6 +1459,25 @@ def build_fastapi_app(
                 records,
                 entity,
                 request_context,
+            )
+            export_endpoint = _export_endpoint(
+                browse_exports,
+                records,
+                entity,
+                request_context,
+                runtime_logger,
+            )
+            app.add_api_route(
+                f"{resource_path}/_export/{{export_format}}",
+                export_endpoint,
+                methods=["POST"],
+                response_class=Response,
+                name=f"Export {entity.label}",
+                operation_id=(
+                    f"export{preview.record_models[entity_name].__name__.removesuffix('Record')}"
+                ),
+                tags=[tag],
+                responses=_documented_errors(400, 401, 403, 404, 422, 503),
             )
             app.add_api_route(
                 f"{resource_path}/_distinct",
@@ -2067,6 +2092,105 @@ def _query_endpoint(
     return query_records
 
 
+def _export_endpoint(
+    exports: BrowseExportService,
+    records: RecordsService,
+    entity: NormalizedEntity,
+    context_dependency: Any,
+    runtime_logger: logging.Logger,
+) -> Any:
+    def export_records(
+        export_format: Literal["csv", "xlsx"] = Path(),
+        payload: TideExportInput = Body(),
+        context: RequestContext = Depends(context_dependency),
+    ) -> Response:
+        try:
+            filters = tuple(
+                FilterCondition(
+                    item.field,
+                    item.operator,
+                    _decode_filter_value(
+                        records.model,
+                        entity,
+                        item.field,
+                        item.value,
+                        item.operator,
+                    ),
+                )
+                for item in payload.filters
+            )
+            sort = tuple(
+                SortField(item.field, item.descending) for item in payload.sort
+            )
+            built = exports.build(payload.view, filters, sort, context)
+        except UnknownBrowseView as error:
+            # A plain `TideRuntimeError` would be answered 400 by the global
+            # handler, and a view that is not there is an absence rather than
+            # a malformed ask. This one is load-bearing.
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "not_found", "message": str(error)},
+            ) from error
+        # `ExportNotPermitted` is an `AuthorizationError`, which the app's
+        # own `TideRuntimeError` handler already answers 403 `forbidden`.
+        # Catching it here changed nothing -- a sabotage proved it -- and a
+        # second copy of that mapping is one that can drift from the first.
+        except QueryFieldError as error:
+            raise _bad_request(str(error)) from error
+        except (KeyError, TypeError, ValueError, InvalidOperation) as error:
+            raise _bad_request("export query is invalid") from error
+
+        if export_format == "xlsx":
+            if not SPREADSHEET_AVAILABLE:
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "code": "export_format_unavailable",
+                        "message": (
+                            "XLSX export needs the 'spreadsheet' extra"
+                        ),
+                    },
+                )
+            content = render_xlsx(built)
+            media_type = (
+                "application/vnd.openxmlformats-officedocument"
+                ".spreadsheetml.sheet"
+            )
+        else:
+            content = render_csv(built.document).encode("utf-8-sig")
+            media_type = "text/csv; charset=utf-8"
+
+        # The one read worth finding in a log a year later. Two integers
+        # rather than a truncation flag: they say more, and the allowlist
+        # drops booleans by construction.
+        log_runtime_event(
+            runtime_logger,
+            logging.INFO,
+            "records.export",
+            channel=context.channel.value,
+            correlation_id=context.correlation_id,
+            operation=export_format,
+            principal=context.principal.identifier,
+            subject=payload.view,
+            rows=built.rows,
+            total=built.total,
+        )
+        return Response(
+            content=content,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": _attachment_disposition(
+                    f"{built.document.suggested_filename}.{export_format}",
+                    fallback=f"export.{export_format}",
+                ),
+                "X-Tide-Export-Rows": str(built.rows),
+                "X-Tide-Export-Total": str(built.total),
+            },
+        )
+
+    return export_records
+
+
 def _distinct_endpoint(
     records: RecordsService,
     entity: NormalizedEntity,
@@ -2279,21 +2403,29 @@ def _record_action_states(
     return result
 
 
+def _attachment_disposition(filename: str, *, fallback: str) -> str:
+    """Name a download for both an ASCII-only client and a modern one."""
+
+    plain = re.sub(
+        r"[^A-Za-z0-9._-]+",
+        "-",
+        filename.encode("ascii", "ignore").decode("ascii"),
+    ).strip("-.") or fallback
+    return (
+        f'attachment; filename="{plain}"; '
+        f"filename*=UTF-8''{quote(filename, safe='')}"
+    )
+
+
 def _report_export_response(
     document: ReportDocument,
     export_format: Literal["csv", "html", "pdf"],
 ) -> Response:
     """Render one already-authorized report with a safe attachment name."""
 
-    filename = f"{document.suggested_filename}.{export_format}"
-    fallback = re.sub(
-        r"[^A-Za-z0-9._-]+",
-        "-",
-        filename.encode("ascii", "ignore").decode("ascii"),
-    ).strip("-.") or f"report.{export_format}"
-    disposition = (
-        f'attachment; filename="{fallback}"; '
-        f"filename*=UTF-8''{quote(filename, safe='')}"
+    disposition = _attachment_disposition(
+        f"{document.suggested_filename}.{export_format}",
+        fallback=f"report.{export_format}",
     )
     if export_format == "csv":
         content = render_csv(document).encode("utf-8-sig")

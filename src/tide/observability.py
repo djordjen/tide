@@ -36,6 +36,10 @@ _SAFE_LOG_FIELDS = (
     # of a log by construction rather than by remembering.
     "principal",
     "subject",
+    # How much left the building. Two integers rather than a truncation flag:
+    # they say more, and this function drops booleans by construction.
+    "rows",
+    "total",
 )
 
 
