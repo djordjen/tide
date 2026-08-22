@@ -38,6 +38,12 @@ TideAlignment = Literal["left", "center", "right"]
 TideCollectionAction = Literal["add", "apply", "remove"]
 TideReportKind = Literal["record", "summary"]
 TideReportExportFormat = Literal["csv", "html", "pdf"]
+TideBrowseExportFormat = Literal["csv", "xlsx"]
+"""What a browse view can be taken away as.
+
+Deliberately narrower than a report's. A 10,000-row PDF is not a document
+anybody wanted, and HTML of a grid is a worse CSV.
+"""
 TideReportParameterType = Literal[
     "string", "integer", "decimal", "boolean", "date", "datetime"
 ]
@@ -691,6 +697,13 @@ class TideBrowsePresentation(BaseModel):
     refuse.
     """
     edit: TideBrowseEditMode = "form"
+    export_formats: tuple[TideBrowseExportFormat, ...] = ()
+    """Which files this principal may take this view away as.
+
+    Empty means no control at all -- either the principal does not hold
+    `tide.records.export`, or the server cannot write that format. A grid must
+    never offer a download the server would refuse.
+    """
     """How this browse offers editing: the record form, or in the row.
 
     Presentation, not permission -- what a row will actually accept is

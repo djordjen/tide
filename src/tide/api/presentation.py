@@ -61,6 +61,7 @@ def build_presentation_manifest(
     exposures: Mapping[str, RestExposure],
     *,
     base_path: str,
+    export_formats: tuple[str, ...] = (),
 ) -> TidePresentationManifest:
     """Build the safe presentation subset available to one principal."""
 
@@ -186,6 +187,10 @@ def build_presentation_manifest(
                 edit=str(
                     view.data.get("settings", {}).get("edit", "form")
                 ),
+                # The same for every view: the capability is the
+                # framework's, not one entity's, and a view only
+                # reaches here when `list` already allowed it.
+                export_formats=tuple(export_formats),
                 page_size=int(
                     view.data.get("settings", {}).get("page_size", 50)
                 ),

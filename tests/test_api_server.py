@@ -30,6 +30,7 @@ from tide.data import InMemoryRepository
 from tide.runtime import Channel, Principal, RequestContext
 from tide.runtime.application import configure_application_runtime
 from tide.reporting import PdfDependencyMissing
+from tide.reporting.xlsx import SPREADSHEET_AVAILABLE
 from tide.services import ActionService, RecordsService
 from tide.tui import seed_demo_data
 
@@ -2918,3 +2919,44 @@ def _recording_logger() -> tuple[logging.Logger, _RecordingHandler]:
     handler = _RecordingHandler()
     logger.addHandler(handler)
     return logger, handler
+
+
+def test_the_manifest_offers_only_the_export_a_principal_and_server_can_do() -> None:
+    """Never present a download the server would refuse.
+
+    Two filters, not one: the principal has to hold `tide.records.export`,
+    and the process has to have the writer installed. A grid that offered
+    XLSX from a server without the extra would be offering a 503.
+    """
+
+    async def exercise() -> None:
+        async with _client(_app("sales_clerk")) as client:
+            permitted = await client.get(
+                "/api/v1/_tide/presentation",
+                headers=_authorization(),
+            )
+        async with _client(_app("auditor")) as client:
+            withheld = await client.get(
+                "/api/v1/_tide/presentation",
+                headers=_authorization(),
+            )
+
+        assert permitted.status_code == 200
+        expected = ["csv", "xlsx"] if SPREADSHEET_AVAILABLE else ["csv"]
+        offered = {
+            name: view["export_formats"]
+            for name, view in permitted.json()["views"].items()
+        }
+        assert offered
+        assert all(formats == expected for formats in offered.values()), offered
+
+        # The auditor reads every grid the clerk does and may not carry one
+        # off, which is the whole point of the capability being separate.
+        assert withheld.status_code == 200
+        assert withheld.json()["views"]
+        assert all(
+            view["export_formats"] == []
+            for view in withheld.json()["views"].values()
+        )
+
+    asyncio.run(exercise())

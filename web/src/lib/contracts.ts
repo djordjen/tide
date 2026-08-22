@@ -2,6 +2,7 @@ export type TideOperation = "list" | "get" | "create" | "update" | "delete"
 export type TideAlignment = "left" | "center" | "right"
 export type TideReportKind = "record" | "summary"
 export type TideReportExportFormat = "csv" | "html" | "pdf"
+export type TideBrowseExportFormat = "csv" | "xlsx"
 export type TideFilterOperator =
   | "eq"
   | "ne"
@@ -208,6 +209,13 @@ export interface TideBrowsePresentation {
    * defaults to everywhere this is read.
    */
   edit?: "form" | "inline"
+  /**
+   * Which files this principal may take this view away as. Empty or
+   * absent means no control at all -- either the principal does not
+   * hold the export capability, or the server has no writer for the
+   * format. Optional for the same version-skew reason as `summaries`.
+   */
+  export_formats?: TideBrowseExportFormat[]
   page_size: number
   operations: TideOperation[]
   detail_view: string | null

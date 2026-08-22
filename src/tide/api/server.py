@@ -83,6 +83,8 @@ from tide.api.openapi import (
     rest_exposures,
 )
 from tide.api.presentation import build_presentation_manifest
+from tide.reporting.browse import EXPORT as EXPORT_PERMISSION
+from tide.reporting.xlsx import SPREADSHEET_AVAILABLE
 from tide.api.wire import (
     coerce_identity as _coerce_identity,
     decode_filter_value as _decode_filter_value,
@@ -1255,11 +1257,20 @@ def build_fastapi_app(
     def presentation_manifest(
         context: RequestContext = Depends(request_context),
     ) -> TidePresentationManifest:
+        # Filtered twice: by what this principal may do, and by what this
+        # process can actually write. Offering a format the server has no
+        # writer for would be offering a 503.
+        export_formats: tuple[str, ...] = ()
+        if EXPORT_PERMISSION in records.security.effective_permissions(
+            context.principal
+        ):
+            export_formats = ("csv", "xlsx") if SPREADSHEET_AVAILABLE else ("csv",)
         return build_presentation_manifest(
             model,
             session_info(context),
             exposures,
             base_path=base_path,
+            export_formats=export_formats,
         )
 
     @app.post(
