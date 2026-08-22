@@ -36,6 +36,9 @@ seed = [
 report = [
     "reportlab>=4.4,<5",
 ]
+spreadsheet = [
+    "openpyxl>=3.1,<4",
+]
 api = [
     "fastapi>=0.116,<1",
     "uvicorn[standard]>=0.35,<1",
@@ -59,6 +62,7 @@ dev = [
     "jsonschema>=4.25,<5",
     "mcp>=1.28,<2",
     "mypy>=1.18,<2",
+    "openpyxl>=3.1,<4",
     "PyJWT[crypto]>=2.10,<3",
     "pytest>=8.3,<10",
     "pytest-cov>=6.0,<8",
