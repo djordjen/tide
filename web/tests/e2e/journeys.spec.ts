@@ -495,3 +495,43 @@ test("renders its own API description under its own security headers", async ({
   )
   await expect(external).toHaveCount(0)
 })
+
+test("takes the filtered grid away as a file the server built", async ({
+  page,
+}) => {
+  // The grid is virtualised, so what the browser holds is a page rather than
+  // the table. The file has to come from the server walking the same query,
+  // which is why this asserts the request the control sends as well as the
+  // download it gets back.
+  await signIn(page)
+
+  const exports: unknown[] = []
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.endsWith("/_export/csv")) {
+      exports.push(request.postDataJSON())
+    }
+  })
+
+  await page
+    .getByRole("button", { name: "Named filter" })
+    .or(page.getByRole("button", { name: /Draft invoices|All records/ }))
+    .first()
+    .click()
+  await page.getByRole("menuitemradio", { name: "Draft invoices" }).click()
+
+  const download = page.waitForEvent("download")
+  await page.getByRole("button", { name: "Export records" }).click()
+  await page.getByRole("menuitem", { name: "CSV" }).click()
+  const file = await download
+
+  expect(file.suggestedFilename()).toMatch(/^invoices-\d{4}-\d{2}-\d{2}\.csv$/)
+  // The condition the reader chose reached the server, rather than the rows
+  // the grid happened to be holding.
+  expect(exports).toEqual([
+    {
+      view: "sales.Invoice.browse",
+      filters: [{ field: "status", operator: "eq", value: "draft" }],
+      sort: [],
+    },
+  ])
+})

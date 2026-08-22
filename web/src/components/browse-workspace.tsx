@@ -23,6 +23,7 @@ import {
 import { TideDataGrid } from "@/components/tide-data-grid"
 import { Badge } from "@/components/ui/badge"
 import { TideLine } from "@/components/tide-line"
+import { BrowseExportControl } from "@/components/browse-export-control"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -670,6 +671,13 @@ export function BrowseWorkspace({
               {report.title}
             </Button>
           ))}
+
+          <BrowseExportControl
+            api={api}
+            view={view}
+            filters={filters}
+            sort={sort}
+          />
 
           <Button
             aria-label="Refresh records"

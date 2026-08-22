@@ -41,7 +41,19 @@ const application = join(repository, "applications", "invoicing")
 const webRoot = join(repository, "web", "dist")
 const store = join(repository, ".tide", "e2e-auth.sqlite3")
 const credentials = join(repository, CREDENTIALS_FILE)
-const tide = ["run", "--extra", "api", "--extra", "report", "tide"]
+// `spreadsheet` too, so the journeys meet the same export control a
+// developer does: without it the manifest offers CSV alone and the
+// toolbar renders a button where there would otherwise be a menu.
+const tide = [
+  "run",
+  "--extra",
+  "api",
+  "--extra",
+  "report",
+  "--extra",
+  "spreadsheet",
+  "tide",
+]
 
 if (!existsSync(join(webRoot, "index.html"))) {
   console.error(

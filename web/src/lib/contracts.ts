@@ -360,6 +360,15 @@ export interface TideReportDocument {
   groups?: TideReportGroup[]
 }
 
+export interface TideBrowseDownload {
+  blob: Blob
+  filename: string
+  /** Rows in the file. */
+  rows: number
+  /** Rows the query admits. Fewer in the file means the cap stopped it. */
+  total: number
+}
+
 export interface TideReportDownload {
   blob: Blob
   filename: string

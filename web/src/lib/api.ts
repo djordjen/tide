@@ -17,7 +17,10 @@ import type {
   TideRecordSnapshot,
   TideReferenceSelectionResult,
   TideReportDocument,
+  TideBrowseDownload,
+  TideBrowseExportFormat,
   TideReportDownload,
+  TideSortInput,
   TideReportExportFormat,
   TidePresentationReport,
   TideRoleCatalogue,
@@ -553,6 +556,46 @@ export class TideApi {
         : { method: "GET" },
       signal,
     )
+  }
+
+  /**
+   * Take one browse view away as a file.
+   *
+   * The same conditions and sort the grid is showing; the server owns how
+   * far the walk goes. The two count headers say whether the cap stopped it,
+   * so a caller can warn before handing the file over.
+   */
+  async exportBrowse(
+    view: TideBrowsePresentation,
+    exportFormat: TideBrowseExportFormat,
+    filters: TideFilterInput[],
+    sort: TideSortInput[],
+    signal?: AbortSignal,
+  ): Promise<TideBrowseDownload> {
+    if (!(view.export_formats ?? []).includes(exportFormat)) {
+      throw new TideApiError(
+        `${exportFormat.toUpperCase()} export is unavailable for this view.`,
+        { code: "export_format_unavailable" },
+      )
+    }
+    const response = await this.authorizedResponse(
+      `${view.resource_path}/_export/${exportFormat}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ view: view.view, filters, sort }),
+      },
+      signal,
+      "*/*",
+    )
+    const rows = Number(response.headers.get("X-Tide-Export-Rows") ?? 0)
+    return {
+      blob: await response.blob(),
+      filename:
+        responseFilename(response.headers.get("Content-Disposition")) ??
+        `export.${exportFormat}`,
+      rows,
+      total: Number(response.headers.get("X-Tide-Export-Total") ?? rows),
+    }
   }
 
   async exportReport(

@@ -72,7 +72,10 @@ jobs:
         with:
           enable-cache: true
           python-version: "3.11"
-      - run: uv sync --locked --extra api --extra report
+      # `spreadsheet` too, so the journeys meet the same export
+      # controls a developer does: without it the manifest offers
+      # CSV alone and the toolbar renders a different control.
+      - run: uv sync --locked --extra api --extra report --extra spreadsheet
         working-directory: .
       - run: npm ci
       # `check` is the single local gate: tsc, eslint, then the unit tests.
