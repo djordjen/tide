@@ -10,16 +10,17 @@ import re
 from typing import Any, Mapping
 
 from tide.compiler.expressions import evaluate_expression
-from tide.labels import humanize as _humanize, value_label
+from tide.labels import humanize as _humanize
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.presentation import field_alignment, field_label, record_display
 from tide.services import NO_REFERENCE_DISPLAYS, ReferenceDisplays
-from tide.runtime import Channel, RequestContext, TideRuntimeError
+from tide.runtime import Channel, RequestContext
 from tide.runtime.errors import AuthorizationError, ValidationFailed, ValidationIssue
 from tide.security import PROTECTED
 from tide.services.records import RecordsService
 
+from .fields import FieldFormatter, display_record as _display_record_shared
 from .document import (
     ReportCell,
     ReportColumn,
@@ -36,6 +37,7 @@ class ReportService:
     def __init__(self, model: ApplicationModel, records: RecordsService) -> None:
         self.model = model
         self.records = records
+        self.formatter = FieldFormatter(model, records)
 
     def can_generate(self, report_name: str, context: RequestContext) -> bool:
         report = self.model.reports.get(report_name)
@@ -587,40 +589,16 @@ class ReportService:
         format_name: Any = None,
         references: ReferenceDisplays = NO_REFERENCE_DISPLAYS,
     ) -> str:
-        if value is None:
-            return ""
-        if field.metadata["type"] == "reference" and field.target_entity:
-            resolved = references.display(field.target_entity, value)
-            if resolved is not None:
-                return resolved
-            try:
-                related = self.records.get(field.target_entity, value, context)
-            except TideRuntimeError:
-                return str(value)
-            return _display_record(self.model.entity(field.target_entity), related)
-        if field.metadata["type"] == "choice":
-            return value_label(value)
-        return self._format_scalar(value, format_name or field.metadata.get("format"))
+        return self.formatter.field(
+            field,
+            value,
+            context,
+            format_name=format_name,
+            references=references,
+        )
 
     def _format_scalar(self, value: Any, format_name: Any = None) -> str:
-        if value is None:
-            return ""
-        configuration = self.model.formats.get(str(format_name), {})
-        if isinstance(value, datetime):
-            pattern = str(configuration.get("display", "%d.%m.%Y %H:%M"))
-            return value.strftime(pattern)
-        if isinstance(value, date):
-            pattern = str(configuration.get("display", "%Y-%m-%d"))
-            return value.strftime(pattern)
-        if isinstance(value, Decimal):
-            places = configuration.get("decimal_places")
-            if places is None:
-                return str(value)
-            grouping = "," if configuration.get("thousands_separator") else ""
-            return format(value, f"{grouping}.{int(places)}f")
-        if isinstance(value, bool):
-            return "Yes" if value else "No"
-        return str(value)
+        return self.formatter.scalar(value, format_name)
 
 
 def _coerce_parameters(
@@ -835,16 +813,7 @@ def _format_alignment(
     return str(value) if value in {"left", "center", "right"} else "left"
 
 
-def _display_record(entity: NormalizedEntity, values: Mapping[str, Any]) -> str:
-    if entity.display:
-        try:
-            return entity.display.format_map(
-                {name: "" if value is None or value is PROTECTED else value for name, value in values.items()}
-            )
-        except (KeyError, ValueError):
-            pass
-    primary_key = _primary_key(entity)
-    return str(values.get(primary_key, ""))
+_display_record = _display_record_shared
 
 
 def _report_filename(report: Mapping[str, Any], qualifier: str) -> str:
