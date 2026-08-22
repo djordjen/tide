@@ -595,7 +595,12 @@ class FieldPolicySource(SourceModel):
 
 FRAMEWORK_PERMISSION_PREFIX = "tide."
 
-FRAMEWORK_PERMISSIONS: frozenset[str] = frozenset({"tide.users.administer"})
+FRAMEWORK_PERMISSIONS: frozenset[str] = frozenset(
+    {
+        "tide.users.administer",
+        "tide.records.export",
+    }
+)
 """Capabilities the framework itself answers for, rather than the application.
 
 `tide.` is reserved. An application declares one of these in `permissions:`
@@ -604,9 +609,15 @@ and grants it to a role exactly like its own, so the single role expansion in
 but it may not invent one, because a permission nothing checks reads as a
 granted capability while granting nothing.
 
-Today there is one: `tide.users.administer` permits administering the
-identities TIDE owns. Where TIDE does not own them -- development
+Today there are two. `tide.users.administer` permits administering the
+identities TIDE owns; where TIDE does not own them -- development
 authentication, or an identity provider -- there is nothing for it to reach.
+
+`tide.records.export` permits taking a browse query away as a file. It is not
+a confidentiality boundary, because a caller holding `list` can already page
+the same rows one page at a time; it separates reading a grid from carrying it
+off, which is a distinction deployments make, and it gives the log something
+to name.
 """
 
 

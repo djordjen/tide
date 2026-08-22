@@ -16,9 +16,13 @@ permissions:
   - sales.invoice.audit
   - sales.invoice.detail
 
-  # Reserved by the framework rather than defined here: it permits
-  # administering the identities TIDE owns, and it is checked by TIDE.
+  # Reserved by the framework rather than defined here, and checked by TIDE.
+  # The first permits administering the identities TIDE owns. The second
+  # permits taking a browse view away as a file -- which is not a secret the
+  # grid was keeping, since paging reaches the same rows, but is the
+  # difference between reading here and carrying off.
   - tide.users.administer
+  - tide.records.export
 
 roles:
   sales_clerk:
@@ -35,6 +39,7 @@ roles:
       - sales.invoice.void
       - sales.invoice.report
       - sales.invoice.detail
+      - tide.records.export
 
   auditor:
     grants:

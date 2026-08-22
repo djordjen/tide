@@ -1305,7 +1305,8 @@ def test_the_framework_permission_namespace_is_reserved(tmp_path: Path) -> None:
     ]
     assert offenders == [
         "unknown framework permission 'tide.users.delete'; "
-        "'tide.' is reserved and names 'tide.users.administer'"
+        "'tide.' is reserved and names 'tide.records.export', "
+        "'tide.users.administer'"
     ]
 
 
