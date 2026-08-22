@@ -169,26 +169,41 @@ own, so the single role expansion still decides everything and no second
 authority exists -- but it may not invent one, because a permission nothing
 checks reads as a granted capability while granting nothing (`TIDE286`).
 
-There is one today:
+There are two today:
 
 | Permission | Permits |
 |---|---|
 | `tide.users.administer` | administering the identities TIDE owns |
+| `tide.records.export` | taking a browse view away as a file |
 
 ```yaml
 permissions:
   - tide.users.administer
+  - tide.records.export
 
 roles:
   administrator:
     grants:
       - tide.users.administer
+
+  sales_clerk:
+    grants:
+      - tide.records.export
 ```
 
-Holding it permits assigning *declared* roles to accounts, and enabling or
-disabling them. Roles and what they grant are compiled: creating a role, or
-changing its grants, is an authoring change that goes through the compiler
-like every other. See [security](SECURITY.md#administering-identities).
+`tide.users.administer` permits assigning *declared* roles to accounts, and
+enabling or disabling them. Roles and what they grant are compiled: creating a
+role, or changing its grants, is an authoring change that goes through the
+compiler like every other. See
+[security](SECURITY.md#administering-identities).
+
+`tide.records.export` permits exporting a browse view as CSV or XLSX. It is
+additional to ordinary `list`, never a replacement, and it can only subtract
+from what `list` already allows. It is deliberately **not** a confidentiality
+boundary: a caller holding `list` can already page every row an export would
+carry. What it separates is reading a grid from carrying it off -- a
+distinction deployments make -- and it gives the log an event worth finding a
+year later. See [export](API-AND-MCP.md#exporting-a-browse-view).
 
 A browse view's `edit` setting chooses how the browser offers editing:
 `form` (the default) opens the record screen, `inline` puts the selected

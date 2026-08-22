@@ -410,3 +410,33 @@ capabilities:
           - path: tests/test_role_administration.py
             selector: test_the_routes_refuse_a_caller_without_the_permission
             runner: python
+
+  - id: browse_export
+    tier: roadmap
+    description: A reader holding `tide.records.export` takes the browse query on screen away as a CSV or XLSX file, built by the server over the whole filtered set, bounded and saying where it stopped.
+    renderers:
+      tui:
+        status: not_applicable
+        note: >-
+          Deliberately deferred rather than missing. The export service is
+          surface-neutral, so the terminal costs a screen rather than a
+          contract -- but its browse has no affordance for one yet and the
+          slice was already wide. The console's own reports already export.
+      web:
+        status: covered
+        evidence:
+          - path: web/src/components/browse-export-control.test.tsx
+            selector: sends the conditions on screen and downloads what comes back
+            runner: web
+          - path: web/src/components/browse-export-control.test.tsx
+            selector: says what it got before the reader trusts a capped file
+            runner: web
+          - path: tests/test_browse_export.py
+            selector: test_an_export_stops_at_the_cap_and_says_what_it_stopped_at
+            runner: python
+          - path: tests/test_browse_export.py
+            selector: test_export_is_refused_without_the_capability
+            runner: python
+          - path: tests/test_api_server.py
+            selector: test_a_clerk_can_take_the_filtered_grid_away
+            runner: python

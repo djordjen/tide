@@ -267,7 +267,84 @@ contracts it forced into existence stayed: the versioned presentation manifest,
 renderer-neutral form-layout resolution, the shared field-state and three-way
 conflict contracts, and batched reference displays on `QueryPage`.
 
+### Carrying records off
+
+A browse view can now be taken away as a file. `POST {resource}/_export/{csv|xlsx}`
+carries the view name plus the same filters and sort the grid sent; the cursor
+and the page size are the server's, because how far an export walks is a bound
+it owns rather than one the caller names. The service pages the same secured
+query the grid ran, so row policies, field reads and the row-policy recheck
+all hold without being restated, and the columns are the view's declared ones
+in declared order -- so the file is reproducible from the query alone, and two
+readers exporting the same query get the same bytes rather than each other's
+column arrangement.
+
+Gated by `tide.records.export`, the second capability in the reserved `tide.`
+namespace, additional to `list` rather than a replacement for it. It is
+deliberately **not** a confidentiality boundary and the documentation says so:
+a caller holding `list` can already page every row an export would carry. What
+it separates is reading a grid from carrying it off, which is a distinction
+deployments make -- and what makes that real rather than decorative is the
+log, which now writes a `records.export` event naming the principal, the view,
+the format, and how many rows of how many left. The log allowlist gained
+`rows` and `total`: two integers rather than a truncation flag, because they
+say more and the allowlist drops booleans by construction.
+
+Bounded at 10,000 rows, which is not about secrecy either -- it is what stops
+one request becoming an unbounded scan on a shared server. The file still
+arrives and says it is partial, the way `_distinct` returns 200 values and
+reports that it truncated. Where the format has room the file says it in
+words: the workbook's second sheet, `Export details`, carries the conditions,
+the sort and the count. A CSV says it in its filename, which gains a
+`-partial` qualifier, because `render_csv` writes the table and nothing else
+on purpose -- a CSV export exists to be sorted, filtered and pivoted, and a
+preamble row breaks exactly that. Both responses carry `X-Tide-Export-Rows`
+beside `X-Tide-Export-Total`, so a client knows before it opens the file.
+
+XLSX holds numbers as numbers, which is the only reason to prefer it, so the
+export renders its table twice: once as text for anything that reads text,
+once as typed values beside it. Which cells are typed is decided by the
+*column* rather than by the value -- a reference stores an integer identity
+whose text is a customer's name, and typing by value would have put `1` in the
+cell where the grid showed `ACME - ACME Ltd`. The workbook also turned out
+*not* to be inherently safer than CSV about formulas, which is what this
+started out assuming: openpyxl infers a cell's type from what it is handed and
+infers `formula` for anything beginning `=`, so a stored `=SUM(A1:A9)` was
+being written as something Excel evaluates. The guess is overruled per cell
+now, which is better than CSV's apostrophe rather than merely equal to it --
+the value survives intact instead of carrying an escape into whatever reads it
+back.
+
+Optional, like PDF. XLSX sits behind a `spreadsheet` extra, and the
+presentation manifest's `export_formats` is filtered twice: by whether the
+principal holds the capability and by whether the server has a writer for the
+format, so a renderer can never present a download that would come back a 503.
+
+Formats are narrower than a report's on purpose. A 10,000-row PDF is not a
+document anybody wanted and HTML of a grid is a worse CSV, so neither is
+offered. The terminal and MCP deliberately abstain: the export service is
+surface-neutral, so the terminal costs a screen rather than a contract when it
+wants one, and an MCP client can already page the query and format it however
+it likes. Honouring the reader's on-screen column order stays out too -- the
+grid saves only order and widths and cannot hide a column, so the set is the
+same either way and only the order would differ, which is not worth making
+presentation state into a wire concept.
+
+One extraction came with it. `_format_field` and `_format_scalar` were private
+to `ReportService` and a browse export needs exactly the same answers, so they
+moved to a shared `FieldFormatter` that the report service now delegates to.
+A protected value answers as blank there rather than falling through to
+`str(value)`: reports never met the sentinel because they format declared
+report columns, and a browse view can name a field a field policy protects.
+
 ### Web renderer
+
+The browse toolbar carries an **Export** control where the principal holds the
+capability -- a button for one format, a menu for more. It sends the conditions
+on screen rather than the rows the browser is holding, because the grid is
+virtualised and what is loaded is a page rather than the table, and it warns
+before handing over a capped file, naming both numbers.
+
 
 The shell now carries TIDE's own identity instead of a template's. The primary
 hue moved from framework-default blue to a sea-teal, the sidebar ink took the

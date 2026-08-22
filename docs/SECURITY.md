@@ -107,6 +107,28 @@ few people rather than being made safe.
 Administration is not exposed over MCP. An agent that can grant itself a role
 is an agent with every role.
 
+## Carrying records off
+
+Exporting a browse view is gated by `tide.records.export`, the second
+capability in the reserved `tide.` namespace. It is **additional to `list`,
+never a replacement**: an export runs the same secured query the grid runs, so
+row policies, field reads and the row-policy recheck all apply, and the
+capability can only subtract from what `list` already allows.
+
+It is deliberately not a confidentiality boundary, and claiming otherwise
+would be the more dangerous documentation. A caller holding `list` can already
+walk every row an export would carry, one cursor page at a time. What the
+capability separates is *reading a grid* from *carrying it off* -- a
+distinction real deployments make -- and what makes that separation real
+rather than decorative is the log: every export writes a `records.export`
+event naming the principal, the view, the format, and how many rows of how
+many left.
+
+The bound is the other half. An export stops at 10,000 rows, which is not
+about secrecy either: it is what stops one request becoming an unbounded scan
+on a shared server. The file still arrives and says it is partial, because a
+file that quietly ends at ten thousand rows reads as the answer.
+
 ## Studio security preview
 
 TIDE Studio can project a compiled view as a selected role. It constructs a

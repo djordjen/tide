@@ -288,10 +288,19 @@ the same services.
   failing when used;
 - permission-gated action and CRUD audit history through local/remote TUI and
   REST, with safe protected logging; **implemented for domain-action lifecycle
-  events and successful root create/update/delete changes; collection-detail,
-  retention, purge, and broader MCP/report/export audit remain**;
+  events, successful root create/update/delete changes, and browse
+  exports -- which write a `records.export` event naming principal,
+  view, format and rows-of-total; collection-detail, retention, purge,
+  and broader MCP/report audit remain**;
 - controlled export; **implemented for reports as authorized CSV/HTML/PDF
-  routes**. Bulk import is **deferred on 2026-08-10**: TIDE reads databases it
+  routes, and for browse views as CSV/XLSX** through
+  `POST {resource}/_export/{format}` -- the same filters and sort the
+  grid sent, the whole filtered set rather than a page, the view's
+  declared columns, and two count headers saying whether the cap
+  stopped it. The capability is additional to `list` rather than a
+  replacement, and is honest about not being a confidentiality
+  boundary: paging already reaches the same rows. The terminal and MCP
+  deliberately abstain. Bulk import is **deferred on 2026-08-10**: TIDE reads databases it
   does not own, so rows already arrive through the database itself, and the
   loading tools an operator has do not need a metadata framework in front of
   them. See the decision log for what that costs;
@@ -370,7 +379,11 @@ formats, report MCP actions, and designer tooling remain.
 - CSV export; **implemented for renderer-neutral detail tables; a grouped
   listing exports flat with the group values repeated per row, because a
   spreadsheet pivots for itself**
-- spreadsheet export;
+- spreadsheet export; **implemented for browse views as CSV and XLSX**
+  under a `tide.records.export` capability, bounded at 10,000 rows and
+  saying where it stopped. XLSX sits behind a `spreadsheet` extra, so a
+  server without it offers CSV alone and the manifest says so. Report
+  spreadsheet export remains;
 - report actions through TUI, REST, and MCP where exposed;
 - initial report property editor and preview tools.
 

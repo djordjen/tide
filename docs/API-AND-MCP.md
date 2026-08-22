@@ -121,6 +121,46 @@ owns any -- one flag, false unless both hold. It is capability information for
 rendering and early feedback, never a replacement for per-request
 authorization.
 
+### Exporting a browse view
+
+A reader who has filtered, sorted and totalled a grid can take the result
+away. `POST /api/v1/{resource}/_export/{csv|xlsx}` carries the view name plus
+the same filters and sort the grid sent; the cursor and the page size are the
+server's, because how far an export walks is a bound it owns rather than one
+the caller names.
+
+```json
+{
+  "view": "sales.Invoice.browse",
+  "filters": [{"field": "status", "operator": "eq", "value": "draft"}],
+  "sort": [{"field": "invoice_date", "descending": true}]
+}
+```
+
+The service pages the same secured query the grid ran, so row policies, field
+reads and the row-policy recheck all hold without being restated. The columns
+are the view's declared ones, in declared order, so the file is reproducible
+from the query alone and two readers exporting the same query get the same
+bytes.
+
+**Bounded, and it says so.** An export stops at 10,000 rows. The file still
+arrives, and `X-Tide-Export-Rows` beside `X-Tide-Export-Total` says whether it
+is all of them, so a client can warn before handing it over. Where the format
+has room -- the workbook's second sheet -- the file says it in words too; a
+CSV says it in its filename, which gains a `-partial` qualifier, because a CSV
+export exists to be sorted, filtered and pivoted and a preamble row would
+break exactly that.
+
+Behind `tide.records.export`, which is additional to `list` rather than a
+replacement for it. Formats are narrower than a report's on purpose: a
+10,000-row PDF is not a document anybody wanted, and HTML of a grid is a worse
+CSV. XLSX needs the `spreadsheet` extra; without it the server offers CSV
+alone and the presentation manifest's `export_formats` says so, so a renderer
+never presents a download that would come back a 503.
+
+The terminal and MCP deliberately abstain. An MCP client can already page the
+query and format it however it likes.
+
 ### Identity administration
 
 Where the server owns the identities -- `--auth local`, and only there -- it
