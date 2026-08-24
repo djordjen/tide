@@ -379,11 +379,16 @@ formats, report MCP actions, and designer tooling remain.
 - CSV export; **implemented for renderer-neutral detail tables; a grouped
   listing exports flat with the group values repeated per row, because a
   spreadsheet pivots for itself**
-- spreadsheet export; **implemented for browse views as CSV and XLSX**
-  under a `tide.records.export` capability, bounded at 10,000 rows and
-  saying where it stopped. XLSX sits behind a `spreadsheet` extra, so a
-  server without it offers CSV alone and the manifest says so. Report
-  spreadsheet export remains;
+- spreadsheet export; **implemented** for browse views as CSV and XLSX under
+  a `tide.records.export` capability, bounded at 10,000 rows and saying where
+  it stopped, and for reports as a fourth export format beside CSV, HTML and
+  PDF. One workbook writer serves both: sheet one is the flat table, sheet two
+  carries what a table has no room for -- a record report's own fields, each
+  group's values and subtotal, and the grand total. A grouped listing flattens
+  the way its CSV does, group values repeated as leading columns, because a
+  spreadsheet pivots for itself. XLSX sits behind a `spreadsheet` extra, and
+  every export format a manifest offers is now derived from what the process
+  can actually write;
 - report actions through TUI, REST, and MCP where exposed;
 - initial report property editor and preview tools.
 

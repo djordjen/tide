@@ -55,6 +55,28 @@ from tide.presentation import (
 _record_label = record_label
 
 
+def report_export_formats(
+    *,
+    pdf: bool,
+    spreadsheet: bool,
+) -> tuple[str, ...]:
+    """Which report downloads this process could actually produce.
+
+    Never offer a download the server would refuse -- the same rule browse
+    export follows. This defaulted to every format unconditionally, so a
+    server without `reportlab` presented a PDF button that answered 503.
+
+    CSV and HTML need nothing and are always there.
+    """
+
+    formats = ["csv", "html"]
+    if pdf:
+        formats.append("pdf")
+    if spreadsheet:
+        formats.append("xlsx")
+    return tuple(formats)
+
+
 def build_presentation_manifest(
     model: ApplicationModel,
     session: TideSessionInfo,
@@ -62,6 +84,7 @@ def build_presentation_manifest(
     *,
     base_path: str,
     export_formats: tuple[str, ...] = (),
+    report_formats: tuple[str, ...] = ("csv", "html"),
 ) -> TidePresentationManifest:
     """Build the safe presentation subset available to one principal."""
 
@@ -251,6 +274,7 @@ def build_presentation_manifest(
                 f"{base_path.rstrip('/')}/_tide/reports/"
                 f"{quote(name, safe='')}"
             ),
+            export_formats=tuple(report_formats),
             parameters=_report_parameters(report),
         )
         for name, report in model.reports.items()

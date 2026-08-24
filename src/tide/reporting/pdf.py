@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib.util
+
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -14,6 +16,18 @@ class PdfDependencyMissing(RuntimeError):
         super().__init__(
             "PDF export requires the 'report' extra: pip install tide-framework[report]"
         )
+
+
+def pdf_available() -> bool:
+    """Whether this process could render a PDF if asked.
+
+    `render_pdf` imports lazily and raises `PdfDependencyMissing`, which is
+    the right answer to a request but too late for a manifest: a renderer has
+    to know *before* it offers the download. Checked by spec rather than by
+    import, so asking costs nothing.
+    """
+
+    return importlib.util.find_spec("reportlab") is not None
 
 
 def render_pdf(document: ReportDocument) -> bytes:

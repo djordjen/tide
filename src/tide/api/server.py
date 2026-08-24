@@ -83,7 +83,10 @@ from tide.api.openapi import (
     build_openapi_preview,
     rest_exposures,
 )
-from tide.api.presentation import build_presentation_manifest
+from tide.api.presentation import (
+    build_presentation_manifest,
+    report_export_formats,
+)
 from tide.reporting.browse import (
     EXPORT as EXPORT_PERMISSION,
     BrowseExportService,
@@ -131,7 +134,9 @@ from tide.runtime import (
     VersionPreconditionRequired,
 )
 from tide.reporting import (
+    TypedReport,
     PdfDependencyMissing,
+    pdf_available,
     ReportDocument,
     ReportService,
     render_csv,
@@ -1277,6 +1282,10 @@ def build_fastapi_app(
             exposures,
             base_path=base_path,
             export_formats=export_formats,
+            report_formats=report_export_formats(
+                pdf=pdf_available(),
+                spreadsheet=SPREADSHEET_AVAILABLE,
+            ),
         )
 
     @app.post(
@@ -1308,11 +1317,11 @@ def build_fastapi_app(
             values=_wire_draft(model, entity, updated),
         )
 
-    def build_summary_document(
+    def build_summary_export(
         report_name: str,
         parameters: Mapping[str, Any],
         context: RequestContext,
-    ) -> ReportDocument:
+    ) -> TypedReport:
         report = model.reports.get(report_name)
         if (
             report is None
@@ -1320,13 +1329,20 @@ def build_fastapi_app(
             or report.get("expose", {}).get("rest") is not True
         ):
             raise NotFoundError(f"report {report_name!r} was not found")
-        return report_service.build(report_name, parameters, context)
+        return report_service.build_export(report_name, parameters, context)
 
-    def build_record_document(
+    def build_summary_document(
+        report_name: str,
+        parameters: Mapping[str, Any],
+        context: RequestContext,
+    ) -> ReportDocument:
+        return build_summary_export(report_name, parameters, context).document
+
+    def build_record_export(
         report_name: str,
         identity: str,
         context: RequestContext,
-    ) -> ReportDocument:
+    ) -> TypedReport:
         report = model.reports.get(report_name)
         if (
             report is None
@@ -1340,11 +1356,18 @@ def build_fastapi_app(
             typed_identity = _coerce_identity(model, primary_key, identity)
         except (TypeError, ValueError, InvalidOperation) as error:
             raise _bad_request("record identity has an invalid type") from error
-        return report_service.build_for_record(
+        return report_service.build_export_for_record(
             report_name,
             typed_identity,
             context,
         )
+
+    def build_record_document(
+        report_name: str,
+        identity: str,
+        context: RequestContext,
+    ) -> ReportDocument:
+        return build_record_export(report_name, identity, context).document
 
     @app.post(
         f"{base_path.rstrip('/')}/_tide/reports/{{report_name}}",
@@ -1374,11 +1397,11 @@ def build_fastapi_app(
     def summary_report_export(
         context: RequestContext = Depends(request_context),
         report_name: str = Path(min_length=1),
-        export_format: Literal["csv", "html", "pdf"] = Path(),
+        export_format: Literal["csv", "html", "pdf", "xlsx"] = Path(),
         parameters: dict[str, Any] = Body(default_factory=dict),
     ) -> Response:
-        document = build_summary_document(report_name, parameters, context)
-        return _report_export_response(document, export_format)
+        built = build_summary_export(report_name, parameters, context)
+        return _report_export_response(built, export_format)
 
     @app.get(
         f"{base_path.rstrip('/')}/_tide/reports/{{report_name}}/records/{{identity}}",
@@ -1409,10 +1432,10 @@ def build_fastapi_app(
         context: RequestContext = Depends(request_context),
         report_name: str = Path(min_length=1),
         identity: str = Path(min_length=1),
-        export_format: Literal["csv", "html", "pdf"] = Path(),
+        export_format: Literal["csv", "html", "pdf", "xlsx"] = Path(),
     ) -> Response:
-        document = build_record_document(report_name, identity, context)
-        return _report_export_response(document, export_format)
+        built = build_record_export(report_name, identity, context)
+        return _report_export_response(built, export_format)
 
     for entity_name, exposure in exposures.items():
         entity = model.entity(entity_name)
@@ -2418,11 +2441,12 @@ def _attachment_disposition(filename: str, *, fallback: str) -> str:
 
 
 def _report_export_response(
-    document: ReportDocument,
-    export_format: Literal["csv", "html", "pdf"],
+    built: TypedReport,
+    export_format: Literal["csv", "html", "pdf", "xlsx"],
 ) -> Response:
     """Render one already-authorized report with a safe attachment name."""
 
+    document = built.document
     disposition = _attachment_disposition(
         f"{document.suggested_filename}.{export_format}",
         fallback=f"report.{export_format}",
@@ -2430,6 +2454,20 @@ def _report_export_response(
     if export_format == "csv":
         content = render_csv(document).encode("utf-8-sig")
         media_type = "text/csv; charset=utf-8"
+    elif export_format == "xlsx":
+        if not SPREADSHEET_AVAILABLE:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "report_format_unavailable",
+                    "message": "XLSX export needs the 'spreadsheet' extra",
+                },
+            )
+        content = render_xlsx(document, built.typed_values)
+        media_type = (
+            "application/vnd.openxmlformats-officedocument"
+            ".spreadsheetml.sheet"
+        )
     elif export_format == "html":
         content = render_html(document).encode("utf-8")
         media_type = "text/html; charset=utf-8"

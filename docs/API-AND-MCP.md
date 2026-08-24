@@ -158,6 +158,20 @@ CSV. XLSX needs the `spreadsheet` extra; without it the server offers CSV
 alone and the presentation manifest's `export_formats` says so, so a renderer
 never presents a download that would come back a 503.
 
+**Reports export as XLSX too**, beside CSV, HTML and PDF, and need no extra
+capability: a report is already gated by its own permission and export comes
+with it. Their `export_formats` in the manifest is now derived the same way --
+PDF appears only where `reportlab` is installed and XLSX only where `openpyxl`
+is, which it previously did not, so a server without the report extra used to
+offer a PDF download that answered 503.
+
+The workbook is one writer for both. Sheet one is the flat table so its first
+row is a header Excel can filter and pivot on; sheet two carries what a table
+has no room for -- the header text, a record report's own fields, each group's
+values and subtotal, and the grand total under a `Report total` heading, since
+a subtotal and a grand total are the same labels at different scopes. A
+grouped listing flattens exactly as its CSV does.
+
 The terminal and MCP deliberately abstain. An MCP client can already page the
 query and format it however it likes.
 

@@ -37,7 +37,7 @@ TideFilterOperator = Literal[
 TideAlignment = Literal["left", "center", "right"]
 TideCollectionAction = Literal["add", "apply", "remove"]
 TideReportKind = Literal["record", "summary"]
-TideReportExportFormat = Literal["csv", "html", "pdf"]
+TideReportExportFormat = Literal["csv", "html", "pdf", "xlsx"]
 TideBrowseExportFormat = Literal["csv", "xlsx"]
 """What a browse view can be taken away as.
 
@@ -776,11 +776,13 @@ class TidePresentationReport(BaseModel):
     kind: TideReportKind
     entity: str = Field(min_length=1)
     resource_path: str = Field(pattern=r"^/")
-    export_formats: tuple[TideReportExportFormat, ...] = (
-        "csv",
-        "html",
-        "pdf",
-    )
+    export_formats: tuple[TideReportExportFormat, ...] = ("csv", "html")
+    """Which downloads this server could actually produce for this report.
+
+    Derived rather than assumed: this used to default to every format, so a
+    server without `reportlab` offered a PDF that answered 503. CSV and HTML
+    need nothing, which is why they are the fallback.
+    """
     # Empty for record reports: their identity parameter is bound from the
     # URL, so a renderer has nothing to collect.
     parameters: tuple[TideReportParameter, ...] = ()

@@ -1,7 +1,7 @@
 export type TideOperation = "list" | "get" | "create" | "update" | "delete"
 export type TideAlignment = "left" | "center" | "right"
 export type TideReportKind = "record" | "summary"
-export type TideReportExportFormat = "csv" | "html" | "pdf"
+export type TideReportExportFormat = "csv" | "html" | "pdf" | "xlsx"
 export type TideBrowseExportFormat = "csv" | "xlsx"
 export type TideFilterOperator =
   | "eq"

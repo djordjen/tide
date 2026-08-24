@@ -30,6 +30,8 @@ from tide.data import InMemoryRepository
 from tide.runtime import Channel, Principal, RequestContext
 from tide.runtime.application import configure_application_runtime
 from tide.reporting import PdfDependencyMissing
+from tide.api.presentation import report_export_formats
+from tide.reporting.pdf import pdf_available
 from tide.reporting.xlsx import SPREADSHEET_AVAILABLE
 from tide.services import ActionService, RecordsService
 from tide.tui import seed_demo_data
@@ -143,7 +145,14 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
                 "kind": "record",
                 "entity": "sales.Invoice",
                 "resource_path": "/api/v1/_tide/reports/sales.invoice",
-                "export_formats": ["csv", "html", "pdf"],
+                # Derived, not listed: what the manifest offers depends
+                # on which optional writers this process has installed.
+                "export_formats": list(
+                    report_export_formats(
+                        pdf=pdf_available(),
+                        spreadsheet=SPREADSHEET_AVAILABLE,
+                    )
+                ),
                 # A record report's identity parameter is bound from the URL,
                 # so the browser has nothing to ask for.
                 "parameters": [],
@@ -154,7 +163,14 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
                 "kind": "summary",
                 "entity": "sales.Invoice",
                 "resource_path": "/api/v1/_tide/reports/sales.summary",
-                "export_formats": ["csv", "html", "pdf"],
+                # Derived, not listed: what the manifest offers depends
+                # on which optional writers this process has installed.
+                "export_formats": list(
+                    report_export_formats(
+                        pdf=pdf_available(),
+                        spreadsheet=SPREADSHEET_AVAILABLE,
+                    )
+                ),
                 "parameters": [
                     {
                         "name": "from_date",
@@ -3104,5 +3120,97 @@ def test_the_workbook_arrives_as_a_workbook() -> None:
         assert ".xlsx" in response.headers["content-disposition"]
         # A real zip container, not an error body with a hopeful header.
         assert response.content[:2] == b"PK"
+
+    asyncio.run(exercise())
+
+
+def test_a_report_can_be_taken_away_as_a_workbook() -> None:
+    async def exercise() -> None:
+        async with _client(_app("sales_clerk")) as client:
+            summary = await client.post(
+                "/api/v1/_tide/reports/sales.summary/exports/xlsx",
+                json={},
+                headers=_authorization(),
+            )
+            record = await client.get(
+                "/api/v1/_tide/reports/sales.invoice/records/1/exports/xlsx",
+                headers=_authorization(),
+            )
+
+        from decimal import Decimal
+        from io import BytesIO
+
+        from openpyxl import load_workbook
+
+        for response in (summary, record):
+            assert response.status_code == 200, response.text
+            assert response.headers["content-type"].startswith(
+                "application/vnd.openxmlformats-officedocument"
+                ".spreadsheetml.sheet"
+            )
+            assert ".xlsx" in response.headers["content-disposition"]
+            # A real zip container, not an error body with a hopeful header.
+            assert response.content[:2] == b"PK"
+
+            # And the numbers arrived as numbers. Serving an untyped workbook
+            # would have satisfied every assertion above while throwing away
+            # the only reason to ask for XLSX instead of CSV.
+            sheet = load_workbook(BytesIO(response.content))["Records"]
+            numeric = [
+                cell.value
+                for row in sheet.iter_rows(min_row=2)
+                for cell in row
+                if isinstance(cell.value, (int, float, Decimal))
+            ]
+            assert numeric, [
+                [cell.value for cell in row] for row in sheet.iter_rows()
+            ]
+
+    if not SPREADSHEET_AVAILABLE:
+        pytest.skip("spreadsheet extra absent")
+    asyncio.run(exercise())
+
+
+def test_a_report_never_offers_a_format_the_server_cannot_write() -> None:
+    """The rule browse export already follows, applied to reports.
+
+    `TidePresentationReport.export_formats` used to default to every format
+    unconditionally, so a server without `reportlab` offered a PDF download
+    that answered 503. The formats are derived from what is installed now.
+    """
+
+    assert report_export_formats(pdf=True, spreadsheet=True) == (
+        "csv",
+        "html",
+        "pdf",
+        "xlsx",
+    )
+    assert report_export_formats(pdf=False, spreadsheet=True) == (
+        "csv",
+        "html",
+        "xlsx",
+    )
+    assert report_export_formats(pdf=True, spreadsheet=False) == (
+        "csv",
+        "html",
+        "pdf",
+    )
+    # CSV and HTML need nothing, so they are always there.
+    assert report_export_formats(pdf=False, spreadsheet=False) == ("csv", "html")
+
+    async def exercise() -> None:
+        async with _client(_app("sales_clerk")) as client:
+            response = await client.get(
+                "/api/v1/_tide/presentation",
+                headers=_authorization(),
+            )
+
+        offered = response.json()["reports"]["sales.summary"]["export_formats"]
+        assert offered == list(
+            report_export_formats(
+                pdf=pdf_available(),
+                spreadsheet=SPREADSHEET_AVAILABLE,
+            )
+        )
 
     asyncio.run(exercise())

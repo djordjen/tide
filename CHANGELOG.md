@@ -337,6 +337,39 @@ A protected value answers as blank there rather than falling through to
 `str(value)`: reports never met the sentinel because they format declared
 report columns, and a browse view can name a field a field policy protects.
 
+A report exports as a workbook too, beside CSV, HTML and PDF, and needs no
+extra capability -- a report is already gated by its own permission and export
+comes with it. One writer serves both kinds now: `render_xlsx` took a browse
+export and only ever wanted two things out of it, so it takes those instead,
+and `ReportDocument` already carried everything the second sheet needs.
+
+Sheet one is the flat table and nothing else. A grouped listing flattens the
+way its CSV flattens, with the group values repeated as leading columns,
+because a spreadsheet pivots for itself and a banded sheet is not a table.
+Sheet two is where the rest goes: the header text, a record report's own
+fields, each group's values and subtotal, and the grand total. That last one
+needed a heading, `Report total` -- a subtotal and a grand total are the same
+labels over different scopes, and the sheet was printing the same block twice
+explaining neither, worst exactly when a single group makes them identical.
+
+Typed values reach the workbook without touching the report contract.
+`ReportCell` carries text and only text, deliberately: it is mirrored to the
+wire by `TideReportDocument`, which forbids extras, so it cannot grow a field
+without breaking every report at once. The values travel beside the document
+as `TypedReport` instead, server-side and positional over the detail rows.
+`build` and `build_for_record` keep the shape every caller has; `build_export`
+and `build_export_for_record` are the same work returning the pair. Record
+columns decide by the *column*, so a reference and a choice stay untyped and
+their text reaches the cell; aggregates decide by the value, which is safe
+precisely there because `_initial_aggregates` seeds every one as `0` or
+`Decimal(0)`.
+
+And a defect went with it. `TidePresentationReport.export_formats` defaulted
+to every format unconditionally and was never set, so a server without
+`reportlab` offered a PDF download that answered 503 -- the same rule browse
+export had just been written to follow, broken for reports. Report formats are
+now derived from what the process can actually write, PDF included.
+
 ### Web renderer
 
 The browse toolbar carries an **Export** control where the principal holds the
