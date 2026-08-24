@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 Alignment = Literal["left", "center", "right"]
 
@@ -49,6 +49,26 @@ class ReportGroup:
     row_start: int
     row_count: int
     footer_values: tuple[ReportValue, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class TypedReport:
+    """One document beside the values a typed format needs.
+
+    `ReportCell` carries text and only text, deliberately: it is mirrored to
+    the wire by `TideReportDocument`, which forbids extras, so a cell cannot
+    grow a second field without breaking every report at once. A workbook
+    still has to know that a Total is a number, so the values travel beside
+    the document instead of inside it -- server-side only, positional over
+    `document.detail.rows`.
+
+    An entry is `None` where the text is already the whole truth: a reference
+    names a record and a choice is captioned, and sending what either one
+    stores would put an identity where a name belongs.
+    """
+
+    document: "ReportDocument"
+    typed_values: tuple[tuple[Any, ...], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

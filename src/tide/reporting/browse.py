@@ -15,15 +15,13 @@ truncated.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
-from decimal import Decimal
+from datetime import datetime, timezone
 import re
 from typing import Any
 
 from tide.compiler.normalized import (
     ApplicationModel,
     NormalizedEntity,
-    NormalizedField,
     ResolvedView,
 )
 from tide.data import FilterCondition, QuerySpec, SortField, SummaryRequest
@@ -40,7 +38,7 @@ from .document import (
     ReportTable,
     ReportValue,
 )
-from .fields import FieldFormatter
+from .fields import FieldFormatter, typed_cell
 
 EXPORT = "tide.records.export"
 """The framework capability that separates reading a grid from carrying it."""
@@ -50,17 +48,6 @@ MAX_EXPORT_ROWS = 10_000
 
 PAGE_SIZE = 500
 """How many it fetches at a time -- the ceiling `query_page` accepts."""
-
-_TYPED_FIELD_TYPES = frozenset(
-    {"integer", "decimal", "date", "datetime", "boolean"}
-)
-"""Column types a spreadsheet should hold as values rather than as text.
-
-Everything else is already text by the time it is worth reading: a reference
-names a record, a choice is captioned rather than coded, and a string is a
-string. Sending their stored values instead would put an identity where a
-customer's name belongs.
-"""
 
 _OPERATOR_PHRASES = {
     "eq": "is",
@@ -186,7 +173,7 @@ class BrowseExportService:
                             field_alignment(field, self.model.formats, None),
                         )
                     )
-                    values.append(_typed(field, raw))
+                    values.append(typed_cell(field, raw))
                 rows.append(tuple(cells))
                 typed.append(tuple(values))
             if page.next_cursor is None or len(rows) >= MAX_EXPORT_ROWS:
@@ -315,22 +302,6 @@ class BrowseExportService:
             f"{rows:,} of {total:,} rows" if rows < total else f"{rows:,} rows"
         )
         return tuple(lines)
-
-
-def _typed(field: NormalizedField, value: Any) -> Any:
-    """The value a spreadsheet should hold, or None to use the text.
-
-    Decided by the column rather than by the value, because a reference stores
-    an integer identity whose text is a customer's name -- and a workbook
-    showing `1` where the grid showed `ACME Ltd` would be a worse file, not a
-    better one.
-    """
-
-    if value is None or str(field.metadata["type"]) not in _TYPED_FIELD_TYPES:
-        return None
-    if isinstance(value, (bool, int, Decimal, datetime, date)):
-        return value
-    return None
 
 
 def _summary_value(

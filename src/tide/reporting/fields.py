@@ -99,3 +99,45 @@ def display_record(
         except (KeyError, ValueError):
             pass
     return str(values.get(entity.primary_key.name, ""))
+
+
+TYPED_FIELD_TYPES = frozenset(
+    {"integer", "decimal", "date", "datetime", "boolean"}
+)
+"""Column types a typed format should hold as values rather than as text.
+
+Everything else is already text by the time it is worth reading: a reference
+names a record, a choice is captioned rather than coded, and a string is a
+string. Sending their stored values instead would put an identity where a
+customer's name belongs.
+"""
+
+
+def typed_cell(field: NormalizedField, value: Any) -> Any:
+    """The value a typed format should hold, or None to use the text.
+
+    Decided by the column rather than by the value, which is the whole point:
+    a reference stores an integer identity, and typing it by value would put
+    `1` in the cell where every renderer shows `ACME - ACME Ltd`.
+    """
+
+    if value is None or str(field.metadata["type"]) not in TYPED_FIELD_TYPES:
+        return None
+    if isinstance(value, (bool, int, Decimal, datetime, date)):
+        return value
+    return None
+
+
+def typed_number(value: Any) -> Any:
+    """The value an aggregate should hold, decided by the value itself.
+
+    Safe here where `typed_cell` would not be: `_initial_aggregates` seeds
+    every report aggregate as `0` or `Decimal(0)`, so an aggregate is always a
+    number and can never be a reference or a choice.
+    """
+
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, Decimal)):
+        return value
+    return None

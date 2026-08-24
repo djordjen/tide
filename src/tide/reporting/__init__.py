@@ -7,6 +7,7 @@ from .document import (
     ReportGroup,
     ReportTable,
     ReportValue,
+    TypedReport,
 )
 from .csv import render_csv, write_csv
 from .html import render_html, write_html
@@ -22,6 +23,7 @@ __all__ = [
     "ReportService",
     "ReportTable",
     "ReportValue",
+    "TypedReport",
     "render_html",
     "render_csv",
     "render_pdf",

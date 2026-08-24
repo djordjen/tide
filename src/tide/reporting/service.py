@@ -20,7 +20,12 @@ from tide.runtime.errors import AuthorizationError, ValidationFailed, Validation
 from tide.security import PROTECTED
 from tide.services.records import RecordsService
 
-from .fields import FieldFormatter, display_record as _display_record_shared
+from .fields import (
+    FieldFormatter,
+    display_record as _display_record_shared,
+    typed_cell,
+    typed_number,
+)
 from .document import (
     ReportCell,
     ReportColumn,
@@ -28,6 +33,7 @@ from .document import (
     ReportGroup,
     ReportTable,
     ReportValue,
+    TypedReport,
 )
 
 
@@ -53,6 +59,27 @@ class ReportService:
         *,
         generated_at: datetime | None = None,
     ) -> ReportDocument:
+        return self.build_export(
+            report_name,
+            parameters,
+            context,
+            generated_at=generated_at,
+        ).document
+
+    def build_export(
+        self,
+        report_name: str,
+        parameters: Mapping[str, Any],
+        context: RequestContext,
+        *,
+        generated_at: datetime | None = None,
+    ) -> TypedReport:
+        """The same document, plus the values a typed format needs.
+
+        `build` is this without the values, and remains what every renderer
+        that draws text asks for.
+        """
+
         report = self.model.reports.get(report_name)
         if report is None:
             raise ValueError(f"unknown report {report_name!r}")
@@ -107,7 +134,7 @@ class ReportService:
             report_context,
             references,
         )
-        detail = self._detail(
+        detail, detail_values = self._detail(
             entity,
             record,
             bands["detail"],
@@ -125,7 +152,7 @@ class ReportService:
             ReportValue("", text) for text in footer_text if text
         )
         now = generated_at or datetime.now(timezone.utc)
-        return ReportDocument(
+        return TypedReport(ReportDocument(
             report=report_name,
             title=title,
             application=self.model.name,
@@ -138,7 +165,7 @@ class ReportService:
             suggested_filename=_report_filename(
                 report, record_display(entity, record)
             ),
-        )
+        ), detail_values)
 
     def build_for_record(
         self,
@@ -169,6 +196,35 @@ class ReportService:
             generated_at=generated_at,
         )
 
+    def build_export_for_record(
+        self,
+        report_name: str,
+        identity: Any,
+        context: RequestContext,
+        *,
+        generated_at: datetime | None = None,
+    ) -> TypedReport:
+        """`build_for_record`, plus the values a typed format needs."""
+
+        report = self.model.reports.get(report_name)
+        if report is None:
+            raise ValueError(f"unknown report {report_name!r}")
+        if report.get("kind", "record") != "record":
+            raise ValueError(f"report {report_name!r} is not a record report")
+        entity = self.model.entity(str(report["entity"]))
+        parameter = _record_parameter(
+            str(report["query"]["criteria"]),
+            _primary_key(entity),
+        )
+        if parameter is None:
+            raise ValueError("record report query is not executable")
+        return self.build_export(
+            report_name,
+            {parameter: identity},
+            context,
+            generated_at=generated_at,
+        )
+
     def _build_summary(
         self,
         report_name: str,
@@ -177,7 +233,7 @@ class ReportService:
         context: RequestContext,
         *,
         generated_at: datetime | None,
-    ) -> ReportDocument:
+    ) -> TypedReport:
         entity = self.model.entity(str(report["entity"]))
         report_context = replace(context, channel=Channel.REPORT)
         row_limit = int(report.get("row_limit", 500))
@@ -262,6 +318,7 @@ class ReportService:
         )
 
         rows: list[tuple[ReportCell, ...]] = []
+        typed: list[tuple[Any, ...]] = []
         for key, aggregate_values in sorted(
             groups.items(),
             key=lambda item: tuple("" if value is None else str(value) for value in item[0]),
@@ -291,9 +348,16 @@ class ReportService:
                 for aggregate, value in zip(aggregate_definitions, aggregate_values)
             )
             rows.append(group_cells + aggregate_cells)
+            # A group key is a caption -- a reference's name, a choice's
+            # label -- so it has no value to send; the aggregates beside it
+            # are the numbers somebody opened a spreadsheet for.
+            typed.append(
+                tuple(None for _ in group_definitions)
+                + tuple(typed_number(value) for value in aggregate_values)
+            )
 
         now = generated_at or datetime.now(timezone.utc)
-        return ReportDocument(
+        return TypedReport(ReportDocument(
             report=report_name,
             title=str(report["title"]),
             application=self.model.name,
@@ -314,7 +378,7 @@ class ReportService:
             suggested_filename=_report_filename(
                 report, now.astimezone(timezone.utc).date().isoformat()
             ),
-        )
+        ), tuple(typed))
 
     def _build_listing(
         self,
@@ -348,6 +412,7 @@ class ReportService:
             for field in column_fields
         )
         rows: list[tuple[ReportCell, ...]] = []
+        typed: list[tuple[Any, ...]] = []
         groups: list[ReportGroup] = []
         totals = _initial_aggregates(aggregate_definitions)
         run_key: tuple[Any, ...] | None = None
@@ -400,24 +465,34 @@ class ReportService:
                 run_values = _initial_aggregates(aggregate_definitions)
             _accumulate(entity.name, aggregate_definitions, run_values, record)
             _accumulate(entity.name, aggregate_definitions, totals, record)
+            raw_values = tuple(
+                _read_report_value(entity.name, field.name, record)
+                for field in column_fields
+            )
             rows.append(
                 tuple(
                     ReportCell(
                         self._format_field(
                             field,
-                            _read_report_value(entity.name, field.name, record),
+                            value,
                             context,
                             references=page.references,
                         ),
                         _alignment(field, self.model.formats, None),
                     )
-                    for field in column_fields
+                    for field, value in zip(column_fields, raw_values)
+                )
+            )
+            typed.append(
+                tuple(
+                    typed_cell(field, value)
+                    for field, value in zip(column_fields, raw_values)
                 )
             )
         close_run()
 
         now = generated_at or datetime.now(timezone.utc)
-        return ReportDocument(
+        return TypedReport(ReportDocument(
             report=report_name,
             title=str(report["title"]),
             application=self.model.name,
@@ -439,7 +514,7 @@ class ReportService:
                 report, now.astimezone(timezone.utc).date().isoformat()
             ),
             groups=tuple(groups),
-        )
+        ), tuple(typed))
 
     def _content_values(
         self,
@@ -493,7 +568,7 @@ class ReportService:
         detail: Mapping[str, Any],
         context: RequestContext,
         references: ReferenceDisplays = NO_REFERENCE_DISPLAYS,
-    ) -> ReportTable:
+    ) -> tuple[ReportTable, tuple[tuple[Any, ...], ...]]:
         source_name = str(detail["source"])
         source = entity.field(source_name)
         raw_rows = _read_report_value(entity.name, source_name, record)
@@ -511,22 +586,33 @@ class ReportService:
             for field in fields
         )
         rows: list[tuple[ReportCell, ...]] = []
+        typed: list[tuple[Any, ...]] = []
         for raw_row in raw_rows:
+            raw_values = tuple(
+                _read_report_value(target.name, field.name, raw_row)
+                for field in fields
+            )
             rows.append(
                 tuple(
                     ReportCell(
                         self._format_field(
                             field,
-                            _read_report_value(target.name, field.name, raw_row),
+                            value,
                             context,
                             references=references,
                         ),
                         _alignment(field, self.model.formats, None),
                     )
-                    for field in fields
+                    for field, value in zip(fields, raw_values)
                 )
             )
-        return ReportTable(columns, tuple(rows))
+            typed.append(
+                tuple(
+                    typed_cell(field, value)
+                    for field, value in zip(fields, raw_values)
+                )
+            )
+        return ReportTable(columns, tuple(rows)), tuple(typed)
 
     def _page_footer(
         self,
