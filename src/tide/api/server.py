@@ -2151,7 +2151,7 @@ def _export_endpoint(
                         ),
                     },
                 )
-            content = render_xlsx(built)
+            content = render_xlsx(built.document, built.typed_values)
             media_type = (
                 "application/vnd.openxmlformats-officedocument"
                 ".spreadsheetml.sheet"

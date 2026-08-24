@@ -110,9 +110,11 @@ def test_the_workbook_holds_numbers_as_numbers_and_says_where_it_came_from(
 ) -> None:
     from openpyxl import load_workbook
 
-    book = load_workbook(BytesIO(render_xlsx(export)))
+    book = load_workbook(
+        BytesIO(render_xlsx(export.document, export.typed_values))
+    )
 
-    assert book.sheetnames == ["Records", "Export details"]
+    assert book.sheetnames == ["Records", "Details"]
     sheet = book["Records"]
     headers = [cell.value for cell in sheet[1]]
     assert headers == ["Number", "Invoice Date", "Customer", "Status", "Total"]
@@ -135,8 +137,15 @@ def test_the_workbook_holds_numbers_as_numbers_and_says_where_it_came_from(
     assert sheet.cell(row=3, column=number_at).value == "=SUM(A1:A9)"
     assert sheet.cell(row=3, column=number_at).data_type == "s"
 
-    details = [row[0].value for row in book["Export details"].iter_rows()]
-    assert details == list(export.document.header_text)
+    details = [
+        [cell.value for cell in row] for row in book["Details"].iter_rows()
+    ]
+    assert [row[0] for row in details[: len(export.document.header_text)]] == list(
+        export.document.header_text
+    )
+    # The footer summaries travel too -- the same aggregates the grid's footer
+    # band shows, over the same filtered set.
+    assert ["SUM Total", "31.00"] in details, details
 
 
 @pytest.mark.skipif(SPREADSHEET_AVAILABLE, reason="spreadsheet extra present")
@@ -144,4 +153,4 @@ def test_without_the_extra_the_workbook_refuses_by_name(
     export: BrowseExport,
 ) -> None:
     with pytest.raises(RuntimeError, match="spreadsheet"):
-        render_xlsx(export)
+        render_xlsx(export.document, export.typed_values)
