@@ -24,12 +24,23 @@ So the rule this file enforces is: nothing in this repository passes
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 ROOT = Path(__file__).parents[1]
+
+_WINDOWS_ONLY = pytest.mark.skipif(
+    sys.platform != "win32",
+    reason=(
+        "these feed the guard Windows path literals, and pathlib.Path on "
+        "POSIX parses each one as a single opaque relative component -- the "
+        "semantics under test exist only where WindowsPath does, and the "
+        "windows-latest CI job is the one that checks them"
+    ),
+)
 
 
 def _conftest() -> Any:
@@ -115,6 +126,7 @@ def test_the_repository_asks_for_no_basetemp_anywhere() -> None:
     )
 
 
+@_WINDOWS_ONLY
 def test_a_scratch_root_inside_the_user_profile_is_recognised() -> None:
     conftest = _conftest()
     profile = r"C:\Users\Someone"
@@ -140,6 +152,7 @@ def test_a_scratch_root_inside_the_user_profile_is_recognised() -> None:
     )
 
 
+@_WINDOWS_ONLY
 def test_an_explicit_basetemp_in_the_profile_is_refused_by_name() -> None:
     """The guard has to stop a caller that has never heard of this.
 
@@ -168,6 +181,7 @@ def test_an_explicit_basetemp_in_the_profile_is_refused_by_name() -> None:
     )
 
 
+@_WINDOWS_ONLY
 def test_the_default_scratch_root_is_off_the_profile_on_windows() -> None:
     conftest = _conftest()
 
@@ -187,6 +201,7 @@ def test_nothing_is_imposed_where_the_default_was_never_a_problem() -> None:
     )
 
 
+@_WINDOWS_ONLY
 def test_the_scratch_root_is_never_inside_the_checkout() -> None:
     """Measured, not tidiness.
 

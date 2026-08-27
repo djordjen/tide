@@ -83,9 +83,12 @@ def under_user_profile(
 ) -> bool:
     """Whether `path` is somewhere the profile service will walk at logon.
 
-    Platform and profile are parameters rather than lookups so this is one
-    pure function that can be checked on any machine, including the Linux CI
-    that can never reproduce the condition it guards against.
+    Platform and profile are parameters rather than lookups so tests can
+    exercise this without monkeypatching the environment. Pure in its
+    arguments, but not portable in them: `pathlib.Path` parses a Windows
+    literal as one opaque relative component on POSIX, so the tests that
+    feed it Windows paths run only on Windows -- the one place the answer
+    matters.
     """
 
     if not windows or not profile:
