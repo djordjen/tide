@@ -20,6 +20,7 @@ from tide.presentation import (
     field_is_immutable,
     record_appearance,
 )
+from tide.security import PROTECTED
 
 
 def _field(name: str, **metadata: object) -> NormalizedField:
@@ -151,6 +152,49 @@ def test_a_condition_that_cannot_be_evaluated_paints_nothing() -> None:
 
     assert appearance.record is None
     assert bool(appearance) is False
+
+
+def test_a_withheld_value_cannot_answer_a_condition() -> None:
+    """The sentinel compares like any foreign object, and that is the trap.
+
+    `status == 'x'` over a withheld status is False -- which fails safe by
+    accident -- but `status != 'x'` is True for *every* record, painting an
+    emphasis that means something the data may not, offering an action the
+    service refuses, and unlocking a field the commit rejects. A value this
+    principal cannot read is one more way a condition cannot be evaluated.
+    """
+
+    rules = (
+        {"name": "open", "when": "status != 'paid'", "emphasis": "warning"},
+    )
+    assert bool(record_appearance(rules, {"status": PROTECTED})) is False
+
+    state = action_state(
+        {"enabled_when": "status != 'posted'"},
+        {"status": PROTECTED},
+    )
+    assert state.visible is False
+    assert state.enabled is False
+
+    field = _field("number", type="string", immutable_when="status == 'draft'")
+    assert field_is_immutable(field, {"status": PROTECTED}) is True
+
+
+def test_a_rule_reading_only_readable_fields_still_answers() -> None:
+    """The guard is per value read, not per record.
+
+    A record with one withheld column must still paint the rules that
+    never look at it.
+    """
+
+    rules = ({"name": "big", "when": "total > 100", "emphasis": "warning"},)
+
+    appearance = record_appearance(
+        rules,
+        {"total": 900, "posted_by": PROTECTED},
+    )
+
+    assert appearance.record == "warning"
 
 
 def test_a_rule_that_divides_by_zero_paints_nothing() -> None:

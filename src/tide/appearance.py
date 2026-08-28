@@ -2,11 +2,12 @@
 
 Its own module, and deliberately a small one: the service enforces the locks a
 rule declares, and `tide.services` cannot import `tide.presentation` — that
-reaches `tide.data`, which reaches back into `tide.services`. Nothing here
-imports anything but the expression engine, so both sides can have it.
+reaches `tide.data`, which reaches back into `tide.services`.
 
 `tide.presentation` re-exports these, so every renderer keeps asking the one
-module it already asks about action state and field locks.
+module it already asks about action state and field locks. Nothing here
+imports past the expression engine and the security sentinel, so both sides
+can have it.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from typing import Any, Iterable, Mapping, get_args
 
 from tide.compiler.expressions import EVALUATION_ERRORS, evaluate_expression
 from tide.model.source import TideEmphasis
+from tide.security.engine import PROTECTED
 
 EMPHASIS_VALUES: tuple[str, ...] = get_args(TideEmphasis)
 """The closed set an ``appearance`` rule may ask for, from the schema itself.
@@ -32,6 +34,36 @@ def _no_fields() -> Mapping[str, str]:
     """An empty verdict that still answers ``.get`` and cannot be shared."""
 
     return MappingProxyType({})
+
+
+class GuardedConditionValues(Mapping[str, Any]):
+    """A record view that refuses to hand a condition a withheld value.
+
+    A projection replaces unreadable fields with the ``PROTECTED`` sentinel,
+    and the sentinel compares like any foreign object: ``status == 'x'`` is
+    False -- safe by accident -- but ``status != 'x'`` is True for *every*
+    record, an emphasis that means something the data may not. Reading a
+    withheld value raises instead, which ``EVALUATION_ERRORS`` already
+    treats as "this condition cannot be evaluated"; a rule that never
+    touches the withheld field still answers.
+    """
+
+    __slots__ = ("_values",)
+
+    def __init__(self, values: Mapping[str, Any]) -> None:
+        self._values = values
+
+    def __getitem__(self, key: str) -> Any:
+        value = self._values[key]
+        if value is PROTECTED:
+            raise ValueError(f"the value of {key!r} is withheld")
+        return value
+
+    def __iter__(self) -> Any:
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,12 +114,13 @@ def record_appearance(
     locks_record = False
     locked: set[str] = set()
     hidden: set[str] = set()
+    guarded = GuardedConditionValues(values)
     for rule in rules:
         condition = rule.get("when")
         if not condition:
             continue
         try:
-            matched = bool(evaluate_expression(str(condition), values))
+            matched = bool(evaluate_expression(str(condition), guarded))
         except EVALUATION_ERRORS:
             continue
         if not matched:

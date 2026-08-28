@@ -18,6 +18,7 @@ from tide.compiler.normalized import (
 )
 from tide.appearance import (
     EMPHASIS_VALUES as EMPHASIS_VALUES,
+    GuardedConditionValues,
     RecordAppearance as RecordAppearance,
     record_appearance as record_appearance,
 )
@@ -359,14 +360,16 @@ def action_state(
     ``enabled_when`` when the action runs.
     """
 
+    guarded = GuardedConditionValues(values)
     try:
         visible_when = action.get("visible_when")
         visible = not visible_when or bool(
-            evaluate_expression(str(visible_when), values)
+            evaluate_expression(str(visible_when), guarded)
         )
         enabled_when = action.get("enabled_when")
         enabled = visible and (
-            not enabled_when or bool(evaluate_expression(str(enabled_when), values))
+            not enabled_when
+            or bool(evaluate_expression(str(enabled_when), guarded))
         )
     except EVALUATION_ERRORS:
         return ActionState(visible=False, enabled=False)
@@ -399,7 +402,9 @@ def field_is_immutable(
     if not condition:
         return False
     try:
-        return bool(evaluate_expression(str(condition), values))
+        return bool(
+            evaluate_expression(str(condition), GuardedConditionValues(values))
+        )
     except EVALUATION_ERRORS:
         return True
 
