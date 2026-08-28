@@ -603,6 +603,89 @@ def test_managed_collection_updates_and_orphan_deletes(sql_runtime) -> None:
     assert repository.all("sales.InvoiceLine") == []
 
 
+def test_orphan_delete_reaches_only_rows_the_caller_could_see(sql_runtime) -> None:
+    """A row policy hides a child; an ordinary save must not destroy it.
+
+    The session's collection is hydrated under the caller's read policy, so
+    the rows the caller echoes back are only the visible ones -- and the
+    orphan sweep used to diff that echo against *all* stored children, so
+    every hidden row counted as dropped and was deleted, unreported, by any
+    save that touched the collection. Insert-versus-update still decides on
+    physical existence; only what the caller could see may be orphaned.
+    """
+
+    model, _, _ = sql_runtime
+    secured = replace(
+        model,
+        row_policies=(
+            *model.row_policies,
+            immutable_mapping(
+                {
+                    "entity": "sales.InvoiceLine",
+                    "operations": ("read",),
+                    "criteria": "line_number == 1",
+                }
+            ),
+        ),
+    )
+    # The repository must hold the same secured model the service holds --
+    # in production they are one object -- or the sweep has no policy to
+    # honour.
+    repository = SQLAlchemyRepository(secured, "sqlite+pysqlite:///:memory:")
+    repository.create_schema()
+    repository.seed("crm.Customer", CUSTOMERS)
+    repository.seed(
+        "catalog.Product",
+        [
+            {
+                "id": 1,
+                "code": "CONS",
+                "name": "Consulting",
+                "unit_price": Decimal("4.20"),
+                "active": True,
+            }
+        ],
+    )
+    _seed_invoice(repository)
+    repository.seed(
+        "sales.InvoiceLine",
+        [
+            {
+                "id": 1001,
+                "invoice": 100,
+                "line_number": 2,
+                "description": "Confidential retainer",
+                "quantity": Decimal("1.0"),
+                "unit_price": Decimal("99.00"),
+                "product": 1,
+                "total": Decimal("99.00"),
+            }
+        ],
+    )
+    records = RecordsService(secured, repository)
+
+    session = records.begin_edit("sales.Invoice", 100, context())
+    [visible] = session.original["lines"]
+    assert visible["id"] == 1000
+    edited = dict(visible)
+    edited["description"] = "Edited visible line"
+    session.set("lines", [edited])
+    records.commit(session, context())
+
+    assert repository.exists("sales.InvoiceLine", 1000)
+    assert repository.exists("sales.InvoiceLine", 1001)
+
+    # Dropping the one visible line still deletes it: the sweep narrowed to
+    # what the caller saw, not to nothing.
+    empty = records.begin_edit("sales.Invoice", 100, context())
+    empty.set("lines", [])
+    records.commit(empty, context())
+
+    assert not repository.exists("sales.InvoiceLine", 1000)
+    assert repository.exists("sales.InvoiceLine", 1001)
+    repository.dispose()
+
+
 def test_managed_optimistic_concurrency_is_atomic(sql_runtime) -> None:
     _, _, records = sql_runtime
     created = records.commit(

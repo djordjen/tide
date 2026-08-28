@@ -1160,6 +1160,7 @@ class SQLAlchemyRepository:
                 identity,
                 values.get(field_name) or [],
                 references=references,
+                criteria_parameters=criteria_parameters,
             )
         return self._get(connection, entity_name, identity)
 
@@ -1172,6 +1173,7 @@ class SQLAlchemyRepository:
         items: Iterable[Mapping[str, Any]],
         *,
         references: tuple[DeleteReference, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
     ) -> None:
         if collection.target_entity is None:
             return
@@ -1205,15 +1207,42 @@ class SQLAlchemyRepository:
                     item.get(_version_field(target)) if _version_field(target) else None
                 ),
                 is_new=child_is_new,
+                criteria_parameters=criteria_parameters,
             )
             retained.add(stored[target_key])
 
         if collection.metadata.get("orphan_delete"):
+            # The caller echoed the collection as it was hydrated -- under the
+            # child's read policy -- so a drop can only be read off the rows
+            # the caller could see. Diffing the echo against every stored
+            # child counted each policy-hidden row as dropped and destroyed
+            # it on an ordinary save. Insert-versus-update above still
+            # decides on physical existence.
+            visibility = [
+                translate_expression(
+                    policy,
+                    model=self.model,
+                    entity=target,
+                    columns=target_table.c,
+                    tables=self._tables,
+                    relationship_criteria=_model_read_criteria(self.model),
+                    parameters=criteria_parameters,
+                )
+                for policy in _model_read_criteria(self.model).get(target.name, ())
+            ]
+            visible = set(
+                connection.execute(
+                    select(target_table.c[target_key]).where(
+                        inverse_column == parent_identity,
+                        *visibility,
+                    )
+                ).scalars()
+            )
             # Removing an orphan is a delete, so it runs the child's own
             # reference contract. A bulk statement would let a `restrict`
             # pointing at the row surface as the database's integrity error
             # instead of DeleteRestricted.
-            for orphan in existing - retained:
+            for orphan in visible - retained:
                 self._delete_entity(
                     connection,
                     target.name,
