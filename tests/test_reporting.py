@@ -25,6 +25,7 @@ from tide.reporting import (
     write_html,
     write_pdf,
 )
+from tide.compiler.normalized import immutable_mapping
 from tide.reporting.service import _coerce_parameter
 from tide.runtime import AuthorizationError, Channel, Principal, RequestContext, ValidationFailed
 from tide.services import RecordsService
@@ -696,6 +697,104 @@ def test_a_record_report_names_its_lines_without_a_read_each(
     # One read, for the invoice itself. Its customer and every line's product
     # come from the one resolution that read follows.
     assert reads == [("sales.Invoice", 1)]
+
+
+def test_a_grouped_listing_keeps_the_declared_group_direction(reporting) -> None:
+    """Contiguity needs a direction for the group fields, not this one.
+
+    Prepending the group fields to the sort used to rebuild them ascending,
+    so an author's `sort: [-customer, ...]` silently arrived ascending.
+    """
+
+    service, context = reporting
+
+    def surgical(sort: tuple[str, ...]) -> ReportService:
+        reports = {
+            name: dict(report) for name, report in service.model.reports.items()
+        }
+        query = dict(reports["sales.summary"]["query"])
+        # The posted demo invoices all belong to one customer, which would
+        # make an order assertion vacuous; every status spans several.
+        query["criteria"] = (
+            "invoice_date >= $from_date and invoice_date <= $to_date"
+        )
+        query["sort"] = sort
+        reports["sales.summary"]["query"] = query
+        return ReportService(
+            replace(service.model, reports=immutable_mapping(reports)),
+            service.records,
+        )
+
+    def customers(document) -> list[str]:
+        seen: list[str] = []
+        for group in document.groups:
+            name = group.values[0].text
+            if name not in seen:
+                seen.append(name)
+        return seen
+
+    ascending = customers(
+        surgical(("customer", "currency", "invoice_date", "number")).build(
+            "sales.summary", {}, context
+        )
+    )
+    descending = customers(
+        surgical(("-customer", "currency", "invoice_date", "number")).build(
+            "sales.summary", {}, context
+        )
+    )
+
+    assert len(ascending) >= 2
+    assert descending == list(reversed(ascending))
+
+
+def test_flat_summary_groups_order_by_value_not_by_spelling() -> None:
+    """"10" sorts before "2"; 10 does not.
+
+    The flat summary orders its groups in Python, and it ordered them by
+    `str(value)` -- fine for the ISO dates it was written against, wrong
+    for every numeric key. The key must also survive a legacy column that
+    mixes types, which is why unlike types rank rather than raise.
+    """
+
+    from tide.reporting.service import _group_order_key
+
+    keys = [(Decimal("1234.50"),), (Decimal("930.00"),), (None,)]
+    assert sorted(keys, key=_group_order_key) == [
+        (None,),
+        (Decimal("930.00"),),
+        (Decimal("1234.50"),),
+    ]
+    assert sorted([(10,), (2,)], key=_group_order_key) == [(2,), (10,)]
+    mixed = sorted([(2,), ("b",), (None,)], key=_group_order_key)
+    assert [key[0] for key in mixed] == [None, 2, "b"]
+
+
+def test_a_page_footer_field_keeps_data_braces_inert(reporting) -> None:
+    """A brace in the data is text; only the two placeholders are live.
+
+    The footer template meets `str.format` in both HTML and PDF, and a
+    `field` part appends raw record text into it -- so a note holding
+    "50% {gross}" crashed every export of that record, and one holding
+    the literal text "{page_number}" was silently substituted.
+    """
+
+    service, context = reporting
+
+    template = service._page_footer(
+        {"note": "50% {gross} margin", "reference": "see {page_number}"},
+        (
+            {"field": "note"},
+            {"field": "reference"},
+            {"expression": "'Page ' + page_number"},
+        ),
+        {},
+    )
+    rendered = template.format(page_number=3, page_count=9)
+
+    assert "50% {gross} margin" in rendered
+    assert "see {page_number}" in rendered
+    assert "Page 3" in rendered
 
 
 def test_boolean_report_parameters_accept_the_strings_the_dialog_collects() -> None:

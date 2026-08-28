@@ -284,7 +284,13 @@ class ReportService:
             group_fields = tuple(
                 str(group["field"]) for group in group_definitions
             )
-            declared_sort = tuple(SortField(name) for name in group_fields) + tuple(
+            declared_directions = {
+                item.field: item.descending for item in declared_sort
+            }
+            declared_sort = tuple(
+                SortField(name, descending=declared_directions.get(name, False))
+                for name in group_fields
+            ) + tuple(
                 item for item in declared_sort if item.field not in group_fields
             )
         page = self.records.query_page(
@@ -354,7 +360,7 @@ class ReportService:
         typed: list[tuple[Any, ...]] = []
         for key, aggregate_values in sorted(
             groups.items(),
-            key=lambda item: tuple("" if value is None else str(value) for value in item[0]),
+            key=lambda item: _group_order_key(item[0]),
         ):
             group_cells = tuple(
                 ReportCell(
@@ -425,7 +431,7 @@ class ReportService:
         context: RequestContext,
         *,
         generated_at: datetime | None,
-    ) -> ReportDocument:
+    ) -> TypedReport:
         """List the matching records themselves, sliced into subtotaled groups.
 
         The detail table holds every row exactly once; a group names its
@@ -659,7 +665,12 @@ class ReportService:
                 parts.append(str(item["text"]))
             elif "field" in item:
                 value = _read_report_value("report", str(item["field"]), record)
-                parts.append(str(value))
+                # The template meets str.format in the HTML and PDF renderers,
+                # so record data must be inert in it: a brace in a note is
+                # text, and only the two framework placeholders stay live.
+                parts.append(
+                    str(value).replace("{", "{{").replace("}", "}}")
+                )
             else:
                 parts.append(
                     str(
@@ -822,6 +833,36 @@ def _summary_filters(
 
 def _summary_sort(value: str) -> SortField:
     return SortField(value.lstrip("+-"), descending=value.startswith("-"))
+
+
+def _group_order_key(values: tuple[Any, ...]) -> tuple[tuple[int, Any], ...]:
+    """Order flat-summary groups by value, totally.
+
+    `str(value)` put group 10 before group 2; comparing raw values would
+    raise the moment a legacy column mixed types. Ranking first keeps the
+    order meaningful within a type and merely stable across types.
+    """
+
+    return tuple(_group_value_rank(value) for value in values)
+
+
+def _group_value_rank(value: Any) -> tuple[int, Any]:
+    if value is None:
+        return (0, "")
+    if isinstance(value, bool):
+        return (1, value)
+    if isinstance(value, (int, Decimal)):
+        number = Decimal(value)
+        if number.is_finite():
+            return (2, number)
+        return (6, str(value))
+    if isinstance(value, datetime):
+        return (3, value)
+    if isinstance(value, date):
+        return (4, value)
+    if isinstance(value, str):
+        return (5, value)
+    return (6, str(value))
 
 
 def _aggregate_label(aggregate: Mapping[str, Any]) -> str:
