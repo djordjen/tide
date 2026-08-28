@@ -42,6 +42,7 @@ from tide.presentation import (
     browse_search_field,
     browse_sortable_fields,
     record_appearance,
+    record_display,
     record_label,
 )
 from tide.runtime import DeleteRestricted, RequestContext, TideRuntimeError
@@ -1303,24 +1304,6 @@ def _version_field(entity: NormalizedEntity) -> str | None:
 
 _field_label = field_label
 _record_label = record_label
-
-
-def _display_record(entity: NormalizedEntity, record: Mapping[str, Any]) -> str:
-    display = entity.display
-    if not display:
-        return str(record.get(_primary_key(entity), ""))
-    if "{" not in display:
-        return _safe_display_value(record.get(display))
-    values = {name: _safe_display_value(value) for name, value in record.items()}
-    try:
-        return display.format_map(values)
-    except (KeyError, ValueError):
-        return str(record.get(_primary_key(entity), ""))
-
-
-def _safe_display_value(value: Any) -> str:
-    if value is PROTECTED:
-        return "Protected"
-    return "" if value is None else str(value)
+_display_record = record_display
 
 

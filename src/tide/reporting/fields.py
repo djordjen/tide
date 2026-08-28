@@ -16,13 +16,13 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Mapping
+from typing import Any
 
 from tide.compiler.normalized import (
     ApplicationModel,
-    NormalizedEntity,
     NormalizedField,
 )
+from tide.display import record_display
 from tide.labels import value_label
 from tide.runtime import RequestContext, TideRuntimeError
 from tide.security import PROTECTED
@@ -82,23 +82,7 @@ class FieldFormatter:
         return str(value)
 
 
-def display_record(
-    entity: NormalizedEntity,
-    values: Mapping[str, Any],
-) -> str:
-    """Name one record the way its entity says it names itself."""
-
-    if entity.display:
-        try:
-            return entity.display.format_map(
-                {
-                    name: "" if value is None or value is PROTECTED else value
-                    for name, value in values.items()
-                }
-            )
-        except (KeyError, ValueError):
-            pass
-    return str(values.get(entity.primary_key.name, ""))
+display_record = record_display
 
 
 TYPED_FIELD_TYPES = frozenset(

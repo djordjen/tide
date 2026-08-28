@@ -48,6 +48,7 @@ from tide.presentation import (
     FormLayoutSection,
     form_layout_sections,
     form_layout_tabs,
+    record_display,
     record_label,
     view_field_hidden,
 )
@@ -1695,20 +1696,4 @@ def _primary_key(entity: NormalizedEntity) -> str:
 
 _field_label = field_label
 _record_label = record_label
-
-
-def _record_title(entity: NormalizedEntity, record: Mapping[str, Any]) -> str:
-    display = entity.display
-    if not display:
-        return str(record.get(_primary_key(entity), ""))
-    if "{" not in display:
-        return str(record.get(display, ""))
-    try:
-        return display.format_map(
-            {
-                name: "Protected" if value is PROTECTED else value
-                for name, value in record.items()
-            }
-        )
-    except (KeyError, ValueError):
-        return str(record.get(_primary_key(entity), ""))
+_record_title = record_display
