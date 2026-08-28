@@ -1591,15 +1591,20 @@ class RecordsService:
         *,
         cache: dict[tuple[str, Any], dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        values = deepcopy(dict(source))
         entity = self.model.entity(entity_name)
-        relationship_cache = cache if cache is not None else {}
         paths = {
             path
             for criteria in self.security.row_criteria(entity_name, operation)
             for path in _expression_paths(criteria)
             if path and path[0] in entity.fields
         }
+        if not paths:
+            # Nothing to graft means nothing gets mutated: evaluation only
+            # reads, so the page-sized deepcopy would buy nothing. Most
+            # entities declare no row policy at all.
+            return dict(source)
+        values = deepcopy(dict(source))
+        relationship_cache = cache if cache is not None else {}
         for path in paths:
             self._expand_policy_path(
                 entity,

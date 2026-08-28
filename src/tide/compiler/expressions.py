@@ -6,6 +6,7 @@ import ast
 import operator
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from datetime import date
 from decimal import Context, Decimal, InvalidOperation, ROUND_HALF_EVEN, localcontext
 from types import MappingProxyType
@@ -120,9 +121,18 @@ def evaluate_expression(
         ).visit(tree)
 
 
+@lru_cache(maxsize=512)
 def _parse(
     expression: str,
 ) -> tuple[ast.Expression | None, str, ExpressionIssue | None]:
+    """Parse once per distinct expression text.
+
+    Every expression comes from a compiled model, so the set is small and
+    fixed -- but row policies and appearance rules are evaluated per record
+    per page, which re-parsed the same text hundreds of times per request.
+    The cached tree is shared safely because every visitor only reads it.
+    """
+
     rewritten = PARAMETER_PATTERN.sub(r"__tide_parameter_\1", expression)
     try:
         return ast.parse(rewritten, mode="eval"), rewritten, None
