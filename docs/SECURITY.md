@@ -124,6 +124,13 @@ rather than decorative is the log: every export writes a `records.export`
 event naming the principal, the view, the format, and how many rows of how
 many left.
 
+Reports answer the same way. Every successful report build writes a
+`reports.render` event from the one service entry every channel shares --
+REST preview and export, terminal preview, MCP -- naming the channel, the
+kind, the principal, the report, and how many detail rows it carried. A
+refused build writes nothing: the log records reads that happened, never
+ones that were denied.
+
 The bound is the other half. An export stops at 10,000 rows, which is not
 about secrecy either: it is what stops one request becoming an unbounded scan
 on a shared server. The file still arrives and says it is partial, because a

@@ -766,6 +766,25 @@ and a single `npm run dev:app -- --app <name>`. The documented `contacts-*`
 names still work, and a third application needs one settings block in
 `start.bat` and no `package.json` entry at all.
 
+Reports reach MCP, closing the one surface that still did arithmetic by hand.
+`ReportExposureSource` had carried `mcp: false` since the exposure contract
+was written, compiled into every model and read by nothing; it now serves
+each opted-in report as its own generated tool -- `report_sales_summary`,
+`report_sales_invoice` -- whose arguments are the report's declared
+parameters, required ones required in the tool schema. The answer is
+deliberately not the REST document: on this wire a decimal is a JSON string,
+so preformatted text alone cannot say what is a number, and an agent asked
+for July's sales would have paged raw records and summed them itself --
+unaudited, client-side, at whatever scale rounding it chose. The MCP document
+pairs every detail cell's display text with the exact typed value, types each
+column by reading back the typed table the workbook writer already ran on,
+and keeps groups, spans, subtotals and report totals. Presentation -- page
+footers, filenames, alignments -- stays behind. And every report build on
+every channel now writes a `reports.render` event from the one service entry
+they all share, the way `records.export` made browse export real: REST
+preview, REST export, TUI preview and MCP name the channel, kind, principal,
+report and row count, and a refused build writes nothing.
+
 ### Designers and Studio
 
 Existing applications now have a headless DesignerService with typed property/

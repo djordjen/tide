@@ -288,10 +288,13 @@ the same services.
   failing when used;
 - permission-gated action and CRUD audit history through local/remote TUI and
   REST, with safe protected logging; **implemented for domain-action lifecycle
-  events, successful root create/update/delete changes, and browse
+  events, successful root create/update/delete changes, browse
   exports -- which write a `records.export` event naming principal,
-  view, format and rows-of-total; collection-detail, retention, purge,
-  and broader MCP/report audit remain**;
+  view, format and rows-of-total -- and report builds, which write a
+  `reports.render` event from the one service entry every channel shares
+  (REST preview and export, TUI preview, MCP) naming channel, kind,
+  principal, report and row count; collection-detail, retention and
+  purge remain**;
 - controlled export; **implemented for reports as authorized CSV/HTML/PDF
   routes, and for browse views as CSV/XLSX** through
   `POST {resource}/_export/{format}` -- the same filters and sort the
@@ -389,7 +392,14 @@ formats, report MCP actions, and designer tooling remain.
   spreadsheet pivots for itself. XLSX sits behind a `spreadsheet` extra, and
   every export format a manifest offers is now derived from what the process
   can actually write;
-- report actions through TUI, REST, and MCP where exposed;
+- report actions through TUI, REST, and MCP where exposed; **implemented:
+  TUI preview and REST delivery were already standing, and the runtime MCP
+  now serves each `expose: {mcp: true}` report as its own generated tool
+  (`report_<name>`) whose arguments are the report's declared parameters and
+  whose answer is a machine-first document -- display text beside exact typed
+  values, columns typed by the values they carry, groups with spans and
+  subtotals. The renderer-acceptance matrix is deliberately untouched: MCP is
+  not a renderer, and its coverage lives in the MCP test files**;
 - initial report property editor and preview tools.
 
 Exit condition: invoices and grouped operational reports render predictably and

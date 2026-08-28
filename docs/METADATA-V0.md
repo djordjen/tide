@@ -298,12 +298,14 @@ collection detail band. A `kind: summary` report uses SQL-queryable direct
 field comparisons joined by `and`, stable stored-field sorting, zero or more
 grouping fields, and one or more `count`/numeric `sum` aggregates. Summary
 source reads are bounded to `row_limit` (maximum 500) and fail rather than
-returning incomplete totals. Report REST delivery is separately deny-by-default
-and requires `expose: {rest: true}`. Arbitrary result sets, OR predicates,
+returning incomplete totals. Report delivery is separately deny-by-default per
+interface: REST requires `expose: {rest: true}` and the runtime MCP tool
+requires `expose: {mcp: true}`. Arbitrary result sets, OR predicates,
 group bands, and broader aggregate functions remain outside this contract.
 
 Entity MCP exposure is also typed rather than an open capability list. The
 implemented v0.1 values are `resources: [schema, record]` and
-`tools: [search]`. Unknown resource/tool names fail source-schema validation;
-action/report MCP flags remain reserved for later adapters and do not register
-write capabilities today.
+`tools: [search]`. Unknown resource/tool names fail source-schema validation.
+An action's `expose.mcp: true` registers its domain-action tool, and a
+report's `expose: {mcp: true}` registers its read-only report tool
+(`report_<name>`); neither is inferred from entity exposure.

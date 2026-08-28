@@ -576,6 +576,20 @@ schema/record/search access. A domain action becomes a tool only when its own
 metadata declares `expose.mcp: true`; general CRUD exposure does not infer
 action exposure, and action exposure does not infer CRUD.
 
+A report becomes a tool the same way: `expose: {mcp: true}` on the report
+declaration serves `report_<name>` (for example `report_sales_summary`),
+additional to and independent of the report's REST exposure. The tool's
+arguments are the report's own declared parameters -- required ones required
+in the schema, an all-optional summary callable bare -- sent with the wire
+conventions records use: exact decimal strings, ISO date text. The answer is
+a machine-first document rather than the REST rendering: every detail cell
+pairs the display text with the exact typed value where one exists, each
+column is typed by the values it carries (`text` when it carries none), and
+groups keep their values, row spans and subtotals beside the report totals.
+Generation reauthorizes the report's `permission:` on every call, runs the
+same bounded queries as every other surface, and writes the `reports.render`
+event with the MCP channel on it.
+
 Install the stable v1 SDK line and mount the endpoint beside REST:
 
 ```bash
