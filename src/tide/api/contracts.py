@@ -298,6 +298,45 @@ class TideAuditHistory(BaseModel):
     events: tuple[TideAuditEvent, ...] = ()
 
 
+class TideSearchInput(BaseModel):
+    """One text to look for everywhere this identity may read."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    text: str = Field(min_length=1, max_length=200)
+    limit: int = Field(5, ge=1, le=25)
+
+
+class TideSearchHit(BaseModel):
+    """One record a search found: its identity, and how it names itself."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    identity: Any
+    display: str
+
+
+class TideSearchGroup(BaseModel):
+    """Every hit one entity contributed, bounded and saying so."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    entity: str
+    label: str
+    records: tuple[TideSearchHit, ...] = ()
+    truncated: bool = False
+
+
+class TideSearchResult(BaseModel):
+    """Grouped hits for one search, in the model's own entity order."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    wire_version: Literal["0.1"] = TIDE_WIRE_VERSION
+    text: str
+    groups: tuple[TideSearchGroup, ...] = ()
+
+
 class TideRoleGrants(BaseModel):
     """One compiled role and the permissions it carries.
 

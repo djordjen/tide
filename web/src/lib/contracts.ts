@@ -84,6 +84,27 @@ export interface TideAuditHistory {
   events: TideAuditEvent[]
 }
 
+/** One record a search found: its identity, and how it names itself. */
+export interface TideSearchHit {
+  identity: unknown
+  display: string
+}
+
+/** Every hit one entity contributed, bounded and saying so. */
+export interface TideSearchGroup {
+  entity: string
+  label: string
+  records: TideSearchHit[]
+  truncated: boolean
+}
+
+/** Grouped hits for one search, in the model's own entity order. */
+export interface TideSearchResult {
+  wire_version: "0.1"
+  text: string
+  groups: TideSearchGroup[]
+}
+
 export interface TideSessionInfo {
   wire_version: "0.1"
   application: string

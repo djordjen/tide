@@ -1,5 +1,6 @@
 from tide.services.actions import ActionService
 from tide.services.audit import AuditHistoryReader, AuditHistoryService
+from tide.services.search import GlobalSearchService, SearchGroup, SearchHit
 from tide.services.action_store import (
     ActionAuditEvent,
     ActionExecutionStore,
@@ -26,6 +27,9 @@ __all__ = [
     "AuditFieldChange",
     "AuditHistoryReader",
     "AuditHistoryService",
+    "GlobalSearchService",
+    "SearchGroup",
+    "SearchHit",
     "AuditOutcome",
     "AuditValueMode",
     "CursorStore",

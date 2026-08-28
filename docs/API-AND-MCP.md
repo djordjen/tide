@@ -121,6 +121,38 @@ owns any -- one flag, false unless both hold. It is capability information for
 rendering and early feedback, never a replacement for per-request
 authorization.
 
+### Searching everywhere
+
+`POST /api/v1/_tide/search` takes one text and sweeps every REST-listed
+entity whose application-declared searchable fields this identity may read,
+answering bounded, grouped hits in the model's own entity order:
+
+```json
+{"text": "consulting", "limit": 5}
+```
+
+```json
+{
+  "wire_version": "0.1",
+  "text": "consulting",
+  "groups": [
+    {"entity": "catalog.Product", "label": "Products", "truncated": false,
+     "records": [{"identity": 1, "display": "CONS - Consulting hour"}]},
+    {"entity": "crm.Customer", "label": "Customers", "truncated": false,
+     "records": [{"identity": 1, "display": "ADRIA - Adria Consulting"}]}
+  ]
+}
+```
+
+The sweep owns no security of its own: each entity is asked through the same
+secured lookup the reference pickers use, so the entity permission, the row
+policies and field security decide what a search can see, and an entity that
+refuses is skipped rather than an error the whole search wears. Only fields
+marked `searchable` are swept, and only where this identity may read them --
+sweeping an unreadable field would let its values be guessed one probe at a
+time. Each group is bounded by `limit` (at most 25) and says when it
+truncated; a search is a doorway, not a browse.
+
 ### Exporting a browse view
 
 A reader who has filtered, sorted and totalled a grid can take the result

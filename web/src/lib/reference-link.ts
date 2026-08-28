@@ -70,13 +70,24 @@ export function referenceRecordHref(
   reference: TidePresentationReference | null | undefined,
   value: unknown,
 ): string | null {
-  if (!views || !reference || value === null || value === undefined) {
+  if (!reference) {
+    return null
+  }
+  return entityRecordHref(views, reference.entity, value)
+}
+
+/** The same door, addressed by entity name rather than through a reference. */
+export function entityRecordHref(
+  views: TidePresentationManifest["views"] | undefined,
+  entity: string,
+  value: unknown,
+): string | null {
+  if (!views || value === null || value === undefined) {
     return null
   }
   const browse = Object.values(views).find(
     (candidate) =>
-      candidate.entity === reference.entity &&
-      candidate.detail_view !== null,
+      candidate.entity === entity && candidate.detail_view !== null,
   )
   if (!browse) {
     return null

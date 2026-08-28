@@ -217,6 +217,18 @@ preferences and never edit application metadata. New and removed fields reconcil
 measures only the loaded server window, runs once for a new personal layout,
 and does not repeatedly resize after every refresh.
 
+### Searching everywhere
+
+The header carries one search box over everything. It asks the server's
+`POST /_tide/search`, which sweeps every searchable entity this identity may
+read and answers bounded, grouped hits in model order; the panel renders each
+group under its label and each hit as a door -- the same in-place follow a
+reference link makes, with Close walking back to exactly where the person
+was. A group whose entity has no view in the manifest is withheld entirely,
+because a result that cannot be opened is not a result on this surface. A
+truncated group says "first matches only": a search is a doorway, and whoever
+needs more has already named the entity and belongs in its view.
+
 ### Record history
 
 Where an entity declares audit and the session's capabilities say this

@@ -26,6 +26,7 @@ import type {
   TideRoleCatalogue,
   TideSessionInfo,
   TideAuditHistory,
+  TideSearchResult,
 } from "@/lib/contracts"
 
 const WIRE_VERSION = "0.1"
@@ -479,6 +480,24 @@ export class TideApi {
     return this.recordRequest(
       `${view.resource_path}/${segment}`,
       { method: "GET" },
+      signal,
+    )
+  }
+
+  /**
+   * One text, everywhere: the server sweeps every searchable entity this
+   * identity may read and answers bounded, grouped hits in model order.
+   */
+  searchEverywhere(
+    text: string,
+    signal?: AbortSignal,
+  ): Promise<TideSearchResult> {
+    return this.request<TideSearchResult>(
+      `${this.basePath}/_tide/search`,
+      {
+        method: "POST",
+        body: JSON.stringify({ text, limit: 5 }),
+      },
       signal,
     )
   }

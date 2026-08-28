@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 
 import { BrowseWorkspace } from "@/components/browse-workspace"
+import { GlobalSearch } from "@/components/global-search"
 import { Button } from "@/components/ui/button"
 import { TideLine } from "@/components/tide-line"
 import { Separator } from "@/components/ui/separator"
@@ -343,6 +344,10 @@ export function AppShell({
               <span className="size-1.5 rounded-full bg-emerald-500" />
               Secured API
             </div>
+            <GlobalSearch
+              api={api}
+              views={connection.presentation.views}
+            />
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

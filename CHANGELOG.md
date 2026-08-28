@@ -673,6 +673,19 @@ A ninth drives the browse from the keyboard alone -- tab in, arrow down, Enter
 -- and asserts that one more Tab leaves the rows, which is the claim jsdom
 cannot make and the one the roving tab stop exists for.
 
+**One box over everything**: the header gained a search that asks the new
+`POST /_tide/search`, where the server sweeps every REST-listed entity whose
+application-declared searchable fields this identity may read -- through the
+same secured lookup the reference pickers use, so the entity permission, row
+policies and field security decide what a search can see, and sweeping an
+unreadable field is refused before it can become a probe. Hits come back
+bounded and grouped in model order, each naming itself through the entity's
+own display template; the panel renders each hit as a door with the standing
+reference-link behaviour, withholds a group whose entity has no view in the
+manifest, and a truncated group says "first matches only". A journey against
+the real stack searches "consulting", meets a product and a customer in the
+same panel, and opens one.
+
 The record's audit trail reached this surface as a **History** tab on the
 panel below the open record, after its collections -- present exactly where
 the entity declares audit and the session's capabilities grant viewing it,

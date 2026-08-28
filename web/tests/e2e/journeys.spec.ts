@@ -228,6 +228,38 @@ test("reads the history the server kept of what it just did", async ({
 })
 
 
+test("finds records from one box over everything", async ({ page }) => {
+  await signIn(page)
+
+  // One text, two entities: the server sweeps every searchable entity this
+  // identity may read, so "consulting" answers a product and a customer in
+  // the same panel -- grouped, labeled, and each hit a door.
+  await page.getByRole("button", { name: "Search everywhere" }).click()
+  await page
+    .getByRole("searchbox", { name: "Search everywhere" })
+    .fill("consulting")
+  const panel = page.getByRole("dialog")
+  await expect(
+    panel.getByRole("heading", { name: "Products" }),
+  ).toBeVisible()
+  await expect(
+    panel.getByRole("heading", { name: "Customers" }),
+  ).toBeVisible()
+  await expect(
+    panel.getByRole("link", { name: "CONS - Consulting hour" }),
+  ).toBeVisible()
+
+  // Scoped to the panel: the invoice grid behind it names the same
+  // customer in its own reference links.
+  await panel
+    .getByRole("link", { name: "ADRIA - Adria Consulting" })
+    .click()
+  await expect(
+    page.getByRole("heading", { level: 1, name: /ADRIA/ }),
+  ).toBeVisible()
+})
+
+
 test("administers who holds which role, and refuses the last way back in", async ({
   page,
 }) => {

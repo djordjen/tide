@@ -54,6 +54,10 @@ from tide.api.contracts import (
     TideReportDocument,
     TideRoleCatalogue,
     TideRoleGrants,
+    TideSearchGroup,
+    TideSearchHit,
+    TideSearchInput,
+    TideSearchResult,
     TideSessionInfo,
     TideUpdateLocalUserInput,
 )
@@ -147,6 +151,7 @@ from tide.reporting import (
 )
 from tide.security import PROTECTED
 from tide.services import ActionService, AuditHistoryReader, AuditHistoryService, RecordsService
+from tide.services.search import GlobalSearchService
 
 
 SERVER_OPERATIONS = REST_OPERATIONS
@@ -425,6 +430,7 @@ def build_fastapi_app(
         records,
         records.security,
     )
+    search_service = GlobalSearchService(model, records)
     runtime_logger = logger or _RUNTIME_LOGGER
     create_models, update_models = build_writable_models(
         model,
@@ -1257,6 +1263,53 @@ def build_fastapi_app(
             administration=(
                 administration is not None
                 and administration.can_administer(context)
+            ),
+        )
+
+    @app.post(
+        f"{base_path.rstrip('/')}/_tide/search",
+        tags=["TIDE"],
+        summary="Search every record this identity may read",
+        response_model=TideSearchResult,
+        responses=_documented_errors(400, 401),
+    )
+    def search_everywhere(
+        payload: TideSearchInput,
+        context: RequestContext = Depends(request_context),
+    ) -> TideSearchResult:
+        # Only entities REST itself serves lists for: a hit is a doorway,
+        # and this surface must not open one onto a resource it does not
+        # host. The service applies the entity permission, row policies
+        # and field security per entity through the secured lookup path.
+        try:
+            groups = search_service.search(
+                payload.text,
+                context,
+                limit=payload.limit,
+                entity_names=tuple(
+                    entity_name
+                    for entity_name, exposure in exposures.items()
+                    if "list" in exposure.operations
+                ),
+            )
+        except ValueError as error:
+            raise _bad_request(str(error)) from error
+        return TideSearchResult(
+            text=payload.text.strip(),
+            groups=tuple(
+                TideSearchGroup(
+                    entity=group.entity,
+                    label=group.label,
+                    records=tuple(
+                        TideSearchHit(
+                            identity=hit.identity,
+                            display=hit.display,
+                        )
+                        for hit in group.hits
+                    ),
+                    truncated=group.truncated,
+                )
+                for group in groups
             ),
         )
 
