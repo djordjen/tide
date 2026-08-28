@@ -191,6 +191,68 @@ it("a column's list reflects the other filters and not its own", async () => {
   ).toBeChecked()
 })
 
+it("an apply that changed nothing keeps a filter the list cannot show", async () => {
+  // Reopened under another funnel, the status list may lack values the
+  // applied filter still holds. Apply used to read "everything visible is
+  // checked" as "release the column", silently discarding the rest -- and
+  // dropping the other funnel later widened the view past what the user
+  // had chosen.
+  const server = stubServer({
+    distinctFor: (field, filters) =>
+      field === "status" && filters.length > 0
+        ? [{ value: "draft", display: null }]
+        : undefined,
+  })
+  const user = userEvent.setup()
+  renderApp()
+  await connectWithToken(user)
+  await screen.findByRole("row", { name: /INV-2026-0001/ })
+
+  await user.click(screen.getByRole("button", { name: "Filter Status" }))
+  let popover = await screen.findByRole("dialog", { name: "Status values" })
+  await user.click(
+    within(popover).getByRole("checkbox", { name: "Cancelled" }),
+  )
+  await user.click(within(popover).getByRole("button", { name: "Apply" }))
+  await waitFor(() =>
+    expect(server.queries.at(-1)?.filters).toEqual([
+      { field: "status", operator: "in", value: ["draft", "posted"] },
+    ]),
+  )
+
+  await user.click(screen.getByRole("button", { name: "Filter Number" }))
+  popover = await screen.findByRole("dialog", { name: "Number values" })
+  await user.click(
+    within(popover).getByRole("checkbox", { name: "Select all" }),
+  )
+  // The number column is a string, so its values render as stored.
+  await user.click(within(popover).getByRole("checkbox", { name: "draft" }))
+  await user.click(within(popover).getByRole("button", { name: "Apply" }))
+  await waitFor(() =>
+    expect(server.queries.at(-1)?.filters).toContainEqual({
+      field: "number",
+      operator: "in",
+      value: ["draft"],
+    }),
+  )
+
+  await user.click(screen.getByRole("button", { name: "Filter Status" }))
+  popover = await screen.findByRole("dialog", { name: "Status values" })
+  await within(popover).findByRole("checkbox", { name: "Draft" })
+  await user.click(within(popover).getByRole("button", { name: "Apply" }))
+
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", { name: "Filter Status" }),
+    ).toHaveAttribute("aria-pressed", "true"),
+  )
+  expect(server.queries.at(-1)?.filters).toContainEqual({
+    field: "status",
+    operator: "in",
+    value: ["draft", "posted"],
+  })
+})
+
 it("a cut list says so, and the search narrows it in place", async () => {
   stubServer({
     distinctValues: [
@@ -228,6 +290,10 @@ interface CapturedQuery {
 function stubServer(options?: {
   distinctValues?: { value: unknown; display: string | null }[]
   truncated?: boolean
+  distinctFor?: (
+    field: string,
+    filters: unknown[],
+  ) => { value: unknown; display: string | null }[] | undefined
 }): {
   queries: CapturedQuery[]
   distincts: { field: string; filters: unknown[] }[]
@@ -267,11 +333,12 @@ function stubServer(options?: {
         distincts.push({ field: body.field, filters: body.filters ?? [] })
         return jsonResponse({
           field: body.field,
-          values: options?.distinctValues ?? [
-            { value: "cancelled", display: null },
-            { value: "draft", display: null },
-            { value: "posted", display: null },
-          ],
+          values: options?.distinctFor?.(body.field, body.filters ?? []) ??
+            options?.distinctValues ?? [
+              { value: "cancelled", display: null },
+              { value: "draft", display: null },
+              { value: "posted", display: null },
+            ],
           truncated: options?.truncated ?? false,
         })
       }

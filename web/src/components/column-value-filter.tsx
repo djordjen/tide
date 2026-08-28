@@ -92,7 +92,18 @@ export function ColumnValueFilter({
     const chosen = loaded.values
       .map((item) => item.value)
       .filter((value) => staged.has(value))
-    onApply(chosen.length === loaded.values.length ? null : chosen)
+    // Values the applied filter holds that this list cannot show -- hidden
+    // by the other conditions, or past the cut -- stay chosen: the list
+    // reflects the others, so "everything visible" is not "everything",
+    // and an Apply that changed nothing must not release the column.
+    const kept = (active ?? []).filter(
+      (value) => !loaded.values.some((item) => item.value === value),
+    )
+    const releases =
+      chosen.length === loaded.values.length &&
+      kept.length === 0 &&
+      (active === null || !loaded.truncated)
+    onApply(releases ? null : [...chosen, ...kept])
     setOpen(false)
   }
 
