@@ -120,6 +120,13 @@ def test_client_round_trips_types_mutations_versions_and_actions() -> None:
         )
         report = client.build_report_for_record("sales.invoice", 1)
         summary = client.build_report("sales.summary")
+        # Typed parameter values take the same wire encoding every other
+        # payload takes; a summary since the far future proves the value
+        # both survived encoding and acted on the query.
+        future = client.build_report(
+            "sales.summary", {"from_date": date(2999, 1, 1)}
+        )
+        assert future.groups == ()
         product = client.create_record(
             "catalog.Product",
             {

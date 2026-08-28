@@ -670,7 +670,7 @@ class TideApiClient:
         response = self._request(
             "POST",
             f"{self.base_path}/_tide/reports/{quote(report_name, safe='')}",
-            json=dict(parameters or {}),
+            json=_encode_generic(dict(parameters or {})),
             expected=(200,),
         )
         return self._report_document(response, report_name)
