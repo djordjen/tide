@@ -73,11 +73,19 @@ export function ReportPreview({
   useEffect(() => {
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
+        // Consumed, in the capture phase: the record screen beneath
+        // listens on window too, and a shared Escape closed both -- the
+        // second close sometimes a history.back().
+        event.preventDefault()
+        event.stopPropagation()
         onClose()
       }
     }
-    window.addEventListener("keydown", closeOnEscape)
-    return () => window.removeEventListener("keydown", closeOnEscape)
+    document.addEventListener("keydown", closeOnEscape, { capture: true })
+    return () =>
+      document.removeEventListener("keydown", closeOnEscape, {
+        capture: true,
+      })
   }, [onClose])
 
   async function download(exportFormat: TideReportExportFormat) {

@@ -185,6 +185,36 @@ describe("a parameterized report preview", () => {
   })
 })
 
+describe("the preview over the screen beneath it", () => {
+  it("consumes escape instead of sharing it", async () => {
+    // The record screen listens on window too, and Escape dismissing the
+    // preview also closed the clean record underneath -- two closes for
+    // one keystroke, the second sometimes a history.back().
+    const beneath = vi.fn()
+    window.addEventListener("keydown", beneath)
+    try {
+      const onClose = vi.fn()
+      render(
+        <QueryClientProvider client={new QueryClient()}>
+          <ReportPreview
+            api={reportApi(groupedDocument)}
+            report={summary}
+            identity={null}
+            onClose={onClose}
+          />
+        </QueryClientProvider>,
+      )
+      await screen.findByRole("dialog", { name: summary.title })
+      fireEvent.keyDown(document.body, { key: "Escape" })
+
+      expect(onClose).toHaveBeenCalledTimes(1)
+      expect(beneath).not.toHaveBeenCalled()
+    } finally {
+      window.removeEventListener("keydown", beneath)
+    }
+  })
+})
+
 function renderPreview(document: TideReportDocument) {
   return renderPreviewWith(reportApi(document), summary)
 }

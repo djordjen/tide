@@ -59,11 +59,15 @@ export function useUrlParameter(
         parameters.delete(cleared)
       }
       const query = parameters.toString()
-      window.history.pushState(
-        null,
-        "",
-        `${window.location.pathname}${query ? `?${query}` : ""}`,
-      )
+      const target = `${window.location.pathname}${query ? `?${query}` : ""}`
+      // The same address twice is one entry: re-choosing the current view
+      // stacked duplicates, and Back looked dead until they ran out.
+      if (
+        target === `${window.location.pathname}${window.location.search}`
+      ) {
+        return
+      }
+      window.history.pushState(null, "", target)
     },
     [name, fallback, clears],
   )

@@ -822,7 +822,9 @@ export function RecordDetail({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (conflictOpen || conflictLoading) {
+      // A key another layer already consumed -- an open dropdown closing
+      // itself, the report preview dismissing -- is not this screen's.
+      if (conflictOpen || conflictLoading || event.defaultPrevented) {
         return
       }
       if (
