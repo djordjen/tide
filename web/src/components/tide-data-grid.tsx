@@ -752,6 +752,17 @@ export function TideDataGrid({
                       // The editors own the keyboard while the row edits:
                       // arrows move the caret, Enter commits, Escape walks
                       // away. Row navigation resumes when the edit ends.
+                      // A portaled picker's keys bubble through the React
+                      // tree while its DOM lives outside the row, so a key
+                      // aimed at an open listbox -- or one a control already
+                      // consumed -- is not a row command: acting on it saved
+                      // the pre-pick draft and discarded the pick.
+                      if (
+                        event.defaultPrevented ||
+                        !event.currentTarget.contains(event.target as Node)
+                      ) {
+                        return
+                      }
                       if (event.key === "Enter") {
                         event.preventDefault()
                         onInlineSave?.()

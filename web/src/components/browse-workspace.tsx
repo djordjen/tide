@@ -10,6 +10,7 @@ import {
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ChartNoAxesCombined,
+  CircleAlert,
   CircleCheck,
   Filter,
   FolderOpen,
@@ -133,7 +134,12 @@ export function BrowseWorkspace({
     [setActiveRecord],
   )
   const [creating, setCreating] = useState(false)
-  const [feedback, setFeedback] = useState<string | null>(null)
+  // A refusal wears refusal colors: one band serves both tones, and the
+  // tone decides whether assistive tech hears it as a status or an alert.
+  const [feedback, setFeedback] = useState<{
+    tone: "success" | "error"
+    message: string
+  } | null>(null)
   const [navigationPending, setNavigationPending] = useState(false)
   const [previewRequest, setPreviewRequest] = useState<{
     report: TidePresentationReport
@@ -290,6 +296,11 @@ export function BrowseWorkspace({
     if (!inlineEdit || !form) {
       return true
     }
+    if (inlineEdit.saving) {
+      // A second save would race the first PATCH with the same If-Match
+      // and turn its own success into a spurious stale-row refusal.
+      return false
+    }
     const clientErrors = validateFormDraft(
       form,
       inlineEdit.draft,
@@ -327,22 +338,31 @@ export function BrowseWorkspace({
         })
         // The row has no room for a message strip, so the field's own
         // words go to the feedback line; the cell carries the mark.
-        setFeedback(Object.values(fieldErrors)[0] ?? error.message)
+        setFeedback({
+          tone: "error",
+          message: Object.values(fieldErrors)[0] ?? error.message,
+        })
         return false
       }
-      // A stale row is not this edit's to win: leave editing, say why, and
-      // let the refetch show what the record has become.
-      setInlineEdit(null)
-      setFeedback(
-        error instanceof TideApiError
-          ? error.message
-          : "The row could not be saved.",
-      )
       if (error instanceof TideApiError && error.status === 412) {
+        // A stale row is not this edit's to win: leave editing, say why,
+        // and let the refetch show what the record has become.
+        setInlineEdit(null)
         void queryClient.invalidateQueries({
           queryKey: ["browse", view.view],
         })
+      } else {
+        // Anything else -- the server unreachable, a fault -- never saw
+        // the draft, and the draft is the user's: keep the row editing.
+        setInlineEdit({ ...inlineEdit, saving: false })
       }
+      setFeedback({
+        tone: "error",
+        message:
+          error instanceof TideApiError
+            ? error.message
+            : "The row could not be saved.",
+      })
       return false
     }
     setInlineEdit(null)
@@ -377,11 +397,13 @@ export function BrowseWorkspace({
       try {
         snapshot = await api.getRecord(view, identity)
       } catch (error) {
-        setFeedback(
-          error instanceof TideApiError
-            ? error.message
-            : "The record could not be read.",
-        )
+        setFeedback({
+          tone: "error",
+          message:
+            error instanceof TideApiError
+              ? error.message
+              : "The record could not be read.",
+        })
         return
       }
       const tide = snapshot.record._tide
@@ -711,11 +733,20 @@ export function BrowseWorkspace({
 
       {feedback ? (
         <div
-          role="status"
-          className="mb-4 flex shrink-0 items-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/8 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300"
+          role={feedback.tone === "error" ? "alert" : "status"}
+          className={cn(
+            "mb-4 flex shrink-0 items-center gap-2 rounded-xl border px-4 py-3 text-sm",
+            feedback.tone === "error"
+              ? "border-destructive/25 bg-destructive/8 text-destructive"
+              : "border-emerald-500/25 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300",
+          )}
         >
-          <CircleCheck className="size-4" />
-          {feedback}
+          {feedback.tone === "error" ? (
+            <CircleAlert className="size-4" />
+          ) : (
+            <CircleCheck className="size-4" />
+          )}
+          {feedback.message}
         </div>
       ) : null}
 
@@ -803,9 +834,10 @@ export function BrowseWorkspace({
         onSaved={(record, mode, next) => {
           const identity = identityOf(record)
           setSelectedIdentity(identity)
-          setFeedback(
-            `${form.label} ${mode === "create" ? "created" : "updated"} successfully.`,
-          )
+          setFeedback({
+            tone: "success",
+            message: `${form.label} ${mode === "create" ? "created" : "updated"} successfully.`,
+          })
           // `Save and New` asked for the next one, so the create screen stays
           // where it is -- with the grid refreshed underneath it, ready for
           // whenever the run ends.

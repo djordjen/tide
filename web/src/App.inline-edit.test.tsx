@@ -154,7 +154,10 @@ it("a stale row stops editing and says who moved it", async () => {
       screen.queryByRole("textbox", { name: "Name" }),
     ).not.toBeInTheDocument(),
   )
-  await screen.findByText(/changed since it was read/)
+  // A refusal is announced as one, not dressed as a success.
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    /changed since it was read/,
+  )
 })
 
 it("leaving a dirty row saves it, the way the reference application does", async () => {
@@ -189,6 +192,89 @@ it("boolean and captioned cells edit as their own controls", async () => {
   expect(server.patches[0].body).toEqual({ active: false })
 })
 
+it("picking from an open cell listbox with Enter is not a row command", async () => {
+  const server = stubServer()
+  const user = userEvent.setup()
+  renderApp()
+  await connectWithToken(user)
+
+  await user.dblClick(await screen.findByRole("row", { name: /CONS/ }))
+  await user.click(await screen.findByRole("combobox", { name: "Category" }))
+  await screen.findByRole("option", { name: "Premium" })
+  await user.keyboard("{ArrowDown}{Enter}")
+
+  // The pick staged a value; the row keeps editing and nothing was sent.
+  expect(server.patches).toHaveLength(0)
+  expect(screen.getByRole("textbox", { name: "Name" })).toBeInTheDocument()
+
+  await user.click(screen.getByRole("textbox", { name: "Name" }))
+  await user.keyboard("{Enter}")
+
+  await waitFor(() => expect(server.patches).toHaveLength(1))
+  expect(server.patches[0].body).toEqual({ category: "premium" })
+})
+
+it("escape closes an open cell listbox without discarding the row", async () => {
+  const server = stubServer()
+  const user = userEvent.setup()
+  renderApp()
+  await connectWithToken(user)
+
+  await user.dblClick(await screen.findByRole("row", { name: /CONS/ }))
+  const name = await screen.findByRole("textbox", { name: "Name" })
+  await user.clear(name)
+  await user.type(name, "Consulting day")
+  await user.click(screen.getByRole("combobox", { name: "Category" }))
+  await screen.findByRole("option", { name: "Premium" })
+  await user.keyboard("{Escape}")
+
+  expect(
+    screen.queryByRole("option", { name: "Premium" }),
+  ).not.toBeInTheDocument()
+  expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue(
+    "Consulting day",
+  )
+  expect(server.patches).toHaveLength(0)
+})
+
+it("a failed transport keeps the typing", async () => {
+  const server = stubServer({ networkFailure: true })
+  const user = userEvent.setup()
+  renderApp()
+  await connectWithToken(user)
+
+  await user.dblClick(await screen.findByRole("row", { name: /CONS/ }))
+  const name = await screen.findByRole("textbox", { name: "Name" })
+  await user.clear(name)
+  await user.type(name, "Consulting day")
+  await user.keyboard("{Enter}")
+
+  await waitFor(() => expect(server.patches).toHaveLength(1))
+  // The draft is the user's, and the server never saw it: only a stale
+  // row (412) may take the editors away.
+  expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue(
+    "Consulting day",
+  )
+  expect(screen.getByRole("alert")).toHaveTextContent(/could not be reached/)
+})
+
+it("a save in flight is not raced by a second one", async () => {
+  const server = stubServer({ hang: true })
+  const user = userEvent.setup()
+  renderApp()
+  await connectWithToken(user)
+
+  await user.dblClick(await screen.findByRole("row", { name: /CONS/ }))
+  const name = await screen.findByRole("textbox", { name: "Name" })
+  await user.clear(name)
+  await user.type(name, "Consulting day")
+  await user.keyboard("{Enter}")
+  await user.click(screen.getByRole("row", { name: /SUP/ }))
+
+  // The dirty-leave save saw one already in flight with the same If-Match.
+  expect(server.patches).toHaveLength(1)
+})
+
 it("form mode keeps double-click opening the record", async () => {
   stubServer({ editMode: "form" })
   const user = userEvent.setup()
@@ -211,6 +297,8 @@ interface CapturedPatch {
 function stubServer(options?: {
   editMode?: "form" | "inline"
   refusal?: { status: number; body: Record<string, unknown> }
+  networkFailure?: boolean
+  hang?: boolean
 }): { patches: CapturedPatch[] } {
   const editMode = options?.editMode ?? "inline"
   const patches: CapturedPatch[] = []
@@ -253,6 +341,12 @@ function stubServer(options?: {
           ),
         )
         patches.push({ body, headers })
+        if (options?.hang) {
+          return new Promise<Response>(() => {})
+        }
+        if (options?.networkFailure) {
+          throw new TypeError("Failed to fetch")
+        }
         if (options?.refusal) {
           return jsonResponse(options.refusal.body, {}, options.refusal.status)
         }
@@ -295,7 +389,8 @@ const consulting = {
   name: "Consulting hour",
   unit_price: "85.00",
   active: true,
-  _tide: { writable_fields: ["name", "unit_price", "active"] },
+  category: "standard",
+  _tide: { writable_fields: ["name", "unit_price", "active", "category"] },
 }
 
 const supplies = {
@@ -304,7 +399,8 @@ const supplies = {
   name: "Supplies",
   unit_price: "12.00",
   active: true,
-  _tide: { writable_fields: ["name", "unit_price", "active"] },
+  category: "standard",
+  _tide: { writable_fields: ["name", "unit_price", "active", "category"] },
 }
 
 const codeColumn = {
@@ -343,6 +439,17 @@ const activeColumn = {
   alignment: "center",
 }
 
+const categoryColumn = {
+  ...codeColumn,
+  name: "category",
+  label: "Category",
+  field_type: "choice",
+  values: [
+    { value: "standard", label: "Standard" },
+    { value: "premium", label: "Premium" },
+  ],
+}
+
 const formField = {
   values: [],
   writable: true,
@@ -374,8 +481,8 @@ const session = {
     "catalog.Product": {
       operations: ["list", "get", "update"],
       draft_operations: [],
-      readable_fields: ["id", "code", "name", "unit_price", "active"],
-      writable_fields: ["name", "unit_price", "active"],
+      readable_fields: ["id", "code", "name", "unit_price", "active", "category"],
+      writable_fields: ["name", "unit_price", "active", "category"],
       actions: [],
       audit: false,
     },
@@ -409,7 +516,7 @@ function presentationFor(editMode: "form" | "inline") {
         resource_path: "/api/v1/products",
         query_path: "/api/v1/products/_query",
         identity_field: "id",
-        columns: [codeColumn, nameColumn, priceColumn, activeColumn],
+        columns: [codeColumn, nameColumn, priceColumn, activeColumn, categoryColumn],
         search_field: null,
         search_label: null,
         named_filters: [],
@@ -447,6 +554,11 @@ function presentationFor(editMode: "form" | "inline") {
             scale: 2,
           },
           active: { ...activeColumn, ...formField },
+          category: {
+            ...formField,
+            ...categoryColumn,
+            choices: ["standard", "premium"],
+          },
         },
         sections: [
           {
