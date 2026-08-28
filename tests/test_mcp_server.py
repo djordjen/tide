@@ -18,6 +18,7 @@ from tide.mcp.server import (
     build_runtime_mcp_server,
     mount_runtime_mcp,
 )
+from tide.reporting import ReportService
 from tide.runtime import Principal, configure_application_runtime
 from tide.services import ActionService, AuditHistoryService, RecordsService
 from tide.tui import seed_demo_data
@@ -330,6 +331,7 @@ def _app(
             records,
             actions=actions,
             audits=audits,
+            reports=ReportService(model, records),
         ),
         authenticator,
         issuer_url=BASE_URL,

@@ -35,7 +35,7 @@ from tide.mcp.contracts import (
     TideMcpReportValue,
     TideMcpSummaryValue,
 )
-from tide.reporting import ReportValue, TypedReport
+from tide.reporting import ReportService, ReportValue, TypedReport
 from tide.runtime import (
     ConcurrencyError,
     NotFoundError,
@@ -90,6 +90,7 @@ class RuntimeMcpService:
         *,
         actions: ActionService | None = None,
         audits: AuditHistoryReader | None = None,
+        reports: ReportService | None = None,
     ) -> None:
         if records.model is not model:
             raise ValueError("MCP model and records service model must match")
@@ -112,6 +113,14 @@ class RuntimeMcpService:
             raise ValueError(
                 f"MCP report tool names collide with entity tools: {sorted(overlap)}"
             )
+        if self.report_exposures:
+            if reports is None:
+                raise ValueError("MCP report exposure requires a report service")
+            if reports.model is not model:
+                raise ValueError(
+                    "MCP report and records services must share a model"
+                )
+        self.reports = reports
         if any(exposure.actions for exposure in self.exposures.values()):
             if actions is None:
                 raise ValueError("MCP action exposure requires an action service")
@@ -255,6 +264,28 @@ class RuntimeMcpService:
                 else None
             ),
         )
+
+    def run_report(
+        self,
+        report_name: str,
+        parameters: Mapping[str, Any],
+        context: RequestContext,
+    ) -> TideMcpReportDocument:
+        """Generate one opted-in report as the document a program reads.
+
+        Exposure fails closed the way `_require` does -- unknown and
+        unexposed are the same absence -- and everything else stays with
+        `ReportService`: reauthorization, parameter typing, row bounds,
+        and now the `reports.render` event, which this call gets for free
+        with the MCP channel on it.
+        """
+
+        exposure = self.report_exposures.get(report_name)
+        if exposure is None:
+            raise NotFoundError("MCP capability was not found")
+        assert self.reports is not None  # __init__ enforces the pairing
+        typed = self.reports.build_export(report_name, dict(parameters), context)
+        return mcp_report_document(self.model.name, exposure, typed)
 
     def audit(
         self,

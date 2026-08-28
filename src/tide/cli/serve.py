@@ -727,6 +727,7 @@ def _serve_api(arguments: argparse.Namespace) -> int:
                         records,
                         actions=actions,
                         audits=app.state.tide.audits,
+                        reports=app.state.tide.reports,
                     ),
                     authenticator,
                     issuer_url=mcp_issuer_url,

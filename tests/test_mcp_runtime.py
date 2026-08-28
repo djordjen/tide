@@ -21,6 +21,7 @@ from tide.mcp import (
     runtime_mcp_report_exposures,
 )
 from tide.model.source import EntitySource
+from tide.reporting import ReportService
 from tide.runtime import (
     AuthorizationError,
     Channel,
@@ -147,6 +148,59 @@ def test_report_tool_names_cannot_collide() -> None:
 
     with pytest.raises(ValueError, match="report_sales_total"):
         runtime_mcp_report_exposures(SimpleNamespace(reports=reports))
+
+
+def test_run_report_answers_typed_documents_for_both_kinds() -> None:
+    service = _service()
+    context = _context("sales_clerk")
+
+    summary = service.run_report(
+        "sales.summary", {"from_date": "2026-01-01"}, context
+    )
+    assert summary.kind == "summary"
+    assert summary.groups, "the demo seed posts grouped sales"
+    names = [column.name for column in summary.columns]
+    total_index = names.index("total")
+    assert summary.columns[total_index].type == "decimal"
+    assert all(
+        isinstance(row[total_index].value, Decimal) for row in summary.rows
+    )
+
+    invoice = service.run_report("sales.invoice", {"invoice_id": 1}, context)
+    assert invoice.kind == "record"
+    assert invoice.record_values, "a record report carries its own fields"
+
+
+def test_run_report_fails_closed_like_every_other_capability() -> None:
+    service = _service()
+
+    with pytest.raises(NotFoundError):
+        service.run_report("sales.nonexistent", {}, _context("sales_clerk"))
+
+    with pytest.raises(AuthorizationError):
+        service.run_report("sales.summary", {}, _context(None))
+
+
+def test_report_exposure_requires_a_report_service() -> None:
+    """The pairing rule actions and audit already follow."""
+
+    model = compile_project(INVOICING)
+    repository = InMemoryRepository()
+    records = RecordsService(model, repository)
+    actions = ActionService(model, records)
+    audits = AuditHistoryService(
+        model,
+        actions.execution_store,
+        records.security,
+    )
+
+    with pytest.raises(ValueError, match="report service"):
+        RuntimeMcpService(
+            model,
+            records,
+            actions=actions,
+            audits=audits,
+        )
 
 
 def test_schema_resource_contains_only_principal_visible_fields() -> None:
@@ -468,6 +522,7 @@ def _service() -> RuntimeMcpService:
         records,
         actions=actions,
         audits=audits,
+        reports=ReportService(model, records),
     )
 
 
