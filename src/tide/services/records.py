@@ -191,6 +191,24 @@ class RecordsService:
         )
         return self._project(entity, values, context)
 
+    def authorize_record_visibility(
+        self,
+        entity_name: str,
+        identity: Any,
+        context: RequestContext,
+    ) -> None:
+        """Refuse when this principal's read row policies hide the record.
+
+        Deliberately not `get`: the caller holds its own entity-level gate
+        -- `audit` grants history without granting `read` -- but no grant
+        reaches a row the reader's own read policies hide, and a record
+        that is gone refuses the way its read refuses.
+        """
+
+        self._load_authorized(
+            entity_name, identity, context, operations=("read",)
+        )
+
     def delete(
         self,
         entity_name: str,

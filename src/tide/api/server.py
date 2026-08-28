@@ -420,6 +420,7 @@ def build_fastapi_app(
     audit_service = audits or AuditHistoryService(
         model,
         action_service.execution_store,
+        records,
         records.security,
     )
     runtime_logger = logger or _RUNTIME_LOGGER

@@ -191,6 +191,7 @@ def test_report_exposure_requires_a_report_service() -> None:
     audits = AuditHistoryService(
         model,
         actions.execution_store,
+        records,
         records.security,
     )
 
@@ -515,6 +516,7 @@ def _service() -> RuntimeMcpService:
     audits = AuditHistoryService(
         model,
         actions.execution_store,
+        records,
         records.security,
     )
     return RuntimeMcpService(

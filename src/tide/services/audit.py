@@ -8,6 +8,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from tide.compiler.normalized import ApplicationModel
 from tide.runtime import RequestContext
+from tide.runtime.errors import NotFoundError
 from tide.security import SecurityEngine
 from tide.services.action_store import (
     ActionAuditEvent,
@@ -16,6 +17,7 @@ from tide.services.action_store import (
     AuditValueMode,
     RecordAuditEvent,
 )
+from tide.services.records import RecordsService
 
 
 @runtime_checkable
@@ -41,11 +43,15 @@ class AuditHistoryService:
         self,
         model: ApplicationModel,
         store: ActionExecutionStore,
+        records: RecordsService,
         security: SecurityEngine | None = None,
     ) -> None:
+        if records.model is not model:
+            raise ValueError("audit history and records must share a model")
         self.model = model
         self.store = store
-        self.security = security or SecurityEngine(model)
+        self.records = records
+        self.security = security or records.security
 
     def can_view(self, entity_name: str, context: RequestContext) -> bool:
         entity = self.model.entity(entity_name)
@@ -63,6 +69,18 @@ class AuditHistoryService:
             raise ValueError("audit limit must be between 1 and 500")
         entity = self.model.entity(entity_name)
         self.security.authorize_entity(entity, "audit", context)
+        # History is exactly as visible as the record: the audit permission
+        # is the entity gate, but no grant reaches a row the reader's own
+        # read policies hide. This was the one read path that skipped row
+        # security.
+        try:
+            self.records.authorize_record_visibility(entity_name, identity, context)
+        except NotFoundError:
+            # A record that is gone has no row to evaluate, and the delete
+            # event is the history most worth keeping readable -- the audit
+            # permission above stays its gate. Both adapters answer a row
+            # that exists but is hidden as a refusal, never as this.
+            pass
         actions = self.store.audit_events(
             entity=entity_name,
             identity=identity,

@@ -223,7 +223,7 @@ class TideApp(App[None]):
         self.actions = actions or ActionService(model, records)
         execution_store = getattr(self.actions, "execution_store", None)
         self.audit_history = audit_history or (
-            AuditHistoryService(model, execution_store, records.security)
+            AuditHistoryService(model, execution_store, records, records.security)
             if execution_store is not None
             else None
         )

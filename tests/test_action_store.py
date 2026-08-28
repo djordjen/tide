@@ -420,6 +420,65 @@ def test_audit_events_preserve_begin_order_when_timestamps_match() -> None:
     sql_store.dispose()
 
 
+def test_record_history_is_exactly_as_visible_as_the_record() -> None:
+    """A row the reader's read policies hide must not answer through its past.
+
+    History was the one read path that skipped row security: the audit
+    permission gated the entity, fields were redacted, and the row itself
+    was never checked -- so a principal scoped away from a customer could
+    still read that customer's change history by identity.
+    """
+
+    model = compile_project(INVOICING)
+    repository = InMemoryRepository()
+    repository.seed(
+        "crm.Customer",
+        [
+            {
+                "id": 1,
+                "code": "ACME",
+                "name": "ACME Ltd",
+                "email": None,
+                "active": True,
+            },
+            {
+                "id": 2,
+                "code": "OLD",
+                "name": "Old Ltd",
+                "email": None,
+                "active": False,
+            },
+        ],
+    )
+    records = RecordsService(model, repository)
+    store = InMemoryActionExecutionStore()
+    started_at = datetime(2026, 7, 18, 13, 0, tzinfo=timezone.utc)
+    for event_id, identity in (("acme-note", 1), ("old-note", 2)):
+        store.begin_audit(
+            ActionAuditEvent(
+                event_id=event_id,
+                entity="crm.Customer",
+                action="archive",
+                identity=identity,
+                principal="user:clerk",
+                channel="tui",
+                correlation_id=event_id,
+                started_at=started_at,
+            )
+        )
+    service = AuditHistoryService(model, store, records)
+    auditor = RequestContext(
+        Principal("user:auditor", roles=frozenset({"auditor"})),
+        channel=Channel.TUI,
+    )
+
+    visible = service.for_record("crm.Customer", 1, auditor)
+    assert [event.event_id for event in visible] == ["acme-note"]
+
+    with pytest.raises(AuthorizationError):
+        service.for_record("crm.Customer", 2, auditor)
+
+
 def test_audit_history_is_bounded_filtered_newest_first_and_authorized() -> None:
     sql_store = SQLAlchemyActionExecutionStore(
         "sqlite+pysqlite:///:memory:",
@@ -439,6 +498,9 @@ def test_audit_history_is_bounded_filtered_newest_first_and_authorized() -> None
     )
 
     model = compile_project(INVOICING)
+    repository = InMemoryRepository()
+    repository.seed("sales.Invoice", [{"id": 1}])
+    records = RecordsService(model, repository)
     auditor = RequestContext(
         Principal("user:auditor", roles=frozenset({"auditor"})),
         channel=Channel.TUI,
@@ -461,7 +523,7 @@ def test_audit_history_is_bounded_filtered_newest_first_and_authorized() -> None
                     started_at=started_at,
                 )
             )
-        service = AuditHistoryService(model, store)
+        service = AuditHistoryService(model, store, records)
         assert service.can_view("sales.Invoice", auditor)
         assert not service.can_view("sales.Invoice", clerk)
         assert [
@@ -589,7 +651,7 @@ def test_records_service_audits_crud_and_redacts_protected_values() -> None:
         Principal("user:auditor", roles=frozenset({"auditor"})),
         channel=Channel.TUI,
     )
-    combined = AuditHistoryService(model, store).for_record(
+    combined = AuditHistoryService(model, store, records).for_record(
         "sales.Invoice",
         created["id"],
         auditor,
@@ -665,8 +727,11 @@ def test_audit_history_redacts_stored_values_from_field_policy() -> None:
         ),
         channel=Channel.REST,
     )
+    repository = InMemoryRepository()
+    repository.seed("sales.Invoice", [{"id": 1}])
+    records = RecordsService(model, repository)
 
-    event = AuditHistoryService(model, store).for_record(
+    event = AuditHistoryService(model, store, records).for_record(
         "sales.Invoice",
         1,
         audit_only,

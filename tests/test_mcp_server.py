@@ -381,6 +381,7 @@ def _app(
     audits = AuditHistoryService(
         model,
         actions.execution_store,
+        records,
         records.security,
     )
     roles = (role,) if isinstance(role, str) else role
