@@ -6,11 +6,13 @@ import ast
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
+import logging
 import re
 from typing import Any, Mapping
 
 from tide.compiler.expressions import evaluate_expression
 from tide.labels import humanize as _humanize
+from tide.observability import log_runtime_event
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.presentation import field_alignment, field_label, record_display
@@ -35,6 +37,8 @@ from .document import (
     ReportValue,
     TypedReport,
 )
+
+_RUNTIME_LOGGER = logging.getLogger("tide.runtime")
 
 
 class ReportService:
@@ -86,13 +90,15 @@ class ReportService:
         self.records.security.authorize_report(report_name, report, context)
         parameter_values = _coerce_parameters(report, parameters)
         if report.get("kind", "record") == "summary":
-            return self._build_summary(
+            typed = self._build_summary(
                 report_name,
                 report,
                 parameter_values,
                 context,
                 generated_at=generated_at,
             )
+            self._log_render(report_name, report, typed, context)
+            return typed
         entity = self.model.entity(str(report["entity"]))
         primary_key = _primary_key(entity)
         parameter_name = _record_parameter(str(report["query"]["criteria"]), primary_key)
@@ -152,7 +158,7 @@ class ReportService:
             ReportValue("", text) for text in footer_text if text
         )
         now = generated_at or datetime.now(timezone.utc)
-        return TypedReport(ReportDocument(
+        typed = TypedReport(ReportDocument(
             report=report_name,
             title=title,
             application=self.model.name,
@@ -166,6 +172,33 @@ class ReportService:
                 report, record_display(entity, record)
             ),
         ), detail_values)
+        self._log_render(report_name, report, typed, context)
+        return typed
+
+    def _log_render(
+        self,
+        report_name: str,
+        report: Mapping[str, Any],
+        typed: TypedReport,
+        context: RequestContext,
+    ) -> None:
+        """The one read worth finding in a log a year later.
+
+        One site for both kinds and every channel: REST preview and export,
+        TUI preview, and MCP all pass through `build_export`.
+        """
+
+        log_runtime_event(
+            _RUNTIME_LOGGER,
+            logging.INFO,
+            "reports.render",
+            channel=context.channel.value,
+            correlation_id=context.correlation_id,
+            operation=str(report.get("kind", "record")),
+            principal=context.principal.identifier,
+            subject=report_name,
+            rows=len(typed.document.detail.rows),
+        )
 
     def build_for_record(
         self,
