@@ -10,6 +10,7 @@ is in the expression subset and a zero divisor is data TIDE did not write.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -47,6 +48,11 @@ MODEL = (
     "  name: {type: string, length: 40, required: true,"
     ' immutable_when: "100 / factor > 1"}\n'
     "  factor: {type: integer}\n"
+    "  ratio:\n"
+    "    type: decimal\n"
+    "    computed:\n"
+    '      expression: "100 / factor"\n'
+    "      materialization: virtual\n"
     "actions:\n"
     "  calibrate:\n"
     "    label: Calibrate\n"
@@ -119,6 +125,26 @@ def test_commit_honours_a_lock_condition_that_answers_no(
     assert records.begin_edit("demo.Gauge", 2, context).original["name"] == (
         "Renamed"
     )
+
+
+def test_a_virtual_computed_field_the_record_defeats_projects_as_empty(
+    tmp_path: Path,
+) -> None:
+    """A read must survive the values it reads.
+
+    The editor's preview already projects an uncomputable value as empty;
+    the read path evaluated the same expression unguarded, so one legacy
+    zero in a divisor column made the record -- and every page holding
+    it -- unreadable.
+    """
+
+    records, _, context = _services(tmp_path)
+
+    defeated = records.get("demo.Gauge", 1, context)
+    computed = records.get("demo.Gauge", 2, context)
+
+    assert defeated["ratio"] is None
+    assert computed["ratio"] == Decimal("0.5")
 
 
 def test_an_action_condition_that_cannot_be_evaluated_disables_it(

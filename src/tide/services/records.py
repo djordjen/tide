@@ -1530,7 +1530,15 @@ class RecordsService:
         for field_name, field in entity.fields.items():
             computed = field.metadata.get("computed")
             if computed and computed.get("materialization") == "virtual":
-                values[field_name] = evaluate_expression(computed["expression"], values)
+                try:
+                    values[field_name] = evaluate_expression(
+                        computed["expression"], values
+                    )
+                except EVALUATION_ERRORS:
+                    # A value this record's stored fields defeat -- a null or
+                    # a zero divisor in a row TIDE did not write -- projects
+                    # as empty, the same answer the editor's preview gives.
+                    values[field_name] = None
         result: dict[str, Any] = {}
         for field_name, field in entity.fields.items():
             if not self.security.can_read_field(entity.name, field_name, context):
