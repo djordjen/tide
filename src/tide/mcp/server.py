@@ -476,48 +476,58 @@ def _report_tool(
     tool_name: str,
     parameters_model: type[BaseModel] | None,
 ) -> Any:
+    # Three distinct signatures on purpose -- they ARE the tool schema: no
+    # parameters at all, a required parameter set, or an optional one. Each
+    # gets its own name because a conditional redefinition must keep one
+    # signature, which is exactly what these must not do.
+    tool: Any
+
+    async def run_bare() -> TideMcpReportDocument:
+        return await asyncio.to_thread(
+            service.run_report,
+            report_name,
+            {},
+            _request_context(),
+        )
+
+    async def run_required(parameters: BaseModel) -> TideMcpReportDocument:
+        return await asyncio.to_thread(
+            service.run_report,
+            report_name,
+            parameters.model_dump(exclude_unset=True, exclude_none=True),
+            _request_context(),
+        )
+
+    async def run_optional(
+        parameters: BaseModel | None = None,
+    ) -> TideMcpReportDocument:
+        supplied = (
+            {}
+            if parameters is None
+            else parameters.model_dump(exclude_unset=True, exclude_none=True)
+        )
+        return await asyncio.to_thread(
+            service.run_report,
+            report_name,
+            supplied,
+            _request_context(),
+        )
+
     if parameters_model is None:
-        async def run_report() -> TideMcpReportDocument:
-            return await asyncio.to_thread(
-                service.run_report,
-                report_name,
-                {},
-                _request_context(),
-            )
+        tool = run_bare
     elif any(
         field.is_required() for field in parameters_model.model_fields.values()
     ):
         # A required parameter is required in the tool schema too, so an
         # empty call is refused before it reaches the service.
-        async def run_report(parameters: BaseModel) -> TideMcpReportDocument:
-            return await asyncio.to_thread(
-                service.run_report,
-                report_name,
-                parameters.model_dump(exclude_unset=True, exclude_none=True),
-                _request_context(),
-            )
-
-        run_report.__annotations__["parameters"] = parameters_model
+        tool = run_required
+        tool.__annotations__["parameters"] = parameters_model
     else:
-        async def run_report(
-            parameters: BaseModel | None = None,
-        ) -> TideMcpReportDocument:
-            supplied = (
-                {}
-                if parameters is None
-                else parameters.model_dump(exclude_unset=True, exclude_none=True)
-            )
-            return await asyncio.to_thread(
-                service.run_report,
-                report_name,
-                supplied,
-                _request_context(),
-            )
+        tool = run_optional
+        tool.__annotations__["parameters"] = parameters_model | None
 
-        run_report.__annotations__["parameters"] = parameters_model | None
-
-    run_report.__name__ = tool_name
-    return run_report
+    tool.__name__ = tool_name
+    return tool
 
 
 def _identity_annotation(service: RuntimeMcpService, entity_name: str) -> Any:
