@@ -210,6 +210,60 @@ def test_a_disabled_administrator_does_not_count_as_one(tmp_path: Path) -> None:
         administration.set_enabled(context, "admin", False)
 
 
+def test_two_racing_demotions_cannot_disable_every_administrator(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Check-then-act loses this race; the write transaction must not.
+
+    Two concurrent demotions each saw the other administrator still
+    enabled, both committed, and the store was left with no enabled
+    administrator at all -- the exact state the guard exists to refuse.
+    The second demotion runs here inside the first's window between its
+    check and its write, which is the interleaving a threadpool produces.
+    """
+
+    administration = _administration(tmp_path)
+    context = _context("administrator")
+    administration.create_user(
+        context,
+        username="second",
+        password=PASSWORD,
+        roles=["administrator"],
+    )
+    other = UserAdministration(
+        LocalUserStore(
+            tmp_path / "auth.sqlite3",
+            application="TIDE Invoicing",
+            password_iterations=1_000,
+        ),
+        administration.model,
+        administration.security,
+    )
+
+    surprises: list[BaseException] = []
+    original = administration.store.set_enabled
+
+    def racing_set_enabled(*args: object, **kwargs: object) -> object:
+        try:
+            other.set_enabled(_context("administrator"), "second", False)
+        except AdministrationError as error:
+            surprises.append(error)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        administration.store, "set_enabled", racing_set_enabled
+    )
+
+    with pytest.raises(AdministrationError):
+        administration.set_enabled(context, "admin", False)
+
+    assert surprises == []
+    users = {user.username: user for user in other.store.list_users()}
+    assert users["second"].enabled is False
+    assert users["admin"].enabled is True
+
+
 def test_a_created_account_is_normalized_checked_and_enabled(
     tmp_path: Path,
 ) -> None:

@@ -18,7 +18,7 @@ is a second authority.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 
 from tide.api.local_auth import (
@@ -163,14 +163,17 @@ class UserAdministration:
         self._authorize(context)
         checked = self._checked_roles(roles)
         current = self._require(username)
+        guard = None
         if (
             current.enabled
             and self._administers(current.roles)
             and not self._administers(checked)
         ):
-            self._require_another_administrator(current.username)
+            guard = self._administrator_remains_guard(current.username)
         try:
-            self.store.set_roles(current.username, checked)
+            self.store.set_roles(current.username, checked, guard=guard)
+        except AdministrationError:
+            raise
         except (LocalAuthenticationError, ValueError) as error:
             raise AdministrationError(str(error)) from error
         return self._require(current.username)
@@ -183,10 +186,13 @@ class UserAdministration:
     ) -> LocalUserSummary:
         self._authorize(context)
         current = self._require(username)
+        guard = None
         if not enabled and current.enabled and self._administers(current.roles):
-            self._require_another_administrator(current.username)
+            guard = self._administrator_remains_guard(current.username)
         try:
-            self.store.set_enabled(current.username, enabled)
+            self.store.set_enabled(current.username, enabled, guard=guard)
+        except AdministrationError:
+            raise
         except (LocalAuthenticationError, ValueError) as error:
             raise AdministrationError(str(error)) from error
         return self._require(current.username)
@@ -252,17 +258,34 @@ class UserAdministration:
             Principal("local:candidate", roles=frozenset(roles))
         )
 
-    def _require_another_administrator(self, username: str) -> None:
-        remaining = {
-            user.username
-            for user in self.store.list_users()
-            if user.enabled and self._administers(user.roles)
-        } - {username}
-        if not remaining:
-            raise AdministrationConflict(
-                f"{username!r} is the only enabled account that may administer "
-                "identities; grant another account the administering role first"
-            )
+    def _administrator_remains_guard(
+        self,
+        username: str,
+    ) -> Callable[[Sequence[LocalUserSummary]], None]:
+        """A store guard holding "an enabled administrator remains".
+
+        Evaluated by the store inside the write's own transaction, over the
+        accounts as they are at write time -- a check made before the write
+        loses the race where two demotions each see the other still enabled
+        and together leave nobody able to administer.
+        """
+
+        def require_another_administrator(
+            users: Sequence[LocalUserSummary],
+        ) -> None:
+            remaining = {
+                user.username
+                for user in users
+                if user.enabled and self._administers(user.roles)
+            } - {username}
+            if not remaining:
+                raise AdministrationConflict(
+                    f"{username!r} is the only enabled account that may "
+                    "administer identities; grant another account the "
+                    "administering role first"
+                )
+
+        return require_another_administrator
 
     def _require(self, username: str) -> LocalUserSummary:
         try:

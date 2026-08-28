@@ -88,6 +88,34 @@ def test_changing_an_absent_user_is_refused(tmp_path: Path, operation: str) -> N
             store.set_roles("nobody", {"sales_clerk"})
 
 
+def test_a_guarded_write_reads_fresh_state_and_can_refuse(tmp_path: Path) -> None:
+    """The guard runs inside the write's own transaction.
+
+    It receives the accounts as they are at write time -- not as some
+    earlier check saw them -- and its refusal rolls the write back, which
+    is what makes a last-administrator invariant hold across concurrent
+    callers instead of between a check and an act.
+    """
+
+    store = _store(tmp_path)
+    seen: list[tuple[str, bool]] = []
+
+    def refuse(users) -> None:
+        seen.extend((user.username, user.enabled) for user in users)
+        raise RuntimeError("refused by guard")
+
+    with pytest.raises(RuntimeError, match="refused by guard"):
+        store.set_enabled("clerk", False, guard=refuse)
+
+    unchanged = store.get_user("clerk")
+    assert unchanged is not None
+    assert unchanged.enabled is True
+    assert ("clerk", True) in seen
+
+    with pytest.raises(RuntimeError, match="refused by guard"):
+        store.set_roles("clerk", {"sales_clerk"}, guard=refuse)
+
+
 # --- through the command line ------------------------------------------------
 
 

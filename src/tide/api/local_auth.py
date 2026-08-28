@@ -335,17 +335,31 @@ class LocalUserStore:
                 f"local user {normalized_username!r} does not exist"
             )
 
-    def set_enabled(self, username: str, enabled: bool) -> None:
+    def set_enabled(
+        self,
+        username: str,
+        enabled: bool,
+        *,
+        guard: Callable[[tuple[LocalUserSummary, ...]], None] | None = None,
+    ) -> None:
         """Allow or refuse this account's sign-ins.
 
         A disabled account keeps its password and roles; nothing is deleted, so
         the decision is reversible. `login` refuses it outright, and a session
         already open ends at its next revalidation.
+
+        ``guard`` runs inside the write's own immediate transaction, over the
+        accounts as they are at write time; raising refuses the write. This is
+        what lets a caller hold an invariant like "an enabled administrator
+        remains" against concurrent writers instead of between a check and an
+        act.
         """
 
         self.validate()
         normalized_username = normalize_username(username)
-        with self._connect() as connection:
+        with self._connect(immediate=guard is not None) as connection:
+            if guard is not None:
+                guard(self._user_summaries(connection))
             cursor = connection.execute(
                 """
                 UPDATE tide_local_users
@@ -359,13 +373,20 @@ class LocalUserStore:
                 f"local user {normalized_username!r} does not exist"
             )
 
-    def set_roles(self, username: str, roles: Iterable[str]) -> frozenset[str]:
+    def set_roles(
+        self,
+        username: str,
+        roles: Iterable[str],
+        *,
+        guard: Callable[[tuple[LocalUserSummary, ...]], None] | None = None,
+    ) -> frozenset[str]:
         """Replace this account's roles, returning what it now holds.
 
         Replaces rather than merges, so withdrawing a role is expressible --
         an add-only interface can only ever grant. The caller is responsible
         for the roles naming something the application compiled; the store
-        does not know the model.
+        does not know the model. ``guard`` behaves as it does for
+        ``set_enabled``.
         """
 
         self.validate()
@@ -373,7 +394,9 @@ class LocalUserStore:
         normalized_roles = frozenset(_normalize_role(role) for role in roles)
         if not normalized_roles:
             raise ValueError("a local user must keep at least one role")
-        with self._connect() as connection:
+        with self._connect(immediate=guard is not None) as connection:
+            if guard is not None:
+                guard(self._user_summaries(connection))
             exists = connection.execute(
                 "SELECT 1 FROM tide_local_users WHERE username = ?",
                 (normalized_username,),
@@ -410,29 +433,43 @@ class LocalUserStore:
             raise ValueError("local user listing limit must be a positive integer")
         self.validate()
         with self._connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT username, display_name, enabled,
-                       created_at, password_changed_at
-                FROM tide_local_users
-                ORDER BY username
-                """
-                + ("LIMIT ?" if limit is not None else ""),
-                (limit,) if limit is not None else (),
-            ).fetchall()
-            usernames = {str(row["username"]) for row in rows}
-            roles: dict[str, set[str]] = {username: set() for username in usernames}
-            for username, role in connection.execute(
-                """
-                SELECT username, role
-                FROM tide_local_user_roles
-                ORDER BY username, role
-                """
-            ).fetchall():
-                # A role row for an account the page did not reach is not this
-                # listing's business; `limit` is the only way that happens.
-                if str(username) in roles:
-                    roles[str(username)].add(str(role))
+            return self._user_summaries(connection, limit=limit)
+
+    def _user_summaries(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        limit: int | None = None,
+    ) -> tuple[LocalUserSummary, ...]:
+        """Read the accounts through the given connection.
+
+        The connection is the point: a write guard reads through its own
+        immediate transaction, so what it sees is what the write meets.
+        """
+
+        rows = connection.execute(
+            """
+            SELECT username, display_name, enabled,
+                   created_at, password_changed_at
+            FROM tide_local_users
+            ORDER BY username
+            """
+            + ("LIMIT ?" if limit is not None else ""),
+            (limit,) if limit is not None else (),
+        ).fetchall()
+        usernames = {str(row["username"]) for row in rows}
+        roles: dict[str, set[str]] = {username: set() for username in usernames}
+        for username, role in connection.execute(
+            """
+            SELECT username, role
+            FROM tide_local_user_roles
+            ORDER BY username, role
+            """
+        ).fetchall():
+            # A role row for an account the page did not reach is not this
+            # listing's business; `limit` is the only way that happens.
+            if str(username) in roles:
+                roles[str(username)].add(str(role))
         return tuple(
             LocalUserSummary(
                 username=str(row["username"]),
@@ -515,11 +552,19 @@ class LocalUserStore:
         )
 
     @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
+    def _connect(self, *, immediate: bool = False) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self.path, timeout=5.0)
+        if immediate:
+            # The write lock is taken before anything is read, so a guard
+            # deciding inside this transaction decides over the state the
+            # write will actually meet -- across processes, not only
+            # threads, which is how `tide serve` deploys.
+            connection.isolation_level = None
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 5000")
+        if immediate:
+            connection.execute("BEGIN IMMEDIATE")
         try:
             yield connection
             connection.commit()
