@@ -189,6 +189,45 @@ test("creates a record, edits it, and finds the server kept it", async ({
 })
 
 
+test("reads the history the server kept of what it just did", async ({
+  page,
+}) => {
+  const code = unique("E2EH")
+  await signIn(page)
+  await page.getByRole("button", { name: "Customers" }).click()
+
+  // The journey writes its own subject, so the trail it reads back is one
+  // whose every event it caused: a create, then a rename.
+  await page.getByRole("button", { name: "New" }).click()
+  await page.getByRole("textbox", { name: "Code" }).fill(code)
+  await page.getByRole("textbox", { name: "Name" }).fill(`${code} Holdings`)
+  await page.getByRole("button", { name: "Save", exact: true }).click()
+  await expect(createdRow(page)).toContainText(code)
+
+  await page.getByRole("button", { name: "Open" }).click()
+  await page.getByRole("textbox", { name: "Name" }).fill(`${code} Renamed`)
+  await page.getByRole("button", { name: "Save", exact: true }).click()
+  await expect(
+    page.getByRole("button", { name: "Save", exact: true }),
+  ).toBeDisabled()
+
+  // History is a tab on the panel below the record, present because this
+  // principal's auditor hat grants it. The server answers with both writes,
+  // newest first; the changed field speaks the form's label, and the values
+  // are the stored ones read back -- nothing here was kept by the tab.
+  await page.getByRole("tab", { name: "History" }).click()
+  const panel = page.getByRole("tabpanel")
+  await expect(panel.getByText("Updated")).toBeVisible()
+  await expect(
+    panel.getByText(`Name: ${code} Holdings → ${code} Renamed`),
+  ).toBeVisible()
+  await expect(panel.getByText("Created")).toBeVisible()
+  await expect(
+    panel.getByText("Newest first · Protected values stay redacted"),
+  ).toBeVisible()
+})
+
+
 test("administers who holds which role, and refuses the last way back in", async ({
   page,
 }) => {

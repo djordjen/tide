@@ -217,6 +217,24 @@ preferences and never edit application metadata. New and removed fields reconcil
 measures only the loaded server window, runs once for a new personal layout,
 and does not repeatedly resize after every refresh.
 
+### Record history
+
+Where an entity declares audit and the session's capabilities say this
+principal may view it, the panel below an open record carries a **History**
+tab after the record's collections -- and where a form declares its own tab
+layout, the panel exists for history alone. It shows the server's bounded
+newest-first trail for that record: creates, updates, deletes and action
+runs, each with who, over which channel, and what changed.
+
+The wire already decided what may be shown, and the tab renders that decision
+rather than re-making it: a redacted change arrives without its values and is
+shown as `[redacted]`, a field-only change is its name alone, and a changed
+field speaks the form's declared label where one exists. Saving or running an
+action from the open record marks the history stale, so a panel left open
+asks again rather than showing the record's past without its present. The tab
+is absent -- not merely empty -- where the session does not grant the
+entity's audit permission.
+
 ### Identity administration
 
 Where the server owns the identities (`--auth local`), a principal holding

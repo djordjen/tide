@@ -25,6 +25,7 @@ import type {
   TidePresentationReport,
   TideRoleCatalogue,
   TideSessionInfo,
+  TideAuditHistory,
 } from "@/lib/contracts"
 
 const WIRE_VERSION = "0.1"
@@ -477,6 +478,24 @@ export class TideApi {
     const segment = encodeURIComponent(String(identity))
     return this.recordRequest(
       `${view.resource_path}/${segment}`,
+      { method: "GET" },
+      signal,
+    )
+  }
+
+  /**
+   * The record's bounded newest-first history. Registered by the server only
+   * where the entity declares audit, and called only when the session's
+   * capabilities say this principal may view it.
+   */
+  recordHistory(
+    view: TideBrowsePresentation,
+    identity: unknown,
+    signal?: AbortSignal,
+  ): Promise<TideAuditHistory> {
+    const segment = encodeURIComponent(String(identity))
+    return this.request<TideAuditHistory>(
+      `${view.resource_path}/${segment}/_audit`,
       { method: "GET" },
       signal,
     )

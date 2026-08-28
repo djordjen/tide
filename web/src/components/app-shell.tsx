@@ -388,6 +388,9 @@ export function AppShell({
             forms={connection.presentation.forms}
             views={connection.presentation.views}
             reports={connection.presentation.reports ?? {}}
+            audit={
+              connection.session.entities[view.entity]?.audit === true
+            }
           />
         )}
       </section>

@@ -24,11 +24,12 @@ import { fileURLToPath } from "node:url"
 // path is clearer than a build step that would let it.
 const CREDENTIALS_FILE = ".tide/e2e-credentials.json"
 const USERNAME = "e2e"
-// Two roles: the application's own work, and administering who may sign in.
-// The reference application grants the second nothing else, so a journey that
-// wants both has to hold both -- which is also the arrangement a small
-// deployment actually runs.
-const ROLES = ["sales_clerk", "administrator"]
+// Three roles: the application's own work, administering who may sign in,
+// and reading the audit trail. The reference application keeps each grant on
+// its own role, so a journey that wants all three has to hold all three --
+// which is also the arrangement a small deployment's one person actually
+// runs.
+const ROLES = ["sales_clerk", "administrator", "auditor"]
 
 const repository = resolve(
   dirname(fileURLToPath(import.meta.url)),

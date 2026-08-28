@@ -673,6 +673,17 @@ A ninth drives the browse from the keyboard alone -- tab in, arrow down, Enter
 -- and asserts that one more Tab leaves the rows, which is the claim jsdom
 cannot make and the one the roving tab stop exists for.
 
+The record's audit trail reached this surface as a **History** tab on the
+panel below the open record, after its collections -- present exactly where
+the entity declares audit and the session's capabilities grant viewing it,
+absent rather than empty anywhere else. It renders the wire's bounded
+newest-first trail and its redaction vocabulary without re-judging either:
+redacted changes stay `[redacted]`, field-only changes are a name alone, and
+changed fields speak the form's declared labels. Saving or running an action
+marks the open panel's history stale so it asks again, and a journey against
+the real stack now creates a customer, renames it, and reads both writes back
+from the trail.
+
 ### Machine interfaces and AI-assisted generation
 
 `tide serve` requires a 32-character-or-longer development bearer token in

@@ -34,6 +34,56 @@ export interface TideEntityCapabilities {
   audit: boolean
 }
 
+export type TideAuditKind = "action" | "record"
+export type TideRecordAuditOperation = "create" | "update" | "delete"
+export type TideAuditValueMode = "recorded" | "field_only" | "redacted"
+export type TideAuditOutcome =
+  | "started"
+  | "succeeded"
+  | "replayed"
+  | "conflict"
+  | "failed"
+
+/**
+ * One changed field in a record audit event. The wire already decided what
+ * may be shown: values arrive only in `recorded` mode, and a renderer never
+ * reconstructs what redaction withheld.
+ */
+export interface TideAuditFieldChange {
+  field: string
+  before_present: boolean
+  after_present: boolean
+  value_mode: TideAuditValueMode
+  before?: unknown
+  after?: unknown
+}
+
+export interface TideAuditEvent {
+  event_id: string
+  entity: string
+  kind: TideAuditKind
+  action: string | null
+  operation: TideRecordAuditOperation | null
+  identity: unknown
+  principal: string
+  channel: string
+  correlation_id: string
+  started_at: string
+  outcome: TideAuditOutcome | null
+  finished_at: string | null
+  error_code: string | null
+  source: "user" | "action" | "system" | null
+  changes: TideAuditFieldChange[]
+}
+
+/** Bounded newest-first history for one authorized record. */
+export interface TideAuditHistory {
+  wire_version: "0.1"
+  entity: string
+  identity: unknown
+  events: TideAuditEvent[]
+}
+
 export interface TideSessionInfo {
   wire_version: "0.1"
   application: string

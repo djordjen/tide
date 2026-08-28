@@ -26,6 +26,7 @@ import {
 
 import { EditableCollection } from "@/components/editable-collection"
 import { RecordConflictReview } from "@/components/record-conflict-review"
+import { RecordHistory } from "@/components/record-history"
 import {
   RecordFormEditor,
 } from "@/components/record-form-editor"
@@ -92,6 +93,8 @@ interface RecordDetailProps {
   forms: TidePresentationManifest["forms"]
   views?: TidePresentationManifest["views"]
   reports: TidePresentationReport[]
+  /** Whether this session may view the entity's audit trail. */
+  audit?: boolean
   mode: "create" | "update"
   identity: unknown | null
   position: number
@@ -113,6 +116,13 @@ interface RecordDetailProps {
 
 /** What the save was for: this record, or this one and the next. */
 type SaveIntent = "close" | "new"
+
+/**
+ * The history tab's slot in the panel strip. Collection tabs are named by
+ * their field, which is a plain identifier -- the dot keeps this out of
+ * that namespace.
+ */
+const HISTORY_TAB = "_tide.history"
 
 interface SaveAttempt {
   payload: Record<string, unknown>
@@ -167,6 +177,7 @@ export function RecordDetail({
   forms,
   views,
   reports,
+  audit = false,
   mode,
   identity,
   position,
@@ -398,6 +409,10 @@ export function RecordDetail({
         )
         setDraft(formDraft(form, saved.record))
         setCollectionDrafts(collectionDraftState(form, saved.record))
+        // The save this panel may be showing history for just extended it.
+        void queryClient.invalidateQueries({
+          queryKey: ["record-history", view.view, identity],
+        })
       }
       if (mode === "create" && attempt.intent === "new") {
         // The next one, from the model rather than from what was just typed:
@@ -480,6 +495,9 @@ export function RecordDetail({
     },
     onSuccess: ({ action, snapshot: completed }) => {
       setRecordSnapshot(completed)
+      void queryClient.invalidateQueries({
+        queryKey: ["record-history", view.view, identity],
+      })
       setFieldErrors({})
       setCollectionErrors({})
       setSaveError(null)
@@ -899,12 +917,25 @@ export function RecordDetail({
             section.kind === "collection",
         )
       : []
+  // History is framework chrome, not one of the form's collections, but the
+  // panel is renderer-owned geography and its strip already names the
+  // pattern -- so where the session grants the audit trail, it is one more
+  // tab there. A YAML tab layout keeps its declared sections; the panel then
+  // exists for history alone.
+  const historyAvailable = audit && mode === "update" && identity !== null
+  const panelTabs = [
+    ...splitCollections.map((section) => section.name),
+    ...(historyAvailable ? [HISTORY_TAB] : []),
+  ]
+  const openPanelTab =
+    activeCollection !== null && panelTabs.includes(activeCollection)
+      ? activeCollection
+      : (panelTabs[0] ?? null)
+  const historyOpen = openPanelTab === HISTORY_TAB
   const openCollection =
     splitCollections.find(
-      (section) => section.name === activeCollection,
-    ) ??
-    splitCollections[0] ??
-    null
+      (section) => section.name === openPanelTab,
+    ) ?? null
   const cardSections =
     splitCollections.length > 0
       ? visibleSections.filter((section) => section.kind === "group")
@@ -1277,16 +1308,17 @@ export function RecordDetail({
         ) : null}
         </div>
 
-        {openCollection &&
+        {openPanelTab &&
         (record || (editorActive && mode === "create")) ? (
-          // The collections panel: a sibling of the record card, so the rows
-          // get the full width the record's own fields keep. Every collection
-          // is a tab; the strip shows even for one, naming the panel and the
-          // pattern a second collection joins.
-          <section aria-label={`${form.label} collections`}>
+          // The panel below the record: a sibling of the record card, so the
+          // rows get the full width the record's own fields keep. Every
+          // collection is a tab -- the strip shows even for one, naming the
+          // panel and the pattern a second collection joins -- and the
+          // record's history, where granted, is the tab after them.
+          <section aria-label={`${form.label} details`}>
             <div
               role="tablist"
-              aria-label={`${form.label} collections`}
+              aria-label={`${form.label} details`}
               className="mb-3 flex gap-1 overflow-x-auto border-b"
             >
               {splitCollections.map((section) => (
@@ -1295,11 +1327,11 @@ export function RecordDetail({
                   id={`collection-tab-${section.name}`}
                   type="button"
                   role="tab"
-                  aria-selected={section.name === openCollection.name}
+                  aria-selected={section.name === openPanelTab}
                   aria-controls={`collection-panel-${section.name}`}
                   className={cn(
                     "-mb-px rounded-t-md border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40",
-                    section.name === openCollection.name
+                    section.name === openPanelTab
                       ? "border-primary text-primary"
                       : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
                   )}
@@ -1308,13 +1340,48 @@ export function RecordDetail({
                   {section.label}
                 </button>
               ))}
+              {historyAvailable ? (
+                <button
+                  id="collection-tab-history"
+                  type="button"
+                  role="tab"
+                  aria-selected={historyOpen}
+                  aria-controls="collection-panel-history"
+                  className={cn(
+                    "-mb-px rounded-t-md border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40",
+                    historyOpen
+                      ? "border-primary text-primary"
+                      : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
+                  )}
+                  onClick={() => setActiveCollection(HISTORY_TAB)}
+                >
+                  History
+                </button>
+              ) : null}
             </div>
             <div
-              id={`collection-panel-${openCollection.name}`}
+              id={
+                historyOpen
+                  ? "collection-panel-history"
+                  : `collection-panel-${openPanelTab}`
+              }
               role="tabpanel"
-              aria-labelledby={`collection-tab-${openCollection.name}`}
+              aria-labelledby={
+                historyOpen
+                  ? "collection-tab-history"
+                  : `collection-tab-${openPanelTab}`
+              }
             >
-              {renderCollectionSection(openCollection, false)}
+              {historyOpen ? (
+                <RecordHistory
+                  api={api}
+                  view={view}
+                  form={form}
+                  identity={identity}
+                />
+              ) : openCollection ? (
+                renderCollectionSection(openCollection, false)
+              ) : null}
             </div>
           </section>
         ) : null}

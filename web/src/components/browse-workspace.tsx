@@ -101,6 +101,8 @@ interface BrowseWorkspaceProps {
   forms: TidePresentationManifest["forms"]
   views: TidePresentationManifest["views"]
   reports: Record<string, TidePresentationReport>
+  /** Whether this session may view the entity's audit trail. */
+  audit?: boolean
 }
 
 export function BrowseWorkspace({
@@ -112,6 +114,7 @@ export function BrowseWorkspace({
   forms,
   views,
   reports,
+  audit = false,
 }: BrowseWorkspaceProps) {
   const [search, setSearch] = useState("")
   const debouncedSearch = useDebouncedValue(search.trim(), 300)
@@ -808,6 +811,7 @@ export function BrowseWorkspace({
         forms={forms}
         views={views}
         reports={recordReports}
+        audit={audit}
         mode={creating ? "create" : "update"}
         identity={creating ? null : activeIdentity}
         position={Math.max(activeIndex, 0)}
