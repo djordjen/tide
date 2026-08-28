@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 from tide.api import build_openapi_preview, generate_openapi
+from tide.api.inputs import build_writable_models
 from tide.compiler.compiler import compile_project
 
 ROOT = Path(__file__).parents[1]
@@ -45,19 +46,27 @@ def test_preview_generates_typed_pydantic_record_and_page_models() -> None:
     assert preview.record_models["sales.Invoice"].__name__ == "SalesInvoiceRecord"
     assert preview.page_models["sales.Invoice"].__name__ == "SalesInvoicePage"
     assert invoice["additionalProperties"] is False
-    assert invoice["properties"]["status"]["anyOf"][0] == {
-        "enum": ["draft", "posted", "cancelled"],
-        "type": "string",
-    }
+    # Response schemas promise only the stored type, never the write
+    # contract: TIDE reads rows it did not write, so a legacy status
+    # outside the declared choices or a code failing today's edit mask
+    # must come back as stored rather than turn the page into a server
+    # fault. The write inputs below keep the full contract.
+    assert invoice["properties"]["status"]["anyOf"][0] == {"type": "string"}
     assert invoice["properties"]["lines"]["anyOf"][0]["items"] == {
         "$ref": "#/components/schemas/SalesInvoiceLineRecord"
     }
     assert invoice["properties"]["total"]["anyOf"][0]["type"] == "string"
     assert invoice["properties"]["invoice_date"]["anyOf"][0]["format"] == "date"
     product = schemas["CatalogProductRecord"]
-    assert product["properties"]["code"]["anyOf"][0]["pattern"] == (
-        "^(?:[A-Z][A-Z0-9-]{0,29})$"
+    assert "pattern" not in product["properties"]["code"]["anyOf"][0]
+    create_models, _ = build_writable_models(
+        compile_project(INVOICING), {"catalog.Product": ("create",)}
     )
+    written_code = create_models["catalog.Product"].model_json_schema()[
+        "properties"
+    ]["code"]
+    assert written_code["pattern"] == "^(?:[A-Z][A-Z0-9-]{0,29})$"
+    assert written_code["minLength"] == 1
     assert invoice["properties"]["_tide"]["anyOf"][0] == {
         "$ref": "#/components/schemas/TideProtectionMetadata"
     }

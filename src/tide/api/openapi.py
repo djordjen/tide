@@ -464,8 +464,38 @@ def _field_annotation(
         if field.target_entity is None:
             raise ValueError(f"reference field {field.name!r} has no target")
         target_key = _primary_key(model.entity(field.target_entity))
-        return _scalar_annotation(target_key)
-    return _scalar_annotation(field)
+        return _read_scalar_annotation(target_key)
+    return _read_scalar_annotation(field)
+
+
+_READ_ANNOTATIONS: dict[str, Any] = {
+    "string": str,
+    "choice": str,
+    "integer": int,
+    "decimal": Decimal,
+    "boolean": bool,
+    "date": date,
+    "datetime": datetime,
+    "uuid": UUID,
+}
+
+
+def _read_scalar_annotation(field: NormalizedField) -> Any:
+    """The type a stored value has, without the write-side promises.
+
+    TIDE reads rows it did not write: a legacy status outside the declared
+    choices, an empty required string or a value past a declared bound must
+    come back as stored, not turn its record -- and every page holding
+    it -- into a server fault. The constraints stay on the writable models,
+    where they are the contract this deployment actually enforces.
+    """
+
+    annotation = _READ_ANNOTATIONS.get(str(field.metadata["type"]))
+    if annotation is None:
+        raise ValueError(
+            f"unsupported API field type {field.metadata['type']!r}"
+        )
+    return annotation
 
 
 def _scalar_annotation(field: NormalizedField) -> Any:

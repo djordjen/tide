@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from datetime import date
 from decimal import Decimal
 import logging
 from pathlib import Path
@@ -1469,6 +1470,66 @@ def test_server_lists_gets_and_pages_secured_records() -> None:
         assert invalid_limit.json()["code"] == "invalid_request"
         assert invalid_limit.json()["message"] == "request validation failed"
         assert invalid_limit.json()["issues"][0]["fields"] == []
+
+    asyncio.run(exercise())
+
+
+def test_read_paths_return_rows_tide_did_not_write() -> None:
+    """TIDE reads rows it did not write, and the wire must too.
+
+    The response models enforced the write contract -- Literal choices, a
+    required string's minimum length, a decimal's declared scale -- so one
+    legacy value outside those promises made its record, and every list
+    page holding it, a server fault. The write inputs keep the contract;
+    the read side answers what is stored.
+    """
+
+    model = compile_project(INVOICING)
+    repository = InMemoryRepository()
+    assert seed_demo_data(model, repository) == 15
+    repository.seed(
+        "sales.Invoice",
+        (
+            {
+                "id": 99,
+                "number": "",
+                "invoice_date": date(2026, 7, 20),
+                "currency": "EUR",
+                "status": "migrated",
+                "customer": 1,
+                "total": Decimal("12.345"),
+                "version": 1,
+            },
+        ),
+    )
+    records = RecordsService(model, repository)
+    actions = ActionService(model, records)
+    assert configure_application_runtime(model, records, actions)
+    app = build_fastapi_app(
+        model,
+        records,
+        DevelopmentTokenAuthenticator(
+            TOKEN,
+            Principal("api:test", roles=frozenset({"sales_clerk"})),
+        ),
+        actions=actions,
+    )
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            record = await client.get(
+                "/api/v1/invoices/99", headers=_authorization()
+            )
+            page = await client.get(
+                "/api/v1/invoices?limit=50", headers=_authorization()
+            )
+
+        assert record.status_code == 200
+        assert record.json()["status"] == "migrated"
+        assert record.json()["number"] == ""
+        assert record.json()["total"] == "12.345"
+        assert page.status_code == 200
+        assert any(row["id"] == 99 for row in page.json()["records"])
 
     asyncio.run(exercise())
 
