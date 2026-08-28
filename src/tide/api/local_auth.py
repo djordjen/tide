@@ -335,6 +335,73 @@ class LocalUserStore:
                 f"local user {normalized_username!r} does not exist"
             )
 
+    def update_user(
+        self,
+        username: str,
+        *,
+        roles: Iterable[str] | None = None,
+        enabled: bool | None = None,
+        guard: Callable[[tuple[LocalUserSummary, ...]], None] | None = None,
+    ) -> frozenset[str] | None:
+        """Apply this account's roles and enabled flag as one write.
+
+        A caller changing both must never be left half-applied: refused --
+        by the guard, or by the account not existing -- neither lands.
+        ``guard`` runs inside the write's own immediate transaction, over
+        the accounts as they are at write time; raising refuses the write.
+        This is what lets a caller hold an invariant like "an enabled
+        administrator remains" against concurrent writers instead of
+        between a check and an act.
+
+        Returns the roles the account now holds when ``roles`` was given.
+        """
+
+        if roles is None and enabled is None:
+            raise ValueError("a local user update must change roles or enabled")
+        self.validate()
+        normalized_username = normalize_username(username)
+        normalized_roles: frozenset[str] | None = None
+        if roles is not None:
+            normalized_roles = frozenset(_normalize_role(role) for role in roles)
+            if not normalized_roles:
+                raise ValueError("a local user must keep at least one role")
+        with self._connect(immediate=guard is not None) as connection:
+            if guard is not None:
+                guard(self._user_summaries(connection))
+            exists = connection.execute(
+                "SELECT 1 FROM tide_local_users WHERE username = ?",
+                (normalized_username,),
+            ).fetchone()
+            if exists is None:
+                raise LocalAuthenticationError(
+                    f"local user {normalized_username!r} does not exist"
+                )
+            if normalized_roles is not None:
+                connection.execute(
+                    "DELETE FROM tide_local_user_roles WHERE username = ?",
+                    (normalized_username,),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO tide_local_user_roles (username, role)
+                    VALUES (?, ?)
+                    """,
+                    (
+                        (normalized_username, role)
+                        for role in sorted(normalized_roles)
+                    ),
+                )
+            if enabled is not None:
+                connection.execute(
+                    """
+                    UPDATE tide_local_users
+                    SET enabled = ?
+                    WHERE username = ?
+                    """,
+                    (1 if enabled else 0, normalized_username),
+                )
+        return normalized_roles
+
     def set_enabled(
         self,
         username: str,
@@ -346,32 +413,11 @@ class LocalUserStore:
 
         A disabled account keeps its password and roles; nothing is deleted, so
         the decision is reversible. `login` refuses it outright, and a session
-        already open ends at its next revalidation.
-
-        ``guard`` runs inside the write's own immediate transaction, over the
-        accounts as they are at write time; raising refuses the write. This is
-        what lets a caller hold an invariant like "an enabled administrator
-        remains" against concurrent writers instead of between a check and an
-        act.
+        already open ends at its next revalidation. ``guard`` behaves as it
+        does for ``update_user``, which carries the write.
         """
 
-        self.validate()
-        normalized_username = normalize_username(username)
-        with self._connect(immediate=guard is not None) as connection:
-            if guard is not None:
-                guard(self._user_summaries(connection))
-            cursor = connection.execute(
-                """
-                UPDATE tide_local_users
-                SET enabled = ?
-                WHERE username = ?
-                """,
-                (1 if enabled else 0, normalized_username),
-            )
-        if cursor.rowcount != 1:
-            raise LocalAuthenticationError(
-                f"local user {normalized_username!r} does not exist"
-            )
+        self.update_user(username, enabled=enabled, guard=guard)
 
     def set_roles(
         self,
@@ -386,37 +432,12 @@ class LocalUserStore:
         an add-only interface can only ever grant. The caller is responsible
         for the roles naming something the application compiled; the store
         does not know the model. ``guard`` behaves as it does for
-        ``set_enabled``.
+        ``update_user``, which carries the write.
         """
 
-        self.validate()
-        normalized_username = normalize_username(username)
-        normalized_roles = frozenset(_normalize_role(role) for role in roles)
-        if not normalized_roles:
-            raise ValueError("a local user must keep at least one role")
-        with self._connect(immediate=guard is not None) as connection:
-            if guard is not None:
-                guard(self._user_summaries(connection))
-            exists = connection.execute(
-                "SELECT 1 FROM tide_local_users WHERE username = ?",
-                (normalized_username,),
-            ).fetchone()
-            if exists is None:
-                raise LocalAuthenticationError(
-                    f"local user {normalized_username!r} does not exist"
-                )
-            connection.execute(
-                "DELETE FROM tide_local_user_roles WHERE username = ?",
-                (normalized_username,),
-            )
-            connection.executemany(
-                """
-                INSERT INTO tide_local_user_roles (username, role)
-                VALUES (?, ?)
-                """,
-                ((normalized_username, role) for role in sorted(normalized_roles)),
-            )
-        return normalized_roles
+        replaced = self.update_user(username, roles=roles, guard=guard)
+        assert replaced is not None  # roles were given, so they were replaced
+        return replaced
 
     def list_users(self, *, limit: int | None = None) -> tuple[LocalUserSummary, ...]:
         """Every account, by username, without any password material.

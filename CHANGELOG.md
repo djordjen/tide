@@ -800,6 +800,16 @@ write assigns the system-owned token itself, so its stored NULL is not a
 required-field violation, and the memory adapter learned the same
 `or 0` arithmetic the SQL adapter always healed with.
 
+An administration `PATCH` carrying `roles` and `enabled` together is now one
+store transaction rather than two. Applied as two, the roles half landed
+before the enabled half was refused by the last-administrator guard -- a
+half-applied update reporting total failure, in the store that decides who
+may administer. The identity store gained a combined `update_user` write
+that `set_roles` and `set_enabled` now delegate to, and the guard decides
+over the account's final state: an update is guarded exactly when it would
+take an enabled administrator out of that set, whichever half does the
+taking.
+
 ### Designers and Studio
 
 Existing applications now have a headless DesignerService with typed property/

@@ -1119,15 +1119,14 @@ def build_fastapi_app(
                     "an account update must change roles or enabled"
                 )
             try:
-                changed = administration.user(context, username)
-                if payload.roles is not None:
-                    changed = administration.set_roles(
-                        context, username, payload.roles
-                    )
-                if payload.enabled is not None:
-                    changed = administration.set_enabled(
-                        context, username, payload.enabled
-                    )
+                # One service call, one store transaction: a refusal of
+                # either half leaves the account exactly as it was.
+                changed = administration.update_user(
+                    context,
+                    username,
+                    roles=payload.roles,
+                    enabled=payload.enabled,
+                )
             except AdministrationError as error:
                 raise _administration_refused(error) from error
             _log_administration(

@@ -20,6 +20,7 @@ import pytest
 from tide import compile_project
 from tide.api.administration import (
     ADMINISTER,
+    AdministrationConflict,
     AdministrationDenied,
     AdministrationError,
     UnknownLocalUser,
@@ -242,9 +243,9 @@ def test_two_racing_demotions_cannot_disable_every_administrator(
     )
 
     surprises: list[BaseException] = []
-    original = administration.store.set_enabled
+    original = administration.store.update_user
 
-    def racing_set_enabled(*args: object, **kwargs: object) -> object:
+    def racing_update_user(*args: object, **kwargs: object) -> object:
         try:
             other.set_enabled(_context("administrator"), "second", False)
         except AdministrationError as error:
@@ -252,7 +253,7 @@ def test_two_racing_demotions_cannot_disable_every_administrator(
         return original(*args, **kwargs)
 
     monkeypatch.setattr(
-        administration.store, "set_enabled", racing_set_enabled
+        administration.store, "update_user", racing_update_user
     )
 
     with pytest.raises(AdministrationError):
@@ -262,6 +263,41 @@ def test_two_racing_demotions_cannot_disable_every_administrator(
     users = {user.username: user for user in other.store.list_users()}
     assert users["second"].enabled is False
     assert users["admin"].enabled is True
+
+
+def test_a_combined_change_carries_one_verdict(tmp_path: Path) -> None:
+    """Roles and enabled asked for together are one write, not two.
+
+    Refused, it leaves the account exactly as it was; allowed, both halves
+    land. The guard decides over the account's final state, so keeping the
+    administering role while being disabled is still a demotion.
+    """
+
+    administration = _administration(tmp_path)
+    context = _context("administrator")
+
+    with pytest.raises(AdministrationConflict):
+        administration.update_user(
+            context, "admin", roles=["administrator", "auditor"], enabled=False
+        )
+    untouched = {user.username: user for user in administration.store.list_users()}
+    assert untouched["admin"].roles == frozenset({"administrator"})
+    assert untouched["admin"].enabled is True
+
+    administration.create_user(
+        context,
+        username="deputy",
+        password=PASSWORD,
+        roles=["administrator"],
+    )
+    changed = administration.update_user(
+        context, "admin", roles=["auditor"], enabled=False
+    )
+    assert changed.roles == frozenset({"auditor"})
+    assert changed.enabled is False
+
+    with pytest.raises(AdministrationError):
+        administration.update_user(context, "clerk")
 
 
 def test_a_created_account_is_normalized_checked_and_enabled(
@@ -563,6 +599,34 @@ def test_the_routes_answer_conflicts_and_unknown_names_apart(
         assert short_password.status_code == 400
         # The refusal describes the policy, never the value it refused.
         assert "tiny" not in short_password.text
+
+    asyncio.run(exercise())
+
+
+def test_a_refused_update_applies_neither_of_its_halves(tmp_path: Path) -> None:
+    """A PATCH may carry roles and enabled together; refused, it changes nothing.
+
+    Applied as two separate writes, the roles half lands before the enabled
+    half is refused by the last-administrator guard -- a half-applied update
+    reporting total failure, in the store that decides who may administer.
+    """
+
+    async def exercise() -> None:
+        async with _client(_app("administrator", tmp_path)) as client:
+            refused = await client.patch(
+                "/api/v1/_tide/administration/users/admin",
+                headers=_authorization(),
+                json={"roles": ["administrator", "auditor"], "enabled": False},
+            )
+            after = await client.get(
+                "/api/v1/_tide/administration/users", headers=_authorization()
+            )
+
+        assert refused.status_code == 409
+        assert "administer" in refused.json()["message"]
+        users = {user["username"]: user for user in after.json()["users"]}
+        assert users["admin"]["roles"] == ["administrator"]
+        assert users["admin"]["enabled"] is True
 
     asyncio.run(exercise())
 

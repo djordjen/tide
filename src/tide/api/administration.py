@@ -154,29 +154,58 @@ class UserAdministration:
             raise AdministrationError(str(error)) from error
         return self._require(normalized)
 
+    def update_user(
+        self,
+        context: RequestContext,
+        username: str,
+        *,
+        roles: Iterable[str] | None = None,
+        enabled: bool | None = None,
+    ) -> LocalUserSummary:
+        """Apply an account's roles and enabled flag as one write.
+
+        A request may carry both. Applied as two writes, the second half can
+        be refused after the first has already landed -- a half-applied
+        update reporting total failure. The store applies both in one
+        transaction, and the last-administrator guard decides over the
+        account's *final* state: an update is guarded exactly when it would
+        take an enabled administrator out of that set, whichever half does
+        the taking.
+        """
+
+        self._authorize(context)
+        if roles is None and enabled is None:
+            raise AdministrationError(
+                "an account update must change roles or enabled"
+            )
+        checked = self._checked_roles(roles) if roles is not None else None
+        current = self._require(username)
+        roles_after = checked if checked is not None else current.roles
+        enabled_after = current.enabled if enabled is None else enabled
+        guard = None
+        if (
+            current.enabled
+            and self._administers(current.roles)
+            and not (enabled_after and self._administers(roles_after))
+        ):
+            guard = self._administrator_remains_guard(current.username)
+        try:
+            self.store.update_user(
+                current.username, roles=checked, enabled=enabled, guard=guard
+            )
+        except AdministrationError:
+            raise
+        except (LocalAuthenticationError, ValueError) as error:
+            raise AdministrationError(str(error)) from error
+        return self._require(current.username)
+
     def set_roles(
         self,
         context: RequestContext,
         username: str,
         roles: Iterable[str],
     ) -> LocalUserSummary:
-        self._authorize(context)
-        checked = self._checked_roles(roles)
-        current = self._require(username)
-        guard = None
-        if (
-            current.enabled
-            and self._administers(current.roles)
-            and not self._administers(checked)
-        ):
-            guard = self._administrator_remains_guard(current.username)
-        try:
-            self.store.set_roles(current.username, checked, guard=guard)
-        except AdministrationError:
-            raise
-        except (LocalAuthenticationError, ValueError) as error:
-            raise AdministrationError(str(error)) from error
-        return self._require(current.username)
+        return self.update_user(context, username, roles=roles)
 
     def set_enabled(
         self,
@@ -184,18 +213,7 @@ class UserAdministration:
         username: str,
         enabled: bool,
     ) -> LocalUserSummary:
-        self._authorize(context)
-        current = self._require(username)
-        guard = None
-        if not enabled and current.enabled and self._administers(current.roles):
-            guard = self._administrator_remains_guard(current.username)
-        try:
-            self.store.set_enabled(current.username, enabled, guard=guard)
-        except AdministrationError:
-            raise
-        except (LocalAuthenticationError, ValueError) as error:
-            raise AdministrationError(str(error)) from error
-        return self._require(current.username)
+        return self.update_user(context, username, enabled=enabled)
 
     def set_password(
         self,

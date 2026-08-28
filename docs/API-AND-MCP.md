@@ -193,7 +193,9 @@ grants; it is read-only, because roles are authored, not administered. The
 users resource lists the accounts with their roles, whether each may sign in,
 and when it was created and last had its password changed -- never a hash, and
 never a field derived from one. `PATCH` carries `roles`, `enabled`, or both,
-and applies nothing when it carries neither. Replacing a password is its own
+and applies nothing when it carries neither. Both together are one write: a
+refusal of either half -- the last-administrator guard included -- leaves the
+account exactly as it was. Replacing a password is its own
 route rather than a field, because it ends every session that account has
 open.
 
