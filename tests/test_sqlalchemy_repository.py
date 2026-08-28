@@ -329,6 +329,44 @@ def test_case_insensitive_lookup_filter_matches_memory_and_sql(sql_runtime) -> N
     assert [customer["code"] for customer in memory_customers] == ["ACME", "ZEN"]
 
 
+def test_contains_treats_like_wildcards_as_literal_text(sql_runtime) -> None:
+    """`%` and `_` in search text are text, on both adapters alike.
+
+    The shared `matches_condition` has always matched literally; the SQL
+    adapter built its LIKE pattern unescaped, so searching "50%" also
+    matched "505 units" and the two adapters disagreed about the same
+    query. SQL Server adds `[` to the wildcard set, so escaping is the
+    dialect-portable answer, not doubling one character.
+    """
+
+    model, repository, records = sql_runtime
+    wildcard_customers = [
+        {"id": 4, "code": "PCT", "name": "50% cotton blend", "email": None, "active": True},
+        {"id": 5, "code": "BULK", "name": "505 units bulk", "email": None, "active": True},
+        {"id": 6, "code": "SNAP", "name": "Snap_Case supplies", "email": None, "active": True},
+        {"id": 7, "code": "SNAPX", "name": "SnapXCase supplies", "email": None, "active": True},
+    ]
+    repository.seed("crm.Customer", wildcard_customers)
+    memory = InMemoryRepository()
+    memory.seed("crm.Customer", [*CUSTOMERS, *wildcard_customers])
+    memory_records = RecordsService(model, memory)
+
+    def codes(operator: str, text: str) -> tuple[list[str], list[str]]:
+        query = QuerySpec(
+            filters=(FilterCondition("name", operator, text),),
+            sort=(SortField("name"),),
+            limit=10,
+        )
+        return (
+            [row["code"] for row in records.query("crm.Customer", query, context())],
+            [row["code"] for row in memory_records.query("crm.Customer", query, context())],
+        )
+
+    assert codes("contains", "50%") == (["PCT"], ["PCT"])
+    assert codes("contains", "p_C") == (["SNAP"], ["SNAP"])
+    assert codes("icontains", "snap_c") == (["SNAP"], ["SNAP"])
+
+
 def test_sql_query_translates_relationship_aggregates(sql_runtime) -> None:
     model, repository, _ = sql_runtime
     _seed_invoice(repository)

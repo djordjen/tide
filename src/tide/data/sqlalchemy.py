@@ -1544,9 +1544,11 @@ def _filter_predicate(
     if condition.operator == "gte":
         return column >= value
     if condition.operator == "contains":
-        return column.contains(value)
+        # autoescape keeps `%`, `_` (and `[` on SQL Server) literal, which
+        # is what the shared matches_condition has always done in Python.
+        return column.contains(value, autoescape=True)
     if condition.operator == "icontains":
-        return func.lower(column).contains(value.casefold())
+        return func.lower(column).contains(value.casefold(), autoescape=True)
     if condition.operator == "in":
         chosen = tuple(value)
         present = tuple(item for item in chosen if item is not None)
