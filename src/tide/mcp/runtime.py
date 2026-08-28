@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
+from decimal import Decimal
 import re
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -26,8 +28,14 @@ from tide.mcp.contracts import (
     TideMcpMutationResult,
     TideMcpPage,
     TideMcpRecord,
+    TideMcpReportCell,
+    TideMcpReportColumn,
+    TideMcpReportDocument,
+    TideMcpReportGroup,
+    TideMcpReportValue,
     TideMcpSummaryValue,
 )
+from tide.reporting import ReportValue, TypedReport
 from tide.runtime import (
     ConcurrencyError,
     NotFoundError,
@@ -630,5 +638,92 @@ def _identifier(value: str) -> str:
     if not normalized:
         raise ValueError("MCP identifier source must contain a letter or number")
     return normalized
+
+
+def _column_type(values: tuple[Any, ...]) -> str:
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, bool):
+            return "boolean"
+        if isinstance(value, int):
+            return "integer"
+        if isinstance(value, Decimal):
+            return "decimal"
+        if isinstance(value, datetime):
+            return "datetime"
+        if isinstance(value, date):
+            return "date"
+    return "text"
+
+
+def _report_values(
+    values: tuple[ReportValue, ...],
+) -> tuple[TideMcpReportValue, ...]:
+    return tuple(
+        TideMcpReportValue(label=value.label, text=value.text) for value in values
+    )
+
+
+def mcp_report_document(
+    application: str,
+    exposure: RuntimeMcpReportExposure,
+    typed: TypedReport,
+) -> TideMcpReportDocument:
+    """Pure over the pair the service built: no model access, no re-derivation.
+
+    Column types are read back off the typed table because `typed_cell`
+    decides per column, so within a column the values are homogeneous by
+    construction -- the scan reports the decision, it does not guess.
+    """
+
+    document = typed.document
+    table = document.detail
+    column_values = tuple(
+        tuple(row[index] for row in typed.typed_values)
+        for index in range(len(table.columns))
+    )
+    return TideMcpReportDocument(
+        application=application,
+        report=exposure.report,
+        kind=exposure.kind,
+        entity=exposure.entity,
+        title=document.title,
+        generated_at=document.generated_at,
+        header_text=document.header_text,
+        record_values=_report_values(document.record_values),
+        columns=tuple(
+            TideMcpReportColumn(
+                name=column.name,
+                label=column.label,
+                type=_column_type(column_values[index]),
+            )
+            for index, column in enumerate(table.columns)
+        ),
+        rows=tuple(
+            tuple(
+                TideMcpReportCell(
+                    text=cell.text,
+                    value=(
+                        typed.typed_values[row_index][cell_index]
+                        if row_index < len(typed.typed_values)
+                        else None
+                    ),
+                )
+                for cell_index, cell in enumerate(row)
+            )
+            for row_index, row in enumerate(table.rows)
+        ),
+        groups=tuple(
+            TideMcpReportGroup(
+                values=_report_values(group.values),
+                row_start=group.row_start,
+                row_count=group.row_count,
+                footer_values=_report_values(group.footer_values),
+            )
+            for group in document.groups
+        ),
+        footer_values=_report_values(document.footer_values),
+    )
 
 

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from tide.api.contracts import TIDE_WIRE_VERSION, TideFilterOperator
 from tide.model.source import TideSummaryFunction
@@ -113,3 +114,85 @@ class TideMcpMutationResult(BaseModel):
             raise ValueError("delete mutation results cannot contain a record")
         if self.operation != "delete" and self.record is None:
             raise ValueError("non-delete mutation results require a record")
+
+
+TideMcpReportColumnType = Literal[
+    "text", "integer", "decimal", "date", "datetime", "boolean"
+]
+
+
+class TideMcpReportValue(BaseModel):
+    """One labeled report value: a header field, group name, or total."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    label: str
+    text: str
+
+
+class TideMcpReportCell(BaseModel):
+    """Display text beside the exact value, where one exists.
+
+    `value` is None where the text is already the whole truth: a reference
+    names a record, a choice is captioned, a string is a string. A decimal
+    travels as its exact string and the column's type says so, which is the
+    same contract records use.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    text: str
+    value: Any = None
+
+
+class TideMcpReportColumn(BaseModel):
+    """One detail column, typed by the values this document carries.
+
+    Read back off the typed table rather than re-derived from the model: the
+    service already decided per column what is a value and what is text. A
+    column with no typed values reads `text`, because it offers nothing to
+    compute with.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str
+    label: str
+    type: TideMcpReportColumnType = "text"
+
+
+class TideMcpReportGroup(BaseModel):
+    """One contiguous, named, subtotaled slice of the detail rows."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    values: tuple[TideMcpReportValue, ...]
+    row_start: int = Field(ge=0)
+    row_count: int = Field(ge=0)
+    footer_values: tuple[TideMcpReportValue, ...]
+
+
+class TideMcpReportDocument(BaseModel):
+    """One authorized report as a program reads it.
+
+    Deliberately not the REST document: no page footer, no suggested
+    filename, no alignments -- presentation belongs to renderers. What a
+    machine needs is what this carries: identity, typed columns, exact
+    values beside the text every renderer shows.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    wire_version: Literal["0.1"] = TIDE_WIRE_VERSION
+    application: str
+    report: str
+    kind: Literal["record", "summary"]
+    entity: str
+    title: str
+    generated_at: datetime
+    header_text: tuple[str, ...]
+    record_values: tuple[TideMcpReportValue, ...]
+    columns: tuple[TideMcpReportColumn, ...]
+    rows: tuple[tuple[TideMcpReportCell, ...], ...]
+    groups: tuple[TideMcpReportGroup, ...]
+    footer_values: tuple[TideMcpReportValue, ...]
