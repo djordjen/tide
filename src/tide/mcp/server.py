@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 import json
@@ -16,7 +16,7 @@ from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
-from pydantic import AnyHttpUrl, BaseModel, Field
+from pydantic import AnyHttpUrl, BaseModel, Field, create_model
 
 from tide.api.contracts import (
     TideFilterInput,
@@ -26,7 +26,11 @@ from tide.api.contracts import (
 from tide.api.inputs import build_writable_models
 from tide.api.openapi import writable_scalar_annotation
 from tide.api.wire import primary_key
-from tide.mcp.contracts import TideMcpMutationResult, TideMcpPage
+from tide.mcp.contracts import (
+    TideMcpMutationResult,
+    TideMcpPage,
+    TideMcpReportDocument,
+)
 from tide.mcp.runtime import RuntimeMcpService
 from tide.observability import current_correlation_id, resolve_correlation_id
 from tide.runtime import AuthorizationError, Channel, Principal, RequestContext
@@ -220,6 +224,27 @@ def build_runtime_mcp_server(
                     action.tool,
                 )
             )
+    for report_exposure in service.report_exposures.values():
+        definitions = service.model.reports[report_exposure.report].get(
+            "parameters", {}
+        )
+        fastmcp.tool(
+            name=report_exposure.tool,
+            description=(
+                f"Generate the authorized {report_exposure.title} "
+                f"({report_exposure.kind}) report as a typed document: display "
+                "text beside exact values, decimals as exact strings, dates as "
+                "ISO text, each column typed by the values it carries."
+            ),
+            structured_output=True,
+        )(
+            _report_tool(
+                service,
+                report_exposure.report,
+                report_exposure.tool,
+                _report_parameter_model(report_exposure.tool, definitions),
+            )
+        )
     return HostedRuntimeMcp(
         fastmcp=fastmcp,
         service=service,
@@ -415,6 +440,84 @@ def _action_tool(
         entity_name,
     )
     return execute_action
+
+
+_REPORT_PARAMETER_ANNOTATIONS: dict[str, type] = {
+    # Wire conventions rather than Python maximalism: exact decimals and
+    # ISO date/datetime text, the same way record values travel.
+    "string": str,
+    "integer": int,
+    "decimal": str,
+    "boolean": bool,
+    "date": str,
+    "datetime": str,
+}
+
+
+def _report_parameter_model(
+    tool_name: str,
+    definitions: Mapping[str, Mapping[str, Any]],
+) -> type[BaseModel] | None:
+    if not definitions:
+        return None
+    fields: dict[str, Any] = {}
+    for name, definition in definitions.items():
+        annotation = _REPORT_PARAMETER_ANNOTATIONS[str(definition["type"])]
+        if definition.get("required") and definition.get("default") is None:
+            fields[name] = (annotation, ...)
+        else:
+            fields[name] = (annotation | None, None)
+    return create_model(f"{tool_name}_parameters", **fields)
+
+
+def _report_tool(
+    service: RuntimeMcpService,
+    report_name: str,
+    tool_name: str,
+    parameters_model: type[BaseModel] | None,
+) -> Any:
+    if parameters_model is None:
+        async def run_report() -> TideMcpReportDocument:
+            return await asyncio.to_thread(
+                service.run_report,
+                report_name,
+                {},
+                _request_context(),
+            )
+    elif any(
+        field.is_required() for field in parameters_model.model_fields.values()
+    ):
+        # A required parameter is required in the tool schema too, so an
+        # empty call is refused before it reaches the service.
+        async def run_report(parameters: BaseModel) -> TideMcpReportDocument:
+            return await asyncio.to_thread(
+                service.run_report,
+                report_name,
+                parameters.model_dump(exclude_unset=True, exclude_none=True),
+                _request_context(),
+            )
+
+        run_report.__annotations__["parameters"] = parameters_model
+    else:
+        async def run_report(
+            parameters: BaseModel | None = None,
+        ) -> TideMcpReportDocument:
+            supplied = (
+                {}
+                if parameters is None
+                else parameters.model_dump(exclude_unset=True, exclude_none=True)
+            )
+            return await asyncio.to_thread(
+                service.run_report,
+                report_name,
+                supplied,
+                _request_context(),
+            )
+
+        run_report.__annotations__["parameters"] = parameters_model | None
+
+    run_report.__name__ = tool_name
+    return run_report
 
 
 def _identity_annotation(service: RuntimeMcpService, entity_name: str) -> Any:

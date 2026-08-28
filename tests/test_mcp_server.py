@@ -146,6 +146,8 @@ def test_streamable_http_mcp_executes_secured_runtime_workflow() -> None:
             "update_sales_invoice",
             "post_sales_invoice",
             "void_sales_invoice",
+            "report_sales_invoice",
+            "report_sales_summary",
         }
         schema = json.loads(schema_result.contents[0].text)  # type: ignore[union-attr]
         assert schema["entity"] == "catalog.Product"
@@ -192,6 +194,72 @@ def test_streamable_http_mcp_executes_secured_runtime_workflow() -> None:
             event["correlation_id"] == "mcp-workflow-123"
             for event in audit["events"]
         )
+
+    asyncio.run(exercise())
+
+
+def test_streamable_http_mcp_runs_reports_as_typed_documents() -> None:
+    app = _app("sales_clerk")
+
+    async def exercise() -> None:
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=BASE_URL,
+                headers={
+                    "Authorization": f"Bearer {TOKEN}",
+                    "X-Correlation-ID": "mcp-report-123",
+                },
+            ) as http:
+                async with streamable_http_client(
+                    MCP_URL,
+                    http_client=http,
+                ) as (read_stream, write_stream, _session_id):
+                    async with ClientSession(read_stream, write_stream) as session:
+                        await session.initialize()
+                        tools = await session.list_tools()
+                        summary_result = await session.call_tool(
+                            "report_sales_summary",
+                            {"parameters": {"from_date": "2026-01-01"}},
+                        )
+                        invoice_result = await session.call_tool(
+                            "report_sales_invoice",
+                            {"parameters": {"invoice_id": 1}},
+                        )
+                        missing_identity = await session.call_tool(
+                            "report_sales_invoice", {}
+                        )
+
+        by_name = {tool.name: tool for tool in tools.tools}
+        assert {"report_sales_summary", "report_sales_invoice"} <= set(by_name)
+
+        # A summary whose parameters are all optional may be called bare;
+        # a record report's identity parameter is required in the schema too.
+        summary_schema = by_name["report_sales_summary"].inputSchema
+        assert "parameters" not in summary_schema.get("required", [])
+        invoice_schema = by_name["report_sales_invoice"].inputSchema
+        assert "parameters" in invoice_schema.get("required", [])
+
+        assert summary_result.isError is False
+        document = summary_result.structuredContent
+        assert document is not None
+        assert document["kind"] == "summary"
+        assert document["groups"], "the demo seed posts grouped sales"
+        names = [column["name"] for column in document["columns"]]
+        total_index = names.index("total")
+        assert document["columns"][total_index]["type"] == "decimal"
+        first_row = document["rows"][document["groups"][0]["row_start"]]
+        cell = first_row[total_index]
+        # Exact value beside formatted text: the same number, one with
+        # grouping for people and one exact string for programs.
+        assert cell["value"] == cell["text"].replace(",", "")
+
+        assert invoice_result.isError is False
+        assert invoice_result.structuredContent is not None
+        assert invoice_result.structuredContent["kind"] == "record"
+        assert invoice_result.structuredContent["record_values"]
+
+        assert missing_identity.isError is True
 
     asyncio.run(exercise())
 
