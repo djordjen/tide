@@ -61,12 +61,34 @@ def test_an_unconditional_action_is_offered() -> None:
     assert state.enabled is True
 
 
+def test_an_action_condition_that_divides_by_zero_hides_it() -> None:
+    """Division is in the expression subset, and a zero divisor is data.
+
+    `total / count > 0` is a condition the compiler accepts, and a record
+    with a zero count is a record TIDE did not write. The arithmetic error
+    is one more way a condition cannot be evaluated, not a different case.
+    """
+
+    action = {"enabled_when": "total / count > 0"}
+
+    state = action_state(action, {"total": 10, "count": 0})
+
+    assert state.visible is False
+    assert state.enabled is False
+
+
 def test_a_field_condition_that_cannot_be_evaluated_locks_the_field() -> None:
     """Withholding an allowed edit beats offering one the service rejects."""
 
     field = _field("number", type="string", immutable_when="status != 'draft'")
 
     assert field_is_immutable(field, {}) is True
+
+
+def test_a_field_condition_that_divides_by_zero_locks_the_field() -> None:
+    field = _field("number", type="string", immutable_when="total / count > 0")
+
+    assert field_is_immutable(field, {"total": 10, "count": 0}) is True
 
 
 def test_a_field_without_a_condition_is_never_locked_by_one() -> None:
@@ -128,6 +150,16 @@ def test_a_condition_that_cannot_be_evaluated_paints_nothing() -> None:
     appearance = record_appearance(rules, {})
 
     assert appearance.record is None
+    assert bool(appearance) is False
+
+
+def test_a_rule_that_divides_by_zero_paints_nothing() -> None:
+    rules = (
+        {"name": "ratio", "when": "total / count > 100", "emphasis": "warning"},
+    )
+
+    appearance = record_appearance(rules, {"total": 10, "count": 0})
+
     assert bool(appearance) is False
 
 

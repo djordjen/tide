@@ -15,7 +15,7 @@ from dataclasses import dataclass, field as dataclass_field
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping, get_args
 
-from tide.compiler.expressions import evaluate_expression
+from tide.compiler.expressions import EVALUATION_ERRORS, evaluate_expression
 from tide.model.source import TideEmphasis
 
 EMPHASIS_VALUES: tuple[str, ...] = get_args(TideEmphasis)
@@ -88,7 +88,7 @@ def record_appearance(
             continue
         try:
             matched = bool(evaluate_expression(str(condition), values))
-        except (AttributeError, KeyError, TypeError, ValueError):
+        except EVALUATION_ERRORS:
             continue
         if not matched:
             continue

@@ -522,3 +522,48 @@ def test_the_service_reads_a_record_the_rules_cannot_judge(tmp_path: Path) -> No
         assert "appearance" not in (record.json().get("_tide") or {})
 
     asyncio.run(exercise())
+
+
+def test_the_service_reads_a_record_whose_rule_divides_by_zero(
+    tmp_path: Path,
+) -> None:
+    """The arithmetic sibling of the null above, and the same promise.
+
+    Division is in the expression subset, so `100 / days_left` is a rule an
+    author can write -- and a zero in the divisor column is a value TIDE did
+    not write and must still read. The record comes back unpainted rather
+    than the arithmetic error surfacing as a server fault.
+    """
+
+    model = compile_project(
+        _project(
+            tmp_path,
+            "appearance:\n"
+            "- {name: ratio, when: '100 / days_left > 3', emphasis: danger}\n",
+            name="dividing",
+        )
+    )
+    repository = InMemoryRepository()
+    repository.seed(
+        "demo.Item",
+        ({"id": 4, "name": "Idle", "status": "active", "days_left": 0},),
+    )
+    records = RecordsService(model, repository)
+    app = build_fastapi_app(
+        model,
+        records,
+        DevelopmentTokenAuthenticator(
+            TOKEN,
+            Principal("api:test", roles=frozenset({"operator"})),
+        ),
+        actions=ActionService(model, records),
+    )
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            record = await client.get("/api/v1/items/4", headers=_headers())
+
+        assert record.status_code == 200
+        assert "appearance" not in (record.json().get("_tide") or {})
+
+    asyncio.run(exercise())

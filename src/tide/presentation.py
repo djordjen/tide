@@ -6,7 +6,7 @@ import ast
 from dataclasses import dataclass
 from typing import Any, Iterable, Literal, Mapping
 
-from tide.compiler.expressions import evaluate_expression
+from tide.compiler.expressions import EVALUATION_ERRORS, evaluate_expression
 from tide.labels import humanize as _humanize
 from tide.compiler.normalized import (
     ApplicationModel,
@@ -280,7 +280,7 @@ def preview_computed_fields(
                     field.metadata["computed"]["expression"],
                     values,
                 )
-            except (ArithmeticError, TypeError, ValueError):
+            except EVALUATION_ERRORS:
                 values[field_name] = None
             remaining.remove(field_name)
             progressed = True
@@ -368,7 +368,7 @@ def action_state(
         enabled = visible and (
             not enabled_when or bool(evaluate_expression(str(enabled_when), values))
         )
-    except (AttributeError, KeyError, TypeError, ValueError):
+    except EVALUATION_ERRORS:
         return ActionState(visible=False, enabled=False)
     return ActionState(visible=visible, enabled=enabled)
 
@@ -400,7 +400,7 @@ def field_is_immutable(
         return False
     try:
         return bool(evaluate_expression(str(condition), values))
-    except (AttributeError, KeyError, TypeError, ValueError):
+    except EVALUATION_ERRORS:
         return True
 
 

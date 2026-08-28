@@ -26,6 +26,23 @@ binds and what the SQL preflight can stand in for.
 """
 NUMERIC_TYPES = frozenset({"integer", "decimal"})
 _TIDE_DECIMAL_CONTEXT = Context(prec=38, rounding=ROUND_HALF_EVEN)
+EVALUATION_ERRORS: tuple[type[Exception], ...] = (
+    ArithmeticError,
+    AttributeError,
+    KeyError,
+    TypeError,
+    ValueError,
+)
+"""Everything a valid expression can raise when the values defeat it.
+
+Declared beside the evaluator because each fail-safe caller used to keep its
+own copy of this tuple, and the copies drifted: division is in the expression
+subset, so `total / count` meeting a zero is one more way a condition cannot
+be evaluated -- but only the computed-field preview had ``ArithmeticError``
+in its list, which covers ``decimal.DivisionByZero``, ``InvalidOperation``
+and plain ``ZeroDivisionError``. Callers for whom an evaluation failure is an
+error, not a fallback, still catch nothing.
+"""
 
 
 @dataclass(frozen=True, slots=True)

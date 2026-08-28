@@ -7,7 +7,7 @@ import hashlib
 from typing import Any, Callable, Mapping
 from uuid import uuid4
 
-from tide.compiler.expressions import evaluate_expression
+from tide.compiler.expressions import EVALUATION_ERRORS, evaluate_expression
 from tide.compiler.normalized import ApplicationModel
 from tide.runtime.context import RequestContext
 from tide.runtime.errors import (
@@ -128,12 +128,22 @@ class ActionService:
                 if expected_version is not None:
                     session.expected_version = expected_version
                 condition = action.get("enabled_when")
-                if condition and not bool(
-                    evaluate_expression(condition, session.values)
-                ):
-                    raise ActionDisabled(
-                        f"action {entity_name}.{action_name} is disabled"
-                    )
+                if condition:
+                    try:
+                        enabled = bool(
+                            evaluate_expression(condition, session.values)
+                        )
+                    except EVALUATION_ERRORS as error:
+                        # `action_state` withholds the button for this record;
+                        # a caller who bypasses it gets the same refusal.
+                        raise ActionDisabled(
+                            f"action {entity_name}.{action_name} is disabled:"
+                            " its condition could not be evaluated"
+                        ) from error
+                    if not enabled:
+                        raise ActionDisabled(
+                            f"action {entity_name}.{action_name} is disabled"
+                        )
                 reference = action["execute"]
                 handler = self._handlers.get(reference)
                 if handler is None:

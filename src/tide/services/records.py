@@ -12,7 +12,11 @@ import re
 from typing import Any, Callable, Mapping, Sequence
 from uuid import UUID, uuid4
 
-from tide.compiler.expressions import PARAMETER_PATTERN, evaluate_expression
+from tide.compiler.expressions import (
+    EVALUATION_ERRORS,
+    PARAMETER_PATTERN,
+    evaluate_expression,
+)
 from tide.appearance import record_appearance
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity
 from tide.data.repository import (
@@ -1055,7 +1059,18 @@ class RecordsService:
                     "an appearance rule disables it for this record",
                 )
             immutable_when = entity.fields[field_name].metadata.get("immutable_when")
-            if immutable_when and bool(evaluate_expression(immutable_when, session.original)):
+            if not immutable_when:
+                continue
+            try:
+                locked = bool(evaluate_expression(immutable_when, session.original))
+            except EVALUATION_ERRORS as error:
+                # The same fallback `field_is_immutable` promised the renderer:
+                # a condition this record's values defeat withholds the edit.
+                raise ImmutableFieldError(
+                    field_name,
+                    f"condition {immutable_when!r} could not be evaluated",
+                ) from error
+            if locked:
                 raise ImmutableFieldError(field_name, f"condition {immutable_when!r} is true")
 
     def _enforce_field_write(
