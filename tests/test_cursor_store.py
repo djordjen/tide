@@ -77,6 +77,38 @@ def test_sql_cursor_store_persists_typed_state_without_raw_token(
     restarted.dispose()
 
 
+def test_sql_cursor_store_round_trips_an_in_filter_shape(tmp_path: Path) -> None:
+    """A funnel's membership filter is part of the cursor's shape.
+
+    The store serializes the membership tuple as a JSON array, and the
+    reader used to hand the array back as a list -- so the restored shape
+    never equalled the request's, and every second page under a column
+    value filter answered InvalidQueryCursor on a managed deployment.
+    """
+
+    database = tmp_path / "in-cursors.db"
+    store = SQLAlchemyCursorStore(
+        f"sqlite+pysqlite:///{database.as_posix()}", mode="managed"
+    )
+    store.create_schema()
+    state = CursorState(
+        version=CURSOR_VERSION,
+        shape=CursorShape(
+            model=("Test", "0.1.0", "0.1"),
+            entity="sales.Invoice",
+            filters=(FilterCondition("status", "in", ("draft", None)),),
+            sort=(SortField("id"),),
+            limit=25,
+            principal=("user:1", ("sales.invoice.read",)),
+        ),
+        values=(7,),
+    )
+
+    token = store.issue(state)
+    assert store.resolve(token) == state
+    store.dispose()
+
+
 def test_records_pagination_continues_after_cursor_store_restart(
     tmp_path: Path,
 ) -> None:

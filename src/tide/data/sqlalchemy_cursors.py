@@ -306,10 +306,15 @@ def _deserialize_state(value: str) -> CursorState:
 def _filter_condition(value: Any) -> FilterCondition:
     if not isinstance(value, Mapping) or "value" not in value:
         raise ValueError("cursor filter is invalid")
+    raw = value["value"]
     return FilterCondition(
         field=_required_string(value, "field"),
         operator=_required_string(value, "operator"),
-        value=value["value"],
+        # Membership was issued as a tuple and stored as a JSON array, and
+        # the shape equality check that guards a continuation compares the
+        # restored condition with the request's -- so the array must come
+        # back a tuple, or every second page under an `in` filter refuses.
+        value=tuple(raw) if isinstance(raw, list) else raw,
     )
 
 
