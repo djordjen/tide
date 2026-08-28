@@ -43,6 +43,7 @@ from sqlalchemy.engine import Connection, Engine, URL, make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy.sql.selectable import Select
 from sqlalchemy.sql.type_api import TypeEngine
 
 from tide.compiler.expressions import POLICY_PARAMETERS
@@ -594,6 +595,30 @@ class SQLAlchemyRepository:
     ) -> tuple[tuple[Any, ...], bool]:
         if limit < 1:
             raise ValueError("distinct limit must be at least 1")
+        statement = self._distinct_statement(
+            entity,
+            field,
+            filters=filters,
+            row_criteria=row_criteria,
+            criteria_parameters=criteria_parameters,
+            relationships=relationships,
+            limit=limit,
+        )
+        with self._reading() as connection:
+            values = [row[0] for row in connection.execute(statement)]
+        return tuple(values[:limit]), len(values) > limit
+
+    def _distinct_statement(
+        self,
+        entity: str,
+        field: str,
+        *,
+        filters: tuple[FilterCondition, ...] = (),
+        row_criteria: tuple[str, ...] = (),
+        criteria_parameters: Mapping[str, Any] = NO_PARAMETERS,
+        relationships: RelationshipLoadPlan | None = None,
+        limit: int = 200,
+    ) -> Select[Any]:
         table = self.table(entity)
         column = table.c.get(field)
         if column is None:
@@ -601,7 +626,12 @@ class SQLAlchemyRepository:
                 f"field {entity}.{field} is not stored and cannot be "
                 "enumerated in SQL"
             )
-        statement = select(column).distinct()
+        # GROUP BY, not DISTINCT: the null-rank CASE below is not in the
+        # select list, and SQL Server refuses that combination outright
+        # (error 145). Grouping yields the identical value set -- NULLs
+        # collapse into one group the way DISTINCT collapses them -- and
+        # makes the rank a legal ORDER BY on both dialects.
+        statement = select(column).group_by(column)
         predicates = self._criteria_predicates(
             entity,
             table,
@@ -612,12 +642,9 @@ class SQLAlchemyRepository:
         )
         if predicates:
             statement = statement.where(and_(*predicates))
-        statement = statement.order_by(
+        return statement.order_by(
             _sort_null_rank(column, False), column.asc()
         ).limit(limit + 1)
-        with self._reading() as connection:
-            values = [row[0] for row in connection.execute(statement)]
-        return tuple(values[:limit]), len(values) > limit
 
     @scoped(writes=False)
     def aggregate(

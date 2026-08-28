@@ -94,6 +94,32 @@ def test_secured_query_compiles_to_parameterized_sql_server_sql(
     assert "Ltd" in compiled.params.values()
 
 
+def test_distinct_enumeration_orders_legally_under_sql_server(
+    repository: SQLAlchemyRepository,
+) -> None:
+    """SELECT DISTINCT may only order by items in the select list.
+
+    The null-rank CASE that puts blanks last is not in the select list, and
+    SQL Server refuses the combination outright (error 145, probed against a
+    real server) -- so the whole column-value-filter capability was dead on
+    one of the two supported dialects. Grouping by the enumerated column
+    yields the identical value set and makes the rank a legal ORDER BY.
+    """
+
+    statement = repository._distinct_statement(
+        "crm.Customer",
+        "email",
+        filters=(FilterCondition("active", "eq", True),),
+        row_criteria=("active == true",),
+        limit=200,
+    )
+    sql = str(statement.compile(dialect=mssql.dialect())).upper()
+
+    assert "SELECT DISTINCT" not in sql
+    assert "GROUP BY" in sql
+    assert "ORDER BY CASE WHEN" in sql
+
+
 def test_boolean_relationship_aggregates_avoid_invalid_sql_server_is_boolean(
     repository: SQLAlchemyRepository,
 ) -> None:
