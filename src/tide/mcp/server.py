@@ -16,7 +16,7 @@ from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
-from pydantic import AnyHttpUrl, BaseModel, Field, create_model
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, create_model
 
 from tide.api.contracts import (
     TideFilterInput,
@@ -467,7 +467,14 @@ def _report_parameter_model(
             fields[name] = (annotation, ...)
         else:
             fields[name] = (annotation | None, None)
-    return create_model(f"{tool_name}_parameters", **fields)
+    return create_model(
+        f"{tool_name}_parameters",
+        # Forbidding extras is what lets the service's unknown-parameter
+        # refusal fire: a key pydantic silently dropped would instead run
+        # the report unfiltered. The generated record inputs forbid too.
+        __config__=ConfigDict(extra="forbid", frozen=True),
+        **fields,
+    )
 
 
 def _report_tool(

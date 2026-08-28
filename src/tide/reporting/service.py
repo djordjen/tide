@@ -872,11 +872,21 @@ def _coerce_parameter(field_type: str, value: Any) -> Any:
     if field_type == "decimal":
         if isinstance(value, bool):
             raise TypeError
-        return Decimal(str(value))
-    if field_type == "boolean":
-        if not isinstance(value, bool):
+        result = Decimal(str(value))
+        # Decimal parses "NaN" and "Infinity", and no criteria can honestly
+        # answer them: NaN takes SQLite's float hop and binds as NULL (a
+        # silently empty report) and SQL Server refuses the bind outright.
+        if not result.is_finite():
             raise TypeError
-        return value
+        return result
+    if field_type == "boolean":
+        if isinstance(value, bool):
+            return value
+        # The TUI dialog collects raw text and prompts "true or false";
+        # every other type accepts its own string form.
+        if isinstance(value, str) and value.strip().casefold() in {"true", "false"}:
+            return value.strip().casefold() == "true"
+        raise TypeError
     if field_type == "date":
         if isinstance(value, datetime):
             raise TypeError

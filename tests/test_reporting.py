@@ -25,6 +25,7 @@ from tide.reporting import (
     write_html,
     write_pdf,
 )
+from tide.reporting.service import _coerce_parameter
 from tide.runtime import AuthorizationError, Channel, Principal, RequestContext, ValidationFailed
 from tide.services import RecordsService
 from tide.tui import seed_demo_data
@@ -695,3 +696,35 @@ def test_a_record_report_names_its_lines_without_a_read_each(
     # One read, for the invoice itself. Its customer and every line's product
     # come from the one resolution that read follows.
     assert reads == [("sales.Invoice", 1)]
+
+
+def test_boolean_report_parameters_accept_the_strings_the_dialog_collects() -> None:
+    """The TUI parameter dialog collects raw input text.
+
+    Its boolean placeholder literally says "true or false", and every other
+    parameter type accepts its own string form -- digits, decimal text, ISO
+    dates. Refusing the exact strings the dialog prompts for made a boolean
+    parameter unusable from the one surface that asks interactively.
+    """
+
+    assert _coerce_parameter("boolean", True) is True
+    assert _coerce_parameter("boolean", "true") is True
+    assert _coerce_parameter("boolean", "False") is False
+    with pytest.raises(TypeError):
+        _coerce_parameter("boolean", "maybe")
+    with pytest.raises(TypeError):
+        _coerce_parameter("boolean", "")
+
+
+def test_decimal_report_parameters_refuse_values_no_comparison_can_answer() -> None:
+    """`Decimal` parses "NaN" and "Infinity"; a criteria cannot answer them.
+
+    On SQLite a NaN takes the documented float hop and binds as NULL -- a
+    silently empty report; on SQL Server the driver refuses the bind as a
+    500. Both replace the honest answer, which is "must be decimal".
+    """
+
+    assert _coerce_parameter("decimal", "12.50") == Decimal("12.50")
+    for text in ("NaN", "sNaN", "Infinity", "-Infinity"):
+        with pytest.raises(TypeError):
+            _coerce_parameter("decimal", text)

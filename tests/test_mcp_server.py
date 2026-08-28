@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
+from pydantic import ValidationError
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
@@ -15,6 +17,7 @@ from tide.data import InMemoryRepository
 from tide.mcp import RuntimeMcpService
 from tide.mcp.server import (
     TideMcpTokenVerifier,
+    _report_parameter_model,
     build_runtime_mcp_server,
     mount_runtime_mcp,
 )
@@ -407,3 +410,26 @@ def _app(
     )
     mount_runtime_mcp(app, hosted)
     return app
+
+
+def test_report_parameter_models_refuse_unknown_parameters() -> None:
+    """A typo'd parameter must refuse, not run the report unfiltered.
+
+    The service's own unknown-parameter check never sees a key pydantic
+    already dropped, so an extra-ignoring model turned "fromdate" into a
+    whole-history report with no error -- while the identical body on REST
+    answers ValidationFailed. Generated wire inputs forbid extras
+    everywhere else; this model follows the same convention.
+    """
+
+    parameters = _report_parameter_model(
+        "report_sales_summary",
+        {"from_date": {"type": "date"}},
+    )
+
+    assert parameters is not None
+    assert parameters.model_validate({"from_date": "2026-01-01"}).from_date == (
+        "2026-01-01"
+    )
+    with pytest.raises(ValidationError):
+        parameters.model_validate({"fromdate": "2026-01-01"})
