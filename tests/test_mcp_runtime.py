@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -14,7 +15,11 @@ from tide.api.contracts import (
     TideSummaryInput,
 )
 from tide.data import InMemoryRepository
-from tide.mcp import RuntimeMcpService, runtime_mcp_exposures
+from tide.mcp import (
+    RuntimeMcpService,
+    runtime_mcp_exposures,
+    runtime_mcp_report_exposures,
+)
 from tide.model.source import EntitySource
 from tide.runtime import (
     AuthorizationError,
@@ -84,6 +89,64 @@ def test_runtime_mcp_metadata_rejects_unknown_or_repeated_capabilities(
                 "fields": {"id": {"type": "integer", "primary_key": True}},
             }
         )
+
+
+def test_report_exposure_is_explicit_and_collision_checked() -> None:
+    service = _service()
+
+    exposures = service.report_exposures
+    assert set(exposures) == {"sales.invoice", "sales.summary"}
+    invoice = exposures["sales.invoice"]
+    assert invoice.tool == "report_sales_invoice"
+    assert invoice.kind == "record"
+    assert invoice.entity == "sales.Invoice"
+    summary = exposures["sales.summary"]
+    assert summary.tool == "report_sales_summary"
+    assert summary.kind == "summary"
+    assert summary.title == "Posted Sales Summary"
+
+
+def test_a_report_stays_off_mcp_unless_it_opts_in() -> None:
+    """`expose: {rest: true}` alone keeps a report off MCP.
+
+    Both invoicing reports currently opt in, so subtraction is proved on a
+    trimmed copy: the derivation is a pure read of `model.reports`.
+    """
+
+    model = compile_project(INVOICING)
+    trimmed = {
+        name: (
+            {**report, "expose": {"rest": True}}
+            if name == "sales.invoice"
+            else report
+        )
+        for name, report in model.reports.items()
+    }
+
+    exposures = runtime_mcp_report_exposures(SimpleNamespace(reports=trimmed))
+
+    assert "sales.invoice" not in exposures
+    assert "sales.summary" in exposures
+
+
+def test_report_tool_names_cannot_collide() -> None:
+    """Two names one identifier apart would answer for each other's tool."""
+
+    reports = {
+        "sales.total": {
+            "title": "A",
+            "entity": "sales.Invoice",
+            "expose": {"mcp": True},
+        },
+        "sales_total": {
+            "title": "B",
+            "entity": "sales.Invoice",
+            "expose": {"mcp": True},
+        },
+    }
+
+    with pytest.raises(ValueError, match="report_sales_total"):
+        runtime_mcp_report_exposures(SimpleNamespace(reports=reports))
 
 
 def test_schema_resource_contains_only_principal_visible_fields() -> None:

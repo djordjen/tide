@@ -4,7 +4,7 @@ title: Posted Sales Summary
 entity: sales.Invoice
 kind: summary
 permission: sales.invoice.report
-expose: {rest: true}
+expose: {rest: true, mcp: true}
 
 # Both parameters are optional: a clause comparing against one that was not
 # supplied is dropped, so this one report answers "everything", "since a

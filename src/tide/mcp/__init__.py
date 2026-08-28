@@ -11,13 +11,16 @@ from tide.mcp.contracts import (
 from tide.mcp.runtime import (
     RuntimeMcpActionExposure,
     RuntimeMcpExposure,
+    RuntimeMcpReportExposure,
     RuntimeMcpService,
     runtime_mcp_exposures,
+    runtime_mcp_report_exposures,
 )
 
 __all__ = [
     "RuntimeMcpActionExposure",
     "RuntimeMcpExposure",
+    "RuntimeMcpReportExposure",
     "RuntimeMcpService",
     "TideMcpActionSchema",
     "TideMcpEntitySchema",
@@ -26,4 +29,5 @@ __all__ = [
     "TideMcpPage",
     "TideMcpRecord",
     "runtime_mcp_exposures",
+    "runtime_mcp_report_exposures",
 ]

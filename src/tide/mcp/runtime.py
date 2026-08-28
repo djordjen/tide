@@ -61,6 +61,17 @@ class RuntimeMcpExposure:
     actions: tuple[RuntimeMcpActionExposure, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class RuntimeMcpReportExposure:
+    """One report a model has opted into MCP, and the tool that answers it."""
+
+    report: str
+    kind: str
+    title: str
+    entity: str
+    tool: str
+
+
 class RuntimeMcpService:
     """Translate opt-in MCP calls to authoritative application services."""
 
@@ -77,6 +88,22 @@ class RuntimeMcpService:
         self.model = model
         self.records = records
         self.exposures = runtime_mcp_exposures(model)
+        self.report_exposures = runtime_mcp_report_exposures(model)
+        entity_tools = {
+            name
+            for exposure in self.exposures.values()
+            for name in (
+                *(getattr(exposure, f"{tool}_tool") for tool in exposure.tools),
+                *(action.tool for action in exposure.actions),
+            )
+        }
+        overlap = entity_tools & {
+            exposure.tool for exposure in self.report_exposures.values()
+        }
+        if overlap:
+            raise ValueError(
+                f"MCP report tool names collide with entity tools: {sorted(overlap)}"
+            )
         if any(exposure.actions for exposure in self.exposures.values()):
             if actions is None:
                 raise ValueError("MCP action exposure requires an action service")
@@ -432,6 +459,37 @@ class RuntimeMcpService:
                 if action.action == action_name:
                     return action
         raise NotFoundError("MCP capability was not found")
+
+
+def runtime_mcp_report_exposures(
+    model: ApplicationModel,
+) -> Mapping[str, RuntimeMcpReportExposure]:
+    """Which reports this model has opted into MCP, keyed by report name.
+
+    A pure read of `model.reports`: `expose: {mcp: true}` compiled from the
+    day the exposure contract was written, and until now nothing read it.
+    """
+
+    exposures: dict[str, RuntimeMcpReportExposure] = {}
+    tool_owners: dict[str, str] = {}
+    for report_name, report in model.reports.items():
+        if report.get("expose", {}).get("mcp") is not True:
+            continue
+        tool = f"report_{_identifier(report_name)}"
+        previous = tool_owners.setdefault(tool, report_name)
+        if previous != report_name:
+            raise ValueError(
+                f"MCP tool name {tool!r} collides between reports "
+                f"{previous!r} and {report_name!r}"
+            )
+        exposures[report_name] = RuntimeMcpReportExposure(
+            report=report_name,
+            kind=str(report.get("kind", "record")),
+            title=str(report["title"]),
+            entity=str(report["entity"]),
+            tool=tool,
+        )
+    return MappingProxyType(exposures)
 
 
 def runtime_mcp_exposures(
