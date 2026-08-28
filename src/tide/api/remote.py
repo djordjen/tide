@@ -12,6 +12,7 @@ from tide.compiler.normalized import ApplicationModel, NormalizedEntity, Normali
 from tide.data import FilterCondition, QuerySpec, SortField
 from tide.runtime import (
     AuthorizationError,
+    NullVersion,
     RequestContext,
     ValidationFailed,
     VersionPreconditionRequired,
@@ -287,7 +288,7 @@ class RemoteRecordsService:
                     entity.name,
                     session.identity,
                     payload,
-                    if_match=session.expected_version,
+                    if_match=_wire_if_match(entity, session.expected_version),
                 )
             )
         stored = remote.values
@@ -302,7 +303,7 @@ class RemoteRecordsService:
         identity: Any,
         context: RequestContext,
         *,
-        expected_version: int | None = None,
+        expected_version: int | NullVersion | None = None,
     ) -> None:
         entity = self.model.entity(entity_name)
         self._require(entity, "delete", context)
@@ -311,7 +312,11 @@ class RemoteRecordsService:
         self.client.delete_record(
             entity_name,
             identity,
-            if_match=expected_version,
+            if_match=(
+                '"null"'
+                if isinstance(expected_version, NullVersion)
+                else expected_version
+            ),
         )
 
     def rollback(self, session: RecordSession) -> None:
@@ -355,7 +360,7 @@ class RemoteActionService:
         _context: RequestContext,
         *,
         idempotency_key: str | None = None,
-        expected_version: int | None = None,
+        expected_version: int | NullVersion | None = None,
     ) -> dict[str, Any]:
         try:
             return self.client.execute_action(
@@ -363,7 +368,11 @@ class RemoteActionService:
                 action_name,
                 identity,
                 payload,
-                if_match=expected_version,
+                if_match=(
+                    '"null"'
+                    if isinstance(expected_version, NullVersion)
+                    else expected_version
+                ),
                 idempotency_key=idempotency_key,
             ).values
         except TideApiClientError as error:
@@ -526,6 +535,22 @@ def _primary_key(entity: NormalizedEntity) -> NormalizedField:
 
 def _version_field(entity: NormalizedEntity) -> NormalizedField | None:
     return entity.version_field
+
+
+def _wire_if_match(
+    entity: NormalizedEntity,
+    expected: int | None,
+) -> str | int | None:
+    """Spell a loaded version for the wire.
+
+    A None on a versioned entity here is a loaded NULL token, not a missing
+    precondition -- the session carried what the read observed -- and the
+    wire spells that assertion "null".
+    """
+
+    if _version_field(entity) is None:
+        return None
+    return '"null"' if expected is None else expected
 
 
 def _etag_version(

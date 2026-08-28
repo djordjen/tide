@@ -126,6 +126,8 @@ from tide.runtime import (
     ImmutableFieldError,
     InvalidQueryCursor,
     NotFoundError,
+    NULL_VERSION,
+    NullVersion,
     Principal,
     QueryFieldError,
     RequestContext,
@@ -2759,24 +2761,37 @@ def _documented_errors(*statuses: int) -> dict[int, dict[str, Any]]:
 def _required_version(
     entity: NormalizedEntity,
     if_match: str | None,
-) -> int | None:
+) -> int | NullVersion | None:
     version_field = _version_field(entity)
     if version_field is None:
         return None
     if if_match is None:
         raise _precondition_required("If-Match header is required")
-    match = re.fullmatch(r'"(\d+)"', if_match.strip())
+    text = if_match.strip()
+    if text == '"null"':
+        # The caller read a row whose declared token is NULL -- a value
+        # TIDE did not write. It compares as IS NULL, and the first
+        # successful write heals the row to version 1.
+        return NULL_VERSION
+    match = re.fullmatch(r'"(\d+)"', text)
     if match is None:
-        raise _bad_request('If-Match must be a strong integer ETag such as "3"')
+        raise _bad_request(
+            'If-Match must be a strong integer ETag such as "3", or "null" '
+            "for a row whose version was never written"
+        )
     return int(match.group(1))
 
 
-def _bind_expected_version(session: Any, expected: int | None) -> None:
+def _bind_expected_version(
+    session: Any,
+    expected: int | NullVersion | None,
+) -> None:
     if expected is None:
         return
-    if session.expected_version != expected:
-        raise ConcurrencyError(expected, session.expected_version)
-    session.expected_version = expected
+    asserted = None if isinstance(expected, NullVersion) else expected
+    if session.expected_version != asserted:
+        raise ConcurrencyError(asserted, session.expected_version)
+    session.expected_version = asserted
 
 
 def _set_etag(
@@ -2785,8 +2800,19 @@ def _set_etag(
     values: Mapping[str, Any],
 ) -> None:
     version_field = _version_field(entity)
-    if version_field is not None and values.get(version_field.name) is not None:
-        response.headers["ETag"] = f'"{int(values[version_field.name])}"'
+    if version_field is None:
+        return
+    value = values.get(version_field.name)
+    if value is None:
+        # A token that was never written still identifies a version: the
+        # wire says "null", If-Match "null" matches it, and the first
+        # successful write heals the row to 1.
+        response.headers["ETag"] = '"null"'
+    elif isinstance(value, int) and not isinstance(value, bool):
+        response.headers["ETag"] = f'"{value}"'
+    # Anything else -- a value withheld by a field policy -- emits no ETag
+    # rather than crashing the read; without a readable token the caller
+    # cannot edit optimistically anyway.
 
 
 def _version_field(entity: NormalizedEntity) -> NormalizedField | None:

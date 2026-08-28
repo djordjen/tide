@@ -17,6 +17,26 @@ class NotFoundError(TideRuntimeError):
     code = "not_found"
 
 
+class NullVersion:
+    """The asserted version of a row whose concurrency token is NULL.
+
+    Adopted tables hold rows whose token was never written, and the write
+    path heals them on first save. ``None`` cannot carry that assertion --
+    it already means "no version was supplied" at every precondition
+    boundary -- so the wire's ``"null"`` travels as this instead: it
+    compares equal to a loaded NULL, and the write that follows assigns
+    version 1.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "<null version>"
+
+
+NULL_VERSION = NullVersion()
+
+
 class ConcurrencyError(TideRuntimeError):
     code = "stale_version"
 

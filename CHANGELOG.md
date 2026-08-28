@@ -785,6 +785,21 @@ they all share, the way `records.export` made browse export real: REST
 preview, REST export, TUI preview and MCP name the channel, kind, principal,
 report and row count, and a refused build writes nothing.
 
+A concurrency token TIDE did not write is now a version the wire can say.
+Adopted tables hold rows whose token column is NULL -- the reference XAF
+store leaves exactly that behind until a row's first save -- and while the
+service already compared an expected None as `IS NULL`, no `If-Match` value
+ever matched, so such a row was permanently un-editable over REST and MCP
+while the TUI edited it freely. Its `GET` now answers `ETag: "null"`,
+`If-Match: "null"` (and the equivalent MCP `expected_version`) asserts
+exactly that against an atomic `IS NULL` compare-and-swap, and the first
+successful write heals the row to version 1. `None` keeps meaning "nothing
+was supplied" at every precondition boundary; the assertion travels as its
+own `NULL_VERSION` value. The commit no longer refuses the heal either: the
+write assigns the system-owned token itself, so its stored NULL is not a
+required-field violation, and the memory adapter learned the same
+`or 0` arithmetic the SQL adapter always healed with.
+
 ### Designers and Studio
 
 Existing applications now have a headless DesignerService with typed property/

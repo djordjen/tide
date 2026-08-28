@@ -39,6 +39,7 @@ from tide.reporting import ReportService, ReportValue, TypedReport
 from tide.runtime import (
     ConcurrencyError,
     NotFoundError,
+    NullVersion,
     RequestContext,
     VersionPreconditionRequired,
 )
@@ -340,7 +341,7 @@ class RuntimeMcpService:
         values: Mapping[str, Any],
         context: RequestContext,
         *,
-        expected_version: int | None = None,
+        expected_version: int | NullVersion | None = None,
     ) -> TideMcpMutationResult:
         self._require(entity_name, "tools", "update")
         if not values:
@@ -354,7 +355,11 @@ class RuntimeMcpService:
         session = self.records.begin_edit(entity_name, typed_identity, context)
         _bind_expected_version(entity, session.expected_version, expected_version)
         if expected_version is not None:
-            session.expected_version = expected_version
+            session.expected_version = (
+                None
+                if isinstance(expected_version, NullVersion)
+                else expected_version
+            )
         for field_name, value in values.items():
             session.set(field_name, value)
         stored = self.records.commit(session, context)
@@ -372,7 +377,7 @@ class RuntimeMcpService:
         identity: Any,
         context: RequestContext,
         *,
-        expected_version: int | None = None,
+        expected_version: int | NullVersion | None = None,
     ) -> TideMcpMutationResult:
         self._require(entity_name, "tools", "delete")
         entity = self.model.entity(entity_name)
@@ -404,7 +409,7 @@ class RuntimeMcpService:
         payload: Mapping[str, Any],
         context: RequestContext,
         *,
-        expected_version: int | None = None,
+        expected_version: int | NullVersion | None = None,
         idempotency_key: str | None = None,
     ) -> TideMcpMutationResult:
         exposure = self._require_action(entity_name, action_name)
@@ -598,7 +603,7 @@ def runtime_mcp_exposures(
 
 def _require_expected_version(
     entity: NormalizedEntity,
-    expected_version: int | None,
+    expected_version: int | NullVersion | None,
 ) -> None:
     if _version_field(entity) is not None and expected_version is None:
         raise VersionPreconditionRequired(entity.name)
@@ -607,11 +612,18 @@ def _require_expected_version(
 def _bind_expected_version(
     entity: NormalizedEntity,
     actual_version: int | None,
-    expected_version: int | None,
+    expected_version: int | NullVersion | None,
 ) -> None:
     _require_expected_version(entity, expected_version)
-    if expected_version is not None and actual_version != expected_version:
-        raise ConcurrencyError(expected_version, actual_version)
+    if expected_version is None:
+        return
+    # NULL_VERSION asserts a token that was never written; it compares
+    # equal to a loaded NULL, and the write that follows heals the row.
+    asserted = (
+        None if isinstance(expected_version, NullVersion) else expected_version
+    )
+    if actual_version != asserted:
+        raise ConcurrencyError(asserted, actual_version)
 
 
 def _version_field(entity: NormalizedEntity) -> NormalizedField | None:

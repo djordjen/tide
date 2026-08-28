@@ -54,7 +54,7 @@ from tide.services import (
 
 
 CLIENT_OPERATIONS = REST_OPERATIONS
-_STRONG_ETAG = re.compile(r'^"\d+"$')
+_STRONG_ETAG = re.compile(r'^"(?:\d+|null)"$')
 
 
 @dataclass(frozen=True, slots=True)
@@ -878,7 +878,10 @@ def _precondition_headers(
     if if_match is not None:
         etag = f'"{if_match}"' if isinstance(if_match, int) else if_match
         if not _STRONG_ETAG.fullmatch(etag):
-            raise ValueError('If-Match must be a strong integer ETag such as "3"')
+            raise ValueError(
+                'If-Match must be a strong integer ETag such as "3", or '
+                '"null" for a row whose version was never written'
+            )
         headers["If-Match"] = etag
     if idempotency_key is not None:
         if not idempotency_key.strip():

@@ -22,7 +22,12 @@ from tide.mcp.server import (
     mount_runtime_mcp,
 )
 from tide.reporting import ReportService
-from tide.runtime import Principal, configure_application_runtime
+from tide.runtime import (
+    Channel,
+    Principal,
+    RequestContext,
+    configure_application_runtime,
+)
 from tide.services import ActionService, AuditHistoryService, RecordsService
 from tide.tui import seed_demo_data
 
@@ -371,6 +376,7 @@ def _app(
     role: str | tuple[str, ...],
     *,
     max_request_body_bytes: int = DEFAULT_MAX_REQUEST_BODY_BYTES,
+    prepare: object = None,
 ) -> object:
     model = compile_project(INVOICING)
     repository = InMemoryRepository()
@@ -378,6 +384,8 @@ def _app(
     records = RecordsService(model, repository)
     actions = ActionService(model, records)
     assert configure_application_runtime(model, records, actions) is True
+    if prepare is not None:
+        prepare(model, repository, records)
     audits = AuditHistoryService(
         model,
         actions.execution_store,
@@ -411,6 +419,90 @@ def _app(
     )
     mount_runtime_mcp(app, hosted)
     return app
+
+
+def test_streamable_http_mcp_accepts_the_null_version_assertion() -> None:
+    """`expected_version: "null"` asserts a token TIDE never wrote.
+
+    It matches a row whose token is NULL -- the action's write heals it to
+    version 1 -- refuses a row that has since been healed, and any other
+    string never reaches the service.
+    """
+
+    from datetime import date
+    from decimal import Decimal
+
+    def legacy(identity: int) -> dict:
+        return {
+            "id": identity,
+            "number": f"LEG-{identity}",
+            "invoice_date": date(2026, 7, 20),
+            "currency": "EUR",
+            "status": "draft",
+            "customer": 1,
+            "total": Decimal("0.00"),
+        }
+
+    def prepare(model: object, repository: object, records: object) -> None:
+        repository.seed("sales.Invoice", [legacy(90), legacy(91)])
+        clerk = RequestContext(
+            Principal("seed:clerk", roles=frozenset({"sales_clerk"})),
+            channel=Channel.TUI,
+        )
+        healed = records.begin_edit("sales.Invoice", 91, clerk)
+        healed.set("currency", "USD")
+        records.commit(healed, clerk)
+
+    app = _app("sales_clerk", prepare=prepare)
+
+    async def exercise() -> None:
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=BASE_URL,
+                headers={"Authorization": f"Bearer {TOKEN}"},
+            ) as http:
+                async with streamable_http_client(
+                    MCP_URL,
+                    http_client=http,
+                ) as (read_stream, write_stream, _session_id):
+                    async with ClientSession(read_stream, write_stream) as session:
+                        await session.initialize()
+                        # The quoted form is the exact ETag the REST read
+                        # answers; the SDK decodes a bare "null" string
+                        # argument into an absent value before validation.
+                        voided = await session.call_tool(
+                            "void_sales_invoice",
+                            {
+                                "identity": 90,
+                                "expected_version": '"null"',
+                                "idempotency_key": "null-void-90",
+                            },
+                        )
+                        stale = await session.call_tool(
+                            "void_sales_invoice",
+                            {
+                                "identity": 91,
+                                "expected_version": '"null"',
+                                "idempotency_key": "null-void-91",
+                            },
+                        )
+                        garbage = await session.call_tool(
+                            "void_sales_invoice",
+                            {
+                                "identity": 91,
+                                "expected_version": "someday",
+                                "idempotency_key": "null-void-92",
+                            },
+                        )
+
+        assert voided.isError is not True
+        assert voided.structuredContent["record"]["status"] == "cancelled"
+        assert voided.structuredContent["record"]["version"] == 1
+        assert stale.isError is True
+        assert garbage.isError is True
+
+    asyncio.run(exercise())
 
 
 def test_report_parameter_models_refuse_unknown_parameters() -> None:

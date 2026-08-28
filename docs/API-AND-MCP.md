@@ -406,6 +406,13 @@ actions require the corresponding `If-Match` value. Missing preconditions
 return `428`; stale observations return `412`; the repository still performs
 the atomic version check to close the race after authorization.
 
+An adopted row whose token column was never written answers `ETag: "null"`,
+and `If-Match: "null"` asserts exactly that: it compares against `IS NULL`
+atomically, and the first successful write heals the row to version `1`,
+after which it is an ordinary versioned row. The token is system-assigned,
+so a NULL one never blocks the edit that fixes it. This mirrors how the
+reference XAF store treats an optimistic-lock field that predates a row.
+
 ### Remote client foundation
 
 Install the optional client adapter and verify a running server with the same
@@ -641,7 +648,10 @@ Delete returns the same structured result without a record body.
 
 Versioned update, delete, and action calls require `expected_version` from a
 record the caller previously observed; missing or stale observations fail
-closed. An idempotent action additionally requires `idempotency_key`. Repeating
+closed. A record whose token column was never written reads `version: null`,
+and the assertion for it is the string `"null"` — sent in its quoted ETag
+form (the SDK decodes a bare `null` string argument into an absent value
+before validation); the write that follows heals the row to version `1`. An idempotent action additionally requires `idempotency_key`. Repeating
 the same key/principal/action/target/payload reauthorizes and safely replays the
 current secured result, while conflicting reuse is rejected. Actions execute
 only through `ActionService`, including their enabled condition, handler,

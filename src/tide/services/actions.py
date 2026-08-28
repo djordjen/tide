@@ -16,6 +16,7 @@ from tide.runtime.errors import (
     ConcurrencyError,
     IdempotencyConflict,
     NotFoundError,
+    NullVersion,
     TideRuntimeError,
 )
 from tide.security.engine import SecurityEngine
@@ -76,7 +77,7 @@ class ActionService:
         context: RequestContext,
         *,
         idempotency_key: str | None = None,
-        expected_version: int | None = None,
+        expected_version: int | NullVersion | None = None,
     ) -> dict[str, Any]:
         entity = self.model.entity(entity_name)
         action = entity.actions.get(action_name)
@@ -117,16 +118,20 @@ class ActionService:
                 outcome = AuditOutcome.REPLAYED
             else:
                 session = self.records.begin_action(entity_name, identity, context)
-                if (
-                    expected_version is not None
-                    and session.expected_version != expected_version
-                ):
-                    raise ConcurrencyError(
-                        expected_version,
-                        session.expected_version,
-                    )
                 if expected_version is not None:
-                    session.expected_version = expected_version
+                    # NULL_VERSION asserts a token that was never written;
+                    # it binds as None, which the write compares IS NULL.
+                    asserted = (
+                        None
+                        if isinstance(expected_version, NullVersion)
+                        else expected_version
+                    )
+                    if session.expected_version != asserted:
+                        raise ConcurrencyError(
+                            asserted,
+                            session.expected_version,
+                        )
+                    session.expected_version = asserted
                 condition = action.get("enabled_when")
                 if condition:
                     try:

@@ -455,7 +455,9 @@ class InMemoryRepository:
                 if version_field and expected_version != actual_version:
                     raise ConcurrencyError(expected_version, actual_version)
                 if version_field:
-                    record[version_field] = int(actual_version) + 1
+                    # A NULL token TIDE did not write heals to 1 on its first
+                    # save, the same arithmetic the SQL adapter applies.
+                    record[version_field] = int(actual_version or 0) + 1
             previous = bucket.get(identity)
             bucket[identity] = deepcopy(record)
             if on_written is not None:

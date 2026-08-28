@@ -42,6 +42,7 @@ from tide.runtime.errors import (
     AuthorizationError,
     ImmutableFieldError,
     InvalidQueryCursor,
+    NullVersion,
     RelationshipExpansionLimit,
     ValidationFailed,
     ValidationIssue,
@@ -215,7 +216,7 @@ class RecordsService:
         identity: Any,
         context: RequestContext,
         *,
-        expected_version: int | None = None,
+        expected_version: int | NullVersion | None = None,
     ) -> None:
         """Delete one authorized row using metadata-defined reference behavior."""
 
@@ -224,6 +225,10 @@ class RecordsService:
         version_field = _version_field(entity)
         if version_field is not None and expected_version is None:
             raise VersionPreconditionRequired(entity_name)
+        if isinstance(expected_version, NullVersion):
+            # The caller read a row whose token was never written; the
+            # repository compares IS NULL, which None expresses.
+            expected_version = None
         original = self._load_authorized(
             entity_name,
             identity,
@@ -1038,7 +1043,14 @@ class RecordsService:
             metadata = field.metadata
             if not metadata.get("required"):
                 continue
-            if metadata.get("generated_by") or metadata.get("primary_key") or metadata.get("computed"):
+            if (
+                metadata.get("generated_by")
+                or metadata.get("primary_key")
+                or metadata.get("computed")
+                # The write assigns the token itself; a NULL one TIDE did
+                # not write is healed by the commit, not refused by it.
+                or metadata.get("concurrency_token")
+            ):
                 continue
             value = values.get(field_name)
             if value is None or value == "":
@@ -1384,6 +1396,11 @@ class RecordsService:
             if field_name in skip_fields:
                 continue
             metadata = field.metadata
+            if metadata.get("concurrency_token"):
+                # The write assigns the token itself: a NULL one TIDE did
+                # not write is healed by the commit, so validating its
+                # stored value would refuse the very edit that fixes it.
+                continue
             value = values.get(field_name)
             if metadata.get("required") and (value is None or value == ""):
                 issues.append(ValidationIssue("required", f"{field_name} is required", (field_name,)))

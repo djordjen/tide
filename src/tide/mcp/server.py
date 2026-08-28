@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 import json
-from typing import Any, Protocol
+from typing import Annotated, Any, Protocol
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI
@@ -33,7 +33,14 @@ from tide.mcp.contracts import (
 )
 from tide.mcp.runtime import RuntimeMcpService
 from tide.observability import current_correlation_id, resolve_correlation_id
-from tide.runtime import AuthorizationError, Channel, Principal, RequestContext
+from tide.runtime import (
+    AuthorizationError,
+    Channel,
+    NULL_VERSION,
+    NullVersion,
+    Principal,
+    RequestContext,
+)
 
 
 class PrincipalAuthenticator(Protocol):
@@ -358,6 +365,32 @@ def _create_tool(
     return create_record
 
 
+def _expected_version(
+    value: int | str | None,
+) -> int | NullVersion | None:
+    """Translate the wire's "null" into the null-token assertion.
+
+    The spelling matches the REST ETag: a row whose declared token was
+    never written answers `"null"`, the assertion matches IS NULL, and the
+    first successful write heals the row to version 1. Every other string
+    is refused here, which is what lets the parameter accept strings at
+    all without loosening what a version may be.
+    """
+
+    if value is None or isinstance(value, int):
+        return value
+    # Both the bare word and the quoted ETag literal: the SDK decodes any
+    # string argument that spells a JSON scalar, so a bare "null" reaching
+    # a strict client survives while this SDK's callers send the quoted
+    # form -- the exact ETag the REST read answered.
+    if value in ("null", '"null"'):
+        return NULL_VERSION
+    raise ValueError(
+        'expected_version must be an integer, or "null" for a row whose '
+        "version was never written"
+    )
+
+
 def _update_tool(
     service: RuntimeMcpService,
     entity_name: str,
@@ -367,7 +400,12 @@ def _update_tool(
     async def update_record(
         identity: Any,
         values: BaseModel,
-        expected_version: int | None = Field(default=None, ge=1),
+        # A plain `str` arm rather than Literal["null"]: FastMCP
+        # pre-parses string arguments as JSON unless the field accepts
+        # strings, and json.loads("null") is None -- the assertion
+        # would arrive as an absent version. _expected_version refuses
+        # every string but the one spelling.
+        expected_version: Annotated[int, Field(ge=1)] | str | None = None,
     ) -> TideMcpMutationResult:
         return await asyncio.to_thread(
             service.update,
@@ -375,7 +413,7 @@ def _update_tool(
             identity,
             values.model_dump(by_alias=True, exclude_unset=True),
             _request_context(),
-            expected_version=expected_version,
+            expected_version=_expected_version(expected_version),
         )
 
     update_record.__name__ = tool_name
@@ -394,14 +432,19 @@ def _delete_tool(
 ) -> Any:
     async def delete_record(
         identity: Any,
-        expected_version: int | None = Field(default=None, ge=1),
+        # A plain `str` arm rather than Literal["null"]: FastMCP
+        # pre-parses string arguments as JSON unless the field accepts
+        # strings, and json.loads("null") is None -- the assertion
+        # would arrive as an absent version. _expected_version refuses
+        # every string but the one spelling.
+        expected_version: Annotated[int, Field(ge=1)] | str | None = None,
     ) -> TideMcpMutationResult:
         return await asyncio.to_thread(
             service.delete,
             entity_name,
             identity,
             _request_context(),
-            expected_version=expected_version,
+            expected_version=_expected_version(expected_version),
         )
 
     delete_record.__name__ = tool_name
@@ -420,7 +463,12 @@ def _action_tool(
 ) -> Any:
     async def execute_action(
         identity: Any,
-        expected_version: int | None = Field(default=None, ge=1),
+        # A plain `str` arm rather than Literal["null"]: FastMCP
+        # pre-parses string arguments as JSON unless the field accepts
+        # strings, and json.loads("null") is None -- the assertion
+        # would arrive as an absent version. _expected_version refuses
+        # every string but the one spelling.
+        expected_version: Annotated[int, Field(ge=1)] | str | None = None,
         idempotency_key: str | None = Field(default=None, min_length=1),
     ) -> TideMcpMutationResult:
         return await asyncio.to_thread(
@@ -430,7 +478,7 @@ def _action_tool(
             identity,
             {},
             _request_context(),
-            expected_version=expected_version,
+            expected_version=_expected_version(expected_version),
             idempotency_key=idempotency_key,
         )
 
