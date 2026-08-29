@@ -64,7 +64,7 @@ def test_studio_service_builds_semantic_tree_without_writing_sources() -> None:
     assert invoice.properties[0].value == "sales.Invoice"
     assert invoice.properties[0].editable is False
     assert next(item for item in invoice.properties if item.name == "fields").value == (
-        "13 properties"
+        "14 properties"
     )
     label = next(item for item in invoice.properties if item.path == ("label",))
     assert label.editable is True
@@ -236,7 +236,7 @@ def test_studio_service_resolves_list_form_and_inline_view_structure() -> None:
     ] == [
         ("Invoice", 0, 5),
         ("Totals", 2, 1),
-        ("Posting", 3, 3),
+        ("Posting", 3, 4),
     ]
     assert not form.groups[0].can_move_down
     assert not form.groups[1].can_move_up

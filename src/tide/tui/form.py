@@ -1226,6 +1226,13 @@ class RecordEditScreen(Screen[Any]):
         metadata = field.metadata
         if metadata.get("readonly") or metadata.get("write", "normal") != "normal":
             return False
+        if metadata["type"] == "file":
+            # The terminal reads documents and does not move them: choosing
+            # a file to upload wants a file picker, and typing an attachment
+            # key into a text box is not the same feature wearing a smaller
+            # coat. It shows what is attached and leaves changing it to a
+            # surface that can offer the choice.
+            return False
         if not self.records.security.can_write_field(
             entity.name,
             field.name,
@@ -1257,6 +1264,17 @@ class RecordEditScreen(Screen[Any]):
             except TideRuntimeError:
                 return "Protected"
             return _record_title(self.model.entity(field.target_entity), related)
+        if field.metadata["type"] == "file":
+            # The name, never the key: a 36-character uuid on the screen
+            # teaches whoever reads it that the key is the thing, and it is
+            # not -- it is where the framework put the document.
+            attachments = getattr(self.records, "attachments", None)
+            projection = (
+                attachments.projections_for([value]).get(str(value))
+                if attachments is not None
+                else None
+            )
+            return str(projection["filename"]) if projection else "Attached"
         if isinstance(value, datetime):
             return value.astimezone().strftime("%d.%m.%Y %H:%M")
         if isinstance(value, date):

@@ -259,7 +259,9 @@ class _StubOidcAuthenticator:
         return None
 
 
-def _serve_with_oidc(monkeypatch, database_env: str, *extra: str) -> int:
+def _serve_with_oidc(
+    monkeypatch, tmp_path: Path, database_env: str, *extra: str
+) -> int:
     """Run `tide serve --auth oidc` with the provider stood in for.
 
     Discovery is the only part of OIDC that needs a network, and it is not
@@ -296,6 +298,9 @@ def _serve_with_oidc(monkeypatch, database_env: str, *extra: str) -> int:
         ),
     )
     monkeypatch.setattr(uvicorn, "run", lambda app, **configuration: None)
+    # Invoicing keeps a signed document, so a durable server has to be
+    # told where files go before it will start at all.
+    monkeypatch.setenv("TIDE_ATTACHMENTS_ROOT", str(tmp_path / "attachments"))
 
     return main(
         [
@@ -324,7 +329,7 @@ def test_an_oidc_server_takes_the_lease_and_says_it_is_the_only_one(
     url = f"sqlite+pysqlite:///{(tmp_path / 'oidc.db').as_posix()}"
     monkeypatch.setenv("LEASE_DATABASE_URL", url)
 
-    assert _serve_with_oidc(monkeypatch, "LEASE_DATABASE_URL", "--create-schema") == 0
+    assert _serve_with_oidc(monkeypatch, tmp_path, "LEASE_DATABASE_URL", "--create-schema") == 0
 
     output = capsys.readouterr().out
     assert "sessions: this process (this server only)" in output
@@ -342,7 +347,7 @@ def test_a_second_oidc_server_is_refused_and_told_what_to_do(
 
     url = f"sqlite+pysqlite:///{(tmp_path / 'oidc.db').as_posix()}"
     monkeypatch.setenv("LEASE_DATABASE_URL", url)
-    assert _serve_with_oidc(monkeypatch, "LEASE_DATABASE_URL", "--create-schema") == 0
+    assert _serve_with_oidc(monkeypatch, tmp_path, "LEASE_DATABASE_URL", "--create-schema") == 0
     capsys.readouterr()
 
     # Another process is up and holding the lease.
@@ -357,7 +362,7 @@ def test_a_second_oidc_server_is_refused_and_told_what_to_do(
         )
         assert taken.granted is True
 
-        result = _serve_with_oidc(monkeypatch, "LEASE_DATABASE_URL")
+        result = _serve_with_oidc(monkeypatch, tmp_path, "LEASE_DATABASE_URL")
     finally:
         incumbent.dispose()
 

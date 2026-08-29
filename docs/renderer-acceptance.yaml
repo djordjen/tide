@@ -40,7 +40,7 @@ reference_contract:
             - [status, currency]
             - [customer, total]
             - [posted_at, version]
-            - [posted_by]
+            - [posted_by, signed_document]
         - kind: collection
           label: Lines
           collection: lines

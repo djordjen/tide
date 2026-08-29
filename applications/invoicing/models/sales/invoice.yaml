@@ -78,6 +78,18 @@ fields:
     write: action_only
     audit: values
 
+  # The countersigned copy comes back after the invoice is posted, which is
+  # why a locked record still accepts a document it does not have yet. Once
+  # it holds one, that one is the record's: the lock covers replacing and
+  # removing it.
+  signed_document:
+    type: file
+    label: Signed document
+    help: The countersigned confirmation, attachable after posting.
+    max_size: 10mb
+    accept: [pdf, png, jpg]
+    audit: values
+
   version:
     type: integer
     required: true

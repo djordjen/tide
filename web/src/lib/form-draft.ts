@@ -19,6 +19,7 @@ export const EDITABLE_SCALAR_TYPES = new Set([
   "date",
   "datetime",
   "decimal",
+  "file",
   "integer",
   "reference",
   "string",
@@ -382,6 +383,13 @@ function draftValue(
   if (field.field_type === "reference") {
     return value
   }
+  if (field.field_type === "file") {
+    // The whole projection, not the key: the control shows a name and a
+    // size, and a draft holding only the key would have to fetch them back
+    // for a file the person just chose. The key is taken out again on the
+    // way to the server, where it is the only part that means anything.
+    return value
+  }
   if (
     field.field_type === "date" &&
     typeof value === "string"
@@ -402,6 +410,9 @@ function payloadValue(
     return value === "" || value === null || value === undefined
       ? null
       : value
+  }
+  if (field.field_type === "file") {
+    return attachmentIdentity(value)
   }
   const raw = String(value ?? "").trim()
   if (!raw) {
@@ -430,7 +441,22 @@ function comparableValue(
   if (field.field_type === "decimal") {
     return normalizedDecimal(String(value)) ?? String(value)
   }
+  if (field.field_type === "file") {
+    return attachmentIdentity(value) ?? ""
+  }
   return String(value)
+}
+
+/** The key inside a file field's value, wherever the value came from. */
+function attachmentIdentity(value: unknown): string | null {
+  if (typeof value === "string") {
+    return value.trim() || null
+  }
+  if (value && typeof value === "object") {
+    const identity = (value as { identity?: unknown }).identity
+    return typeof identity === "string" ? identity : null
+  }
+  return null
 }
 
 function isEmpty(value: unknown): boolean {

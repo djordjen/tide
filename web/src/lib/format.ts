@@ -22,6 +22,12 @@ export function formatCellValue(
   if (caption) {
     return caption.label
   }
+  if (column.field_type === "file") {
+    // A grid shows what the document is called. The key it is stored under
+    // is the framework's business and says nothing to anyone reading a row.
+    const attachment = value as { filename?: unknown }
+    return typeof attachment?.filename === "string" ? attachment.filename : ""
+  }
   if (column.field_type === "boolean") {
     return value ? "Yes" : "No"
   }

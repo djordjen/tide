@@ -223,6 +223,26 @@ export interface TidePresentationFormField
   maximum: string | number | null
   has_default: boolean
   default_value: unknown
+  /** Extensions a file field's picker may offer; empty means any kind. */
+  accept?: string[]
+  max_size_bytes?: number | null
+  /**
+   * Where this file field's uploads go. Absent when there is nowhere to
+   * send them -- the caller may not write the field, or the entity is not
+   * exposed -- and a control with no upload path offers no upload.
+   */
+  upload_path?: string | null
+}
+
+/**
+ * What a record says about the file one of its fields holds. Never where
+ * the file is: the only way to the bytes is the record's download route.
+ */
+export interface TideAttachmentValue {
+  identity: string
+  filename: string
+  size: number
+  content_type: string
 }
 
 export interface TidePresentationNamedFilter {
@@ -429,6 +449,12 @@ export interface TideReportDocument {
   page_footer_template: string
   suggested_filename: string
   groups?: TideReportGroup[]
+}
+
+/** One record's file, on its way to being saved by whoever asked for it. */
+export interface TideAttachmentDownload {
+  blob: Blob
+  filename: string
 }
 
 export interface TideBrowseDownload {

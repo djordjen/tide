@@ -17,6 +17,8 @@ import type {
   TideRecordSnapshot,
   TideReferenceSelectionResult,
   TideReportDocument,
+  TideAttachmentDownload,
+  TideAttachmentValue,
   TideBrowseDownload,
   TideBrowseExportFormat,
   TideReportDownload,
@@ -533,6 +535,55 @@ export class TideApi {
       },
       signal,
     )
+  }
+
+  /**
+   * Stage a file for one field, before any record refers to it.
+   *
+   * The body is the file itself: the server bounds it while it arrives, so
+   * nothing here has to hold a whole document in memory to describe it.
+   * The name travels in a header because a filename is text, and text in a
+   * header has to be encoded to survive one.
+   */
+  async uploadAttachment(
+    uploadPath: string,
+    file: File,
+    signal?: AbortSignal,
+  ): Promise<TideAttachmentValue> {
+    const response = await this.authorizedResponse(
+      uploadPath,
+      {
+        method: "POST",
+        body: file,
+        headers: {
+          "Content-Type": file.type || "application/octet-stream",
+          "X-Tide-Filename": encodeURIComponent(file.name),
+        },
+      },
+      signal,
+    )
+    return (await response.json()) as TideAttachmentValue
+  }
+
+  /** Fetch one record's file, named the way the server named it. */
+  async downloadAttachment(
+    view: TideBrowsePresentation,
+    identity: unknown,
+    field: string,
+    signal?: AbortSignal,
+  ): Promise<TideAttachmentDownload> {
+    const segment = encodeURIComponent(String(identity))
+    const response = await this.authorizedResponse(
+      `${view.resource_path}/${segment}/_files/${encodeURIComponent(field)}`,
+      { method: "GET" },
+      signal,
+      "*/*",
+    )
+    return {
+      blob: await response.blob(),
+      filename:
+        responseFilename(response.headers.get("Content-Disposition")) ?? field,
+    }
   }
 
   updateRecord(

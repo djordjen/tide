@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react"
 
+import { AttachmentField } from "@/components/attachment-field"
 import { TideDisplayValue } from "@/components/tide-display-value"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -28,6 +29,7 @@ import {
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import { TideApiError, type TideApi } from "@/lib/api"
 import type {
+  TideBrowsePresentation,
   TideFormPresentation,
   TidePresentationFormField,
   TidePresentationFormGroup,
@@ -234,14 +236,31 @@ function EditorGroup({
                       >
                         {field.label}
                       </p>
-                      <TideDisplayValue
-                        api={api}
-                        column={field}
-                        record={record}
-                        views={views}
-                        wrap
-                        className={readOnlyValueClass}
-                      />
+                      {field.field_type === "file" ? (
+                        // A locked or unwritable document is still a
+                        // document: its name, its size, and a way to read
+                        // it. What it loses is the ability to become a
+                        // different one.
+                        <AttachmentField
+                          api={api}
+                          field={field}
+                          value={record[name]}
+                          view={recordHome(views, form.entity, record).view}
+                          identity={
+                            recordHome(views, form.entity, record).identity
+                          }
+                          writable={false}
+                        />
+                      ) : (
+                        <TideDisplayValue
+                          api={api}
+                          column={field}
+                          record={record}
+                          views={views}
+                          wrap
+                          className={readOnlyValueClass}
+                        />
+                      )}
                     </>
                   )}
                 </div>
@@ -287,6 +306,41 @@ function FieldEditor({
   const helpId = `${id}-help`
   const errorId = `${id}-error`
   const describedBy = error ? errorId : field.help ? helpId : undefined
+
+  if (field.field_type === "file") {
+    const home = recordHome(views, form.entity, draft)
+    return (
+      <div className={fieldGroupClass}>
+        <label htmlFor={id} className={fieldLabelClass}>
+          {field.label}
+          {field.required ? (
+            <span className="ml-0.5 text-destructive" aria-hidden="true">
+              *
+            </span>
+          ) : null}
+        </label>
+        <AttachmentField
+          api={api}
+          field={field}
+          value={value}
+          view={home.view}
+          identity={home.identity}
+          writable
+          disabled={disabled}
+          error={error}
+          id={id}
+          describedBy={describedBy}
+          onChange={(next) => onChange(next)}
+        />
+        <FieldMessage
+          field={field}
+          error={error}
+          errorId={errorId}
+          helpId={helpId}
+        />
+      </div>
+    )
+  }
 
   if (field.field_type === "reference" && field.lookup) {
     return (
@@ -1104,6 +1158,28 @@ export function formEditorId(
     "-",
   )
   return `tide-editor-${view}-${fieldName}`
+}
+
+/**
+ * The browse this record belongs to, and its identity within it.
+ *
+ * A file is fetched through the record that holds it, so a download needs
+ * the same two things an update needs. Both come from the manifest the
+ * session already carries: no new contract, and a record the caller cannot
+ * browse simply has no door to its files either.
+ */
+function recordHome(
+  views: TidePresentationManifest["views"] | undefined,
+  entity: string,
+  record: Record<string, unknown>,
+): { view: TideBrowsePresentation | null; identity: unknown } {
+  const view =
+    Object.values(views ?? {}).find((candidate) => candidate.entity === entity) ??
+    null
+  return {
+    view,
+    identity: view ? record[view.identity_field] : undefined,
+  }
 }
 
 function FieldMessage({

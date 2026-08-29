@@ -105,12 +105,14 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
             "posted_at",
             "version",
             "total",
+            "signed_document",
         }
         assert set(invoice_capabilities["writable_fields"]) == {
             "invoice_date",
             "customer",
             "currency",
             "lines",
+            "signed_document",
         }
         assert invoice_capabilities["actions"] == ["post", "void"]
         assert invoice_capabilities["audit"] is False
@@ -304,6 +306,7 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
             "total",
             "posted_at",
             "version",
+            "signed_document",
         ]
         assert invoice_form["sections"][0] == {
             "kind": "group",
@@ -318,6 +321,7 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
                 # `[posted_at, version, posted_by]` pairs the two fields that
                 # are visible and leaves the invisible one to be dropped whole.
                 ["posted_at", "version"],
+                ["signed_document"],
             ],
             "tab": None,
         }
@@ -564,6 +568,10 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
         "currency",
         "customer",
         "lines",
+        # A file is written by naming the key an upload answered with, so
+        # it is an ordinary writable property here and a whole projection
+        # on the way back out.
+        "signed_document",
     }
     assert create_schema["required"] == ["customer"]
     assert "required" not in update_schema
@@ -600,10 +608,10 @@ def test_record_get_projects_server_evaluated_workflow_field_state() -> None:
             )
 
         assert posted.status_code == 200
-        assert (
-            (posted.json().get("_tide") or {}).get("writable_fields")
-            is None
-        )
+        # A posted invoice is frozen except for the one thing that arrives
+        # after posting: the countersigned copy. It has none yet, so the
+        # field is still fillable; once it holds one, the lock covers it.
+        assert posted.json()["_tide"]["writable_fields"] == ["signed_document"]
         assert posted.json()["_tide"]["actions"] == {
             "post": {"visible": True, "enabled": False},
             "void": {"visible": True, "enabled": False},
@@ -616,6 +624,7 @@ def test_record_get_projects_server_evaluated_workflow_field_state() -> None:
                 "customer",
                 "invoice_date",
                 "lines",
+                "signed_document",
             ],
             "actions": {
                 # A draft can go either way, which is the point of declaring
