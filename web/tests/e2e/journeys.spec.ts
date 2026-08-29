@@ -357,6 +357,64 @@ test("drafts an invoice through both lookups and posts it", async ({
   await expect(page.getByRole("button", { name: "Post" })).toBeDisabled()
 })
 
+test("attaches the signed document after posting and reads it back", async ({
+  page,
+}) => {
+  await signIn(page)
+  await page.getByRole("button", { name: "New" }).click()
+
+  await page.getByRole("button", { name: "Select Customer" }).click()
+  const customers = page.getByRole("dialog", { name: "Select Customer" })
+  await customers.getByRole("row", { name: /ADRIA/ }).click()
+  await customers.getByRole("button", { name: "Select" }).click()
+
+  await page.getByRole("button", { name: "Add Line" }).click()
+  await page.getByRole("button", { name: "Select Product" }).click()
+  const products = page.getByRole("dialog", { name: "Select Product" })
+  await products.getByRole("row", { name: /CONS/ }).click()
+  await products.getByRole("button", { name: "Select" }).click()
+  await page.getByRole("textbox", { name: "Quantity" }).fill("1")
+  await page.getByRole("button", { name: "Apply Line" }).click()
+  await page.getByRole("button", { name: "Save", exact: true }).click()
+  await expect(createdRow(page)).toContainText("Draft")
+
+  // Posted first, then the document: this is the order the carve-out
+  // exists for, and doing it the other way round would prove nothing.
+  await page.getByRole("button", { name: "Open" }).click()
+  await page.getByRole("button", { name: "Post" }).click()
+  await expect(page.getByText("Post completed successfully.")).toBeVisible()
+
+  // Everything else on this record is frozen now.
+  await expect(page.getByRole("textbox", { name: "Currency" })).toHaveCount(0)
+
+  await page.getByLabel("Signed document").setInputFiles({
+    name: "confirmation.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-1.4 countersigned by the customer"),
+  })
+
+  // The upload answered, and the draft is holding what it answered with.
+  await expect(page.getByText("confirmation.pdf")).toBeVisible()
+  await page.getByRole("button", { name: "Save", exact: true }).click()
+
+  // Away and back, so what is on screen came from the database rather than
+  // from the draft that put it there.
+  await page.goBack()
+  await page.getByRole("button", { name: "Open" }).click()
+  await expect(page.getByText("confirmation.pdf")).toBeVisible()
+
+  // The record now holds a document, so the lock covers it: it can be read
+  // and it cannot become a different one.
+  await expect(page.getByRole("button", { name: "Download" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Replace" })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Delete" })).toHaveCount(0)
+
+  const download = page.waitForEvent("download")
+  await page.getByRole("button", { name: "Download" }).click()
+  expect((await download).suggestedFilename()).toBe("confirmation.pdf")
+})
+
+
 test("previews the report the server rendered and exports it", async ({
   page,
 }) => {

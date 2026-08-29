@@ -71,6 +71,13 @@ interface RecordFormEditorProps {
   forms: TidePresentationManifest["forms"]
   /** Capability-filtered browse views, for the reference controls' doors. */
   views?: TidePresentationManifest["views"]
+  /**
+   * The browse this record is addressed through, and its key within it:
+   * what a file download needs, and exactly what an update already needs.
+   * Absent while creating, where there is no record to fetch a file from.
+   */
+  recordView?: TideBrowsePresentation | null
+  identity?: unknown
   draft: TideFormDraft
   editableFields: ReadonlySet<string>
   errors: TideFormErrors
@@ -91,6 +98,8 @@ export function RecordFormEditor({
   form,
   forms,
   views,
+  recordView,
+  identity,
   draft,
   editableFields,
   errors,
@@ -116,6 +125,8 @@ export function RecordFormEditor({
             form={form}
             forms={forms}
             views={views}
+            recordView={recordView}
+            identity={identity}
             record={record}
             section={section}
             editableFields={editableFields}
@@ -141,6 +152,8 @@ function EditorGroup({
   form,
   forms,
   views,
+  recordView,
+  identity,
   record,
   section,
   editableFields,
@@ -157,6 +170,8 @@ function EditorGroup({
   form: TideFormPresentation
   forms: TidePresentationManifest["forms"]
   views?: TidePresentationManifest["views"]
+  recordView?: TideBrowsePresentation | null
+  identity?: unknown
   record: TideRecord
   section: TidePresentationFormGroup
   editableFields: ReadonlySet<string>
@@ -215,6 +230,8 @@ function EditorGroup({
                       form={form}
                       forms={forms}
                       views={views}
+                      recordView={recordView}
+                      identity={identity}
                       field={field}
                       value={record[name]}
                       draft={record}
@@ -245,10 +262,8 @@ function EditorGroup({
                           api={api}
                           field={field}
                           value={record[name]}
-                          view={recordHome(views, form.entity, record).view}
-                          identity={
-                            recordHome(views, form.entity, record).identity
-                          }
+                          view={recordView}
+                          identity={identity}
                           writable={false}
                         />
                       ) : (
@@ -278,6 +293,8 @@ function FieldEditor({
   form,
   forms,
   views,
+  recordView,
+  identity,
   field,
   value,
   draft,
@@ -292,6 +309,8 @@ function FieldEditor({
   form: TideFormPresentation
   forms: TidePresentationManifest["forms"]
   views?: TidePresentationManifest["views"]
+  recordView?: TideBrowsePresentation | null
+  identity?: unknown
   field: TidePresentationFormField
   value: unknown
   draft: TideFormDraft
@@ -308,7 +327,6 @@ function FieldEditor({
   const describedBy = error ? errorId : field.help ? helpId : undefined
 
   if (field.field_type === "file") {
-    const home = recordHome(views, form.entity, draft)
     return (
       <div className={fieldGroupClass}>
         <label htmlFor={id} className={fieldLabelClass}>
@@ -323,8 +341,8 @@ function FieldEditor({
           api={api}
           field={field}
           value={value}
-          view={home.view}
-          identity={home.identity}
+          view={recordView}
+          identity={identity}
           writable
           disabled={disabled}
           error={error}
@@ -1158,28 +1176,6 @@ export function formEditorId(
     "-",
   )
   return `tide-editor-${view}-${fieldName}`
-}
-
-/**
- * The browse this record belongs to, and its identity within it.
- *
- * A file is fetched through the record that holds it, so a download needs
- * the same two things an update needs. Both come from the manifest the
- * session already carries: no new contract, and a record the caller cannot
- * browse simply has no door to its files either.
- */
-function recordHome(
-  views: TidePresentationManifest["views"] | undefined,
-  entity: string,
-  record: Record<string, unknown>,
-): { view: TideBrowsePresentation | null; identity: unknown } {
-  const view =
-    Object.values(views ?? {}).find((candidate) => candidate.entity === entity) ??
-    null
-  return {
-    view,
-    identity: view ? record[view.identity_field] : undefined,
-  }
 }
 
 function FieldMessage({

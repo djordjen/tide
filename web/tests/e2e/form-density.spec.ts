@@ -97,11 +97,14 @@ test("spends its vertical space on controls rather than on packaging", async ({
   // grid; the sidebar entry for the view you are already in does not move.
   await page.goBack()
   await open(page, /INV-2026-0001/)
-  await expect(page.getByText("Secured detail")).toBeVisible()
+  // A posted invoice keeps one control: the document that arrives after
+  // posting. Everything else has become a read-only value, which is what
+  // this measures -- a screen of values with a single picker in it.
+  await expect(page.getByLabel("Signed document")).toBeAttached()
   const posted = await measureOpenRecord(page)
 
   expect(draft.withControls, "the draft is the editable renderer").toBeGreaterThan(0)
-  expect(posted.withControls, "a posted invoice is locked").toBe(0)
+  expect(posted.withControls, "a posted invoice keeps only its document").toBe(1)
   expect(posted.readOnlyOnly).toBeGreaterThan(0)
 
   expect(

@@ -3,6 +3,7 @@ import { LockKeyhole, Rows3 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
+import { AttachmentField } from "@/components/attachment-field"
 import { TideDisplayValue } from "@/components/tide-display-value"
 import type { TideApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -15,6 +16,7 @@ import {
   sectionCaptionClass,
 } from "./form-field"
 import type {
+  TideBrowsePresentation,
   TideFormPresentation,
   TidePresentationFormCollection,
   TidePresentationFormGroup,
@@ -38,6 +40,8 @@ export function DetailGroup({
   section,
   writable,
   views,
+  recordView,
+  identity,
 }: {
   api: TideApi
   form: TideFormPresentation
@@ -45,6 +49,9 @@ export function DetailGroup({
   section: TidePresentationFormGroup
   writable: ReadonlySet<string>
   views?: TidePresentationManifest["views"]
+  /** How a file on this record is addressed, when one of the fields is one. */
+  recordView?: TideBrowsePresentation | null
+  identity?: unknown
 }) {
   return (
     <section>
@@ -82,17 +89,31 @@ export function DetailGroup({
                       label, and the editor never does that. Right
                       alignment belongs to tables, where digits line up
                       down a column. */}
-                  <TideDisplayValue
-                    api={api}
-                    column={field}
-                    record={record}
-                    views={views}
-                    wrap
-                    className={cn(
-                      readOnlyValueClass,
-                      field.alignment === "right" && "tabular-nums",
-                    )}
-                  />
+                  {field.field_type === "file" ? (
+                    // A document on a record nobody may edit is still a
+                    // document to read: the name, the size, and a way to
+                    // fetch it.
+                    <AttachmentField
+                      api={api}
+                      field={field}
+                      value={record[name]}
+                      view={recordView}
+                      identity={identity}
+                      writable={false}
+                    />
+                  ) : (
+                    <TideDisplayValue
+                      api={api}
+                      column={field}
+                      record={record}
+                      views={views}
+                      wrap
+                      className={cn(
+                        readOnlyValueClass,
+                        field.alignment === "right" && "tabular-nums",
+                      )}
+                    />
+                  )}
                 </div>
               )
             })}

@@ -131,6 +131,10 @@ export function AttachmentField({
             type="button"
             variant="outline"
             size="sm"
+            // The control that occupies the row, so it carries the mark the
+            // rest of the form reads: a stop in the Enter traversal, and the
+            // thing the density journey measures a row against.
+            data-tide-editor
             className={cn("w-fit", error && "border-destructive/65")}
             disabled={disabled || busy !== null}
             onClick={() => picker.current?.click()}
@@ -179,6 +183,7 @@ export function AttachmentField({
             type="button"
             variant="outline"
             size="sm"
+            data-tide-editor
             disabled={disabled || busy !== null}
             onClick={() => picker.current?.click()}
           >

@@ -151,11 +151,13 @@ test("keeps every control on screen at phone width", async ({ page }) => {
   expect(await escaping(page, lookup), "lookup dialog").toEqual([])
   await page.keyboard.press("Escape")
 
-  // A posted invoice is locked by its transition, so the read-only renderer
-  // draws it and the action bar is a different set of buttons.
+  // A posted invoice is locked by its transition apart from the document
+  // that arrives after posting, so the editable renderer still draws it --
+  // with one control on a screen of read-only values, which is the layout
+  // worth measuring at this width.
   await page.goBack()
   await open(page, /INV-2026-0001/)
-  await expect(page.getByText("Secured detail")).toBeVisible()
+  await expect(page.getByLabel("Signed document")).toBeAttached()
   expect(
     await escaping(page, page.locator("footer")),
     "posted action bar",

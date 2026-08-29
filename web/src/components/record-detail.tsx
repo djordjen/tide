@@ -1220,6 +1220,8 @@ export function RecordDetail({
               form={{ ...form, sections: cardSections }}
               forms={forms}
               views={views}
+              recordView={view}
+              identity={identity}
               appearance={record?._tide?.appearance?.fields}
               hidden={record?._tide?.appearance?.hidden}
               draft={draft}
@@ -1294,6 +1296,8 @@ export function RecordDetail({
                   section={section}
                   writable={writable}
                   views={views}
+                  recordView={view}
+                  identity={identity}
                 />
               ) : (
                 <div
