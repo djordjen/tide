@@ -686,6 +686,13 @@ manifest, and a truncated group says "first matches only". A journey against
 the real stack searches "consulting", meets a product and a customer in the
 same panel, and opens one.
 
+What is searchable is one declared list: the entity's `search_fields:`, the
+same list its lookups already search. The reference application's invoices
+joined it by `number`, so a clerk finds an invoice from the one box, and the
+identity that may read invoices alone finds exactly those; the per-field
+`searchable:` flags that two reference fields carried were read by nothing on
+any surface, and the reference model no longer shows them.
+
 The record's audit trail reached this surface as a **History** tab on the
 panel below the open record, after its collections -- present exactly where
 the entity declares audit and the session's capabilities grant viewing it,

@@ -147,8 +147,9 @@ answering bounded, grouped hits in the model's own entity order:
 The sweep owns no security of its own: each entity is asked through the same
 secured lookup the reference pickers use, so the entity permission, the row
 policies and field security decide what a search can see, and an entity that
-refuses is skipped rather than an error the whole search wears. Only fields
-marked `searchable` are swept, and only where this identity may read them --
+refuses is skipped rather than an error the whole search wears. Only the
+fields an entity lists in `search_fields:` are swept -- the same declared
+list its lookups search -- and only where this identity may read them --
 sweeping an unreadable field would let its values be guessed one probe at a
 time. Each group is bounded by `limit` (at most 25) and says when it
 truncated; a search is a doorway, not a browse.

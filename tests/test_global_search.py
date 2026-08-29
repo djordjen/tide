@@ -65,13 +65,30 @@ def test_search_answers_grouped_hits_in_model_order() -> None:
     ]
 
 
+def test_search_finds_an_invoice_by_its_number() -> None:
+    model, records = _runtime()
+    search = GlobalSearchService(model, records)
+
+    groups = search.search("0003", _context("sales_clerk"))
+
+    assert [group.entity for group in groups] == ["sales.Invoice"]
+    invoices = groups[0]
+    assert invoices.label == "Invoices"
+    assert [hit.identity for hit in invoices.hits] == [3]
+    assert [hit.display for hit in invoices.hits] == ["INV-2026-0003"]
+
+
 def test_search_reaches_only_entities_the_identity_may_read() -> None:
-    """summary_viewer reads invoices alone, and invoices declare no
-    searchable fields -- so the same text that finds records for a clerk
-    finds nothing at all, rather than leaking names through the sweep."""
+    """summary_viewer reads invoices alone -- so a number finds exactly
+    the invoice, while a text that names refused entities finds nothing
+    at all, rather than leaking names through the sweep."""
 
     model, records = _runtime()
     search = GlobalSearchService(model, records)
+
+    found = search.search("inv-2026-0001", _context("summary_viewer"))
+    assert [group.entity for group in found] == ["sales.Invoice"]
+    assert [hit.display for hit in found[0].hits] == ["INV-2026-0001"]
 
     assert search.search("consulting", _context("summary_viewer")) == ()
 

@@ -46,9 +46,9 @@ class GlobalSearchService:
     that refuses is skipped, never an error the whole search wears, because
     "you may not read this" is an ordinary answer inside a sweep.
 
-    Only fields the application marked ``searchable`` are swept, and only
-    where this identity may read them: sweeping an unreadable field would
-    let its values be guessed one probe at a time.
+    Only the fields an entity lists in ``search_fields`` are swept, and
+    only where this identity may read them: sweeping an unreadable field
+    would let its values be guessed one probe at a time.
     """
 
     def __init__(self, model: ApplicationModel, records: RecordsService) -> None:

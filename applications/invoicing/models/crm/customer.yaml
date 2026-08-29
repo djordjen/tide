@@ -28,7 +28,7 @@ fields:
     unique: true
     edit_mask: {regex: "[A-Z][A-Z0-9-]{0,19}"}
     audit: values
-  name:   {type: string, length: 120, required: true, searchable: true, audit: values}
+  name:   {type: string, length: 120, required: true, audit: values}
   email:
     type: string
     length: 254

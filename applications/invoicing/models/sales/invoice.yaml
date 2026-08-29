@@ -2,6 +2,7 @@
 entity: sales.Invoice
 label: Invoices
 display: number
+search_fields: [number]
 
 expose:
   tui: true
