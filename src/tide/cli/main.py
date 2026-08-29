@@ -13,6 +13,7 @@ from tide.diagnostics import CompilationFailed, Severity
 
 from .api import add_api_commands
 from .application import add_application_commands, add_designer_commands
+from .attachments import add_attachment_commands
 from .auth import add_authentication_commands
 from .database import add_database_commands
 from .mcp import add_mcp_commands
@@ -69,6 +70,7 @@ def _create_parser() -> argparse.ArgumentParser:
     add_run_commands(commands)
     add_serve_command(commands)
     add_database_commands(commands)
+    add_attachment_commands(commands)
     add_application_commands(commands)
     add_designer_commands(commands)
     add_model_commands(commands)

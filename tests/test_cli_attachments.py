@@ -15,7 +15,13 @@ from typing import Any
 import pytest
 import uvicorn
 
+from tide import compile_project
 from tide.cli import main
+from tide.data import SQLAlchemyRepository
+from tide.data.attachment_files import FilesystemAttachmentBytes
+from tide.data.framework_schema import framework_stores
+from tide.data.sqlalchemy_attachments import SQLAlchemyAttachmentRows
+from tide.services.attachments import AttachmentService
 
 ENTITY = """\
 entity: docs.Note
@@ -197,6 +203,139 @@ def test_a_root_is_prepared_where_it_is_named(
     assert result == 0
     assert (root / "tmp").is_dir()
     assert launched["app"].state.tide.attachments is not None
+
+
+def _reconciliation(tmp_path: Path, monkeypatch: Any) -> tuple[Path, Path, str]:
+    """An application, a database and a root, with one file already in them."""
+
+    project = _project(tmp_path)
+    root = tmp_path / "files"
+    url = f"sqlite+pysqlite:///{(tmp_path / 'db.sqlite').as_posix()}"
+    monkeypatch.setenv("NOTES_DATABASE_URL", url)
+
+    model = compile_project(project)
+    repository = SQLAlchemyRepository(model, url)
+    repository.create_schema()
+    repository.dispose()
+    stores = framework_stores(url)
+    stores.create_schema()
+    rows = SQLAlchemyAttachmentRows(url, mode="managed")
+    attachments = AttachmentService(
+        model, rows, FilesystemAttachmentBytes(root)
+    )
+    record = attachments.stage(
+        "docs.Note",
+        "scan",
+        filename="confirmation.pdf",
+        content_type="application/pdf",
+        chunks=[b"%PDF-1.4"],
+        principal="local:clerk",
+    )
+    rows.dispose()
+    return project, root, record.guid
+
+
+def _check(project: Path, root: Path, *extra: str) -> int:
+    return main(
+        [
+            "attachments",
+            "check",
+            str(project),
+            "--database-env",
+            "NOTES_DATABASE_URL",
+            "--attachments-root",
+            str(root),
+            *extra,
+        ]
+    )
+
+
+def test_a_store_that_agrees_with_itself_passes(
+    tmp_path: Path,
+    monkeypatch: Any,
+    capsys: Any,
+) -> None:
+    project, root, _ = _reconciliation(tmp_path, monkeypatch)
+
+    result = _check(project, root)
+
+    assert result == 0
+    assert "1 file" in capsys.readouterr().out
+
+
+def test_a_row_whose_file_is_gone_is_reported(
+    tmp_path: Path,
+    monkeypatch: Any,
+    capsys: Any,
+) -> None:
+    """The direction that matters most: somebody will ask for that document."""
+
+    project, root, guid = _reconciliation(tmp_path, monkeypatch)
+    (root / guid[:2] / guid).unlink()
+
+    result = _check(project, root)
+    output = capsys.readouterr()
+
+    assert result == 1
+    assert guid in output.out
+    assert "no file" in output.out
+
+
+def test_bytes_no_row_names_are_reported(
+    tmp_path: Path,
+    monkeypatch: Any,
+    capsys: Any,
+) -> None:
+    project, root, _ = _reconciliation(tmp_path, monkeypatch)
+    stray = "ffffffff-ffff-4fff-8fff-ffffffffffff"
+    (root / stray[:2]).mkdir(parents=True, exist_ok=True)
+    (root / stray[:2] / stray).write_bytes(b"left behind")
+
+    result = _check(project, root)
+    output = capsys.readouterr()
+
+    assert result == 1
+    assert stray in output.out
+    assert "no row" in output.out
+
+
+def test_bytes_that_changed_under_their_row_are_reported(
+    tmp_path: Path,
+    monkeypatch: Any,
+    capsys: Any,
+) -> None:
+    """The one that says something went wrong outside TIDE."""
+
+    project, root, guid = _reconciliation(tmp_path, monkeypatch)
+    (root / guid[:2] / guid).write_bytes(b"not what was uploaded")
+
+    result = _check(project, root)
+    output = capsys.readouterr()
+
+    assert result == 1
+    assert guid in output.out
+    assert "changed" in output.out
+
+
+def test_a_sweep_reclaims_only_what_has_waited(
+    tmp_path: Path,
+    monkeypatch: Any,
+    capsys: Any,
+) -> None:
+    """A staged upload is somebody's open form until the grace runs out."""
+
+    project, root, guid = _reconciliation(tmp_path, monkeypatch)
+
+    kept = _check(project, root, "--sweep")
+    assert kept == 0
+    assert (root / guid[:2] / guid).exists()
+
+    swept = _check(project, root, "--sweep", "--grace", "0")
+    output = capsys.readouterr()
+
+    assert swept == 0
+    assert not (root / guid[:2] / guid).exists()
+    assert "reclaimed 1" in output.out
 
 
 def test_the_environment_can_name_the_root_instead(
