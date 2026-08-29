@@ -300,6 +300,25 @@ def test_a_record_keyed_by_a_uuid_round_trips_through_sqlite(tmp_path) -> None:
     repository.dispose()
 
 
+def test_the_sql_column_for_a_file_field_holds_exactly_an_attachment_key(
+    model,
+) -> None:
+    """36 characters, both dialects, and nullable: no file is a file.
+
+    The width is not decoration -- what the column holds is `str(uuid4())`,
+    and the service refuses any value that is not that length before it ever
+    asks the attachment store about it.
+    """
+
+    column = sqlalchemy_adapter._sql_type(
+        model, model.entity("probe.Sample").field("file")
+    )
+
+    assert column.length == 36
+    assert column.compile(dialect=mssql_base.dialect()) == "VARCHAR(36)"
+    assert column.compile(dialect=sqlite_base.dialect()) == "VARCHAR(36)"
+
+
 def test_the_sql_column_for_a_uuid_field_is_dialect_portable(model) -> None:
     """One declared type has to reach both supported dialects.
 

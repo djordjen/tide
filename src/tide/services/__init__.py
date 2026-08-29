@@ -15,6 +15,15 @@ from tide.services.action_store import (
     RecordAuditEvent,
     RecordAuditOperation,
 )
+from tide.services.attachment_store import (
+    AttachmentBytes,
+    AttachmentRecord,
+    AttachmentRows,
+    AttachmentStoreError,
+    AttachmentTooLarge,
+    InMemoryAttachmentBytes,
+    InMemoryAttachmentRows,
+)
 from tide.services.cursors import CursorStore, InMemoryCursorStore, QueryPage
 from tide.services.references import NO_REFERENCE_DISPLAYS, ReferenceDisplays
 from tide.services.records import FilterCondition, MutationSource, QuerySpec, RecordsService, SortField
@@ -30,9 +39,16 @@ __all__ = [
     "GlobalSearchService",
     "SearchGroup",
     "SearchHit",
+    "AttachmentBytes",
+    "AttachmentRecord",
+    "AttachmentRows",
+    "AttachmentStoreError",
+    "AttachmentTooLarge",
     "AuditOutcome",
     "AuditValueMode",
     "CursorStore",
+    "InMemoryAttachmentBytes",
+    "InMemoryAttachmentRows",
     "FilterCondition",
     "InMemoryCursorStore",
     "InMemoryActionExecutionStore",
