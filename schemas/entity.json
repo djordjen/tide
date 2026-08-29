@@ -458,11 +458,6 @@
           "title": "Readonly",
           "type": "boolean"
         },
-        "searchable": {
-          "default": false,
-          "title": "Searchable",
-          "type": "boolean"
-        },
         "concurrency_token": {
           "default": false,
           "title": "Concurrency Token",

@@ -693,6 +693,15 @@ identity that may read invoices alone finds exactly those; the per-field
 `searchable:` flags that two reference fields carried were read by nothing on
 any surface, and the reference model no longer shows them.
 
+The schema then stopped admitting that spelling at all: `searchable:` on a
+field is refused by the loader and the exported editor schema alike, because
+a directive the loader swallows without effect teaches whoever reads the file
+something false. This is not counted as the kind of breaking authoring change
+that demands a new `schema_version`: no document that meant anything changes
+meaning, since the key never did anything -- an author who wrote it was
+already not getting what they asked for, and is now told so at the source
+line instead.
+
 The record's audit trail reached this surface as a **History** tab on the
 panel below the open record, after its collections -- present exactly where
 the entity declares audit and the session's capabilities grant viewing it,

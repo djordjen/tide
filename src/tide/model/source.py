@@ -185,7 +185,6 @@ class FieldSource(SourceModel):
     required: bool = False
     unique: bool = False
     readonly: bool = False
-    searchable: bool = False
     concurrency_token: bool = False
     length: int | None = None
     precision: int | None = None

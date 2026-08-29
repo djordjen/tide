@@ -119,6 +119,31 @@ def test_the_exported_schema_accepts_both_spellings_of_a_transition_from() -> No
     assert list(validator.iter_errors(with_from(42))) != []
 
 
+def test_what_is_searchable_is_declared_once() -> None:
+    """The entity's `search_fields:` list is the one spelling of searchable.
+
+    A per-field `searchable:` flag used to be accepted and read by nothing
+    on any surface. A directive the loader swallows without effect teaches
+    whoever reads the file something false, so the schema refuses the
+    spelling instead of keeping a second place to say the same thing.
+    """
+
+    validator = Draft202012Validator(
+        SCHEMA_TYPES["entity"].model_json_schema(by_alias=True)
+    )
+    source = _jsonify(
+        yaml.safe_load(
+            (ROOT / "applications" / "invoicing" / "models" / "sales" / "invoice.yaml")
+            .read_text(encoding="utf-8")
+        )
+    )
+
+    assert source["search_fields"] == ["number"]
+    document = deepcopy(source)
+    document["fields"]["number"]["searchable"] = True
+    assert list(validator.iter_errors(document)) != []
+
+
 @pytest.mark.parametrize("kind", sorted(SCHEMA_TYPES))
 def test_the_checked_in_schema_is_a_fresh_export(kind: str) -> None:
     """`schemas/` is checked in so an editor works on a clone with no build step.
