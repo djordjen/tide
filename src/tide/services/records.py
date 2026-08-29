@@ -50,6 +50,12 @@ from tide.runtime.errors import (
     QueryFieldError,
 )
 from tide.security.engine import PROTECTED, SecurityEngine
+from tide.services.attachments import (
+    AttachmentService,
+    claim_plan,
+    file_fields,
+    released_guids,
+)
 from tide.services.cursors import (
     CURSOR_VERSION,
     CursorShape,
@@ -95,6 +101,7 @@ class RecordsService:
         audit_store: ActionExecutionStore | None = None,
         clock: Callable[[], datetime] | None = None,
         event_id_factory: Callable[[], str] | None = None,
+        attachments: AttachmentService | None = None,
     ) -> None:
         if relationship_max_depth < 1:
             raise ValueError("relationship expansion depth must be positive")
@@ -112,6 +119,7 @@ class RecordsService:
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._event_id_factory = event_id_factory or (lambda: str(uuid4()))
         self._generators: dict[str, Generator] = {}
+        self.attachments = attachments
 
     def register_generator(self, reference: str, generator: Generator) -> None:
         self._generators[reference] = generator
@@ -260,7 +268,15 @@ class RecordsService:
                 f"{context.principal.identifier!r} may not delete this "
                 f"{entity_name} record"
             ) from error
-        del removed  # every removal was audited inside the delete
+        # Every removal was audited inside the delete; what is left to do is
+        # let go of the files those rows held -- cascaded children included,
+        # since only the repository knows which rows a delete actually
+        # reached. Releasing rather than deleting: the record is gone, but
+        # its documents wait out the grace like any other released file.
+        if self.attachments is not None:
+            for gone in (*removed, DeletedRecord(entity_name, identity, original)):
+                if file_fields(self.model.entity(gone.entity)):
+                    self.attachments.release_record(gone.entity, str(gone.identity))
 
     def _audit_removals(
         self,
@@ -938,7 +954,10 @@ class RecordsService:
         derived_issues = self._coerce_values(entity.name, values)
         if derived_issues:
             raise ValidationFailed(derived_issues)
-        issues = self._validate_entity(entity.name, values)
+        issues = [
+            *self._validate_entity(entity.name, values),
+            *self._attachment_issues(entity, session, values, context),
+        ]
         errors = [issue for issue in issues if issue.severity == "error"]
         if errors:
             raise ValidationFailed(errors)
@@ -951,6 +970,10 @@ class RecordsService:
             )
         self._validate_uniqueness(entity, values, session.identity)
         write_operation = "read" if source is MutationSource.ACTION else operation
+        claimed: list[str] = []
+        attachment_plan = self._attachment_plan(entity, session, values)
+        if attachment_plan and not session.is_new:
+            self._claim_attachments(attachment_plan, str(session.identity), claimed)
         try:
             stored = self.repository.write(
                 entity.name,
@@ -983,6 +1006,7 @@ class RecordsService:
                 ),
             )
         except RowPolicyMismatch as error:
+            self._release_claims(claimed)
             raise AuthorizationError(
                 f"{context.principal.identifier!r} may not {write_operation} this "
                 f"{entity.name} record"
@@ -992,10 +1016,19 @@ class RecordsService:
             # opened, so a duplicate could have landed in between. Asking again
             # says which field collided; a constraint this service does not
             # model is not a validation failure and must keep its own error.
+            self._release_claims(claimed)
             issues = self._unique_conflicts(entity, values, session.identity)
             if not issues:
                 raise
             raise ValidationFailed(issues) from error
+        except BaseException:
+            self._release_claims(claimed)
+            raise
+        if attachment_plan and session.is_new:
+            self._claim_attachments(
+                attachment_plan, str(stored[_primary_key(entity)]), claimed
+            )
+        self._release_replaced_attachments(entity, session, values)
         was_new = session.is_new
         original = {} if was_new else deepcopy(session.original)
         session.identity = stored[_primary_key(entity)]
@@ -1500,6 +1533,95 @@ class RecordsService:
                     )
                 )
         return issues
+
+    def _attachment_plan(
+        self,
+        entity: NormalizedEntity,
+        session: RecordSession,
+        values: Mapping[str, Any],
+    ) -> tuple[tuple[str, str], ...]:
+        original: Mapping[str, Any] = {} if session.is_new else session.original
+        return claim_plan(entity, values, original)
+
+    def _attachment_issues(
+        self,
+        entity: NormalizedEntity,
+        session: RecordSession,
+        values: Mapping[str, Any],
+        context: RequestContext,
+    ) -> list[ValidationIssue]:
+        plan = self._attachment_plan(entity, session, values)
+        if not plan:
+            return []
+        if self.attachments is None:
+            # Said in the field's own words rather than raised as a server
+            # fault: a deployment that never configured a file store is a
+            # misconfiguration, and the person holding the form should be
+            # told which field cannot be saved.
+            return [
+                ValidationIssue(
+                    "attachment",
+                    "this server has nowhere to keep files",
+                    (field_name,),
+                )
+                for field_name, _ in plan
+            ]
+        issues: list[ValidationIssue] = []
+        for field_name, guid in plan:
+            issues.extend(
+                self.attachments.claim_issues(
+                    entity.name,
+                    field_name,
+                    guid,
+                    principal=context.principal.identifier,
+                )
+            )
+        return issues
+
+    def _claim_attachments(
+        self,
+        plan: Sequence[tuple[str, str]],
+        record_id: str,
+        claimed: list[str],
+    ) -> None:
+        """Attach each named upload to this record, remembering what stuck.
+
+        Claiming before the write where the identity is already known, so a
+        crash in between leaves a claimed row a reconciliation can see rather
+        than bytes the sweep would reclaim out from under a written record.
+        A create cannot do that -- its identity does not exist until the row
+        does -- so it claims immediately afterwards instead, which is why the
+        caller passes the list to compensate from.
+        """
+
+        if self.attachments is None:
+            return
+        for _, guid in plan:
+            self.attachments.claim(guid, record_id)
+            claimed.append(guid)
+
+    def _release_claims(self, claimed: Sequence[str]) -> None:
+        if self.attachments is None or not claimed:
+            return
+        self.attachments.release(claimed)
+
+    def _release_replaced_attachments(
+        self,
+        entity: NormalizedEntity,
+        session: RecordSession,
+        values: Mapping[str, Any],
+    ) -> None:
+        """Let go of what a save replaced or cleared, once it is durable.
+
+        After the write, never before: a save that failed must leave the
+        record holding exactly the file it held.
+        """
+
+        if self.attachments is None or session.is_new:
+            return
+        replaced = released_guids(entity, values, session.original)
+        if replaced:
+            self.attachments.release(replaced)
 
     def _validate_uniqueness(self, entity: NormalizedEntity, values: dict[str, Any], identity: Any) -> None:
         issues = self._unique_conflicts(entity, values, identity)

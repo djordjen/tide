@@ -989,6 +989,15 @@ def _fields_with_derived_immutability(
         ):
             continue
         derived = " or ".join(predicates[name] for name in sorted(predicates))
+        if field.type == "file":
+            # A lock freezes a file field only once it holds a file. The
+            # countersigned copy of a document arrives *after* the record it
+            # belongs to is posted, which is the real order of events, so a
+            # locked record accepts a document it does not have yet and
+            # refuses to change its mind afterwards. An author who wants a
+            # file field frozen outright writes `immutable_when` and gets it
+            # verbatim, below.
+            derived = f"({derived}) and {field_name} != null"
         combined = (
             f"({derived}) or ({field.immutable_when})"
             if field.immutable_when
