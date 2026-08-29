@@ -20,6 +20,7 @@ from typing import Any
 
 import pytest
 
+from tide.data.attachment_files import FilesystemAttachmentBytes
 from tide.data.sqlalchemy_attachments import SQLAlchemyAttachmentRows
 from tide.services.attachment_store import (
     AttachmentRecord,
@@ -69,9 +70,11 @@ def rows(request: pytest.FixtureRequest, tmp_path: Path) -> Any:
         store.dispose()
 
 
-@pytest.fixture(params=["memory"])
+@pytest.fixture(params=["memory", "filesystem"])
 def blobs(request: pytest.FixtureRequest, tmp_path: Path) -> Any:
-    return InMemoryAttachmentBytes()
+    if request.param == "memory":
+        return InMemoryAttachmentBytes()
+    return FilesystemAttachmentBytes(tmp_path / "attachments")
 
 
 def test_a_staged_row_is_read_back_as_it_was_written(rows: Any) -> None:
@@ -211,3 +214,66 @@ def test_bytes_can_list_what_they_hold(blobs: Any) -> None:
     blobs.write(OTHER, [b"de"], limit=10)
 
     assert set(blobs.all_guids()) == {GUID, OTHER}
+
+
+def test_a_file_lands_in_the_shard_its_key_names(tmp_path: Path) -> None:
+    """The path is computed from the key alone.
+
+    256 directories keep any one of them from becoming the whole store, and
+    deriving the shard from the guid means there is no counter to coordinate
+    between processes and nothing extra to store: given the key, a recovery
+    tool knows where to look.
+    """
+
+    store = FilesystemAttachmentBytes(tmp_path / "files")
+
+    store.write(GUID, [b"abc"], limit=10)
+
+    assert (tmp_path / "files" / "ab" / GUID).read_bytes() == b"abc"
+
+
+def test_a_stored_file_carries_no_extension(tmp_path: Path) -> None:
+    """The row is the authority on what the bytes are.
+
+    A tree of extensionless files cannot be served or executed by a web
+    server that was pointed at it by mistake, and the name a person sees
+    comes back from the database on the way out.
+    """
+
+    store = FilesystemAttachmentBytes(tmp_path / "files")
+
+    store.write(GUID, [b"%PDF-1.4"], limit=100)
+
+    assert [path.name for path in (tmp_path / "files" / "ab").iterdir()] == [GUID]
+
+
+def test_a_refused_write_leaves_no_half_file_behind(tmp_path: Path) -> None:
+    """Refused on the way in, and nothing of it survives.
+
+    The staging directory is the reason this is answerable at all: bytes
+    become visible under their key by a rename, so a file is either whole
+    or absent, and a sweep never has to guess which.
+    """
+
+    root = tmp_path / "files"
+    store = FilesystemAttachmentBytes(root)
+
+    with pytest.raises(AttachmentTooLarge):
+        store.write(GUID, [b"x" * 8, b"y" * 8], limit=10)
+
+    assert list((root / "tmp").iterdir()) == []
+    assert not (root / "ab").exists()
+    assert store.all_guids() == ()
+
+
+def test_the_staging_directory_is_never_mistaken_for_stored_files(
+    tmp_path: Path,
+) -> None:
+    """`tmp` is two characters, which is exactly what a shard looks like."""
+
+    root = tmp_path / "files"
+    store = FilesystemAttachmentBytes(root)
+    store.write(GUID, [b"abc"], limit=10)
+    (root / "tmp" / "abandoned").write_bytes(b"interrupted")
+
+    assert store.all_guids() == (GUID,)
