@@ -1,4 +1,4 @@
-import { Download, Paperclip, RefreshCw, Trash2 } from "lucide-react"
+import { Paperclip, RefreshCw, Trash2 } from "lucide-react"
 import { useRef, useState, type ReactElement } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -154,41 +154,53 @@ export function AttachmentField({
     )
   }
 
+  const downloadable =
+    Boolean(view) && identity !== undefined && identity !== null
+
   return (
     <div className="flex flex-col gap-1.5">
       {controls}
-      <span className="flex min-w-0 items-baseline gap-2">
-        <span className="truncate text-sm" title={attachment.filename}>
-          {attachment.filename}
-        </span>
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {formatSize(attachment.size)}
-        </span>
-      </span>
-      <span className="flex flex-wrap gap-1.5">
-        {view && identity !== undefined && identity !== null ? (
-          <Button
+      {/*
+        The name is the door, the way a reference value is: a separate
+        Download button restates the thing the row is already showing, and
+        spends a third of the row saying it. What is left beside it is
+        chrome, so it is chrome-sized.
+      */}
+      <span className="flex min-w-0 items-center gap-2">
+        {downloadable ? (
+          <button
             type="button"
-            variant="outline"
-            size="sm"
+            className="min-w-0 truncate rounded-sm text-left text-sm underline decoration-muted-foreground/50 underline-offset-2 outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/40 disabled:no-underline disabled:opacity-70"
+            aria-label={`Download ${attachment.filename}`}
+            title={`Download ${attachment.filename}`}
             disabled={busy !== null}
             onClick={() => void fetchFile()}
           >
-            <Download aria-hidden="true" />
-            {busy === "download" ? "Downloading…" : "Download"}
-          </Button>
-        ) : null}
+            {busy === "download" ? "Downloading…" : attachment.filename}
+          </button>
+        ) : (
+          // Nothing to open it with: a name that looks like a door and is
+          // not is worse than a name.
+          <span className="min-w-0 truncate text-sm" title={attachment.filename}>
+            {attachment.filename}
+          </span>
+        )}
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {formatSize(attachment.size)}
+        </span>
         {writable && uploadPath ? (
           <Button
             type="button"
-            variant="outline"
-            size="sm"
+            variant="ghost"
+            size="icon"
             data-tide-editor
+            className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+            aria-label={`Replace ${field.label}`}
+            title={`Replace ${field.label}`}
             disabled={disabled || busy !== null}
             onClick={() => picker.current?.click()}
           >
-            <RefreshCw aria-hidden="true" />
-            {busy === "upload" ? "Uploading…" : "Replace"}
+            <RefreshCw />
           </Button>
         ) : null}
         {/*
@@ -200,16 +212,18 @@ export function AttachmentField({
         {writable && uploadPath && !field.required ? (
           <Button
             type="button"
-            variant="outline"
-            size="sm"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+            aria-label={`Delete ${field.label}`}
+            title={`Delete ${field.label}`}
             disabled={disabled || busy !== null}
             onClick={() => {
               setFailure(null)
               onChange?.(null)
             }}
           >
-            <Trash2 aria-hidden="true" />
-            Delete
+            <Trash2 />
           </Button>
         ) : null}
       </span>

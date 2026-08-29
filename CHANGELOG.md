@@ -233,10 +233,12 @@ two stores in three directions -- rows without files, files without rows, and
 digests that moved, the last never swept because those bytes are the only
 copy of whatever they have become.
 
-The browser gets the control: a picker when empty, and filename, size,
-Download, Replace and Delete when filled -- Replace but not Delete on a field
-the model requires, since a mandatory document can be exchanged and never
-removed. The terminal reads documents and does not move them, showing the
+The browser gets the control: a picker when empty, and one line when filled
+-- the filename is the door, the way a reference value is itself the link to
+the record it names, with the size beside it and replace and delete as the
+same trailing icons the reference well carries. Replace but not delete on a
+field the model requires, since a mandatory document can be exchanged and
+never removed. The terminal reads documents and does not move them, showing the
 filename and never the key. MCP carries the projection and no content tool,
 because handing file bytes to an agent is its own decision.
 

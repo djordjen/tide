@@ -104,7 +104,7 @@ describe("the file field", () => {
     )
   })
 
-  it("names the document it holds and offers the three things one can do", () => {
+  it("makes the name the door and keeps the rest to chrome", () => {
     render(
       <AttachmentField
         api={{} as TideApi}
@@ -116,11 +116,43 @@ describe("the file field", () => {
       />,
     )
 
-    expect(screen.getByText("confirmation.pdf")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Download confirmation.pdf" }),
+    ).toHaveTextContent("confirmation.pdf")
     expect(screen.getByText("2.0 KB")).toBeInTheDocument()
-    for (const name of ["Download", "Replace", "Delete"]) {
+    for (const name of ["Replace Signed document", "Delete Signed document"]) {
       expect(screen.getByRole("button", { name })).toBeInTheDocument()
     }
+  })
+
+  it("fetches the file when the name is clicked", async () => {
+    const downloadAttachment = vi
+      .fn()
+      .mockResolvedValue({ blob: new Blob(["%PDF"]), filename: "confirmation.pdf" })
+    const createObjectURL = vi.fn().mockReturnValue("blob:x")
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL: vi.fn() })
+    render(
+      <AttachmentField
+        api={{ downloadAttachment } as unknown as TideApi}
+        field={field()}
+        value={ATTACHMENT}
+        view={VIEW}
+        identity={7}
+        writable
+      />,
+    )
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Download confirmation.pdf" }),
+    )
+
+    await waitFor(() =>
+      expect(downloadAttachment).toHaveBeenCalledWith(
+        VIEW,
+        7,
+        "signed_document",
+      ),
+    )
   })
 
   it("will not offer to remove a document the model requires", () => {
@@ -135,8 +167,12 @@ describe("the file field", () => {
       />,
     )
 
-    expect(screen.getByRole("button", { name: "Replace" })).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull()
+    expect(
+      screen.getByRole("button", { name: "Replace Signed document" }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Delete Signed document" }),
+    ).toBeNull()
   })
 
   it("leaves a locked document readable and nothing else", () => {
@@ -151,9 +187,15 @@ describe("the file field", () => {
       />,
     )
 
-    expect(screen.getByRole("button", { name: "Download" })).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "Replace" })).toBeNull()
-    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull()
+    expect(
+      screen.getByRole("button", { name: "Download confirmation.pdf" }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Replace Signed document" }),
+    ).toBeNull()
+    expect(
+      screen.queryByRole("button", { name: "Delete Signed document" }),
+    ).toBeNull()
   })
 
   it("empties the field when the document is deleted", async () => {
@@ -170,7 +212,9 @@ describe("the file field", () => {
       />,
     )
 
-    await userEvent.click(screen.getByRole("button", { name: "Delete" }))
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete Signed document" }),
+    )
 
     expect(onChange).toHaveBeenCalledWith(null)
   })

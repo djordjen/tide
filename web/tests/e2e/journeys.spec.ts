@@ -405,12 +405,18 @@ test("attaches the signed document after posting and reads it back", async ({
 
   // The record now holds a document, so the lock covers it: it can be read
   // and it cannot become a different one.
-  await expect(page.getByRole("button", { name: "Download" })).toBeVisible()
-  await expect(page.getByRole("button", { name: "Replace" })).toHaveCount(0)
-  await expect(page.getByRole("button", { name: "Delete" })).toHaveCount(0)
+  const link = page.getByRole("button", { name: "Download confirmation.pdf" })
+  await expect(link).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "Replace Signed document" }),
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole("button", { name: "Delete Signed document" }),
+  ).toHaveCount(0)
 
+  // The name is the door: clicking it is what fetches the file.
   const download = page.waitForEvent("download")
-  await page.getByRole("button", { name: "Download" }).click()
+  await link.click()
   expect((await download).suggestedFilename()).toBe("confirmation.pdf")
 })
 

@@ -232,13 +232,15 @@ needs more has already named the entity and belongs in its view.
 ### Documents
 
 A file field renders where the form's layout puts it, like any other. Empty
-and writable, it offers a picker; filled, it names the file, says how large
-it is, and offers **Download**, **Replace** and **Delete**. A field the model
-requires offers Replace and not Delete — a document an application insists on
-can be exchanged for a better copy, never removed, or the control would build
-a record its own validation refuses to save. A locked or unwritable document
-keeps Download and loses the rest, including on a record nobody may edit at
-all, where the read-only renderer draws it.
+and writable, it offers a picker. Filled, it is one line: **the filename is
+the door** — clicking it fetches the file, the way a reference value is
+itself the link to the record it names — with the size beside it and replace
+and delete as icons trailing, the same chrome shape the reference well
+carries. A field the model requires offers replace and not delete: a document
+an application insists on can be exchanged for a better copy, never removed,
+or the control would build a record its own validation refuses to save. A
+locked or unwritable document keeps its link and loses the icons, including
+on a record nobody may edit at all, where the read-only renderer draws it.
 
 Choosing a file uploads it at once and puts what came back in the draft, so a
 document that has only just been picked shows its name and size without a
