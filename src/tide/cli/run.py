@@ -19,6 +19,8 @@ from tide.services import (
     ActionService,
     RecordsService,
 )
+from tide.services.attachment_store import InMemoryAttachmentBytes
+from tide.services.attachments import AttachmentService
 
 from .storage import RunStorage, open_run_storage
 
@@ -185,6 +187,18 @@ def _launch_tui(
         repository,
         cursor_store=storage.cursor_store,
         audit_store=storage.execution_store,
+        # The terminal reads file fields and never writes them, so it needs
+        # the rows that name a document but not the bytes: no root, and an
+        # in-memory byte store standing in for one it will not open.
+        attachments=(
+            AttachmentService(
+                model,
+                storage.attachment_rows,
+                InMemoryAttachmentBytes(),
+            )
+            if storage.attachment_rows is not None
+            else None
+        ),
     )
     actions = ActionService(
         model,

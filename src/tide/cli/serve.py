@@ -28,15 +28,23 @@ from tide.api.server_lease import (
     new_lease_id,
 )
 from tide.compiler.compiler import compile_project
+from tide.compiler.normalized import ApplicationModel
+from tide.data.attachment_files import FilesystemAttachmentBytes
 from tide.observability import configure_runtime_logging
 from tide.runtime import Principal
 from tide.services import (
     ActionService,
     RecordsService,
 )
+from tide.services.attachment_store import (
+    AttachmentStoreError,
+    InMemoryAttachmentBytes,
+    InMemoryAttachmentRows,
+)
+from tide.services.attachments import AttachmentService, file_fields
 
 from .auth import parse_oidc_role_map, print_local_store_remedy
-from .storage import open_run_storage
+from .storage import RunStorage, open_run_storage
 
 
 def add_serve_command(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -238,6 +246,15 @@ def add_serve_command(commands: argparse._SubParsersAction[argparse.ArgumentPars
         "--principal",
         default="development:api",
         help="server-assigned development principal identifier",
+    )
+    serve.add_argument(
+        "--attachments-root",
+        metavar="DIRECTORY",
+        help=(
+            "where uploaded files are kept, for applications that declare a "
+            "file field (default: the TIDE_ATTACHMENTS_ROOT environment "
+            "variable)"
+        ),
     )
     serve.add_argument(
         "--oidc-issuer",
@@ -665,11 +682,18 @@ def _serve_api(arguments: argparse.Namespace) -> int:
                 )
                 return 1
 
+        try:
+            attachments = _attachment_service(arguments, model, storage)
+        except _AttachmentsNotConfigured as error:
+            print(f"API startup failed: {error}", file=sys.stderr)
+            return 1
+
         records = RecordsService(
             model,
             storage.repository,
             cursor_store=storage.cursor_store,
             audit_store=storage.execution_store,
+            attachments=attachments,
         )
         actions = ActionService(
             model,
@@ -683,6 +707,7 @@ def _serve_api(arguments: argparse.Namespace) -> int:
                 records,
                 authenticator,
                 actions=actions,
+                attachments=attachments,
                 base_path=arguments.base_path,
                 max_request_body_bytes=limits.max_request_body_bytes,
                 request_body_timeout_seconds=(
@@ -797,6 +822,49 @@ def _serve_api(arguments: argparse.Namespace) -> int:
         return 0
     finally:
         storage.dispose()
+
+
+class _AttachmentsNotConfigured(Exception):
+    """This application keeps files and this server was not told where."""
+
+
+def _attachment_service(
+    arguments: argparse.Namespace,
+    model: ApplicationModel,
+    storage: RunStorage,
+) -> AttachmentService | None:
+    """Build the file store this application needs, or explain what is missing.
+
+    Nothing is built for an application that declares no file field: the
+    requirement belongs to the application rather than to the framework, and
+    a server that keeps no files should not be asked where it keeps them.
+
+    Where the records are thrown away when the process stops -- `--demo`, or
+    any in-memory run -- the files go with them, for the same reason and
+    without a root. A durable run needs a real one, and refuses to start
+    without it rather than accepting uploads it would drop.
+    """
+
+    declaring = [name for name, entity in model.entities.items() if file_fields(entity)]
+    if not declaring:
+        return None
+    if storage.attachment_rows is None:
+        return AttachmentService(
+            model, InMemoryAttachmentRows(), InMemoryAttachmentBytes()
+        )
+    root = arguments.attachments_root or os.environ.get("TIDE_ATTACHMENTS_ROOT")
+    if not root:
+        raise _AttachmentsNotConfigured(
+            f"{declaring[0]} declares a file field, so this server needs "
+            "somewhere to keep files: pass --attachments-root or set "
+            "TIDE_ATTACHMENTS_ROOT"
+        )
+    try:
+        return AttachmentService(
+            model, storage.attachment_rows, FilesystemAttachmentBytes(root)
+        )
+    except AttachmentStoreError as error:
+        raise _AttachmentsNotConfigured(str(error)) from error
 
 
 def _server_tls_configuration(

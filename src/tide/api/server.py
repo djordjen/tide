@@ -346,6 +346,7 @@ class TideApiRuntime:
     readiness_probes: tuple[Callable[[], None], ...]
     max_request_body_bytes: int
     request_body_timeout_seconds: int
+    attachments: AttachmentService | None = None
 
 
 def build_fastapi_app(
@@ -476,6 +477,7 @@ def build_fastapi_app(
         _readiness_probes(records, action_service),
         max_request_body_bytes,
         request_body_timeout_seconds,
+        attachments,
     )
     bearer = HTTPBearer(
         bearerFormat=("JWT" if authenticator.authentication_type == "oidc-jwt" else "opaque"),
