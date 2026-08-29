@@ -571,6 +571,15 @@ class TidePresentationFormField(TidePresentationColumn):
     maximum: Decimal | None = None
     has_default: bool = False
     default_value: str | int | Decimal | bool | date | datetime | None = None
+    accept: tuple[str, ...] = ()
+    """Extensions this file field's picker may offer, empty for any kind.
+
+    What the server insists on either way -- this is so a picker does not
+    offer a file the upload is going to refuse.
+    """
+    max_size_bytes: int | None = Field(default=None, ge=1)
+    upload_path: str | None = None
+    """Where this field's uploads go, absent unless the caller may write it."""
 
     @model_validator(mode="after")
     def editor_constraints_are_consistent(

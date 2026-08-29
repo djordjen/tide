@@ -23,6 +23,7 @@ def wire_record(
     entity: NormalizedEntity,
     values: Mapping[str, Any],
     displays: ReferenceDisplays = NO_REFERENCE_DISPLAYS,
+    attachments: Mapping[str, Mapping[str, Any]] = {},
 ) -> dict[str, Any]:
     """Project a secured record with structured protected-field metadata.
 
@@ -30,6 +31,13 @@ def wire_record(
     resolved once for the whole page. A reference with no entry simply gets
     none: the client still has the identity and can ask, which is what it
     did for every reference before any of this was resolved server-side.
+
+    ``attachments`` does the same for file fields, and is stricter about a
+    missing entry: the stored value is a key into a store the client has no
+    access to, so a field whose key resolves to nothing is answered as empty
+    rather than as the key. There is nothing a client could do with the key
+    itself, and sending it would put a store identifier on the wire for no
+    one to use.
     """
 
     result: dict[str, Any] = {}
@@ -43,9 +51,12 @@ def wire_record(
         elif field.metadata["type"] == "collection" and field.target_entity:
             target = model.entity(field.target_entity)
             result[field_name] = [
-                wire_record(model, target, child, displays)
+                wire_record(model, target, child, displays, attachments)
                 for child in (value or ())
             ]
+        elif field.metadata["type"] == "file":
+            projection = attachments.get(value) if isinstance(value, str) else None
+            result[field_name] = dict(projection) if projection else None
         else:
             result[field_name] = value
             if field.metadata["type"] == "reference" and field.target_entity:

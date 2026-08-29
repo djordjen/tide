@@ -115,6 +115,22 @@ class TideProtectionMetadata(BaseModel):
     )
 
 
+class TideAttachmentValue(BaseModel):
+    """What a record says about the file one of its fields holds.
+
+    Enough to name it and to decide whether to fetch it, and nothing that
+    locates it: where the bytes are is the server's business, and the only
+    way to read them is the record's own download route.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    identity: str
+    filename: str
+    size: int
+    content_type: str
+
+
 class TideApiValidationIssue(BaseModel):
     """One safe field-addressable validation issue."""
 
@@ -477,7 +493,10 @@ _READ_ANNOTATIONS: dict[str, Any] = {
     "date": date,
     "datetime": datetime,
     "uuid": UUID,
-    "file": str,
+    # A file reads as what it is and writes as the key that names it: the
+    # two directions are deliberately different shapes, because a client
+    # can only ever send a key it was given by an upload.
+    "file": TideAttachmentValue,
 }
 
 

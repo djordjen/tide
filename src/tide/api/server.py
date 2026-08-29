@@ -11,8 +11,8 @@ from pathlib import Path as FileSystemPath
 import re
 import secrets
 from time import perf_counter
-from typing import Any, Callable, Literal, Mapping, Protocol, cast
-from urllib.parse import quote
+from typing import Any, Callable, Literal, Mapping, Protocol, Sequence, cast
+from urllib.parse import quote, unquote
 
 from fastapi import (
     Body,
@@ -27,7 +27,12 @@ from fastapi import (
     Security,
 )
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict
 from starlette.staticfiles import StaticFiles
@@ -151,6 +156,9 @@ from tide.reporting import (
 )
 from tide.security import PROTECTED
 from tide.services import ActionService, AuditHistoryReader, AuditHistoryService, RecordsService
+from tide.model.source import parse_size_literal
+from tide.services.attachment_store import AttachmentStoreError, AttachmentTooLarge
+from tide.services.attachments import AttachmentService, file_fields
 from tide.services.search import GlobalSearchService
 
 
@@ -348,6 +356,7 @@ def build_fastapi_app(
     actions: ActionService | None = None,
     reports: ReportService | None = None,
     audits: AuditHistoryReader | None = None,
+    attachments: AttachmentService | None = None,
     base_path: str = DEFAULT_BASE_PATH,
     logger: logging.Logger | None = None,
     max_request_body_bytes: int = DEFAULT_MAX_REQUEST_BODY_BYTES,
@@ -1707,6 +1716,45 @@ def build_fastapi_app(
                 ),
             )
 
+        if attachments is not None and file_fields(entity):
+            app.add_api_route(
+                f"{resource_path}/_files/{{field_name}}",
+                _file_upload_endpoint(
+                    attachments,
+                    records,
+                    entity,
+                    request_context,
+                    runtime_logger,
+                ),
+                methods=["POST"],
+                response_class=Response,
+                name=f"Upload {entity.label} file",
+                operation_id=(
+                    f"upload{preview.record_models[entity_name].__name__.removesuffix('Record')}File"
+                ),
+                tags=[tag],
+                responses=_documented_errors(400, 401, 403, 404, 413, 422),
+            )
+            app.add_api_route(
+                f"{resource_path}/{{{primary_key.name}}}/_files/{{field_name}}",
+                _file_download_endpoint(
+                    attachments,
+                    records,
+                    entity,
+                    primary_key,
+                    request_context,
+                    runtime_logger,
+                ),
+                methods=["GET"],
+                response_class=Response,
+                name=f"Download {entity.label} file",
+                operation_id=(
+                    f"download{preview.record_models[entity_name].__name__.removesuffix('Record')}File"
+                ),
+                tags=[tag],
+                responses=_documented_errors(400, 401, 403, 404),
+            )
+
     generated_openapi = app.openapi
 
     def tide_openapi() -> dict[str, Any]:
@@ -2054,6 +2102,7 @@ def _list_endpoint(
             # internal limits and fields. The correlation identifier is how
             # an operator finds the detail this deliberately withholds.
             raise _bad_request("list query parameters are invalid") from error
+        page_attachments = _attachment_projections(records, entity, page.records)
         return page_model.model_validate(
             {
                 "records": [
@@ -2066,6 +2115,7 @@ def _list_endpoint(
                             entity,
                             record,
                             page.references,
+                            page_attachments,
                         ),
                         entity,
                         record,
@@ -2129,6 +2179,7 @@ def _query_endpoint(
             raise _bad_request(str(error)) from error
         except (KeyError, TypeError, ValueError, InvalidOperation) as error:
             raise _bad_request("structured query is invalid") from error
+        page_attachments = _attachment_projections(records, entity, page.records)
         envelope: dict[str, Any] = {
             "records": [
                 # A page carries the appearance verdict too. A rule that
@@ -2140,6 +2191,7 @@ def _query_endpoint(
                         entity,
                         record,
                         page.references,
+                        page_attachments,
                     ),
                     entity,
                     record,
@@ -2168,6 +2220,172 @@ def _query_endpoint(
 
     query_records.__name__ = f"query_{entity.name.replace('.', '_')}"
     return query_records
+
+
+def _file_upload_endpoint(
+    attachments: AttachmentService,
+    records: RecordsService,
+    entity: NormalizedEntity,
+    context_dependency: Any,
+    runtime_logger: logging.Logger,
+) -> Any:
+    """Stage an uploaded file for one field of one entity.
+
+    Scoped to the field rather than to a record, because a create has no
+    record yet -- and because the field is what declares how large a file
+    may be and which kinds it accepts, so the same declaration the form
+    shows is the one the server insists on.
+    """
+
+    async def upload_file(
+        request: Request,
+        field_name: str = Path(),
+        context: RequestContext = Depends(context_dependency),
+    ) -> Response:
+        try:
+            attachments.file_field(entity.name, field_name)
+        except ValueError as error:
+            # Absent rather than denied: a field that holds no file has no
+            # upload to refuse, and saying "forbidden" would imply one.
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "not_found", "message": str(error)},
+            ) from error
+        records.security.authorize_entity(entity, "update", context)
+        if not records.security.can_write_field(entity.name, field_name, context):
+            raise AuthorizationError(
+                f"field {field_name!r} is not writable"
+            )
+        filename = request.headers.get("X-Tide-Filename", "")
+        if not filename.strip():
+            raise _bad_request("an upload must name the file it carries")
+
+        # Read once into the field's own bound rather than through the
+        # global body limit: the declared `max_size` is what decides here,
+        # and it is smaller than the request cap by construction.
+        limit = parse_size_literal(
+            str(attachments.file_field(entity.name, field_name).metadata["max_size"])
+        )
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body) > limit:
+                return _request_too_large()
+        try:
+            record = attachments.stage(
+                entity.name,
+                field_name,
+                filename=unquote(filename),
+                content_type=request.headers.get("Content-Type", ""),
+                chunks=[bytes(body)],
+                principal=context.principal.identifier,
+            )
+        except AttachmentTooLarge:
+            return _request_too_large()
+        log_runtime_event(
+            runtime_logger,
+            logging.INFO,
+            "records.attachment",
+            channel=context.channel.value,
+            correlation_id=context.correlation_id,
+            operation="upload",
+            principal=context.principal.identifier,
+            subject=f"{entity.name}.{field_name}",
+        )
+        return JSONResponse(
+            status_code=201, content=attachments.projection(record)
+        )
+
+    upload_file.__name__ = f"upload_{entity.name.replace('.', '_')}_file"
+    return upload_file
+
+
+def _file_download_endpoint(
+    attachments: AttachmentService,
+    records: RecordsService,
+    entity: NormalizedEntity,
+    primary_key: NormalizedField,
+    context_dependency: Any,
+    runtime_logger: logging.Logger,
+) -> Any:
+    """Hand back one record's file.
+
+    Scoped to the record on purpose: reading it is the entity permission,
+    the row policies and the field's own read security, all of which the
+    ordinary record read already applies. Asking those questions again here
+    would be a second implementation of the answer.
+    """
+
+    def download_file(
+        field_name: str = Path(),
+        context: RequestContext = Depends(context_dependency),
+        identity: str = Path(alias=primary_key.name, description="Record identity"),
+    ) -> Response:
+        try:
+            attachments.file_field(entity.name, field_name)
+        except ValueError as error:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "not_found", "message": str(error)},
+            ) from error
+        try:
+            typed_identity = _coerce_identity(records.model, primary_key, identity)
+            values = records.get(entity.name, typed_identity, context)
+        except (TypeError, ValueError, InvalidOperation) as error:
+            raise _bad_request("record identity has an invalid type") from error
+        guid = values.get(field_name)
+        if guid is PROTECTED:
+            raise AuthorizationError(
+                f"field {field_name!r} may not be read"
+            )
+        if not isinstance(guid, str):
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "not_found", "message": "no file is attached"},
+            )
+        try:
+            record, stream = attachments.open_download(guid)
+        except (ValueError, AttachmentStoreError) as error:
+            # The row said there is a file and the store disagrees. That is
+            # a defect `tide attachments check` reports, not a 404 telling
+            # the caller their record has no document.
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "code": "attachment_missing",
+                    "message": "the attached file could not be read",
+                },
+            ) from error
+        log_runtime_event(
+            runtime_logger,
+            logging.INFO,
+            "records.attachment",
+            channel=context.channel.value,
+            correlation_id=context.correlation_id,
+            operation="download",
+            principal=context.principal.identifier,
+            subject=f"{entity.name}.{field_name}",
+        )
+        return StreamingResponse(
+            stream,
+            media_type=record.content_type,
+            headers={
+                "Content-Disposition": _content_disposition(record.filename),
+                "Content-Length": str(record.size),
+                # The bytes are whatever was uploaded; nothing here has
+                # interpreted them and the browser must not either.
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+    download_file.__name__ = f"download_{entity.name.replace('.', '_')}_file"
+    return download_file
+
+
+def _content_disposition(filename: str) -> str:
+    """Name the download without letting the name break the header."""
+
+    return f"attachment; filename*=UTF-8''{quote(filename, safe='')}"
 
 
 def _export_endpoint(
@@ -2350,6 +2568,18 @@ def _get_endpoint(
     return get_record
 
 
+def _attachment_projections(
+    records: RecordsService,
+    entity: NormalizedEntity,
+    rows: Sequence[Mapping[str, Any]],
+) -> Mapping[str, Mapping[str, Any]]:
+    """How this page's file fields name themselves, resolved once."""
+
+    if records.attachments is None:
+        return {}
+    return records.attachments.projections_for_records(entity, rows)
+
+
 def _wire_record_with_state(
     records: RecordsService,
     entity: NormalizedEntity,
@@ -2361,6 +2591,7 @@ def _wire_record_with_state(
         entity,
         values,
         records.reference_displays(entity.name, (values,), context),
+        _attachment_projections(records, entity, (values,)),
     )
     appearance = _record_appearance(
         entity.metadata.get("appearance") or (),

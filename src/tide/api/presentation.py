@@ -30,7 +30,7 @@ from tide.api.contracts import (
 )
 from tide.api.openapi import RestExposure
 from tide.labels import declared_values, humanize
-from tide.model.source import RESERVED_ACTION_NAMES
+from tide.model.source import RESERVED_ACTION_NAMES, parse_size_literal
 from tide.compiler.normalized import (
     ApplicationModel,
     NormalizedEntity,
@@ -686,7 +686,41 @@ def _form_field_contract(
         maximum=metadata.get("maximum"),
         has_default=has_default,
         default_value=default_value if has_default else None,
+        accept=tuple(str(item) for item in metadata.get("accept", ())),
+        max_size_bytes=(
+            parse_size_literal(str(metadata["max_size"]))
+            if metadata.get("max_size")
+            else None
+        ),
+        upload_path=_upload_path(
+            entity, field_name, exposures, base_path=base_path
+        )
+        if writable
+        else None,
     )
+
+
+def _upload_path(
+    entity: NormalizedEntity,
+    field_name: str,
+    exposures: Mapping[str, RestExposure],
+    *,
+    base_path: str,
+) -> str | None:
+    """Where a file field's uploads go, when there is anywhere at all.
+
+    Absent unless the entity is REST-exposed: the browser reaches files
+    through the same generated resources it reaches records through, and a
+    control offering an upload with nowhere to send it is worse than no
+    control.
+    """
+
+    if entity.field(field_name).metadata["type"] != "file":
+        return None
+    exposure = exposures.get(entity.name)
+    if exposure is None:
+        return None
+    return f"{base_path.rstrip('/')}/{exposure.path}/_files/{field_name}"
 
 
 def _lookup_contract(

@@ -169,6 +169,36 @@ class AttachmentService:
                 found[guid] = self.projection(record)
         return found
 
+    def projections_for_records(
+        self,
+        entity: Any,
+        rows: Iterable[Mapping[str, Any]],
+    ) -> dict[str, dict[str, Any]]:
+        """Resolve every file a page of records names, in one pass.
+
+        Walks into collections as well: a record's children carry their own
+        file fields, and the wire projects the whole tree from one map.
+        """
+
+        guids: list[str] = []
+
+        def walk(current: Any, row: Mapping[str, Any]) -> None:
+            for name, field in current.fields.items():
+                kind = field.metadata["type"]
+                if kind == "file":
+                    value = row.get(name)
+                    if isinstance(value, str):
+                        guids.append(value)
+                elif kind == "collection" and field.target_entity:
+                    target = self.model.entity(field.target_entity)
+                    for child in row.get(name) or ():
+                        if isinstance(child, Mapping):
+                            walk(target, child)
+
+        for row in rows:
+            walk(entity, row)
+        return self.projections_for(guids)
+
     def open_download(self, guid: str) -> tuple[AttachmentRecord, BinaryIO]:
         record = self.rows.get(guid)
         if record is None:
