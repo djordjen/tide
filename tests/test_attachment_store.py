@@ -20,6 +20,7 @@ from typing import Any
 
 import pytest
 
+from tide.data.sqlalchemy_attachments import SQLAlchemyAttachmentRows
 from tide.services.attachment_store import (
     AttachmentRecord,
     AttachmentStoreError,
@@ -52,9 +53,20 @@ def _record(guid: str = GUID, **overrides: Any) -> AttachmentRecord:
     return AttachmentRecord(**values)
 
 
-@pytest.fixture(params=["memory"])
-def rows(request: pytest.FixtureRequest) -> Any:
-    return InMemoryAttachmentRows()
+@pytest.fixture(params=["memory", "sqlalchemy"])
+def rows(request: pytest.FixtureRequest, tmp_path: Path) -> Any:
+    if request.param == "memory":
+        yield InMemoryAttachmentRows()
+        return
+    database = tmp_path / "attachments.sqlite"
+    store = SQLAlchemyAttachmentRows(
+        f"sqlite+pysqlite:///{database.as_posix()}", mode="managed"
+    )
+    store.create_schema()
+    try:
+        yield store
+    finally:
+        store.dispose()
 
 
 @pytest.fixture(params=["memory"])
