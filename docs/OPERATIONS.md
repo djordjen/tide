@@ -431,6 +431,46 @@ schema. Do not independently roll back application binaries against an
 incompatible migrated schema. Future server adapters likewise use
 database-native backup and point-in-time facilities where configured.
 
+## Files an application keeps
+
+An application that declares a `file` field needs somewhere to put uploads.
+That is deployment configuration like the database URL — the application says
+it keeps documents, an operator says where they go — and it is named with
+`--attachments-root` or `TIDE_ATTACHMENTS_ROOT`. A durable server whose model
+declares one and has no root **does not start**, and says which entity needs
+it: a server that accepts uploads and drops them is worse than one that never
+opened. An in-memory run is the exception, having nothing to keep.
+
+Inside the root, a file is stored under its key, sharded by that key's first
+two characters, with no extension:
+
+```text
+<root>/tmp/            # uploads still arriving
+<root>/ab/ab3f9c72-…   # the bytes
+```
+
+The path is derived from the key alone, so a recovery tool needs nothing but
+the key to find a file. Bytes become visible by a rename out of `tmp/`, so a
+file is either whole or absent. Nothing is served from this tree directly:
+files reach a reader only through the record that holds them.
+
+**Two units to back up, not one.** The database carries the fields that name
+files and the metadata table describing them, captured atomically by the
+backup contract above. The attachments root is a plain file tree, copied by
+whatever the operator already trusts. After a restore, reconcile them:
+
+```bash
+tide attachments check <application> --database-env TIDE_DATABASE_URL --attachments-root /srv/tide/files
+```
+
+It reports three directions, which mean different things. A row whose file is
+missing is a document somebody will ask for and not receive — the one that
+matters. Files no row names are disk; `--sweep` reclaims them once they have
+waited out `--grace` (24 hours by default), which is what keeps an abandoned
+form's upload from disappearing while somebody is still filling it in. A
+digest that no longer matches its row says something happened outside TIDE,
+and is never swept: those bytes are the only copy of whatever they now are.
+
 ## Minimum production checks
 
 - application and schema versions are visible without exposing secrets;

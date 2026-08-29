@@ -154,6 +154,58 @@ sweeping an unreadable field would let its values be guessed one probe at a
 time. Each group is bounded by `limit` (at most 25) and says when it
 truncated; a search is a doorway, not a browse.
 
+### Files on a record
+
+A record names its file rather than locating it:
+
+```json
+{
+  "id": 1,
+  "number": "INV-2026-0001",
+  "signed_document": {
+    "identity": "ab3f9c72-5b84-4a11-9d0e-6c2f8a7b4e35",
+    "filename": "confirmation.pdf",
+    "size": 48211,
+    "content_type": "application/pdf"
+  }
+}
+```
+
+Writing one is the other shape: the field takes the key an upload answered
+with, or `null`. The two directions differ because a client can only ever
+send a key it was given.
+
+Uploading is `POST /api/v1/{resource}/_files/{field}` with the file as the
+request body and its name in `X-Tide-Filename` (percent-encoded). It is
+scoped to a field rather than to a record because creating one has no record
+yet, and because the field is what declares how large a file may be and which
+kinds it accepts — the same declaration the form shows. The body is bounded
+while it arrives, so a file that is too large is refused on the way in
+(`413`) rather than after it has all landed; a kind the field does not accept
+is `422` on that field. The answer is the projection above, and the file is
+*staged*: it exists, and no record refers to it.
+
+The record claims it at commit. A key that names no upload, one that already
+belongs to another record, one staged for a different field, or one staged by
+a different identity is refused as a validation issue on the field — a staged
+key is effectively a bearer token until it is claimed, and an identity that
+has merely seen one must not be able to attach somebody else's document to
+its own record.
+
+Downloading is `GET /api/v1/{resource}/{identity}/_files/{field}`, scoped to
+the record on purpose: it reads the record first, so the entity permission,
+the row policies and the field's own read security all decide before a byte
+moves, and missing, forbidden and unauthenticated answer exactly as they do
+on the record route. The response streams with the stored content type, the
+original filename in `Content-Disposition`, an exact `Content-Length` and
+`X-Content-Type-Options: nosniff`: nothing here has interpreted the bytes and
+the browser must not either.
+
+**MCP carries the projection and no content tool.** An agent reading a record
+sees what the document is called and may clear the field or leave it as it
+is, because it cannot stage bytes and therefore cannot claim new ones.
+Handing file content to an agent is its own decision and has not been made.
+
 ### Exporting a browse view
 
 A reader who has filtered, sorted and totalled a grid can take the result

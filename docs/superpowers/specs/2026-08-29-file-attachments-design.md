@@ -1,7 +1,7 @@
 # File attachments — design
 
-**Date:** 2026-08-29 · **Status:** approved design, pre-implementation ·
-**Decided with:** Djordje (scoping rulings noted inline)
+**Date:** 2026-08-29 · **Status:** built; see "What the building changed"
+at the end · **Decided with:** Djordje (scoping rulings noted inline)
 
 ## What this is
 
@@ -263,3 +263,41 @@ of the collection composition, not as code.
 - `tide attachments check` tests cover all three defect directions plus
   sweep grace behavior.
 - Sabotage passes for the security table rows, per house practice.
+
+## What the building changed
+
+Recorded because a design read later should not quietly disagree with the
+code. Everything above stands except these.
+
+**Uploads are a raw streamed body, not multipart.** FastAPI needs
+`python-multipart` for form parsing and the repository has no such
+dependency; the file is the request body instead, with its name in
+`X-Tide-Filename` (percent-encoded). The two-phase flow is unchanged, and
+the bound is still enforced while the body arrives.
+
+**The journey attaches after posting, not before.** The spec's journey
+uploaded to a draft and then posted. Doing it in the other order proves the
+carve-out instead of merely exercising the control, so the journey posts
+first and attaches to the frozen record.
+
+**A posted invoice is no longer drawn by the read-only renderer.** It is no
+longer entirely read-only -- it keeps one writable field -- so the browser
+uses the editable renderer with a single control on a screen of values. The
+read-only renderer still draws records nobody may edit at all, and it
+learned about file fields too: it had shown a filename with no way to fetch
+the file.
+
+**Runtime log events omit the filename.** The reviewed log-field allowlist
+stays as it is; the metadata row and the field's own audit trail carry the
+name, which is where the history tab reads it from anyway.
+
+**`count(file)` is refused rather than allowed.** The summary set is derived
+from the field types, so a file field had silently become countable.
+Counting documents by presence is a real question and a real contract
+decision; it is not a side effect of a derivation, so it is out until it is
+asked for.
+
+**Deferred, and worth knowing:** generated scaffolding can emit a
+`type: file` document without `max_size`, which fails compilation one stage
+later with a source-located `TIDE287` rather than at generation. `PlannedField`
+would need the two new keys to close it.

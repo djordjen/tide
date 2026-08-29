@@ -488,6 +488,52 @@ nothing, which is the opposite of `immutable_when`: withholding an edit is
 caution, while painting a record a colour that means something it is not is a
 lie about the data.
 
+## Documents
+
+A record keeps a document in a field, so the schema says what each document
+*is* rather than gathering them into a bucket beside the record:
+
+```yaml
+  signed_document:
+    type: file
+    label: Signed document
+    help: The countersigned confirmation, attachable after posting.
+    max_size: 10mb
+    accept: [pdf, png, jpg]
+    audit: values
+```
+
+An entity may declare as many as it has roles for — a purchase carrying a
+`quotation`, a `supplier_invoice` and a `warranty` is three declared fields
+with their own labels, layout placement, field security and audit. Where the
+documents are genuinely unbounded rather than named, that is a collection of
+child rows each holding a file, composed from the same primitive.
+
+The field stores the attachment's key. The bytes live outside every database
+on a filesystem the deployment names, and the metadata — filename, type,
+size, digest, who uploaded it and when — is a framework table. Neither is the
+application's to spell.
+
+`max_size` is required and bounded by the framework's own ceiling of 100mb:
+an author states a bound, inside a bound. `accept` narrows what a picker
+offers and what an upload will take, as lowercase extensions. Everything that
+decides about a *value* is refused, because the field does not hold one —
+`unique`, `default`, `edit_mask`, `computed` and their relatives are
+`TIDE289`. A file field is also not something a query may ask about: sorting,
+filtering and summarizing all ask about the stored key rather than the
+document, so none of them offer it.
+
+Documents are a managed-database feature. A legacy schema is not TIDE's to
+add a column or a table to, so a file field there is refused at compile time
+(`TIDE290`) rather than at the first upload.
+
+**A workflow lock freezes a file field only once it holds a file.** The
+countersigned copy of a document arrives *after* the record it belongs to is
+posted, which is the real order of events, so a locked record still accepts a
+document it does not have yet and refuses to exchange or remove the one it
+has. An author who wants a file field frozen outright writes `immutable_when`
+and gets it verbatim.
+
 ## Schema evolution
 
 Alembic executes migrations but does not decide model semantics. TIDE must

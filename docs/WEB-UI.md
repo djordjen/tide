@@ -229,6 +229,25 @@ because a result that cannot be opened is not a result on this surface. A
 truncated group says "first matches only": a search is a doorway, and whoever
 needs more has already named the entity and belongs in its view.
 
+### Documents
+
+A file field renders where the form's layout puts it, like any other. Empty
+and writable, it offers a picker; filled, it names the file, says how large
+it is, and offers **Download**, **Replace** and **Delete**. A field the model
+requires offers Replace and not Delete — a document an application insists on
+can be exchanged for a better copy, never removed, or the control would build
+a record its own validation refuses to save. A locked or unwritable document
+keeps Download and loses the rest, including on a record nobody may edit at
+all, where the read-only renderer draws it.
+
+Choosing a file uploads it at once and puts what came back in the draft, so a
+document that has only just been picked shows its name and size without a
+round trip. **The record still has to be saved**: until then nothing refers
+to the file, and cancelling the form leaves behind only bytes the server
+reclaims on its own. Replacing is one save rather than a removal and an
+upload, so a record never passes through a state where its document is
+missing, and a save that fails leaves the file it had.
+
 ### Record history
 
 Where an entity declares audit and the session's capabilities say this

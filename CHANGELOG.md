@@ -181,6 +181,66 @@ Regenerating the terminal screenshots also found two stale selectors in
 `tools/capture_screenshots.py`, left behind when collections gained per-name
 widget ids; the tool runs outside CI, so nothing had said so.
 
+**A record keeps its documents in fields.** `type: file` joins the closed
+field types: the field holds an attachment's key, the bytes live outside
+every database on a filesystem the deployment names, and the metadata --
+filename, type, size, digest, who uploaded it and when -- is a framework
+table in the application's own database. So the schema says what each
+document *is*: a purchase carrying a `quotation`, a `supplier_invoice` and a
+`warranty` is three declared fields with their own labels, layout, field
+security and audit, rather than three anonymous rows in a bucket beside the
+record. Where documents are genuinely unbounded, that is a collection of
+file-bearing child rows, composed from the same primitive rather than built
+as a second system.
+
+An author states a bound (`max_size`, required) inside the bound the
+framework states (100mb), and may narrow what a picker offers (`accept`).
+Everything that decides about a *value* is refused, because the field does
+not hold one -- comparing, defaulting, masking or computing a random key
+would be a declaration that compiles and does nothing (`TIDE287`-`TIDE291`).
+A file field is not something a query may ask about either: one gate refuses
+it for sorting, filtering and summarizing together, so no surface has to
+remember the rule. Legacy databases are refused at compile time, where no
+column could be created anyway.
+
+Uploads are staged and claimed at commit, because a create has no record yet
+and a form somebody may still cancel is no place to write business data. The
+claim asks four things -- does the key name an upload, is it still unclaimed,
+was it staged for this entity and field, and was it staged by the identity
+now committing -- since a staged key is a bearer token until it is claimed,
+and an identity that has merely seen one must not be able to attach somebody
+else's document to its own record. Refusals are validation issues on the
+field: from where the person stands, a key that will not claim is something
+wrong with the file they picked, not a locked door.
+
+**A workflow lock freezes a file field only once it holds a file.** The
+countersigned copy arrives *after* the invoice is posted, which is the real
+order of events, so a locked record still accepts a document it does not have
+and refuses to exchange or remove the one it has. It is derived rather than
+enforced twice -- the field compiles to `(<lock>) and <field> != null` -- so
+the one `immutable_when` machinery every renderer, REST and MCP already asks
+decides it. The reference invoice declares `signed_document` and demonstrates
+exactly that: on a posted invoice every other field has collapsed to
+read-only text while this one still offers a picker.
+
+Downloading is scoped to the record, so the ordinary record read applies the
+entity permission, the row policies and the field's own read security before
+a byte moves, and missing, forbidden and unauthenticated answer as they do on
+the record route. Nothing deletes bytes inline: releasing a file starts a
+grace clock, because a download may still be streaming and a crash must leave
+a sweep something to reason about. `tide attachments check` reconciles the
+two stores in three directions -- rows without files, files without rows, and
+digests that moved, the last never swept because those bytes are the only
+copy of whatever they have become.
+
+The browser gets the control: a picker when empty, and filename, size,
+Download, Replace and Delete when filled -- Replace but not Delete on a field
+the model requires, since a mandatory document can be exchanged and never
+removed. The terminal reads documents and does not move them, showing the
+filename and never the key. MCP carries the projection and no content tool,
+because handing file bytes to an agent is its own decision.
+
+
 ### Terminal client
 
 Every terminal screen composes `TideHeader` rather than Textual's `Header`.
