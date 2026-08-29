@@ -1025,11 +1025,10 @@ def test_textual_studio_uses_schema_choice_and_boolean_controls() -> None:
             assert selector.display
             assert selector.value == "integer"
             assert app.selected_property is not None
-            assert app.selected_property.choices[-3:] == (
-                "choice",
-                "reference",
-                "collection",
-            )
+            # Derived, for the reason the headless assertion above gives: a
+            # tail written out here records how many types existed the day it
+            # was written, and says nothing when a tenth arrives.
+            assert app.selected_property.choices == get_args(FieldType)
             assert not app.query_one("#property-value", Input).display
 
             required_key = _property_key(

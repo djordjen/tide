@@ -1318,3 +1318,151 @@ def test_the_framework_permission_the_framework_defines_compiles(
     model = compile_project(project)
 
     assert model.roles["administrator"] == ("tide.users.administer",)
+
+
+def _file_field_project(
+    tmp_path: Path,
+    *fields: str,
+    mode: str = "managed",
+) -> Path:
+    """An entity whose fields are written here, for the file-field rules.
+
+    Built rather than copied from invoicing: these tests are about what the
+    compiler refuses, and a refusal proved against a fixture that also has
+    to keep compiling for everything else is a fixture nobody can edit.
+    """
+
+    project = tmp_path / "files"
+    models = project / "models"
+    models.mkdir(parents=True)
+    (project / "tide.yaml").write_text(
+        "\n".join(
+            [
+                'schema_version: "0.1"',
+                "application: {name: Files, version: 0.1.0}",
+                f"database: {{mode: {mode}}}",
+                "model: {paths: [models]}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    storage = "storage: {table: notes}" if mode == "legacy" else None
+    (models / "note.yaml").write_text(
+        "\n".join(
+            [
+                "entity: docs.Note",
+                *([storage] if storage else []),
+                "fields:",
+                "  id: {type: integer, primary_key: true}",
+                *[f"  {field}" for field in fields],
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return project
+
+
+def _codes(error: CompilationFailed) -> set[str]:
+    return {diagnostic.code for diagnostic in error.diagnostics}
+
+
+def test_a_file_field_compiles_with_its_declared_bounds(tmp_path: Path) -> None:
+    project = _file_field_project(
+        tmp_path,
+        "scan: {type: file, max_size: 10mb, accept: [pdf, png]}",
+    )
+
+    model = compile_project(project)
+
+    field = model.entity("docs.Note").field("scan")
+    assert field.metadata["type"] == "file"
+    assert field.metadata["max_size"] == "10mb"
+    # Field metadata dumps in python mode, so a declared sequence stays a
+    # tuple here -- entity metadata is the one that becomes JSON lists.
+    assert field.metadata["accept"] == ("pdf", "png")
+
+
+def test_a_file_field_must_declare_how_large_a_file_may_be(tmp_path: Path) -> None:
+    """The author states a bound, inside the bound the framework states.
+
+    Without one there is no answer to how much a single request may spend,
+    and a default chosen here would be a limit nobody in the application
+    knows about.
+    """
+
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(_file_field_project(tmp_path, "scan: {type: file}"))
+
+    assert "TIDE287" in _codes(caught.value)
+
+
+def test_a_file_field_may_not_ask_for_more_than_the_ceiling(tmp_path: Path) -> None:
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(
+            _file_field_project(tmp_path, "scan: {type: file, max_size: 200mb}")
+        )
+
+    assert "TIDE288" in _codes(caught.value)
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        "unique: true",
+        "primary_key: true",
+        "concurrency_token: true",
+        "choices: [a, b]",
+        "target: docs.Note",
+        "default: something",
+        "edit_mask: {regex: '.+'}",
+        "computed: {expression: 'id'}",
+    ],
+)
+def test_a_file_field_refuses_what_it_cannot_mean(
+    tmp_path: Path,
+    declaration: str,
+) -> None:
+    """Each of these decides something about a value the field does not hold.
+
+    The field holds a key into the attachment store; comparing it, defaulting
+    it or masking it would be deciding about the key rather than the file, and
+    a declaration that compiles and does nothing reads as a working one.
+    """
+
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(
+            _file_field_project(
+                tmp_path,
+                f"scan: {{type: file, max_size: 1mb, {declaration}}}",
+            )
+        )
+
+    assert "TIDE289" in _codes(caught.value)
+
+
+def test_a_legacy_database_refuses_file_fields(tmp_path: Path) -> None:
+    """No-DDL means the column could not be created there anyway.
+
+    Refused at compile time, where the author is, rather than at the first
+    upload against a database TIDE does not own.
+    """
+
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(
+            _file_field_project(
+                tmp_path,
+                "scan: {type: file, max_size: 1mb, column: scan_guid}",
+                mode="legacy",
+            )
+        )
+
+    assert "TIDE290" in _codes(caught.value)
+
+
+def test_size_and_accept_belong_to_file_fields_alone(tmp_path: Path) -> None:
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(
+            _file_field_project(tmp_path, "name: {type: string, max_size: 1mb}")
+        )
+
+    assert "TIDE291" in _codes(caught.value)

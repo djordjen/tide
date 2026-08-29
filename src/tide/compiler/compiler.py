@@ -33,6 +33,7 @@ from tide.model.source import (
     BROWSE_EDIT_MODES,
     FRAMEWORK_PERMISSION_PREFIX,
     FRAMEWORK_PERMISSIONS,
+    MAX_FILE_SIZE_BYTES,
     RESERVED_ACTION_NAMES,
     SUMMARIZABLE_FIELD_TYPES,
     ActionSource,
@@ -45,6 +46,7 @@ from tide.model.source import (
     ReportSource,
     SecurityDocumentSource,
     ViewSource,
+    parse_size_literal,
 )
 
 SourceType = TypeVar("SourceType", bound=BaseModel)
@@ -996,6 +998,84 @@ def _fields_with_derived_immutability(
     return fields
 
 
+def _validate_file_fields(
+    entity: EntitySource,
+    document: SourceDocument,
+    database_mode: str,
+    diagnostics: list[Diagnostic],
+) -> None:
+    """What a `file` field may and may not say about itself.
+
+    The field holds a key into the attachment store rather than a value of
+    its own, so every declaration that decides something *about a value* --
+    comparing it, defaulting it, masking it, computing it -- is refused
+    here rather than accepted and ignored.
+    """
+
+    for field_name, field in entity.fields.items():
+        if field.type != "file":
+            if field.max_size is not None or field.accept:
+                _add(
+                    diagnostics,
+                    "TIDE291",
+                    "max_size and accept belong to file fields alone",
+                    document,
+                    ("fields", field_name),
+                )
+            continue
+
+        if database_mode == "legacy":
+            _add(
+                diagnostics,
+                "TIDE290",
+                "file fields need a managed database; a legacy schema is not "
+                "TIDE's to add the column or the attachment table to",
+                document,
+                ("fields", field_name),
+            )
+
+        if field.max_size is None:
+            _add(
+                diagnostics,
+                "TIDE287",
+                "a file field must declare max_size",
+                document,
+                ("fields", field_name),
+            )
+        elif parse_size_literal(field.max_size) > MAX_FILE_SIZE_BYTES:
+            _add(
+                diagnostics,
+                "TIDE288",
+                f"max_size must not exceed {MAX_FILE_SIZE_BYTES // (1024 * 1024)}mb",
+                document,
+                ("fields", field_name, "max_size"),
+            )
+
+        for label, declared in (
+            ("primary_key", field.primary_key),
+            ("unique", field.unique),
+            ("concurrency_token", field.concurrency_token),
+            ("choices", bool(field.choices)),
+            ("values", bool(field.values)),
+            ("target", field.target is not None),
+            ("default", field.default is not None),
+            ("default_factory", field.default_factory is not None),
+            ("server_default", field.server_default is not None),
+            ("edit_mask", field.edit_mask is not None),
+            ("computed", field.computed is not None),
+            ("format", field.format is not None),
+            ("length", field.length is not None),
+        ):
+            if declared:
+                _add(
+                    diagnostics,
+                    "TIDE289",
+                    f"a file field may not declare {label}",
+                    document,
+                    ("fields", field_name),
+                )
+
+
 def _validate_entities(
     entities: dict[str, EntitySource],
     documents: dict[str, SourceDocument],
@@ -1054,6 +1134,8 @@ def _validate_entities(
                 document,
                 ("fields",),
             )
+
+        _validate_file_fields(entity, document, database_mode, diagnostics)
 
         for search_field in entity.search_fields:
             _require_field(

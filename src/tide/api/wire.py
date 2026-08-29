@@ -223,4 +223,10 @@ def decode_wire_value(
         if not isinstance(value, str):
             raise TypeError
         return value
+    if field_type == "file":
+        # A write names the attachment by its key. What the file *is* travels
+        # the other way, as the record's projection of that key.
+        if not isinstance(value, str):
+            raise TypeError
+        return value
     raise TypeError

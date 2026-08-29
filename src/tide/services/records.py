@@ -615,6 +615,14 @@ class RecordsService:
             raise ValueError(
                 f"field {field_name!r} is not stored and cannot be queried"
             )
+        if field.metadata["type"] == "file":
+            # Stored, but what is stored is an attachment's key. Ordering by
+            # it, enumerating it or comparing it are all questions about a
+            # random uuid rather than about the document, so the one gate
+            # every surface asks refuses them together.
+            raise ValueError(
+                f"field {field_name!r} holds a file and cannot be queried"
+            )
 
     def distinct_values(
         self,
@@ -1979,6 +1987,11 @@ def _coerce_scalar(field_type: str, value: Any) -> tuple[Any, bool]:
         return value, isinstance(value, datetime)
     if field_type == "uuid":
         return value, isinstance(value, UUID)
+    if field_type == "file":
+        # The stored value is an attachment's key, not its contents: 36
+        # characters of `uuid4`. Whether that key is one this record may
+        # claim is the attachment service's question, not this one's.
+        return value, isinstance(value, str) and len(value) == 36
     return value, True
 
 

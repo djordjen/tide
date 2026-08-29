@@ -454,12 +454,17 @@ def browse_sortable_fields(
     columns: tuple[str, ...],
     entity: NormalizedEntity,
 ) -> tuple[str, ...]:
-    """Return displayed fields that the structured query contract can sort."""
+    """Return displayed fields that the structured query contract can sort.
+
+    A file field is not one of them: its stored value is an attachment key,
+    so ordering by it orders by a random uuid while looking like ordering by
+    the document.
+    """
 
     return tuple(
         name
         for name in columns
-        if entity.field(name).metadata["type"] not in {"collection", "reference"}
+        if entity.field(name).metadata["type"] not in {"collection", "reference", "file"}
         and not (
             entity.field(name).metadata.get("computed")
             and entity.field(name).metadata["computed"].get("materialization")
@@ -476,13 +481,15 @@ def browse_filterable_fields(
 
     The sortable rule plus references: a reference filters by identity and
     enumerates beside its display names, while a collection is navigation
-    and a virtual computed field has no stored column to ask.
+    and a virtual computed field has no stored column to ask. A file field
+    is excluded for the reason it cannot be sorted: enumerating it would
+    offer a funnel of attachment keys.
     """
 
     return tuple(
         name
         for name in columns
-        if entity.field(name).metadata["type"] != "collection"
+        if entity.field(name).metadata["type"] not in {"collection", "file"}
         and not (
             entity.field(name).metadata.get("computed")
             and entity.field(name).metadata["computed"].get("materialization")

@@ -26,7 +26,9 @@ from tide.api.openapi import _scalar_annotation
 from tide.api.wire import decode_wire_value
 from tide.data import InMemoryRepository, SQLAlchemyRepository
 from tide.data import sqlalchemy as sqlalchemy_adapter
-from tide.model.source import SCALAR_FIELD_TYPES
+from tide.mcp.runtime import _field_schema
+from tide.model.source import SCALAR_FIELD_TYPES, SUMMARIZABLE_FIELD_TYPES
+from tide.presentation import browse_filterable_fields, browse_sortable_fields
 from tide.runtime import Principal, RequestContext
 from tide.services import RecordsService
 from tide.services.records import _coerce_scalar
@@ -43,6 +45,7 @@ DECLARATIONS = {
     "datetime": "{type: datetime}",
     "uuid": "{type: uuid}",
     "choice": "{type: choice, choices: [draft, posted]}",
+    "file": "{type: file, max_size: 1mb}",
 }
 
 VALUES: dict[str, object] = {
@@ -54,6 +57,9 @@ VALUES: dict[str, object] = {
     "datetime": datetime(2026, 8, 13, 12, 0, tzinfo=timezone.utc),
     "uuid": UUID("3f1d9c72-5b84-4a11-9d0e-6c2f8a7b4e35"),
     "choice": "draft",
+    # An attachment key travels as itself in both directions: the record's
+    # projection of the file is `_tide` state, not the field's stored value.
+    "file": "9a7b4e35-6c2f-4a11-9d0e-3f1d9c725b84",
 }
 
 # Types whose SQL column is legitimately the string fallback in `_sql_type`.
@@ -167,6 +173,50 @@ def test_every_scalar_field_type_survives_the_remote_client(
 
     assert restored == value, f"a {field_type} value did not survive the client"
     assert type(restored) is type(value)
+
+
+def test_a_file_field_is_not_something_a_query_may_ask_about(model) -> None:
+    """Sorting, filtering and summarizing all ask about a *value*.
+
+    A file field stores an attachment's key, so every one of those questions
+    is asked of the key rather than of the file: rows ordered by a random
+    uuid, a funnel offering thirty of them, a count nobody declared. The one
+    gate all three share refuses it, so no surface has to remember to.
+    """
+
+    records = RecordsService(model, InMemoryRepository())
+    context = RequestContext(Principal("user:probe", roles=frozenset()))
+
+    with pytest.raises(ValueError):
+        records._require_queryable_field(
+            model.entity("probe.Sample"), "probe.Sample", "file", context
+        )
+
+
+def test_a_file_field_is_offered_neither_for_sorting_nor_for_filtering(model) -> None:
+    entity = model.entity("probe.Sample")
+    columns = tuple(entity.fields)
+
+    assert "file" not in browse_sortable_fields(columns, entity)
+    assert "file" not in browse_filterable_fields(columns, entity)
+
+
+def test_a_file_field_is_not_summarizable(model) -> None:
+    """`count` accepts everything that holds one value per record, and a
+    key is not one -- 'how many invoices have a document' is a real
+    question, but it is asked of presence rather than of the value, and
+    that is its own contract decision."""
+
+    for function, accepted in SUMMARIZABLE_FIELD_TYPES.items():
+        assert "file" not in accepted, f"{function} accepts a file field"
+
+
+def test_mcp_offers_no_filter_operators_on_a_file_field(model) -> None:
+    """What MCP advertises has to be what the service will answer."""
+
+    schema = _field_schema(model.entity("probe.Sample").field("file"))
+
+    assert schema.query_operators == ()
 
 
 def _uuid_keyed_project(tmp_path, *, server_default: bool):

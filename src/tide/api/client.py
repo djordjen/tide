@@ -1127,6 +1127,8 @@ def _decode_field(
         raise TypeError
     if field_type in {"string", "choice"} and not isinstance(value, str):
         raise TypeError
+    if field_type == "file" and not isinstance(value, str):
+        raise TypeError
     return value
 
 

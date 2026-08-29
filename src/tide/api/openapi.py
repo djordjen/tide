@@ -477,6 +477,7 @@ _READ_ANNOTATIONS: dict[str, Any] = {
     "date": date,
     "datetime": datetime,
     "uuid": UUID,
+    "file": str,
 }
 
 
@@ -535,6 +536,11 @@ def _scalar_annotation(field: NormalizedField) -> Any:
         annotation = datetime
     elif field_type == "uuid":
         annotation = UUID
+    elif field_type == "file":
+        # A write names an attachment by the key its upload answered with.
+        constraints["min_length"] = 36
+        constraints["max_length"] = 36
+        annotation = str
     else:
         raise ValueError(f"unsupported API field type {field_type!r}")
     if constraints:

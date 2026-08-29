@@ -284,6 +284,11 @@ An action's `transition` block has its own codes, described under
 | `TIDE284` | a summary function its column's type cannot answer, or an unstored column |
 | `TIDE285` | a browse `edit:` setting outside `form`/`inline`, wherever it is declared |
 | `TIDE286` | a `tide.`-prefixed permission the framework does not define |
+| `TIDE287` | a `file` field that declares no `max_size` |
+| `TIDE288` | a `max_size` above the framework's 100mb ceiling |
+| `TIDE289` | a `file` field declaring something that decides about a value it does not hold |
+| `TIDE290` | a `file` field in a legacy database, which TIDE may not add a column to |
+| `TIDE291` | `max_size` or `accept` on a field that is not a `file` |
 
 `TIDE276` is separate and applies to any action: an entity may not name one
 `cancel` or `save`. A view's `actions:` list mixes domain actions with the form

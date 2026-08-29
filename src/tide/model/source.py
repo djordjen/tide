@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from decimal import Decimal
+import re
 from typing import Any, Literal, Union, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -98,7 +99,27 @@ FieldType = Literal[
     "choice",
     "reference",
     "collection",
+    "file",
 ]
+
+SIZE_LITERAL = re.compile(r"[1-9][0-9]*(kb|mb)")
+
+MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024
+"""The framework's own ceiling on what a file field may declare.
+
+An author states a bound and this bounds the bound: `max_size` is required on
+every file field, so a request's cost is always declared, and no field may
+declare more than this without the framework agreeing to it first.
+"""
+
+
+def parse_size_literal(text: str) -> int:
+    """`10mb` -> bytes. The shape was validated on the way in; this converts."""
+
+    if SIZE_LITERAL.fullmatch(text) is None:
+        raise ValueError(f"not a size literal: {text!r}")
+    scale = 1024 if text.endswith("kb") else 1024 * 1024
+    return int(text[:-2]) * scale
 
 # Every type above that holds one value of its own. `reference` borrows the
 # type of the primary key it points at and `collection` is navigation, so both
@@ -143,8 +164,12 @@ SUMMARIZABLE_FIELD_TYPES: Mapping[str, frozenset[str]] = {
     "min": _ORDERABLE_FIELD_TYPES,
     "max": _ORDERABLE_FIELD_TYPES,
     # A count of non-null values is meaningful for anything holding one value
-    # per record; a collection is navigation, not a value.
-    "count": frozenset(get_args(FieldType)) - {"collection"},
+    # per record; a collection is navigation, not a value, and a file holds a
+    # key rather than one. "How many invoices carry a signed document" is a
+    # real question, but it is asked of presence rather than of the stored
+    # value, and it would be the one query a file field answers -- its own
+    # contract decision, not a side effect of this set being derived.
+    "count": frozenset(get_args(FieldType)) - {"collection", "file"},
 }
 
 
@@ -186,6 +211,8 @@ class FieldSource(SourceModel):
     unique: bool = False
     readonly: bool = False
     concurrency_token: bool = False
+    max_size: str | None = None
+    accept: tuple[str, ...] = ()
     length: int | None = None
     precision: int | None = None
     scale: int | None = None
@@ -221,6 +248,34 @@ class FieldSource(SourceModel):
     def non_negative_dimensions(cls, value: int | None) -> int | None:
         if value is not None and value < 0:
             raise ValueError("must not be negative")
+        return value
+
+    @field_validator("max_size")
+    @classmethod
+    def size_literal_shape(cls, value: str | None) -> str | None:
+        if value is not None and SIZE_LITERAL.fullmatch(value) is None:
+            raise ValueError(
+                "max_size must be a lowercase size literal such as 500kb or 10mb"
+            )
+        return value
+
+    @field_validator("accept")
+    @classmethod
+    def accept_entries_are_bare_extensions(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """What a picker may offer, spelled the way a filename ends.
+
+        Bare and lowercase because that is what the comparison does -- the
+        server lowercases a filename's tail and looks for it here. A `.PDF`
+        written in the model would match nothing and read as if it did.
+        """
+
+        for entry in value:
+            if not entry.isalnum() or entry != entry.lower():
+                raise ValueError(
+                    "accept entries are lowercase alphanumeric extensions without dots"
+                )
+        if len(set(value)) != len(value):
+            raise ValueError("accept entries must not be repeated")
         return value
 
     @field_validator("values", mode="before")

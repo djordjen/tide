@@ -409,7 +409,8 @@
             "uuid",
             "choice",
             "reference",
-            "collection"
+            "collection",
+            "file"
           ],
           "title": "Type",
           "type": "string"
@@ -462,6 +463,26 @@
           "default": false,
           "title": "Concurrency Token",
           "type": "boolean"
+        },
+        "max_size": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Size"
+        },
+        "accept": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Accept",
+          "type": "array"
         },
         "length": {
           "anyOf": [

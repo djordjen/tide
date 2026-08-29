@@ -1565,6 +1565,12 @@ def _sql_type(model: ApplicationModel, field: NormalizedField) -> TypeEngine[Any
             (len(choice) for choice in metadata.get("choices", ())), default=255
         )
         return Unicode(length)
+    if field_type == "file":
+        # An attachment key: `str(uuid4())`, always 36 ASCII characters. A
+        # plain `String` rather than `Uuid()` because nothing compares it as
+        # a UUID -- it is a store key the row carries, and a fixed narrow
+        # column is what a legacy varchar could one day be mapped onto.
+        return String(36)
     return Unicode(metadata.get("length") or 255)
 
 

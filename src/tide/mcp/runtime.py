@@ -635,6 +635,7 @@ def _field_schema(field: NormalizedField) -> TideMcpFieldSchema:
     field_type = str(metadata["type"])
     queryable = not (
         field_type == "collection"
+        or field_type == "file"
         or (
             metadata.get("computed")
             and metadata["computed"].get("materialization") == "virtual"
