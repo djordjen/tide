@@ -101,6 +101,60 @@ def test_saved_views_are_private_and_listed_by_name(
     assert rows.list("user:1", "catalog.Product.browse") == ()
 
 
+RANGED = SavedView(
+    name="July over 500",
+    named_filter=None,
+    value_filters={"status": ("draft",)},
+    conditions=(
+        ("invoice_date", "gte", "2026-07-04"),
+        ("invoice_date", "lte", "2026-07-12"),
+        ("total", "gte", "500"),
+        ("number", "icontains", "INV"),
+    ),
+    sort=(),
+    columns=None,
+)
+
+
+@pytest.mark.parametrize("backend", ["sql", "memory"])
+def test_operator_conditions_round_trip_beside_the_membership_map(
+    backend: str, tmp_path: Path
+) -> None:
+    """A range must relight on restore, so its bounds are part of the
+    stored document -- beside `value_filters`, never flattened into it."""
+
+    rows = sql_store(tmp_path) if backend == "sql" else InMemorySavedViewRows()
+
+    rows.put("user:1", "sales.Invoice.browse", RANGED)
+
+    assert rows.list("user:1", "sales.Invoice.browse") == (RANGED,)
+
+
+def test_the_service_keeps_conditions_and_validates_their_fields() -> None:
+    service = _service()
+    clerk = _context("sales_clerk")
+
+    service.put(clerk, "sales.Invoice.browse", RANGED)
+    (kept,) = service.list(clerk, "sales.Invoice.browse")
+    assert kept.conditions == RANGED.conditions
+
+    with pytest.raises(SavedViewError) as refusal:
+        service.put(
+            clerk,
+            "sales.Invoice.browse",
+            SavedView(
+                name="Bad bounds",
+                conditions=(
+                    ("signed_document", "gte", "x"),
+                    ("posted_by", "icontains", "demo"),
+                ),
+            ),
+        )
+    message = "\n".join(refusal.value.issues)
+    assert "'signed_document' cannot carry a condition" in message
+    assert "'posted_by' cannot carry a condition" in message
+
+
 @pytest.mark.parametrize("backend", ["sql", "memory"])
 def test_the_whole_catalogue_lists_by_view_then_name(
     backend: str, tmp_path: Path

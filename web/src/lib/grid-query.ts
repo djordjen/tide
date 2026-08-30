@@ -1,19 +1,54 @@
 // What constrains a browse grid, composed once for every asker.
 //
-// The workspace's live query and a dashboard tile must agree on what a
-// named filter and the funnels mean; two spellings of that rule is the
-// defect class the one-declaration ruling exists for. The workspace
-// appends its live search clause after this; a tile has no search box.
+// The workspace's live query, a dashboard tile, and a saved view's
+// capture must agree on what a named filter and the column filters mean;
+// two spellings of that rule is the defect class the one-declaration
+// ruling exists for. The workspace appends its live search clause after
+// this; a tile has no search box.
 import type {
   TideBrowsePresentation,
   TideFilterInput,
   TideSummaryRequest,
 } from "@/lib/contracts"
 
+/**
+ * One column's filter: a membership list, a range, or a contains --
+ * never two at once. One active mode per column is the ratified rule,
+ * and one discriminated state is what makes a second mode structurally
+ * impossible rather than merely unlikely.
+ */
+export type ColumnFilterState =
+  | { kind: "values"; values: unknown[] }
+  | { kind: "range"; from: string | null; to: string | null }
+  | { kind: "contains"; text: string }
+
 export interface GridFilterState {
   /** The named-filter selection; "all" is the unfiltered choice. */
   filterName: string
-  valueFilters: Record<string, unknown[]>
+  columnFilters: Record<string, ColumnFilterState>
+}
+
+/** The conditions one column's filter contributes to the query. */
+export function columnFilterConditions(
+  field: string,
+  filter: ColumnFilterState,
+): TideFilterInput[] {
+  if (filter.kind === "values") {
+    return [{ field, operator: "in", value: filter.values }]
+  }
+  if (filter.kind === "contains") {
+    // The search box's own verb: case-insensitive, the way a person
+    // typing a fragment means it.
+    return [{ field, operator: "icontains", value: filter.text }]
+  }
+  const conditions: TideFilterInput[] = []
+  if (filter.from !== null && filter.from !== "") {
+    conditions.push({ field, operator: "gte", value: filter.from })
+  }
+  if (filter.to !== null && filter.to !== "") {
+    conditions.push({ field, operator: "lte", value: filter.to })
+  }
+  return conditions
 }
 
 export function gridStateFilters(
@@ -24,8 +59,8 @@ export function gridStateFilters(
     (candidate) => candidate.name === state.filterName,
   )
   const result: TideFilterInput[] = [...(named?.conditions ?? [])]
-  for (const [field, values] of Object.entries(state.valueFilters)) {
-    result.push({ field, operator: "in", value: values })
+  for (const [field, filter] of Object.entries(state.columnFilters)) {
+    result.push(...columnFilterConditions(field, filter))
   }
   return result
 }

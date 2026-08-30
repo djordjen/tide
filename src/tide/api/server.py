@@ -46,6 +46,7 @@ from tide.api.contracts import (
     TideDistinctInput,
     TideDuplicateDraft,
     TideExportInput,
+    TideFilterInput,
     TideDistinctResult,
     TideDistinctValue,
     TideEntityCapabilities,
@@ -1407,6 +1408,12 @@ def build_fastapi_app(
                 name=entry.name,
                 named_filter=entry.named_filter,
                 value_filters=dict(entry.value_filters),
+                conditions=tuple(
+                    TideFilterInput(
+                        field=field_name, operator=operator, value=value
+                    )
+                    for field_name, operator, value in entry.conditions
+                ),
                 sort=tuple(
                     TideSortInput(field=field_name, descending=descending)
                     for field_name, descending in entry.sort
@@ -1489,6 +1496,10 @@ def build_fastapi_app(
                             field_name: tuple(values)
                             for field_name, values in payload.value_filters.items()
                         },
+                        conditions=tuple(
+                            (item.field, item.operator, item.value)
+                            for item in payload.conditions
+                        ),
                         sort=tuple(
                             (item.field, item.descending)
                             for item in payload.sort

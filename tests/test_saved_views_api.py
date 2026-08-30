@@ -31,6 +31,7 @@ OVERDUE_DOCUMENT = {
     "name": "Overdue invoices",
     "named_filter": "drafts",
     "value_filters": {"status": ["draft", None]},
+    "conditions": [],
     "sort": [{"field": "total", "descending": True}],
     "columns": [
         {"name": "number", "label": "No."},
@@ -165,6 +166,60 @@ def test_only_a_real_browse_view_answers() -> None:
             ):
                 response = await client.request(method, path, **kwargs)
                 assert response.status_code == 404, (method, path)
+
+    asyncio.run(exercise())
+
+
+def test_operator_conditions_travel_the_wire_and_come_back() -> None:
+    """Ranges and contains ride as `conditions` beside the membership
+    map; the closed operator set is the wire model's own gate."""
+
+    app = _app("sales_clerk")
+    document = {
+        "name": "July over 500",
+        "named_filter": None,
+        "value_filters": {"status": ["draft"]},
+        "conditions": [
+            {"field": "invoice_date", "operator": "gte", "value": "2026-07-04"},
+            {"field": "total", "operator": "lte", "value": "9000"},
+        ],
+        "sort": [],
+        "columns": None,
+    }
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            kept = await client.put(
+                "/api/v1/_tide/saved-views/sales.Invoice.browse/July%20over%20500",
+                json=document,
+            )
+            assert kept.status_code == 204, kept.text
+
+            listed = await client.get(
+                "/api/v1/_tide/saved-views/sales.Invoice.browse"
+            )
+            (entry,) = listed.json()["views"]
+            assert entry["conditions"] == document["conditions"]
+
+            refused = await client.put(
+                "/api/v1/_tide/saved-views/sales.Invoice.browse/Bad",
+                json={
+                    **document,
+                    "name": "Bad",
+                    "conditions": [
+                        {
+                            "field": "signed_document",
+                            "operator": "gte",
+                            "value": "x",
+                        }
+                    ],
+                },
+            )
+            assert refused.status_code == 400
+            issues = "\n".join(
+                issue["message"] for issue in refused.json()["issues"]
+            )
+            assert "'signed_document' cannot carry a condition" in issues
 
     asyncio.run(exercise())
 

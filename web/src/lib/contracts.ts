@@ -293,6 +293,12 @@ export interface TideSavedView {
   name: string
   named_filter: string | null
   value_filters: Record<string, unknown[]>
+  /**
+   * Operator conditions beside the membership map -- ranges and contains.
+   * Optional both ways: an older server never sends it, and the client
+   * omits it when empty so membership-only views still save there.
+   */
+  conditions?: TideFilterInput[]
   sort: TideSortInput[]
   columns: TideViewStateColumn[] | null
 }

@@ -32,11 +32,18 @@ MAX_NAME_CHARACTERS = 60
 
 @dataclass(frozen=True, slots=True)
 class SavedView:
-    """One named grid state. `columns=None` follows the standing arrangement."""
+    """One named grid state. `columns=None` follows the standing arrangement.
+
+    `value_filters` is the membership map the checklists relight;
+    `conditions` carries the operator filters beside it -- (field,
+    operator, value) triples for ranges and contains -- because a range
+    must relight its bounds on restore, not merely constrain the rows.
+    """
 
     name: str
     named_filter: str | None = None
     value_filters: dict[str, tuple[object, ...]] = field(default_factory=dict)
+    conditions: tuple[tuple[str, str, object], ...] = ()
     sort: tuple[tuple[str, bool], ...] = ()
     columns: tuple[ViewStateColumn, ...] | None = None
 
@@ -200,6 +207,20 @@ class SavedViewService:
                 issues.append(
                     f"field {field_name!r} cannot carry a value filter"
                 )
+        # Conditions answer to the same field rule as the membership map;
+        # the operator itself is the wire model's closed set, and stored
+        # values stay un-revalidated -- replay goes through the query
+        # service, per the standing ruling.
+        for field_name, _operator, _value in entry.conditions:
+            if field_name not in entity.fields or not (
+                browse_filterable_fields((field_name,), entity)
+                and self.security.can_read_field(
+                    str(view.entity), field_name, context
+                )
+            ):
+                issues.append(
+                    f"field {field_name!r} cannot carry a condition"
+                )
         seen_sorts: set[str] = set()
         for field_name, _descending in entry.sort:
             if field_name in seen_sorts:
@@ -269,6 +290,7 @@ class SavedViewService:
                 name=name,
                 named_filter=entry.named_filter,
                 value_filters=dict(entry.value_filters),
+                conditions=tuple(entry.conditions),
                 sort=tuple(entry.sort),
                 columns=(
                     tuple(

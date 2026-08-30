@@ -243,6 +243,10 @@ def _serialize(entry: SavedView) -> str:
                 name: list(values)
                 for name, values in entry.value_filters.items()
             },
+            "conditions": [
+                [field_name, operator, value]
+                for field_name, operator, value in entry.conditions
+            ],
             "sort": [
                 [field_name, descending]
                 for field_name, descending in entry.sort
@@ -280,6 +284,12 @@ def _deserialize(name: str, document: str) -> SavedView:
                     "value_filters", {}
                 ).items()
             },
+            conditions=tuple(
+                (str(field_name), str(operator), value)
+                for field_name, operator, value in parsed.get(
+                    "conditions", ()
+                )
+            ),
             sort=tuple(
                 (str(field_name), bool(descending))
                 for field_name, descending in parsed.get("sort", ())

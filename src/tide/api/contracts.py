@@ -830,6 +830,10 @@ class TideSavedView(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     named_filter: str | None = None
     value_filters: dict[str, tuple[Any, ...]] = Field(default_factory=dict)
+    # Operator conditions beside the membership map -- ranges and
+    # contains. The operator set is TideFilterInput's own closed Literal,
+    # which is the whole gate the values need at this door.
+    conditions: tuple[TideFilterInput, ...] = ()
     sort: tuple[TideSortInput, ...] = ()
     columns: tuple[TideViewStateColumn, ...] | None = None
 

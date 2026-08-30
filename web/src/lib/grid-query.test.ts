@@ -1,11 +1,17 @@
 // What constrains a browse grid, composed once for every asker -- the
-// workspace's live query and a dashboard tile must agree on what the
-// named filter and the funnels mean, so the composition is one function
-// with two callers rather than two spellings.
+// workspace's live query, a dashboard tile, and a saved view's capture
+// must agree on what the named filter and the column filters mean, so
+// the composition is one function with three callers rather than three
+// spellings. A column's filter is one discriminated state: a membership
+// list, a range, or a contains -- never two at once.
 import { describe, expect, it } from "vitest"
 
 import type { TideBrowsePresentation } from "@/lib/contracts"
-import { gridStateFilters, tileSummaries } from "@/lib/grid-query"
+import {
+  columnFilterConditions,
+  gridStateFilters,
+  tileSummaries,
+} from "@/lib/grid-query"
 
 const VIEW = {
   view: "sales.Invoice.browse",
@@ -25,11 +31,13 @@ const VIEW = {
 } as unknown as TideBrowsePresentation
 
 describe("the one filter composition", () => {
-  it("lays the named filter's conditions before the funnels", () => {
+  it("lays the named filter's conditions before the column filters", () => {
     expect(
       gridStateFilters(VIEW, {
         filterName: "drafts",
-        valueFilters: { currency: ["EUR", null] },
+        columnFilters: {
+          currency: { kind: "values", values: ["EUR", null] },
+        },
       }),
     ).toEqual([
       { field: "status", operator: "eq", value: "draft" },
@@ -39,8 +47,39 @@ describe("the one filter composition", () => {
 
   it("means everything when no named filter is chosen", () => {
     expect(
-      gridStateFilters(VIEW, { filterName: "all", valueFilters: {} }),
+      gridStateFilters(VIEW, { filterName: "all", columnFilters: {} }),
     ).toEqual([])
+  })
+
+  it("speaks a range as its bounds, either side open-ended", () => {
+    expect(
+      columnFilterConditions("invoice_date", {
+        kind: "range",
+        from: "2026-07-04",
+        to: "2026-07-12",
+      }),
+    ).toEqual([
+      { field: "invoice_date", operator: "gte", value: "2026-07-04" },
+      { field: "invoice_date", operator: "lte", value: "2026-07-12" },
+    ])
+    expect(
+      columnFilterConditions("total", {
+        kind: "range",
+        from: "500",
+        to: null,
+      }),
+    ).toEqual([{ field: "total", operator: "gte", value: "500" }])
+  })
+
+  it("speaks contains with the search box's case-insensitive verb", () => {
+    expect(
+      columnFilterConditions("number", {
+        kind: "contains",
+        text: "INV-2026",
+      }),
+    ).toEqual([
+      { field: "number", operator: "icontains", value: "INV-2026" },
+    ])
   })
 })
 
