@@ -120,6 +120,19 @@ invisible until it is rebuilt.
 - **Best Fit all**, per-column Best Fit, **Fill available**, and
   **Reset app layout**;
 - personal column order and widths scoped by application, principal, and view;
+- a column chooser on the toolbar: the manifest offers every readable,
+  non-collection field (`available_columns`), and a person arranges which
+  the grid shows, in what order, under what names -- renames included,
+  for shortening a label that reads long in a header. The arrangement is
+  stored on the server per principal and view (`/_tide/view-state/`),
+  follows its owner across browsers, and is an overlay: the YAML
+  `columns:` stays the only declaration and Reset to default returns to
+  it. While an arrangement is active it is the order authority -- the
+  drag-remembered client order stands aside until the arrangement is
+  reset. Funnels and sorting follow the shown columns, because the
+  capability lists widen to the whole offer; export deliberately keeps
+  the view's declared columns, because the export is the view, not one
+  person's arrangement of it;
 - row selection plus one **Open** path through button, double-click, or Enter;
 - a browse grid that is one tab stop rather than one per row: the selected row
   owns it, Up/Down move it, Home and End reach the ends of what is loaded, and

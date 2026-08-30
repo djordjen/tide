@@ -206,6 +206,39 @@ sees what the document is called and may clear the field or leave it as it
 is, because it cannot stage bytes and therefore cannot claim new ones.
 Handing file content to an agent is its own decision and has not been made.
 
+### A person's own arrangement of a browse view
+
+Each browse in the presentation manifest carries `available_columns` --
+every field of the entity this principal can read whose type is not
+`collection`, in the normalized model's order, with the same column
+contract the declared `columns` carry. The `sortable_fields` and
+`filterable_fields` lists cover that whole offer rather than only the
+displayed columns; the field-type rules are unchanged, and the query
+service refuses what it always refused.
+
+Three routes keep what a person makes of the offer, per principal and
+per view:
+
+- `GET /api/v1/_tide/view-state/{view}` answers
+  `{"columns": [{"name", "label"}...]}`; an empty list means no
+  customization and the declared view applies.
+- `PUT` with the same document keeps an arrangement: order is array
+  order, a null `label` means the declared one. Validation is the
+  service's, once for every transport: a real browse view, real
+  non-collection fields the principal may read, no repeats, at least one
+  column, labels 1-80 characters after trimming. A refusal answers 400
+  in the standard error shape with one issue per reason.
+- `DELETE` forgets it.
+
+The stored arrangement is state layered over the declared view -- the
+YAML stays the only declaration. It lives in the `tide_view_state`
+framework table where the database is managed, and falls back to
+process-local memory where it is not, the same degradation browser
+sessions take. Cookie-session callers send `X-TIDE-CSRF` on `PUT` and
+`DELETE` like every unsafe method. The terminal and MCP abstain, the
+same split as global search and export; exports keep the view's
+declared columns.
+
 ### Exporting a browse view
 
 A reader who has filtered, sorted and totalled a grid can take the result

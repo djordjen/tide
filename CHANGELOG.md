@@ -775,6 +775,29 @@ marks the open panel's history stale so it asks again, and a journey against
 the real stack now creates a customer, renames it, and reads both writes back
 from the trail.
 
+A browse grid can be arranged by the person reading it. The toolbar's
+column chooser opens the manifest's offer -- `available_columns`, every
+readable non-collection field of the entity -- and an arrangement chooses
+which the grid shows, in what order, under what names; a rename shortens
+a label that reads long in a header. The arrangement is stored on the
+server per principal and view, a sixth framework store reached through
+`/_tide/view-state/{view}`, and validated once in a service every
+transport shares: a real browse view, real readable fields, no
+collections, no repeats, bounded labels. The YAML `columns:` stay the
+only declaration -- the arrangement is an overlay in the XAF
+user-differences sense, and Reset to default returns to the declaration.
+Adding a column never refetches records, because a list row already
+carries every readable field; funnels and sorting follow the shown
+columns, because the manifest's capability lists widened to the whole
+offer; exports keep the view's declared columns, because the export is
+the view rather than one person's arrangement of it. While an
+arrangement is active it is the order authority and the drag-remembered
+client order stands aside -- without that rule a chooser reorder was
+silently beaten by any column ever dragged. Parent-type property paths
+(`customer.city` as a column) stay out deliberately as their own
+contract decision; the terminal and MCP abstain, the same split as
+search and export.
+
 ### Machine interfaces and AI-assisted generation
 
 `tide serve` requires a 32-character-or-longer development bearer token in
