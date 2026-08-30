@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleCheck,
+  Copy,
   FileText,
   LoaderCircle,
   Play,
@@ -82,6 +83,7 @@ import {
   isEditableForm,
   issueFieldErrors,
   mutationPayload,
+  seededFormDraft,
   validateCollectionDrafts,
   validateFormDraft,
   type TideFormDraft,
@@ -106,6 +108,14 @@ interface RecordDetailProps {
   audit?: boolean
   mode: "create" | "update"
   identity: unknown | null
+  /**
+   * Values a create form opens with -- a duplicate's head start. Only
+   * read in create mode; fields the seed does not carry keep their
+   * declared defaults.
+   */
+  seed?: TideRecord | null
+  /** Duplicate this record: hand the fetched draft up to be reopened as a create. */
+  onDuplicate?: (values: TideRecord) => void
   position: number
   loadedCount: number
   canPrevious: boolean
@@ -190,6 +200,8 @@ export function RecordDetail({
   audit = false,
   mode,
   identity,
+  seed = null,
+  onDuplicate,
   position,
   loadedCount,
   canPrevious,
@@ -246,6 +258,7 @@ export function RecordDetail({
   const [notice, setNotice] = useState<string | null>(null)
   // Which action's parameter popover is open; at most one at a time.
   const [parameterAction, setParameterAction] = useState<string | null>(null)
+  const [duplicating, setDuplicating] = useState(false)
   const [rebaseNotice, setRebaseNotice] = useState<string | null>(null)
   const [conflictReview, setConflictReview] =
     useState<PendingConflictReview | null>(null)
@@ -365,8 +378,8 @@ export function RecordDetail({
   useEffect(() => {
     if (mode === "create") {
       skipNextHydration.current = false
-      setDraft(formDraft(form))
-      setCollectionDrafts(collectionDraftState(form))
+      setDraft(seed ? seededFormDraft(form, seed) : formDraft(form))
+      setCollectionDrafts(collectionDraftState(form, seed ?? undefined))
       setCollectionErrors({})
       setFieldErrors({})
       setSaveError(null)
@@ -377,6 +390,7 @@ export function RecordDetail({
       setConflictChoices({})
       setConflictOpen(false)
     } else if (record && !query.isPlaceholderData) {
+      // update-mode hydration below; the create branch above owns `seed`.
       if (skipNextHydration.current) {
         skipNextHydration.current = false
         return
@@ -393,7 +407,7 @@ export function RecordDetail({
       setConflictChoices({})
       setConflictOpen(false)
     }
-  }, [form, mode, query.isPlaceholderData, record])
+  }, [form, mode, query.isPlaceholderData, record, seed])
 
   const saveMutation = useMutation({
     mutationFn: ({ payload }: SaveAttempt) =>
@@ -734,6 +748,24 @@ export function RecordDetail({
       originalValues,
       draftValues: { ...originalValues, ...payload },
       intent,
+    }
+  }
+
+  async function startDuplicate() {
+    if (identity === null || busy || duplicating || !onDuplicate) {
+      return
+    }
+    setDuplicating(true)
+    try {
+      // The records service owns what copies; this only asks and hands
+      // the answer up to be reopened as a create.
+      onDuplicate(await api.duplicateDraft(view, identity))
+    } catch (error) {
+      setSaveError(
+        actionApiError(error, "The record could not be duplicated."),
+      )
+    } finally {
+      setDuplicating(false)
     }
   }
 
@@ -1505,6 +1537,27 @@ export function RecordDetail({
               Close
             </Button>
           )}
+          {mode === "update" &&
+          onDuplicate &&
+          view.operations.includes("create") ? (
+            <Button
+              disabled={busy || dirty || duplicating}
+              title={
+                dirty
+                  ? "Save or cancel changes before duplicating this record"
+                  : `Duplicate this ${form.label.toLowerCase()} as a new draft`
+              }
+              variant="outline"
+              onClick={() => void startDuplicate()}
+            >
+              {duplicating ? (
+                <LoaderCircle className="animate-spin" />
+              ) : (
+                <Copy />
+              )}
+              Duplicate
+            </Button>
+          ) : null}
           {mode === "update"
             ? reports.map((report) => (
                 <Button

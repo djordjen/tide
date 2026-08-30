@@ -158,6 +158,10 @@ export function BrowseWorkspace({
     [setActiveRecord],
   )
   const [creating, setCreating] = useState(false)
+  // A duplicate's head start: the create form opens seeded with these
+  // values, and anything that ends or restarts creating clears them so
+  // New is never accidentally a copy.
+  const [duplicateSeed, setDuplicateSeed] = useState<TideRecord | null>(null)
   // A refusal wears refusal colors: one band serves both tones, and the
   // tone decides whether assistive tech hears it as a status or an alert.
   const [feedback, setFeedback] = useState<{
@@ -898,6 +902,7 @@ export function BrowseWorkspace({
                 <Button
                   onClick={() => {
                     setFeedback(null)
+                    setDuplicateSeed(null)
                     setCreating(true)
                   }}
                 >
@@ -1075,6 +1080,12 @@ export function BrowseWorkspace({
         audit={audit}
         mode={creating ? "create" : "update"}
         identity={creating ? null : activeIdentity}
+        seed={creating ? duplicateSeed : null}
+        onDuplicate={(values) => {
+          setFeedback(null)
+          setDuplicateSeed(values)
+          setCreating(true)
+        }}
         position={Math.max(activeIndex, 0)}
         loadedCount={records.length}
         canPrevious={activeIndex > 0}
@@ -1087,6 +1098,7 @@ export function BrowseWorkspace({
         onNext={() => void navigate(1)}
         onClose={() => {
           setCreating(false)
+          setDuplicateSeed(null)
           // A record reached by following a reference link closes back to
           // exactly where the person was -- the entry the link pushed is
           // marked, and one step back restores both view and record.
@@ -1105,7 +1117,9 @@ export function BrowseWorkspace({
           })
           // `Save and New` asked for the next one, so the create screen stays
           // where it is -- with the grid refreshed underneath it, ready for
-          // whenever the run ends.
+          // whenever the run ends. Either way the duplicate seed is spent:
+          // the next blank must be a blank.
+          setDuplicateSeed(null)
           if (mode === "create" && next !== "new") {
             setCreating(false)
             setActiveIdentity(null)

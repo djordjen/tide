@@ -400,6 +400,46 @@ test("voids an invoice only after answering for its reason", async ({
   await expect(page.getByRole("button", { name: "Void" })).toBeDisabled()
 })
 
+test("duplicates a posted invoice into a fresh editable draft", async ({
+  page,
+}) => {
+  await signIn(page)
+
+  await page.getByRole("row", { name: /INV-2026-0001/ }).click()
+  await page.getByRole("button", { name: "Open" }).click()
+  await expect(page.getByText("Invoice — INV-2026-0001")).toBeVisible()
+
+  // The head start: the form reopens as a new record carrying what a
+  // person could have typed on the original -- and nothing the system
+  // owns, so there is no number yet and the state is the default.
+  await page.getByRole("button", { name: "Duplicate" }).click()
+  await expect(page.getByText("New Invoice")).toBeVisible()
+  await expect(page.getByRole("textbox", { name: "Currency" })).toHaveValue(
+    "EUR",
+  )
+  // The copied line is here; its stored total deliberately is not -- the
+  // server finalizes calculated values when the record is saved.
+  await expect(page.getByText("Demo invoice line").first()).toBeVisible()
+
+  await page.getByRole("button", { name: "Save", exact: true }).click()
+  await expect(page.getByText("Invoice created successfully.")).toBeVisible()
+
+  // A genuinely new record beside the original: same customer and total,
+  // its own freshly allocated number, back at the start of the workflow.
+  const copy = page
+    .getByRole("row")
+    .filter({ hasText: "Draft" })
+    .filter({ hasText: "850.00" })
+  await expect(copy).toHaveCount(1)
+  await expect(copy).not.toContainText("INV-2026-0001")
+  await expect(
+    page
+      .getByRole("row")
+      .filter({ hasText: "Posted" })
+      .filter({ hasText: "INV-2026-0001" }),
+  ).toHaveCount(1)
+})
+
 test("attaches the signed document after posting and reads it back", async ({
   page,
 }) => {

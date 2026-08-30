@@ -18,6 +18,7 @@ import {
   referenceSelectionDraft,
   shiftIsoDate,
   validateFormDraft,
+  seededFormDraft,
 } from "@/lib/form-draft"
 
 describe("metadata-driven form drafts", () => {
@@ -47,6 +48,22 @@ describe("metadata-driven form drafts", () => {
       unit_price: "1234.5",
       name: "Priority support",
       active: true,
+    })
+  })
+
+  it("seeds a duplicate draft without drowning defaults", () => {
+    // A duplicate carries only what the original could offer; a field the
+    // seed does not mention keeps its declared default rather than being
+    // overwritten with nothing.
+    const seeded = seededFormDraft(productForm, {
+      code: "SUP",
+      unit_price: "240.00",
+    })
+    expect(seeded).toEqual({
+      code: "SUP",
+      unit_price: "240.00",
+      name: "",
+      active: true, // the default survives: the seed says nothing about it
     })
   })
 

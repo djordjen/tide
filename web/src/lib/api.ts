@@ -450,6 +450,22 @@ export class TideApi {
    * This identity's stored arrangement of one browse view. Empty
    * columns mean no customization: the declared view applies.
    */
+  async duplicateDraft(
+    view: TideBrowsePresentation,
+    identity: unknown,
+    signal?: AbortSignal,
+  ): Promise<TideRecord> {
+    // What a person could have typed on the original: the values a create
+    // form opens with. Nothing is stored by asking.
+    const identitySegment = encodeURIComponent(String(identity))
+    const answer = await this.request<{ values: TideRecord }>(
+      `${view.resource_path}/${identitySegment}/duplicate-draft`,
+      { method: "GET" },
+      signal,
+    )
+    return answer.values
+  }
+
   async viewState(
     view: TideBrowsePresentation,
     signal?: AbortSignal,

@@ -51,6 +51,23 @@ export function formDraft(
   )
 }
 
+// A duplicate opens as a new record: defaults first, then what the
+// original could offer. Only fields the seed actually carries overwrite,
+// so an absent value never drowns a declared default with nothing.
+export function seededFormDraft(
+  form: TideFormPresentation,
+  seed: TideRecord,
+): TideFormDraft {
+  const base = formDraft(form)
+  const fromSeed = formDraft(form, seed)
+  for (const name of Object.keys(seed)) {
+    if (name in base) {
+      base[name] = fromSeed[name]
+    }
+  }
+  return base
+}
+
 export function validateFormDraft(
   form: TideFormPresentation,
   draft: TideFormDraft,
