@@ -26,7 +26,7 @@ from tide.reporting import (
     write_pdf,
 )
 from tide.compiler.normalized import immutable_mapping
-from tide.reporting.service import _coerce_parameter
+from tide.runtime.parameters import coerce_parameter as _coerce_parameter
 from tide.runtime import AuthorizationError, Channel, Principal, RequestContext, ValidationFailed
 from tide.services import RecordsService
 from tide.tui import seed_demo_data

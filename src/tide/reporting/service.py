@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 from dataclasses import replace
 from datetime import date, datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 import logging
 import re
 from typing import Any, Mapping
@@ -18,7 +18,8 @@ from tide.data import FilterCondition, QuerySpec, SortField
 from tide.presentation import field_alignment, field_label, record_display
 from tide.services import NO_REFERENCE_DISPLAYS, ReferenceDisplays
 from tide.runtime import Channel, RequestContext
-from tide.runtime.errors import AuthorizationError, ValidationFailed, ValidationIssue
+from tide.runtime.errors import AuthorizationError
+from tide.runtime.parameters import coerce_parameters
 from tide.security import PROTECTED
 from tide.services.records import RecordsService
 
@@ -88,7 +89,11 @@ class ReportService:
         if report is None:
             raise ValueError(f"unknown report {report_name!r}")
         self.records.security.authorize_report(report_name, report, context)
-        parameter_values = _coerce_parameters(report, parameters)
+        parameter_values = coerce_parameters(
+            report.get("parameters", {}),
+            parameters,
+            rule="report_parameter",
+        )
         if report.get("kind", "record") == "summary":
             typed = self._build_summary(
                 report_name,
@@ -731,50 +736,6 @@ class ReportService:
         return self.formatter.scalar(value, format_name)
 
 
-def _coerce_parameters(
-    report: Mapping[str, Any],
-    supplied: Mapping[str, Any],
-) -> dict[str, Any]:
-    definitions = report.get("parameters", {})
-    unknown = sorted(set(supplied) - set(definitions))
-    issues: list[ValidationIssue] = []
-    if unknown:
-        issues.append(
-            ValidationIssue(
-                "report_parameter",
-                f"unknown report parameter {unknown[0]!r}",
-                (unknown[0],),
-            )
-        )
-    result: dict[str, Any] = {}
-    for name, definition in definitions.items():
-        value = supplied.get(name, definition.get("default"))
-        if value is None:
-            if definition.get("required"):
-                issues.append(
-                    ValidationIssue(
-                        "report_parameter",
-                        f"report parameter {name!r} is required",
-                        (name,),
-                    )
-                )
-            result[name] = None
-            continue
-        try:
-            result[name] = _coerce_parameter(str(definition["type"]), value)
-        except (TypeError, ValueError, InvalidOperation):
-            issues.append(
-                ValidationIssue(
-                    "report_parameter",
-                    f"report parameter {name!r} must be {definition['type']}",
-                    (name,),
-                )
-            )
-    if issues:
-        raise ValidationFailed(issues)
-    return result
-
-
 def _summary_filters(
     criteria: str,
     parameters: Mapping[str, Any],
@@ -897,46 +858,6 @@ def _accumulate(
         raw = _read_report_value(entity_name, str(aggregate["field"]), record)
         if raw is not None:
             values[index] = Decimal(values[index]) + Decimal(raw)
-
-
-def _coerce_parameter(field_type: str, value: Any) -> Any:
-    if field_type == "string":
-        if not isinstance(value, str):
-            raise TypeError
-        return value
-    if field_type == "integer":
-        if isinstance(value, int) and not isinstance(value, bool):
-            return value
-        if isinstance(value, str) and re.fullmatch(r"[+-]?\d+", value.strip()):
-            return int(value)
-        raise TypeError
-    if field_type == "decimal":
-        if isinstance(value, bool):
-            raise TypeError
-        result = Decimal(str(value))
-        # Decimal parses "NaN" and "Infinity", and no criteria can honestly
-        # answer them: NaN takes SQLite's float hop and binds as NULL (a
-        # silently empty report) and SQL Server refuses the bind outright.
-        if not result.is_finite():
-            raise TypeError
-        return result
-    if field_type == "boolean":
-        if isinstance(value, bool):
-            return value
-        # The TUI dialog collects raw text and prompts "true or false";
-        # every other type accepts its own string form.
-        if isinstance(value, str) and value.strip().casefold() in {"true", "false"}:
-            return value.strip().casefold() == "true"
-        raise TypeError
-    if field_type == "date":
-        if isinstance(value, datetime):
-            raise TypeError
-        return value if isinstance(value, date) else date.fromisoformat(str(value))
-    if field_type == "datetime":
-        if isinstance(value, date) and not isinstance(value, datetime):
-            raise TypeError
-        return value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
-    raise ValueError(field_type)
 
 
 def _read_report_value(
