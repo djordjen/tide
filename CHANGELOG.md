@@ -52,7 +52,9 @@ request. Invoicing demonstrates both dialog rules: `void` requires a `reason`
 recorded to the new `cancelled_reason` field, and `post` declares an optional
 `occurred_at`, the seam the fake-data seeder always used to backdate posts
 through the real pipeline, now a declared door for any caller holding the
-permission.
+permission. The `TIDE292` identifier gate covers report parameter names too:
+a dashed name used to compile cleanly and crash `tide serve` at MCP startup,
+since every declared name becomes a field on the generated tool arguments.
 
 A record can be **duplicated** into a new unsaved draft of what a person
 could have typed on the original: writable scalars, chosen references, and
