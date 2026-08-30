@@ -10,6 +10,7 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from tide.api.contracts import TideAuditHistory, TideQueryInput
+from tide.api.presentation import parameter_descriptors
 from tide.api.wire import (
     coerce_identity,
     decode_filter_value,
@@ -169,6 +170,9 @@ class RuntimeMcpService:
                     label=action.label,
                     tool=action.tool,
                     idempotent=action.idempotent,
+                    parameters=parameter_descriptors(
+                        entity.actions[action.action].get("parameters", {})
+                    ),
                 )
                 for action in exposure.actions
                 if self.records.security.can_execute_action(
@@ -415,10 +419,8 @@ class RuntimeMcpService:
         exposure = self._require_action(entity_name, action_name)
         if self.actions is None:
             raise RuntimeError("MCP action service is not configured")
-        if payload:
-            raise ValueError(
-                "action payload must be empty for the current metadata contract"
-            )
+        # The payload is no longer judged here: the action service types it
+        # against the declaration for every door, this one included.
         if exposure.idempotent and idempotency_key is None:
             raise ValueError("idempotency_key is required for this action")
         entity = self.model.entity(entity_name)

@@ -30,6 +30,7 @@ from tide.runtime import (
     NotFoundError,
     Principal,
     RequestContext,
+    ValidationFailed,
     VersionPreconditionRequired,
     configure_application_runtime,
 )
@@ -236,6 +237,13 @@ def test_schema_resource_contains_only_principal_visible_fields() -> None:
         ("post", "post_sales_invoice"),
         ("void", "void_sales_invoice"),
     ]
+    post, void = clerk_schema.actions
+    assert [
+        (item.name, item.type, item.required) for item in void.parameters
+    ] == [("reason", "string", True)]
+    assert [
+        (item.name, item.type, item.required) for item in post.parameters
+    ] == [("occurred_at", "datetime", False)]
 
 
 def test_record_resource_preserves_exact_values_and_protection_metadata() -> None:
@@ -458,12 +466,16 @@ def test_mcp_versioned_action_requires_observation_and_is_idempotent() -> None:
             _context("sales_clerk"),
             expected_version=2,
         )
-    with pytest.raises(ValueError, match="payload must be empty"):
+    # This used to pin an MCP-owned "payload must be empty" refusal. The
+    # action service now owns the payload for every door: a declared
+    # parameter travels (post takes an optional occurred_at), and only a
+    # name outside the declaration refuses.
+    with pytest.raises(ValidationFailed, match="unknown action parameter"):
         service.execute_action(
             "sales.Invoice",
             "post",
             2,
-            {"occurred_at": "1999-01-01T00:00:00Z"},
+            {"occured_at": "1999-01-01T00:00:00Z"},
             _context("sales_clerk"),
             expected_version=2,
             idempotency_key="unsafe-payload",
@@ -500,7 +512,11 @@ def test_mcp_versioned_action_requires_observation_and_is_idempotent() -> None:
         _context("auditor", identifier="mcp:auditor"),
     )
     action_events = [event for event in history.events if event.kind == "action"]
+    # The refused unknown-parameter attempt is audited as failed: parameter
+    # validation runs inside the audited span, the same as an enabled_when
+    # refusal, so the trail records that someone tried.
     assert sorted(event.outcome for event in action_events if event.outcome) == [
+        "failed",
         "replayed",
         "succeeded",
     ]

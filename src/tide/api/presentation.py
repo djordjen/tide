@@ -318,7 +318,7 @@ def build_presentation_manifest(
     )
 
 
-def _parameter_descriptors(
+def parameter_descriptors(
     definitions: Mapping[str, Mapping[str, Any]],
 ) -> tuple[TideParameter, ...]:
     """What a renderer asks the user for, for reports and actions alike.
@@ -349,7 +349,7 @@ def _report_parameters(
 
     if report.get("kind", "record") != "summary":
         return ()
-    return _parameter_descriptors(report.get("parameters", {}))
+    return parameter_descriptors(report.get("parameters", {}))
 
 
 def _form_contract(
@@ -582,7 +582,7 @@ def _form_contract(
                 idempotent=bool(
                     entity.actions[action_name].get("idempotent")
                 ),
-                parameters=_parameter_descriptors(
+                parameters=parameter_descriptors(
                     entity.actions[action_name].get("parameters", {})
                 ),
             )

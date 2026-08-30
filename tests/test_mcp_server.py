@@ -17,7 +17,7 @@ from tide.data import InMemoryRepository
 from tide.mcp import RuntimeMcpService
 from tide.mcp.server import (
     TideMcpTokenVerifier,
-    _report_parameter_model,
+    _parameter_model,
     build_runtime_mcp_server,
     mount_runtime_mcp,
 )
@@ -477,6 +477,7 @@ def test_streamable_http_mcp_accepts_the_null_version_assertion() -> None:
                                 "identity": 90,
                                 "expected_version": '"null"',
                                 "idempotency_key": "null-void-90",
+                                "parameters": {"reason": "legacy duplicate"},
                             },
                         )
                         stale = await session.call_tool(
@@ -485,6 +486,7 @@ def test_streamable_http_mcp_accepts_the_null_version_assertion() -> None:
                                 "identity": 91,
                                 "expected_version": '"null"',
                                 "idempotency_key": "null-void-91",
+                                "parameters": {"reason": "legacy duplicate"},
                             },
                         )
                         garbage = await session.call_tool(
@@ -493,6 +495,7 @@ def test_streamable_http_mcp_accepts_the_null_version_assertion() -> None:
                                 "identity": 91,
                                 "expected_version": "someday",
                                 "idempotency_key": "null-void-92",
+                                "parameters": {"reason": "legacy duplicate"},
                             },
                         )
 
@@ -505,7 +508,66 @@ def test_streamable_http_mcp_accepts_the_null_version_assertion() -> None:
     asyncio.run(exercise())
 
 
-def test_report_parameter_models_refuse_unknown_parameters() -> None:
+def test_action_parameters_are_the_tool_schema_and_land_on_the_record() -> None:
+    """The declaration becomes the tool's own arguments model.
+
+    A required parameter makes the `parameters` argument itself required,
+    so a bare call refuses before it reaches the service; the values travel
+    the same door the service types for every transport.
+    """
+
+    app = _app("sales_clerk")
+
+    async def exercise() -> None:
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=BASE_URL,
+                headers={"Authorization": f"Bearer {TOKEN}"},
+            ) as http:
+                async with streamable_http_client(
+                    MCP_URL,
+                    http_client=http,
+                ) as (read_stream, write_stream, _session_id):
+                    async with ClientSession(read_stream, write_stream) as session:
+                        await session.initialize()
+                        tools = await session.list_tools()
+                        by_name = {tool.name: tool for tool in tools.tools}
+                        void_schema = by_name["void_sales_invoice"].inputSchema
+                        assert "parameters" in void_schema.get("required", [])
+                        assert "reason" in json.dumps(void_schema)
+                        post_schema = by_name["post_sales_invoice"].inputSchema
+                        assert "parameters" not in (
+                            post_schema.get("required") or []
+                        )
+
+                        voided = await session.call_tool(
+                            "void_sales_invoice",
+                            {
+                                "identity": 2,
+                                "expected_version": 1,
+                                "idempotency_key": "void-with-reason",
+                                "parameters": {"reason": "Ordered twice"},
+                            },
+                        )
+                        bare = await session.call_tool(
+                            "void_sales_invoice",
+                            {
+                                "identity": 3,
+                                "idempotency_key": "void-without-reason",
+                            },
+                        )
+
+        assert voided.isError is not True
+        record = voided.structuredContent["record"]
+        assert record["status"] == "cancelled"
+        assert record["cancelled_reason"] == "Ordered twice"
+        assert bare.isError is True
+
+    asyncio.run(exercise())
+
+
+def test_parameter_models_refuse_unknown_parameters() -> None:
     """A typo'd parameter must refuse, not run the report unfiltered.
 
     The service's own unknown-parameter check never sees a key pydantic
@@ -515,7 +577,7 @@ def test_report_parameter_models_refuse_unknown_parameters() -> None:
     everywhere else; this model follows the same convention.
     """
 
-    parameters = _report_parameter_model(
+    parameters = _parameter_model(
         "report_sales_summary",
         {"from_date": {"type": "date"}},
     )

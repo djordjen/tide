@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from tide.api.contracts import TIDE_WIRE_VERSION, TideFilterOperator
+from tide.api.contracts import TIDE_WIRE_VERSION, TideFilterOperator, TideParameter
 from tide.model.source import TideSummaryFunction
 
 
@@ -36,6 +36,9 @@ class TideMcpActionSchema(BaseModel):
     label: str
     tool: str
     idempotent: bool = False
+    # The same descriptors every renderer reads; the tool's own arguments
+    # model is generated from the same declaration.
+    parameters: tuple[TideParameter, ...] = ()
 
 
 class TideMcpEntitySchema(BaseModel):

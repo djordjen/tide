@@ -229,6 +229,12 @@ def build_runtime_mcp_server(
                     exposure.entity,
                     action.action,
                     action.tool,
+                    _parameter_model(
+                        action.tool,
+                        service.model.entity(exposure.entity)
+                        .actions[action.action]
+                        .get("parameters", {}),
+                    ),
                 )
             )
     for report_exposure in service.report_exposures.values():
@@ -249,7 +255,7 @@ def build_runtime_mcp_server(
                 service,
                 report_exposure.report,
                 report_exposure.tool,
-                _report_parameter_model(report_exposure.tool, definitions),
+                _parameter_model(report_exposure.tool, definitions),
             )
         )
     return HostedRuntimeMcp(
@@ -460,8 +466,32 @@ def _action_tool(
     entity_name: str,
     action_name: str,
     tool_name: str,
+    parameters_model: type[BaseModel] | None,
 ) -> Any:
-    async def execute_action(
+    # Three distinct signatures on purpose, exactly like the report tools:
+    # no parameters at all, a required set, or an optional one. The
+    # declaration is the tool schema, so a bare call on a required set is
+    # refused before it reaches the service.
+    def _run(
+        identity: Any,
+        payload: Mapping[str, Any],
+        expected_version: Any,
+        idempotency_key: str | None,
+    ) -> Any:
+        return asyncio.to_thread(
+            service.execute_action,
+            entity_name,
+            action_name,
+            identity,
+            payload,
+            _request_context(),
+            expected_version=_expected_version(expected_version),
+            idempotency_key=idempotency_key,
+        )
+
+    tool: Any
+
+    async def execute_bare(
         identity: Any,
         # A plain `str` arm rather than Literal["null"]: FastMCP
         # pre-parses string arguments as JSON unless the field accepts
@@ -471,23 +501,51 @@ def _action_tool(
         expected_version: Annotated[int, Field(ge=1)] | str | None = None,
         idempotency_key: str | None = Field(default=None, min_length=1),
     ) -> TideMcpMutationResult:
-        return await asyncio.to_thread(
-            service.execute_action,
-            entity_name,
-            action_name,
+        return await _run(identity, {}, expected_version, idempotency_key)
+
+    async def execute_required(
+        identity: Any,
+        parameters: BaseModel,
+        expected_version: Annotated[int, Field(ge=1)] | str | None = None,
+        idempotency_key: str | None = Field(default=None, min_length=1),
+    ) -> TideMcpMutationResult:
+        return await _run(
             identity,
-            {},
-            _request_context(),
-            expected_version=_expected_version(expected_version),
-            idempotency_key=idempotency_key,
+            parameters.model_dump(exclude_unset=True, exclude_none=True),
+            expected_version,
+            idempotency_key,
         )
 
-    execute_action.__name__ = tool_name
-    execute_action.__annotations__["identity"] = _identity_annotation(
+    async def execute_optional(
+        identity: Any,
+        parameters: BaseModel | None = None,
+        expected_version: Annotated[int, Field(ge=1)] | str | None = None,
+        idempotency_key: str | None = Field(default=None, min_length=1),
+    ) -> TideMcpMutationResult:
+        supplied = (
+            {}
+            if parameters is None
+            else parameters.model_dump(exclude_unset=True, exclude_none=True)
+        )
+        return await _run(identity, supplied, expected_version, idempotency_key)
+
+    if parameters_model is None:
+        tool = execute_bare
+    elif any(
+        field.is_required() for field in parameters_model.model_fields.values()
+    ):
+        tool = execute_required
+        tool.__annotations__["parameters"] = parameters_model
+    else:
+        tool = execute_optional
+        tool.__annotations__["parameters"] = parameters_model | None
+
+    tool.__name__ = tool_name
+    tool.__annotations__["identity"] = _identity_annotation(
         service,
         entity_name,
     )
-    return execute_action
+    return tool
 
 
 _REPORT_PARAMETER_ANNOTATIONS: dict[str, type] = {
@@ -502,7 +560,7 @@ _REPORT_PARAMETER_ANNOTATIONS: dict[str, type] = {
 }
 
 
-def _report_parameter_model(
+def _parameter_model(
     tool_name: str,
     definitions: Mapping[str, Mapping[str, Any]],
 ) -> type[BaseModel] | None:
