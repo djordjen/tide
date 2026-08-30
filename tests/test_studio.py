@@ -2027,6 +2027,45 @@ def test_the_view_field_table_refits_after_a_measurement_taken_before_layout(
     asyncio.run(exercise())
 
 
+def test_the_view_field_table_refits_when_the_terminal_is_resized() -> None:
+    """Narrowing the terminal must narrow the table's declared columns.
+
+    The fit was scheduled from `App.on_resize` with `call_after_refresh`, and
+    a refresh is not a layout: the callback measured the table at the width it
+    had *before* the resize, found the columns it wanted already in place and
+    returned. Zero was already treated as "not yet"; a stale positive width
+    was taken for an answer, so shrinking a terminal left the table declaring
+    four columns needing 47 cells inside 35 -- the same over-declared table
+    the certified-size test exists to prevent, arrived at by resizing rather
+    than by starting there.
+    """
+
+    app = StudioApp(StudioService(INVOICING))
+
+    async def exercise() -> None:
+        async with app.run_test(size=(150, 52)) as pilot:
+            await pilot.pause()
+            await _select_view(pilot, app, "sales.Invoice.edit")
+            table = app.query_one("#view-field-table", DataTable)
+            wide = [str(column.label) for column in table.columns.values()]
+            assert "Origin" in wide, wide
+
+            await pilot.resize_terminal(80, 24)
+            await _wait_until(
+                pilot,
+                lambda: [str(column.label) for column in table.columns.values()] != wide,
+            )
+
+            labels = [str(column.label) for column in table.columns.values()]
+            assert table.virtual_size.width <= table.scrollable_content_region.width, (
+                f"{labels} needs {table.virtual_size.width} columns and has "
+                f"{table.scrollable_content_region.width}"
+            )
+            assert "Field" in labels, "the field name is the one column that must survive"
+
+    asyncio.run(exercise())
+
+
 def test_a_late_column_fit_does_not_move_where_a_new_field_will_land(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

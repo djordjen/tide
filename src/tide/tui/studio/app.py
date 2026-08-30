@@ -10,6 +10,7 @@ from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.css.query import NoMatches
+from textual.message import Message
 from textual.widgets import (
     Button,
     DataTable,
@@ -107,6 +108,26 @@ def view_field_columns(available: int) -> tuple[ViewFieldColumn, ...]:
         used += cost
         chosen.append(column)
     return tuple(chosen)
+
+
+class ViewFieldTable(DataTable[str]):
+    """The view-structure table, which reports its own changes of width.
+
+    `Resize` does not bubble, so an application handling the terminal's
+    resize is told the new terminal size and not the new table size -- and a
+    fit scheduled from there with `call_after_refresh` still measures the
+    table at the width it had before, because a refresh is not a layout. A
+    zero measurement was already read as "not yet"; a stale positive one was
+    taken for the answer, which left a narrowed terminal showing a table
+    declaring columns that no longer fit. A widget's own resize is the one
+    report of its width that cannot arrive early.
+    """
+
+    class Resized(Message):
+        """The field table has been laid out at a new width."""
+
+    def on_resize(self, event: events.Resize) -> None:
+        self.post_message(self.Resized())
 
 
 class StudioApp(App[None]):
@@ -372,7 +393,7 @@ class StudioApp(App[None]):
                         variant="primary",
                     )
                 with Horizontal(id="view-structure"):
-                    yield DataTable(id="view-field-table")
+                    yield ViewFieldTable(id="view-field-table")
                     with Vertical(id="view-structure-side"):
                         yield Static(
                             "Resolved TUI structure",
@@ -465,7 +486,9 @@ class StudioApp(App[None]):
         self.screen.set_class(
             event.size.width < _SIDE_BY_SIDE_MINIMUM_WIDTH, "compact-terminal"
         )
-        self.call_after_refresh(self._sync_view_field_columns)
+
+    def on_view_field_table_resized(self, event: ViewFieldTable.Resized) -> None:
+        self._sync_view_field_columns()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "apply-property":

@@ -1007,6 +1007,17 @@ retarget itself turned out to be observed by nothing, so the gate that keeps a
 chosen group could have removed the retarget entirely with every studio test
 still green.
 
+The fit is now driven by the table rather than by the terminal. `Resize`
+does not bubble, so an application handling the terminal's resize is told the
+new terminal size and not the new table size, and the fit it scheduled
+measured the table at the width it had before -- then found the columns it
+wanted already in place and returned. Zero was read as "not yet"; a stale
+positive width was taken for the answer, so narrowing a terminal left the
+table declaring four columns needing 47 cells inside 35: the same
+over-declared table the certified-size check exists to prevent, arrived at by
+resizing rather than by starting there. The view-field table now reports its
+own changes of width, which is the one report that cannot arrive early.
+
 Studio sessions now reuse the compiled evaluation and semantic document index
 for an unchanged candidate fingerprint. The cache is bounded by the same
 history limit as undo/redo, candidate mutations refresh only the affected
