@@ -201,7 +201,11 @@ invisible until it is rebuilt.
   Current/Mine overlap choices, safe draft-only rebase, current workflow-lock
   reevaluation, and a fresh ETag-backed form for review before saving again;
 - metadata-ordered, capability-gated domain actions with server-evaluated
-  per-record visibility and enabled state;
+  per-record visibility and enabled state; an action declaring a required
+  parameter turns its button into a popover question — the form offers
+  every declared parameter, waits for the required ones, and runs with the
+  collected strings, which the action service types and refuses in the same
+  words every surface gets. An optional-only action stays one click;
 - **conditional appearance**: an entity's `appearance:` rules are evaluated by
   the server per record and arrive as a verdict, so the browser never sees a
   rule. A marked row wears a left edge and a wash in the grid, the record it

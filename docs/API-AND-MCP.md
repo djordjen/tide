@@ -648,10 +648,23 @@ The same action may appear as a TUI shortcut, web button, MCP tool, or report
 command. Its handler, permission, validation, confirmation semantics, and audit
 event remain centralized.
 
+The request body is the action's declared parameters object — `{}` for an
+action declaring none, exactly like the report routes. The `ActionService`
+types the values against the declaration (string forms accepted, defaults
+filled) and refuses unknown names, missing required values, and uncoercible
+values together as the house 422 whose issues carry the `action_parameter`
+rule. The manifest projects each form action's `parameters` with the same
+`{name, label, type, required}` descriptors report parameters use, and the
+generated MCP action tool carries them as its own `parameters` argument —
+required in the tool schema when any declared parameter is required, so a
+bare call refuses before it reaches the service.
+
 An exposed idempotent action additionally requires `Idempotency-Key`. Repeating
 the same principal/action/target/payload key reauthorizes and returns the
-current secured result; reusing a key for a different request or retrying an
-uncertain failed execution fails closed through `ActionService`.
+current secured result; parameters are coerced before the fingerprint, so the
+string and typed spellings of one request replay as one request. Reusing a key
+for a different request or retrying an uncertain failed execution fails closed
+through `ActionService`.
 
 ## Developer MCP server
 

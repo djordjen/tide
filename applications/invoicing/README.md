@@ -119,11 +119,18 @@ the shared three-way Original/Current/Your draft review. Genuine overlaps
 require an explicit Current/Mine decision; applying the plan reopens a current
 ETag-backed form for review and normal validation. Invoice lines are treated as
 one collection conflict unit in this first safe implementation.
-The compiled `actions: [cancel, save, post]` order adds **Post** only
-for an authenticated capability. Its enabled state follows the local
-`enabled_when` expression. Invoking it saves changed lines first, then sends the
-new ETag and a per-attempt idempotency key to the shared FastAPI action route;
-a failure after saving reopens the saved draft for correction.
+The compiled `actions: [cancel, save, post, void]` order adds **Post** and
+**Void** only for an authenticated capability. Enabled state follows the
+local `enabled_when` expression plus the derived transition guard. Invoking
+one saves changed lines first, then sends the new ETag and a per-attempt
+idempotency key to the shared FastAPI action route; a failure after saving
+reopens the saved draft for correction. **Void declares a required `reason`
+parameter**, so both renderers ask before it runs — the terminal pushes the
+shared parameters modal, the browser turns the button into a popover form —
+and the answer lands in the audited `cancelled_reason` field the form's
+Cancellation group shows. **Post declares an optional `occurred_at`**, a
+programmatic door (the fake-data seeder backdates through it), so Post stays
+one click.
 The Web Invoice form consumes the same ordered action metadata. The server
 projects only safe action labels/idempotency requirements plus per-record
 visible/enabled hints. **Post** saves any dirty header/line draft first,

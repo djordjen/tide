@@ -419,7 +419,41 @@ workflow language the [decision log](DECISIONS.md) defers. There are no
 parallel branches, no timers, no cross-entity effects; anything beyond a guard,
 a lock and a stamp belongs in the action's Python handler.
 
-## Conditional appearance
+## Action parameters
+
+An action can declare the typed input it needs at the moment of execution,
+with the same declaration reports use — the scalar `type`
+(`string`/`integer`/`decimal`/`boolean`/`date`/`datetime`), `required`,
+`default`:
+
+```yaml
+actions:
+  void:
+    label: Void
+    permission: sales.invoice.void
+    execute: actions.void_invoice
+    parameters:
+      reason: {type: string, required: true}
+```
+
+One block lands on all four surfaces: the REST invoke body becomes the
+parameters object itself, the generated MCP tool grows a typed `parameters`
+argument, and the Web and terminal renderers open a dialog. The dialog rule
+is the `required` flag: an action with a required parameter asks before it
+runs, while an action whose parameters are all optional stays one click and
+keeps those parameters as a programmatic door — invoicing's `post` declares
+an optional `occurred_at` so a migration can post as-of through the real
+pipeline, and Post remains a single keystroke.
+
+The `ActionService` owns the payload for every door. Values arrive as typed
+values or their string forms (dialogs collect strings), defaults fill,
+unknown names and missing required values are refused together under the
+`action_parameter` rule, and an action declaring no parameters accepts only
+an empty payload. Coercion happens before the idempotency fingerprint, so
+the string form and the typed form of one request replay as one request.
+The handler receives the typed mapping as its third argument; parameter
+names must be plain identifiers (TIDE292), and `enabled_when` never sees
+them — it guards the button, which exists before the input does.
 
 An entity may declare `appearance:` rules — what a record means on sight,
 before anyone opens it:

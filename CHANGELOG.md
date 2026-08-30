@@ -37,6 +37,23 @@ reachable -- `void` and not `cancel`, because the form action bar owns that
 name and an entity may no longer take it (`TIDE276`). The generated Contacts application emits the block from its plan
 instead of a hand-written guard string.
 
+An action may declare `parameters:` — the typed input it needs at the moment
+of execution, in the same scalar declaration reports use. One block lands on
+all four surfaces: the REST invoke body is the parameters object itself, the
+generated MCP tool grows a typed `parameters` argument (required in the tool
+schema when any declared parameter is), and the Web and terminal renderers
+open a dialog for an action with a required parameter while an optional-only
+action stays one click. The `ActionService` owns the payload for every door —
+string forms accepted, defaults filled, refusals gathered under
+`action_parameter`, an undeclared action holding to the empty payload the
+transports used to enforce one by one — and coercion runs before the
+idempotency fingerprint, so two spellings of one request replay as one
+request. Invoicing demonstrates both dialog rules: `void` requires a `reason`
+recorded to the new `cancelled_reason` field, and `post` declares an optional
+`occurred_at`, the seam the fake-data seeder always used to backdate posts
+through the real pipeline, now a declared door for any caller holding the
+permission.
+
 The headless runtime adds secured record/query/action services, a repository
 protocol with in-memory and synchronous SQLAlchemy Core implementations,
 `RecordSession`, computed master-detail values, field protection, validation,
