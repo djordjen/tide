@@ -58,7 +58,8 @@ from tide.services import (
 from tide.tui.audit import AuditHistoryScreen
 from tide.tui.confirm import DeleteConfirmationScreen
 from tide.tui.form import ReopenRecordEdit, RecordEditScreen, select_form_view
-from tide.tui.report import ReportParametersScreen, ReportPreviewScreen
+from tide.tui.parameters import ParametersScreen
+from tide.tui.report import ReportPreviewScreen
 
 
 _CACHE_MISS = object()
@@ -571,9 +572,10 @@ class TideApp(App[None]):
                     self._open_summary_report(report_name, parameters)
 
             self.push_screen(
-                ReportParametersScreen(
+                ParametersScreen(
                     str(report.get("title") or report_name),
                     definitions,
+                    confirm_label="Build report",
                 ),
                 build,
             )

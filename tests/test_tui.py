@@ -36,7 +36,8 @@ from tide.tui.form import NumericMaskedInput, RecordEditScreen
 from tide.tui.confirm import DeleteConfirmationScreen
 from tide.tui.conflict import ConflictReviewScreen
 from tide.tui.lookup import LookupField, LookupScreen
-from tide.tui.report import ReportParametersScreen, ReportPreviewScreen
+from tide.tui.parameters import ParametersScreen
+from tide.tui.report import ReportPreviewScreen
 
 ROOT = Path(__file__).parents[1]
 INVOICING = ROOT / "applications" / "invoicing"
@@ -757,8 +758,8 @@ def test_textual_invoice_report_preview_and_exports(tmp_path: Path) -> None:
             # first. Leaving every input blank sends `{}`: each unsupplied
             # optional parameter drops its criteria clause, so this is the
             # same report the button built before parameters existed.
-            assert isinstance(app.screen, ReportParametersScreen)
-            await pilot.click("#build-report")
+            assert isinstance(app.screen, ParametersScreen)
+            await pilot.click("#confirm-parameters")
             await pilot.pause()
             assert isinstance(app.screen, ReportPreviewScreen)
             preview_text = app.screen.document.plain_text()
@@ -775,10 +776,10 @@ def test_textual_invoice_report_preview_and_exports(tmp_path: Path) -> None:
             # A supplied date narrows the report to the period it names.
             await pilot.click("#summary-report")
             await pilot.pause()
-            assert isinstance(app.screen, ReportParametersScreen)
-            from_date = app.screen.query_one("#report-parameter-from-date", Input)
+            assert isinstance(app.screen, ParametersScreen)
+            from_date = app.screen.query_one("#parameter-from-date", Input)
             from_date.value = "2026-07-10"
-            await pilot.click("#build-report")
+            await pilot.click("#confirm-parameters")
             await pilot.pause()
             assert isinstance(app.screen, ReportPreviewScreen)
             narrowed = app.screen.document.plain_text()
@@ -790,11 +791,11 @@ def test_textual_invoice_report_preview_and_exports(tmp_path: Path) -> None:
             # Cancelling the prompt builds nothing.
             await pilot.click("#summary-report")
             await pilot.pause()
-            assert isinstance(app.screen, ReportParametersScreen)
-            await pilot.click("#cancel-report-parameters")
+            assert isinstance(app.screen, ParametersScreen)
+            await pilot.click("#cancel-parameters")
             await pilot.pause()
             assert not isinstance(app.screen, ReportPreviewScreen)
-            assert not isinstance(app.screen, ReportParametersScreen)
+            assert not isinstance(app.screen, ParametersScreen)
 
     asyncio.run(exercise())
 
@@ -1236,6 +1237,74 @@ def test_textual_form_renders_portable_tabs_and_action_bar_order(
             tabs.active = "form-tab-1"
             await _wait_until(pilot, lambda: tabs.active == "form-tab-1")
             assert tabs.active == "form-tab-1"
+
+    asyncio.run(exercise())
+
+
+def test_textual_void_asks_for_its_reason_and_the_record_keeps_it() -> None:
+    """A required parameter opens the dialog before the action runs.
+
+    The dialog collects raw text; the action service does the typing, so
+    the reason lands through the same door as every other surface.
+    """
+
+    app = _demo_app(page_size=5)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.open_record(2)
+            await _wait_until(
+                pilot, lambda: isinstance(app.screen, RecordEditScreen)
+            )
+
+            await pilot.click("#record-action-void")
+            await _wait_until(
+                pilot, lambda: isinstance(app.screen, ParametersScreen)
+            )
+            assert "Void parameters" in str(
+                app.screen.query_one("#parameters-title", Static).content
+            )
+
+            reason = app.screen.query_one("#parameter-reason", Input)
+            reason.value = "Ordered twice by mistake"
+            await pilot.click("#confirm-parameters")
+            await _wait_until(
+                pilot,
+                lambda: not isinstance(
+                    app.screen, (ParametersScreen, RecordEditScreen)
+                ),
+            )
+
+            stored = app.records.get("sales.Invoice", 2, app.context)
+            assert stored["status"] == "cancelled"
+            assert stored["cancelled_reason"] == "Ordered twice by mistake"
+            assert stored["cancelled_by"] == "demo:user"
+
+    asyncio.run(exercise())
+
+
+def test_textual_cancelling_the_parameters_dialog_leaves_the_record_alone() -> None:
+    app = _demo_app(page_size=5)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.open_record(2)
+            await _wait_until(
+                pilot, lambda: isinstance(app.screen, RecordEditScreen)
+            )
+            await pilot.click("#record-action-void")
+            await _wait_until(
+                pilot, lambda: isinstance(app.screen, ParametersScreen)
+            )
+            await pilot.click("#cancel-parameters")
+            await _wait_until(
+                pilot, lambda: isinstance(app.screen, RecordEditScreen)
+            )
+            stored = app.records.get("sales.Invoice", 2, app.context)
+            assert stored["status"] == "draft"
+            assert stored.get("cancelled_reason") is None
 
     asyncio.run(exercise())
 

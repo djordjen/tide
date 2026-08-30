@@ -63,6 +63,7 @@ from tide.tui.conflict import (
     ConflictReviewScreen,
 )
 from tide.tui.lookup import LookupField, LookupScreen
+from tide.tui.parameters import ParametersScreen
 
 
 class DateInput(Input):
@@ -744,6 +745,32 @@ class RecordEditScreen(Screen[Any]):
         buttons = list(self.query(f"#{_record_action_button_id(action_name)}"))
         if not buttons or buttons[0].disabled:
             return
+        declared = self.entity.actions[action_name].get("parameters") or {}
+        # A required parameter opens the dialog and the dialog offers every
+        # declared one; an optional-only action stays one click, its
+        # parameters a programmatic door. Same rule as the Web renderer.
+        if any(
+            definition.get("required") and definition.get("default") is None
+            for definition in declared.values()
+        ):
+            label = (
+                self.entity.actions[action_name].get("label") or action_name
+            )
+
+            def proceed(payload: dict[str, Any] | None) -> None:
+                if payload is not None:
+                    self._run_record_action(action_name, payload)
+
+            self.app.push_screen(
+                ParametersScreen(label, declared, confirm_label=label),
+                proceed,
+            )
+            return
+        self._run_record_action(action_name, {})
+
+    def _run_record_action(
+        self, action_name: str, payload: dict[str, Any]
+    ) -> None:
         saved_before_post = False
         if not self._collect_form():
             return
@@ -755,7 +782,7 @@ class RecordEditScreen(Screen[Any]):
                 self.entity.name,
                 action_name,
                 self.session.identity,
-                {},
+                payload,
                 self.context,
                 idempotency_key=f"tui:{uuid4()}",
                 expected_version=self.session.expected_version,

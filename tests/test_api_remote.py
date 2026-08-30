@@ -39,7 +39,8 @@ from tide.tui import seed_demo_data
 from tide.tui import TideApp
 from tide.tui.conflict import ConflictReviewScreen
 from tide.tui.form import RecordEditScreen
-from tide.tui.report import ReportParametersScreen, ReportPreviewScreen
+from tide.tui.parameters import ParametersScreen
+from tide.tui.report import ReportPreviewScreen
 from tide.tui.confirm import DeleteConfirmationScreen
 from textual.widgets import Button, DataTable, Input, Select
 from textual.pilot import Pilot
@@ -391,8 +392,8 @@ def test_remote_textual_preview_uses_the_server_report_document(
                 # The parameter prompt appears remotely too; blank inputs
                 # mean `{}`, which the client POSTs to the server, and the
                 # grouped document that comes back carries its subtotals.
-                assert isinstance(tide_app.screen, ReportParametersScreen)
-                await pilot.click("#build-report")
+                assert isinstance(tide_app.screen, ParametersScreen)
+                await pilot.click("#confirm-parameters")
                 await pilot.pause()
                 assert isinstance(tide_app.screen, ReportPreviewScreen)
                 remote_preview = tide_app.screen.document.plain_text()
