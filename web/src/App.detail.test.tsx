@@ -187,6 +187,8 @@ it("gathers every collection into one tabbed panel below the record", async () =
 })
 
 function renderApp() {
+  // The suite predates Home: land where the old default landed.
+  window.history.replaceState(null, "", "/?view=sales.Invoice.browse")
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false },

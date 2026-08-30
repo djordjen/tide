@@ -57,6 +57,7 @@ import type {
   TideRecord,
   TideSortInput,
   TideViewState,
+  TideSavedView,
   TideViewStateColumn,
 } from "@/lib/contracts"
 import {
@@ -114,6 +115,12 @@ interface BrowseWorkspaceProps {
   reports: Record<string, TidePresentationReport>
   /** Whether this session may view the entity's audit trail. */
   audit?: boolean
+  /**
+   * A one-shot instruction from the home surface: apply this saved view
+   * once its list arrives. Read at mount only -- the workspace remounts
+   * per view, so a later change of the prop is a stale instruction.
+   */
+  initialSavedView?: string | null
 }
 
 export function BrowseWorkspace({
@@ -126,6 +133,7 @@ export function BrowseWorkspace({
   views,
   reports,
   audit = false,
+  initialSavedView = null,
 }: BrowseWorkspaceProps) {
   const [search, setSearch] = useState("")
   const debouncedSearch = useDebouncedValue(search.trim(), 300)
@@ -362,7 +370,40 @@ export function BrowseWorkspace({
   })
   const savedViewsSupported =
     savedViewsQuery.data !== undefined && savedViewsQuery.data !== null
-  const savedViews = savedViewsQuery.data?.views ?? []
+  const savedViewsData = savedViewsQuery.data
+  const savedViews = useMemo(
+    () => savedViewsData?.views ?? [],
+    [savedViewsData],
+  )
+
+  // Apply the components wholesale: the controls must show exactly what
+  // constrained the rows when the view was saved. One function for the
+  // dropdown and the home tile, so they can never drift.
+  function applyEntry(entry: TideSavedView) {
+    const state = applySavedView(entry)
+    setFilterName(state.filterName)
+    setValueFilters(state.valueFilters)
+    setSort(state.sort)
+    setSavedColumns(state.columns)
+    setActiveSavedView(entry.name)
+  }
+
+  // The home tile's one-shot instruction, honoured when the list arrives.
+  // A name that no longer exists opens the browse plain rather than
+  // erring: the tile was drawn from the same list a moment ago.
+  const pendingInitial = useRef(initialSavedView)
+  useEffect(() => {
+    const wanted = pendingInitial.current
+    if (wanted === null || savedViews.length === 0) {
+      return
+    }
+    pendingInitial.current = null
+    const entry = savedViews.find((candidate) => candidate.name === wanted)
+    if (entry) {
+      applyEntry(entry)
+    }
+    // applyEntry reads only setters; the list arriving is the one trigger.
+  }, [savedViews])
 
   const queryClient = useQueryClient()
   const inlineMode =
@@ -731,15 +772,7 @@ export function BrowseWorkspace({
                       if (!entry) {
                         return
                       }
-                      // Apply the components wholesale: the controls
-                      // must show exactly what constrained the rows
-                      // when the view was saved.
-                      const state = applySavedView(entry)
-                      setFilterName(state.filterName)
-                      setValueFilters(state.valueFilters)
-                      setSort(state.sort)
-                      setSavedColumns(state.columns)
-                      setActiveSavedView(entry.name)
+                      applyEntry(entry)
                       return
                     }
                     // A declared filter keeps its existing semantics --
@@ -797,6 +830,13 @@ export function BrowseWorkspace({
                                     "saved-views",
                                     principal,
                                     view.view,
+                                  ],
+                                })
+                                // The home catalogue is the same truth.
+                                await queryClient.invalidateQueries({
+                                  queryKey: [
+                                    "saved-view-catalogue",
+                                    principal,
                                   ],
                                 })
                               })()
@@ -857,6 +897,10 @@ export function BrowseWorkspace({
                         )
                         await queryClient.invalidateQueries({
                           queryKey: ["saved-views", principal, view.view],
+                        })
+                        // The home catalogue is the same truth.
+                        await queryClient.invalidateQueries({
+                          queryKey: ["saved-view-catalogue", principal],
                         })
                         setActiveSavedView(name)
                         setSavedColumns(activeColumns)

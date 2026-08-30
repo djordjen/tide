@@ -73,6 +73,8 @@ it("asks for a new sign-in when the session ends mid-session", async () => {
 })
 
 function renderApp() {
+  // The suite predates Home: land where the old default landed.
+  window.history.replaceState(null, "", "/?view=catalog.Product.browse")
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false },

@@ -22,12 +22,19 @@ const repository = resolve(
  * to reach the browser would otherwise look like a typing mistake ten lines
  * later.
  */
-export async function signIn(page: Page): Promise<void> {
+export async function signIn(
+  page: Page,
+  // The journeys in this suite predate Home and start in the Invoices
+  // browse; the address carries them there through the sign-in, since
+  // the login is a fetch and never drops the query. A journey about the
+  // landing itself passes "/".
+  destination = "/?view=sales.Invoice.browse",
+): Promise<void> {
   const { username, password } = JSON.parse(
     readFileSync(join(repository, CREDENTIALS_FILE), "utf8"),
   ) as { username: string; password: string }
 
-  await page.goto("/")
+  await page.goto(destination)
   await expect(
     page.getByRole("heading", { name: "Sign in to your application" }),
   ).toBeVisible()

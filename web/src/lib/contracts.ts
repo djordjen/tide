@@ -301,6 +301,15 @@ export interface TideSavedViewList {
   views: TideSavedView[]
 }
 
+/** One saved view carrying the browse it belongs to -- the home catalogue. */
+export interface TideOwnSavedView extends TideSavedView {
+  view: string
+}
+
+export interface TideSavedViewCatalog {
+  views: TideOwnSavedView[]
+}
+
 export interface TideBrowsePresentation {
   view: string
   entity: string

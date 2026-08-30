@@ -52,7 +52,7 @@ import type {
   TideSummaryValue,
 } from "@/lib/contracts"
 import { recordEmphasis, rowEmphasisClass } from "@/lib/emphasis"
-import { formatCellValue } from "@/lib/format"
+import { formatCellValue, summaryText, summaryWord } from "@/lib/format"
 import {
   clampColumnWidth,
   clearColumnLayout,
@@ -923,38 +923,6 @@ export function TideDataGrid({
       ) : null}
     </section>
   )
-}
-
-const SUMMARY_WORDS: Record<string, string> = {
-  sum: "Sum",
-  count: "Count",
-  avg: "Avg",
-  min: "Min",
-  max: "Max",
-}
-
-function summaryWord(functionName: string): string {
-  // A server may know a function this bundle does not; its own name is a
-  // better label than nothing.
-  return SUMMARY_WORDS[functionName] ?? functionName
-}
-
-function summaryText(
-  column: TidePresentationColumn,
-  summary: TideSummaryValue,
-): string {
-  if (summary.value === null || summary.value === undefined) {
-    return "—"
-  }
-  if (summary.function === "count") {
-    // A count is a number of values, never money -- the column's own
-    // format would dress 9 up as 9.00.
-    const count = Number(summary.value)
-    return Number.isFinite(count)
-      ? count.toLocaleString()
-      : String(summary.value)
-  }
-  return formatCellValue(column, summary.value)
 }
 
 function GridSkeleton({

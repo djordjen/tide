@@ -2,7 +2,42 @@ import type {
   TidePresentationColumn,
   TidePresentationReference,
   TideRecord,
+  TideSummaryValue,
 } from "@/lib/contracts"
+
+const SUMMARY_WORDS: Record<string, string> = {
+  sum: "Sum",
+  count: "Count",
+  avg: "Avg",
+  min: "Min",
+  max: "Max",
+}
+
+export function summaryWord(functionName: string): string {
+  // A server may know a function this bundle does not; its own name is a
+  // better label than nothing.
+  return SUMMARY_WORDS[functionName] ?? functionName
+}
+
+export function summaryText(
+  // Optional because a count may be asked over the identity field, which
+  // is not a column of the grid; a count never reads it anyway.
+  column: TidePresentationColumn | undefined,
+  summary: TideSummaryValue,
+): string {
+  if (summary.value === null || summary.value === undefined) {
+    return "—"
+  }
+  if (summary.function === "count") {
+    // A count is a number of values, never money -- the column's own
+    // format would dress 9 up as 9.00.
+    const count = Number(summary.value)
+    return Number.isFinite(count)
+      ? count.toLocaleString()
+      : String(summary.value)
+  }
+  return column ? formatCellValue(column, summary.value) : String(summary.value)
+}
 
 export function formatCellValue(
   column: TidePresentationColumn,

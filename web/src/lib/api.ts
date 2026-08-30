@@ -30,6 +30,8 @@ import type {
   TideAuditHistory,
   TideSearchResult,
   TideSavedView,
+  TideOwnSavedView,
+  TideSavedViewCatalog,
   TideSavedViewList,
   TideViewState,
   TideViewStateColumn,
@@ -505,6 +507,26 @@ export class TideApi {
    * predates the capability -- the caller hides the offer rather than
    * surfacing a 404 as an error.
    */
+  async mySavedViews(
+    signal?: AbortSignal,
+  ): Promise<TideOwnSavedView[] | null> {
+    // Everything this principal keeps, across browses. A 404 is an older
+    // server that has no catalogue: the home section hides, nothing errs.
+    try {
+      const catalogue = await this.request<TideSavedViewCatalog>(
+        `${this.basePath}/_tide/saved-views`,
+        { method: "GET" },
+        signal,
+      )
+      return catalogue.views
+    } catch (error) {
+      if (error instanceof TideApiError && error.status === 404) {
+        return null
+      }
+      throw error
+    }
+  }
+
   async savedViews(
     view: TideBrowsePresentation,
     signal?: AbortSignal,

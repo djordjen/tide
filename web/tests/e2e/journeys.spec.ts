@@ -812,6 +812,70 @@ test("arranges the grid and the server remembers the arrangement", async ({
   )
 })
 
+test("finds the work again from home", async ({ page }) => {
+  // Home is the landing: the clean URL, the person's own work assembled.
+  await signIn(page, "/")
+  await expect(page.getByRole("heading", { name: "Home" })).toBeVisible()
+
+  // A workspace tile wears the live numbers the browse itself would show.
+  const workspaces = page.getByRole("region", { name: "Workspaces" })
+  const invoicesTile = workspaces.getByRole("button", { name: /Invoices/ })
+  await expect(invoicesTile.getByTestId("tile-numbers")).toContainText(
+    "Count",
+  )
+
+  // Keep a view worth returning to, from inside the browse it belongs to.
+  await invoicesTile.click()
+  await expect(
+    page.getByRole("button", { name: "Filter Number" }),
+  ).toBeVisible()
+  const savedName = unique("Return ")
+  await page.getByRole("button", { name: /All records/ }).first().click()
+  await page.getByRole("menuitemradio", { name: "Draft invoices" }).click()
+  await page.getByRole("button", { name: "Save current view" }).click()
+  await page.getByRole("textbox", { name: "View name" }).fill(savedName)
+  await page.keyboard.press("Enter")
+  await expect(page.getByRole("button", { name: savedName })).toBeVisible()
+
+  // Back on Home it is a tile under My views, with its own live count.
+  await page.getByRole("button", { name: "Home" }).click()
+  const mine = page.getByRole("region", { name: "My views" })
+  const savedTile = mine.getByRole("button", {
+    name: new RegExp(savedName),
+  })
+  await expect(savedTile.getByTestId("tile-numbers")).toContainText("Count")
+
+  // The tile opens the browse with the whole state relit: the trigger
+  // wears the name, and the rows answer to the saved filter.
+  await savedTile.click()
+  await expect(page.getByRole("button", { name: savedName })).toBeVisible()
+  await expect(page.getByRole("row", { name: /INV-2026-0001/ })).toHaveCount(
+    0,
+  )
+
+  // A report shortcut opens the same preview the browse offers.
+  await page.getByRole("button", { name: "Home" }).click()
+  const reports = page.getByRole("region", { name: "Reports" })
+  await reports
+    .getByRole("button", { name: /Posted Sales Summary/ })
+    .click()
+  await expect(
+    page.getByRole("dialog", { name: "Posted Sales Summary" }),
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Close report preview" }).click()
+
+  // Leave nothing behind: the unique name goes the way it came.
+  await workspaces.getByRole("button", { name: /Invoices/ }).click()
+  await page.getByRole("button", { name: "All records" }).click()
+  await page
+    .getByRole("button", { name: `Delete saved view ${savedName}` })
+    .click()
+  await expect(
+    page.getByRole("menuitemradio", { name: savedName }),
+  ).toHaveCount(0)
+  await page.keyboard.press("Escape")
+})
+
 test("names a grid state and the server hands it back", async ({ page }) => {
   await signIn(page)
   const savedName = unique("Chase ")

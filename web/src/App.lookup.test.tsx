@@ -1036,6 +1036,8 @@ it("keeps a chosen lookup row selectable while the search catches up", async () 
 })
 
 function renderApp() {
+  // The suite predates Home: land where the old default landed.
+  window.history.replaceState(null, "", "/?view=sales.Invoice.browse")
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false },

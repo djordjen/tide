@@ -4,6 +4,7 @@ import {
   ChevronDown,
   CircleUserRound,
   FileText,
+  House,
   LogOut,
   Menu,
   Moon,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react"
 
 import { BrowseWorkspace } from "@/components/browse-workspace"
+import { HomeDashboard } from "@/components/home-dashboard"
 import { GlobalSearch } from "@/components/global-search"
 import { Button } from "@/components/ui/button"
 import { TideLine } from "@/components/tide-line"
@@ -42,14 +44,16 @@ const AdministrationWorkspace = lazy(async () => ({
 const CLEARED_BY_VIEW = ["record"] as const
 
 /**
- * The one destination that is not an application view.
+ * The destinations that are not application views.
  *
- * It travels in the same `view` parameter, under a name the manifest can
+ * They travel in the same `view` parameter, under names the manifest can
  * never hold: a view name is a compiled identifier and cannot begin with an
- * underscore, so this can never collide with one and needs no second
- * parameter to keep it apart.
+ * underscore, so these can never collide with one and need no second
+ * parameter to keep them apart. Home is the default landing, so it is the
+ * parameter's fallback and keeps the clean URL.
  */
 const TIDE_ADMINISTRATION = "_tide.administration"
+const TIDE_HOME = "_tide.home"
 
 /**
  * Where a navigation stops being read and starts being hunted through.
@@ -74,7 +78,7 @@ export function AppShell({
   const firstView = connection.presentation.navigation[0]?.items[0]?.view
   const [requestedView, setSelectedView] = useUrlParameter(
     "view",
-    firstView ?? "",
+    firstView !== undefined ? TIDE_HOME : "",
     CLEARED_BY_VIEW,
   )
   // True only where this principal may administer identities and this server
@@ -88,18 +92,39 @@ export function AppShell({
     (requestedView === TIDE_ADMINISTRATION || firstView === undefined)
   // The address bar is a caller like any other, so a view it names is checked
   // against the manifest rather than trusted. A principal who cannot see the
-  // view in a link they were sent gets their own default, not an empty shell.
+  // view in a link they were sent gets their own landing, not an empty shell.
+  const homeActive =
+    !administering &&
+    firstView !== undefined &&
+    (requestedView === TIDE_HOME ||
+      connection.presentation.views[requestedView] === undefined)
   const selectedView = administering
     ? TIDE_ADMINISTRATION
-    : connection.presentation.views[requestedView] !== undefined
-      ? requestedView
-      : (firstView ?? "")
+    : homeActive
+      ? TIDE_HOME
+      : requestedView
   const [theme, setTheme] = useState<"light" | "dark">(() =>
     document.documentElement.classList.contains("dark") ? "dark" : "light",
   )
-  const view = administering
-    ? undefined
-    : connection.presentation.views[selectedView]
+  // A one-shot instruction from a Home tile: open this browse with this
+  // saved view applied. Cleared whenever any other navigation happens, so
+  // returning to the view later opens it plain.
+  const [pendingSavedView, setPendingSavedView] = useState<{
+    view: string
+    name: string
+  } | null>(null)
+  function openView(name: string) {
+    setPendingSavedView(null)
+    setSelectedView(name)
+  }
+  function openSavedView(viewName: string, name: string) {
+    setPendingSavedView({ view: viewName, name })
+    setSelectedView(viewName)
+  }
+  const view =
+    administering || homeActive
+      ? undefined
+      : connection.presentation.views[selectedView]
   const form =
     view?.detail_view !== null && view?.detail_view !== undefined
       ? (connection.presentation.forms[view.detail_view] ?? null)
@@ -134,7 +159,7 @@ export function AppShell({
     setTheme(next)
   }
 
-  if (!administering && (!firstView || !view)) {
+  if (!administering && !firstView) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-background p-6">
         <div className="max-w-md rounded-2xl border bg-card p-8 text-center shadow-sm">
@@ -202,6 +227,28 @@ export function AppShell({
             filterable ? "pt-4" : "pt-5",
           )}
         >
+          <div className="mb-6 space-y-1">
+            <button
+              type="button"
+              className={cn(
+                "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+                homeActive
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
+                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground",
+              )}
+              onClick={() => openView(TIDE_HOME)}
+            >
+              <House
+                className={cn(
+                  "size-4",
+                  homeActive
+                    ? "text-sidebar-primary"
+                    : "text-sidebar-foreground/45",
+                )}
+              />
+              <span>Home</span>
+            </button>
+          </div>
           {navigationGroups.length === 0 ? (
             <p className="px-2 text-sm text-sidebar-foreground/45">
               No matching views
@@ -225,7 +272,7 @@ export function AppShell({
                           ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
                           : "text-sidebar-foreground/70 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground",
                       )}
-                      onClick={() => setSelectedView(item.view)}
+                      onClick={() => openView(item.view)}
                     >
                       <FileText
                         className={cn(
@@ -258,7 +305,7 @@ export function AppShell({
                   ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
                   : "text-sidebar-foreground/70 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground",
               )}
-              onClick={() => setSelectedView(TIDE_ADMINISTRATION)}
+              onClick={() => openView(TIDE_ADMINISTRATION)}
             >
               <UsersRound
                 className={cn(
@@ -316,8 +363,9 @@ export function AppShell({
               aria-label="Current workspace"
               className="h-9 w-full appearance-none rounded-lg border bg-background pr-9 pl-3 text-sm font-medium outline-none focus:ring-2 focus:ring-ring/25"
               value={selectedView}
-              onChange={(event) => setSelectedView(event.target.value)}
+              onChange={(event) => openView(event.target.value)}
             >
+              <option value={TIDE_HOME}>Home</option>
               {allItems.map((item) => (
                 <option key={item.view} value={item.view}>
                   {item.label}
@@ -335,7 +383,7 @@ export function AppShell({
               {connection.presentation.application}
               <span className="mx-2 text-border">/</span>
               <span className="font-medium text-foreground">
-                {view?.label ?? "Identities"}
+                {view?.label ?? (administering ? "Identities" : "Home")}
               </span>
             </p>
           </div>
@@ -375,7 +423,15 @@ export function AppShell({
           </div>
         </header>
 
-        {administering || !view ? (
+        {homeActive ? (
+          <HomeDashboard
+            api={api}
+            presentation={connection.presentation}
+            principal={connection.session.principal}
+            onOpenView={openView}
+            onOpenSavedView={openSavedView}
+          />
+        ) : administering || !view ? (
           <Suspense fallback={null}>
             <AdministrationWorkspace
               api={api}
@@ -395,6 +451,11 @@ export function AppShell({
             reports={connection.presentation.reports ?? {}}
             audit={
               connection.session.entities[view.entity]?.audit === true
+            }
+            initialSavedView={
+              pendingSavedView?.view === view.view
+                ? pendingSavedView.name
+                : null
             }
           />
         )}

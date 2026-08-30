@@ -519,6 +519,8 @@ function leaveIsGuarded(): boolean {
 }
 
 function renderApp() {
+  // The suite predates Home: land where the old default landed.
+  window.history.replaceState(null, "", "/?view=catalog.Product.browse")
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false },

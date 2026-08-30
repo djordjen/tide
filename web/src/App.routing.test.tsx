@@ -24,8 +24,9 @@ it("puts the open view in the address bar and takes it back", async () => {
   renderApp()
   await connectWithToken(user)
 
+  // Home is the default landing and keeps the clean URL.
   expect(
-    await screen.findByRole("heading", { name: "Products" }),
+    await screen.findByRole("heading", { name: "Home" }),
   ).toBeInTheDocument()
   expect(window.location.search).toBe("")
 
@@ -41,7 +42,7 @@ it("puts the open view in the address bar and takes it back", async () => {
   window.history.back()
 
   expect(
-    await screen.findByRole("heading", { name: "Products" }),
+    await screen.findByRole("heading", { name: "Home" }),
   ).toBeInTheDocument()
 })
 
@@ -67,11 +68,12 @@ it("falls back when a link names a view this principal cannot see", async () => 
   await connectWithToken(user)
 
   expect(
-    await screen.findByRole("heading", { name: "Products" }),
+    await screen.findByRole("heading", { name: "Home" }),
   ).toBeInTheDocument()
 })
 
 it("puts the open record in the address bar and takes it back", async () => {
+  window.history.replaceState(null, "", "/?view=catalog.Product.browse")
   stubServer()
   const user = userEvent.setup()
   renderApp()
@@ -119,6 +121,7 @@ it("closes the record when the view it belonged to is left", async () => {
   // Entities number their rows from one, so a record identity only means
   // something inside the view it came from. Carried across, `record=1` opens
   // a customer nobody asked for.
+  window.history.replaceState(null, "", "/?view=catalog.Product.browse")
   stubServer()
   const user = userEvent.setup()
   renderApp()
@@ -153,6 +156,9 @@ function stubServer() {
       }
       if (url.endsWith("/_tide/presentation")) {
         return jsonResponse(presentation)
+      }
+      if (url.endsWith("/_tide/saved-views")) {
+        return jsonResponse({ views: [] })
       }
       if (url.endsWith("/products/_query")) {
         return jsonResponse({ records: [product], next_cursor: null })
