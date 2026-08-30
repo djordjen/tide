@@ -100,3 +100,60 @@ def test_a_protected_collection_never_travels() -> None:
 
     assert "lines" not in draft
     assert set(draft) == {"invoice_date", "currency", "customer"}
+
+
+def test_the_rest_door_hands_the_draft_and_the_round_trip_creates() -> None:
+    import asyncio
+
+    import httpx
+
+    from tide.api.server import (
+        DevelopmentTokenAuthenticator,
+        build_fastapi_app,
+    )
+
+    token = "tide-development-token-that-is-long-enough"
+    model = compile_project(INVOICING)
+    repository = InMemoryRepository()
+    assert seed_demo_data(model, repository) == 15
+    records = RecordsService(model, repository)
+    actions = ActionService(model, records)
+    assert configure_application_runtime(model, records, actions)
+    app = build_fastapi_app(
+        model,
+        records,
+        DevelopmentTokenAuthenticator(
+            token, Principal("api:test", roles=frozenset({"sales_clerk"}))
+        ),
+        actions=actions,
+    )
+
+    async def exercise() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="https://testserver",
+            headers={"Authorization": f"Bearer {token}"},
+        ) as client:
+            answered = await client.get("/api/v1/invoices/1/duplicate-draft")
+            assert answered.status_code == 200, answered.text
+            values = answered.json()["values"]
+            assert values["currency"] == "EUR"
+            assert values["customer"] == 1
+            assert values["lines"][0]["quantity"] == "10"
+            assert "number" not in values
+            assert "status" not in values
+
+            created = await client.post("/api/v1/invoices", json=values)
+            assert created.status_code == 201, created.text
+            record = created.json()
+            assert record["status"] == "draft"
+            assert record["number"] != "INV-2026-0001"
+            assert record["total"] == "850.00"
+
+            missing = await client.get(
+                "/api/v1/invoices/999/duplicate-draft"
+            )
+            assert missing.status_code == 404
+
+    asyncio.run(exercise())

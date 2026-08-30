@@ -44,6 +44,7 @@ from tide.api.contracts import (
     TideBrowserSessionInfo,
     TideCreateLocalUserInput,
     TideDistinctInput,
+    TideDuplicateDraft,
     TideExportInput,
     TideDistinctResult,
     TideDistinctValue,
@@ -1885,6 +1886,28 @@ def build_fastapi_app(
                 tags=[tag],
                 responses=_documented_errors(400, 401, 403, 408, 409, 413, 422),
             )
+            if "get" in exposure.operations:
+                # Duplicating is reading plus creating, so the draft door
+                # exists exactly where both do. It stores nothing: the
+                # answer is what a create form opens with.
+                primary_key = _primary_key(entity)
+                app.add_api_route(
+                    f"{resource_path}/{{{primary_key.name}}}/duplicate-draft",
+                    _duplicate_draft_endpoint(
+                        records,
+                        entity,
+                        primary_key,
+                        request_context,
+                    ),
+                    methods=["GET"],
+                    response_model=TideDuplicateDraft,
+                    name=f"Duplicate draft of {entity.label}",
+                    operation_id=(
+                        f"duplicate{preview.record_models[entity_name].__name__.removesuffix('Record')}Draft"
+                    ),
+                    tags=[tag],
+                    responses=_documented_errors(400, 401, 403, 404, 422),
+                )
         if "update" in exposure.operations:
             primary_key = _primary_key(entity)
             update_endpoint = _update_endpoint(
@@ -2294,6 +2317,35 @@ def _action_endpoint(
         primary_key,
     )
     return execute_action
+
+
+def _duplicate_draft_endpoint(
+    records: RecordsService,
+    entity: NormalizedEntity,
+    primary_key: NormalizedField,
+    context_dependency: Any,
+) -> Any:
+    def duplicate_draft(
+        context: RequestContext = Depends(context_dependency),
+        identity: str = Path(alias=primary_key.name, description="Record identity"),
+    ) -> TideDuplicateDraft:
+        try:
+            typed_identity = _coerce_identity(records.model, primary_key, identity)
+        except (TypeError, ValueError, InvalidOperation) as error:
+            raise _bad_request("record identity has an invalid type") from error
+        draft = records.duplicate_draft(entity.name, typed_identity, context)
+        return TideDuplicateDraft(
+            values=_wire_draft(records.model, entity, draft),
+        )
+
+    duplicate_draft.__name__ = (
+        f"duplicate_{entity.name.replace('.', '_')}_draft"
+    )
+    duplicate_draft.__annotations__["identity"] = _identity_annotation(
+        records.model,
+        primary_key,
+    )
+    return duplicate_draft
 
 
 def _delete_endpoint(

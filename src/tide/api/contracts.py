@@ -224,6 +224,15 @@ class TideReferenceSelectionResult(BaseModel):
     values: dict[str, Any]
 
 
+class TideDuplicateDraft(BaseModel):
+    """What a person could have typed on the original: the values a create
+    form opens with to duplicate one record. Nothing is stored."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    values: dict[str, Any]
+
+
 class TideAuditFieldChange(BaseModel):
     """Safe wire projection of one changed record field."""
 
