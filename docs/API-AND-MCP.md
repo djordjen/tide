@@ -666,6 +666,13 @@ string and typed spellings of one request replay as one request. Reusing a key
 for a different request or retrying an uncertain failed execution fails closed
 through `ActionService`.
 
+A saved view may carry `conditions` — `{field, operator, value}` triples
+for ranges and contains — beside its `value_filters` membership map. The
+operator set is the query contract's own closed list; condition fields
+answer to the same filterable-and-readable rule as value filters, and
+stored values stay un-revalidated, replaying through the query service
+like everything else.
+
 ## The saved-view catalogue
 
 `GET /_tide/saved-views` (no view segment) answers everything the

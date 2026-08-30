@@ -56,6 +56,17 @@ permission. The `TIDE292` identifier gate covers report parameter names too:
 a dashed name used to compile cleanly and crash `tide serve` at MCP startup,
 since every declared name becomes a field on the generated tool arguments.
 
+A column's filter popover speaks **operator modes by field type**: dates a
+From/To pair, numbers Min/Max, text a Values-or-Contains toggle, and the
+enumerable kinds keep their distinct-value checklist — one active mode per
+column, an emptied popover releasing it. The query wire changes not at
+all: the operators (`gte`, `lte`, `icontains`) were always in the
+contract, and the funnel stops being the only caller that never emits
+them. Saved views store the new kinds as `conditions` beside their
+membership map, so a range relights its bounds on restore and a Home tile
+counts the same window the browse shows. `datetime` columns deliberately
+keep the checklist until aware-range semantics are settled.
+
 The web lands on **Home**: a personal dashboard assembled from what the
 principal keeps rather than declared in YAML. Saved views are tiles wearing
 their live numbers — the browse's declared summaries, guaranteed a count,
