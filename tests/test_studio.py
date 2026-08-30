@@ -2027,6 +2027,111 @@ def test_the_view_field_table_refits_after_a_measurement_taken_before_layout(
     asyncio.run(exercise())
 
 
+def test_a_late_column_fit_does_not_move_where_a_new_field_will_land(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Re-fitting the columns must not silently retarget the Add button.
+
+    `_sync_view_field_columns` is scheduled with `call_after_refresh` and
+    reschedules itself while the table measures zero, so the fit can land
+    several refreshes after the panel is on screen. When it lands it
+    repopulates the table, which re-highlights the field that was already
+    highlighted -- and `_select_view_field` answered that by writing the
+    highlighted field's own group into `#view-field-group-choice`, discarding
+    the group the person had chosen to add into. The Add button stays enabled
+    either way, so nothing shows the choice was taken back: the field simply
+    arrives in a group nobody asked for.
+
+    Seen as CI first. `test_textual_studio_targets_and_manages_view_groups...`
+    failed on windows-latest with `assert 'Invoice' == 'Totals'` while passing
+    everywhere else -- the loaded runner was one refresh slower than the test.
+    Deterministic here because the fit is driven rather than waited for.
+    """
+
+    app = StudioApp(StudioService(INVOICING))
+
+    async def exercise() -> None:
+        async with app.run_test(size=(150, 52)) as pilot:
+            await pilot.pause()
+            await _select_view(pilot, app, "sales.Invoice.edit")
+
+            assert app.view_structure is not None
+            totals = next(
+                group for group in app.view_structure.groups if group.label == "Totals"
+            )
+            table = app.query_one("#view-field-table", DataTable)
+            group_selector = app.query_one("#view-field-group-choice", Select)
+            app.query_one("#view-field-add-choice", Select).value = "id"
+            group_selector.value = totals.key
+            await _wait_until(
+                pilot,
+                lambda: not app.query_one("#add-view-field", Button).disabled,
+            )
+
+            # The terminal narrowed: the fit now wants fewer columns than the
+            # table holds, which is the one condition that repopulates it.
+            wide = [str(column.label) for column in table.columns.values()]
+            monkeypatch.setattr(StudioApp, "_view_field_table_width", lambda self: 40)
+            app._sync_view_field_columns()
+            await pilot.pause()
+            assert [
+                str(column.label) for column in table.columns.values()
+            ] != wide, "the re-fit did not repopulate, so nothing was proved"
+
+            assert group_selector.value == totals.key, (
+                "re-fitting the columns took back the chosen group"
+            )
+            await pilot.click("#add-view-field")
+            await pilot.pause()
+            assert app.selected_view_field is not None
+            assert app.selected_view_field.name == "id"
+            assert app.selected_view_field.source_group == "Totals"
+
+    asyncio.run(exercise())
+
+
+def test_highlighting_another_group_is_how_a_person_aims_the_add_button() -> None:
+    """Moving the highlight retargets Add; a rebuild re-asserting it must not.
+
+    The two halves of one rule, and only the first half was ever observed.
+    Gating the retarget on the highlight having moved -- which is what stops a
+    late column fit from taking a chosen group back -- would otherwise have
+    been free to gate it away entirely with all 47 studio tests still green.
+    """
+
+    app = StudioApp(StudioService(INVOICING))
+
+    async def exercise() -> None:
+        async with app.run_test(size=(150, 52)) as pilot:
+            await pilot.pause()
+            await _select_view(pilot, app, "sales.Invoice.edit")
+
+            assert app.view_structure is not None
+            invoice = next(
+                group for group in app.view_structure.groups if group.label == "Invoice"
+            )
+            totals = next(
+                group for group in app.view_structure.groups if group.label == "Totals"
+            )
+            group_selector = app.query_one("#view-field-group-choice", Select)
+            assert group_selector.value == invoice.key, (
+                "a view opens aimed at the group of the field it highlights"
+            )
+
+            row = next(
+                index
+                for index, field in enumerate(app.view_structure.fields)
+                if field.source_group == "Totals"
+            )
+            app.query_one("#view-field-table", DataTable).move_cursor(row=row)
+            await _wait_until(pilot, lambda: group_selector.value == totals.key)
+            assert group_selector.value == totals.key, (
+                "highlighting a field in another group is a choice and must follow"
+            )
+
+    asyncio.run(exercise())
+
+
 @pytest.mark.parametrize(("columns", "rows"), CERTIFIED_TERMINAL_SIZES)
 def test_the_studio_toolbar_stays_on_screen_when_a_view_is_selected(
     columns: int,

@@ -996,6 +996,12 @@ class StudioApp(App[None]):
         selected = self._view_field_rows.get(row_key)
         if selected is None:
             return
+        # Highlighting a different field is what retargets Add. Re-asserting
+        # the highlight already in place is not: a table rebuild ends by
+        # re-selecting the row it started on, and a column fit arriving late
+        # would otherwise take back a group the person had already chosen --
+        # silently, because the button stays enabled either way.
+        moved = self._selected_view_field_key != selected.key
         self.selected_view_field = selected
         self._selected_view_field_key = selected.key
         title = self._panel_widget("#view-structure-title", Static)
@@ -1010,9 +1016,16 @@ class StudioApp(App[None]):
                 else selected.track_label
             )
         group_selector = self._panel_widget("#view-field-group-choice", Select)
-        if group_selector is not None and selected.source_group_key is not None and any(
-            group.key == selected.source_group_key
-            for group in (self.view_structure.groups if self.view_structure else ())
+        if (
+            moved
+            and group_selector is not None
+            and selected.source_group_key is not None
+            and any(
+                group.key == selected.source_group_key
+                for group in (
+                    self.view_structure.groups if self.view_structure else ()
+                )
+            )
         ):
             group_selector.value = selected.source_group_key
             self._selected_view_group_label = selected.source_group

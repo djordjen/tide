@@ -994,6 +994,19 @@ to four refreshes, and treats zero as "not yet" rather than as an answer.
 Surfaced as a one-run-in-five flake at whichever certified size lost the race;
 reproduced deterministically by forcing the first two measurements to zero.
 
+That fit lands late by design, and landing late had a second consequence.
+Repopulating the table re-highlights the field that was already highlighted,
+and answering a highlight by writing its group into the add-target selector
+took back the group a person had just chosen -- silently, because the Add
+button stays enabled either way, so the field arrived in a group nobody asked
+for. Highlighting a *different* field is the choice that retargets Add;
+re-asserting the highlight already in place is not, and no longer does. Found
+as a Windows CI failure reading `assert 'Invoice' == 'Totals'`, on a runner one
+refresh slower than the test. Both halves of the rule are now pinned: the
+retarget itself turned out to be observed by nothing, so the gate that keeps a
+chosen group could have removed the retarget entirely with every studio test
+still green.
+
 Studio sessions now reuse the compiled evaluation and semantic document index
 for an unchanged candidate fingerprint. The cache is bounded by the same
 history limit as undo/redo, candidate mutations refresh only the affected
