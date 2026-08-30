@@ -29,6 +29,8 @@ import type {
   TideSessionInfo,
   TideAuditHistory,
   TideSearchResult,
+  TideSavedView,
+  TideSavedViewList,
   TideViewState,
   TideViewStateColumn,
 } from "@/lib/contracts"
@@ -477,6 +479,53 @@ export class TideApi {
   ): Promise<void> {
     await this.authorizedResponse(
       `${this.basePath}/_tide/view-state/${encodeURIComponent(view.view)}`,
+      { method: "DELETE" },
+      signal,
+    )
+  }
+
+  /**
+   * This identity's saved views of one browse, or null when the server
+   * predates the capability -- the caller hides the offer rather than
+   * surfacing a 404 as an error.
+   */
+  async savedViews(
+    view: TideBrowsePresentation,
+    signal?: AbortSignal,
+  ): Promise<TideSavedViewList | null> {
+    try {
+      return await this.request<TideSavedViewList>(
+        `${this.basePath}/_tide/saved-views/${encodeURIComponent(view.view)}`,
+        { method: "GET" },
+        signal,
+      )
+    } catch (error) {
+      if (error instanceof TideApiError && error.status === 404) {
+        return null
+      }
+      throw error
+    }
+  }
+
+  async saveSavedView(
+    view: TideBrowsePresentation,
+    entry: TideSavedView,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    await this.authorizedResponse(
+      `${this.basePath}/_tide/saved-views/${encodeURIComponent(view.view)}/${encodeURIComponent(entry.name)}`,
+      { method: "PUT", body: JSON.stringify(entry) },
+      signal,
+    )
+  }
+
+  async deleteSavedView(
+    view: TideBrowsePresentation,
+    name: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    await this.authorizedResponse(
+      `${this.basePath}/_tide/saved-views/${encodeURIComponent(view.view)}/${encodeURIComponent(name)}`,
       { method: "DELETE" },
       signal,
     )

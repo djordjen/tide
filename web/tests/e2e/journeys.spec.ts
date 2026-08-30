@@ -728,3 +728,69 @@ test("arranges the grid and the server remembers the arrangement", async ({
     0,
   )
 })
+
+test("names a grid state and the server hands it back", async ({ page }) => {
+  await signIn(page)
+  const savedName = unique("Chase ")
+  await expect(
+    page.getByRole("button", { name: "Filter Number" }),
+  ).toBeVisible()
+
+  // Build a state worth naming: a standing arrangement with an extra
+  // column, plus a declared filter.
+  await page.getByRole("button", { name: "Choose columns" }).click()
+  await page.getByRole("checkbox", { name: "Show Version" }).click()
+  await page.getByRole("button", { name: "Apply" }).click()
+  await expect(
+    page.getByRole("button", { name: "Filter Version" }),
+  ).toBeVisible()
+  await page
+    .getByRole("button", { name: /All records|Draft invoices/ })
+    .first()
+    .click()
+  await page.getByRole("menuitemradio", { name: "Draft invoices" }).click()
+
+  // Enter in the name box is the save: the form submits implicitly, the
+  // way every data-entry surface here advances on Enter.
+  await page.getByRole("button", { name: "Save current view" }).click()
+  await page.getByRole("textbox", { name: "View name" }).fill(savedName)
+  await page.keyboard.press("Enter")
+  await expect(page.getByRole("button", { name: savedName })).toBeVisible()
+
+  // The snapshot must outlive the standing arrangement it was taken
+  // from: reset the arrangement, leave the saved view, come back.
+  await page.getByRole("button", { name: "Choose columns" }).click()
+  await page.getByRole("button", { name: "Reset to default" }).click()
+  await page.getByRole("button", { name: savedName }).click()
+  await page.getByRole("menuitemradio", { name: "All records" }).click()
+  await expect(page.getByRole("button", { name: "Filter Version" })).toHaveCount(
+    0,
+  )
+  await page.getByRole("button", { name: "All records" }).click()
+  await page.getByRole("menuitemradio", { name: savedName }).click()
+  await expect(
+    page.getByRole("button", { name: "Filter Version" }),
+  ).toBeVisible()
+  await expect(page.getByRole("row", { name: /INV-2026-0002/ })).toBeVisible()
+  await expect(page.getByRole("row", { name: /INV-2026-0001/ })).toHaveCount(0)
+
+  // A fresh load rebuilds the offer from the server, not from this tab.
+  await page.reload()
+  await page.getByRole("button", { name: "All records" }).click()
+  await page.getByRole("menuitemradio", { name: savedName }).click()
+  await expect(
+    page.getByRole("button", { name: "Filter Version" }),
+  ).toBeVisible()
+
+  // Leave nothing behind: delete the entry and watch the section forget
+  // it. The journey's name is unique per run, so a failed run cannot
+  // trip the next one either.
+  await page.getByRole("button", { name: savedName }).click()
+  await page
+    .getByRole("button", { name: `Delete saved view ${savedName}` })
+    .click()
+  await expect(
+    page.getByRole("menuitemradio", { name: savedName }),
+  ).toHaveCount(0)
+  await page.keyboard.press("Escape")
+})

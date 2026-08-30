@@ -9,6 +9,7 @@ import {
 } from "react"
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  BookmarkPlus,
   ChartNoAxesCombined,
   CircleAlert,
   CircleCheck,
@@ -26,6 +27,11 @@ import { Badge } from "@/components/ui/badge"
 import { TideLine } from "@/components/tide-line"
 import { BrowseExportControl } from "@/components/browse-export-control"
 import { ColumnChooser } from "@/components/column-chooser"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -51,6 +57,7 @@ import type {
   TideRecord,
   TideSortInput,
   TideViewState,
+  TideViewStateColumn,
 } from "@/lib/contracts"
 import {
   EDITABLE_SCALAR_TYPES,
@@ -62,6 +69,7 @@ import {
   type TideFormDraft,
   type TideFormErrors,
 } from "@/lib/form-draft"
+import { applySavedView, captureSavedView } from "@/lib/saved-views"
 import { cn } from "@/lib/utils"
 
 /**
@@ -121,6 +129,17 @@ export function BrowseWorkspace({
   const [search, setSearch] = useState("")
   const debouncedSearch = useDebouncedValue(search.trim(), 300)
   const [filterName, setFilterName] = useState("all")
+  // The selected saved view's name, for the trigger label and the
+  // radio mark; its columns snapshot rides separately because
+  // "follow the standing arrangement" is a real value (null).
+  const [activeSavedView, setActiveSavedView] = useState<string | null>(
+    null,
+  )
+  const [savedColumns, setSavedColumns] = useState<
+    TideViewStateColumn[] | null
+  >(null)
+  const [savingView, setSavingView] = useState(false)
+  const [saveName, setSaveName] = useState("")
   const [sort, setSort] = useState<TideSortInput[]>([])
   const [selectedIdentity, setSelectedIdentity] = useState<unknown | null>(
     null,
@@ -162,6 +181,10 @@ export function BrowseWorkspace({
     Record<string, unknown[]>
   >({})
   useEffect(() => setValueFilters({}), [view.view])
+  useEffect(() => {
+    setActiveSavedView(null)
+    setSavedColumns(null)
+  }, [view.view])
   const filters = useMemo<TideFilterInput[]>(() => {
     const result = [...(selectedFilter?.conditions ?? [])]
     for (const [field, values] of Object.entries(valueFilters)) {
@@ -297,14 +320,23 @@ export function BrowseWorkspace({
     () => arrangementQuery.data?.columns ?? [],
     [arrangementQuery.data],
   )
+  // A saved view's snapshot outranks the standing arrangement while it
+  // is selected; null follows the arrangement, and no arrangement means
+  // the declared view. One variable so the grid, the chooser's draft
+  // and a capture all read the same answer.
+  const activeColumns = useMemo(
+    () =>
+      savedColumns ?? (arrangement.length ? arrangement : null),
+    [arrangement, savedColumns],
+  )
   const arrangedView = useMemo<TideBrowsePresentation>(() => {
-    if (!arrangement.length) {
+    if (!activeColumns?.length) {
       return view
     }
     const offered = new Map(
       (view.available_columns ?? []).map((column) => [column.name, column]),
     )
-    const columns = arrangement.flatMap((chosen) => {
+    const columns = activeColumns.flatMap((chosen) => {
       const column = offered.get(chosen.name)
       if (!column) {
         // Stored before the offer changed -- a field renamed away or
@@ -315,7 +347,17 @@ export function BrowseWorkspace({
       return [chosen.label ? { ...column, label: chosen.label } : column]
     })
     return columns.length ? { ...view, columns } : view
-  }, [arrangement, view])
+  }, [activeColumns, view])
+
+  // Saved views: named grid states, fetched per browse. `null` data
+  // means the server predates the capability, so nothing is offered.
+  const savedViewsQuery = useQuery({
+    queryKey: ["saved-views", principal, view.view],
+    queryFn: ({ signal }) => api.savedViews(view, signal),
+  })
+  const savedViewsSupported =
+    savedViewsQuery.data !== undefined && savedViewsQuery.data !== null
+  const savedViews = savedViewsQuery.data?.views ?? []
 
   const queryClient = useQueryClient()
   const inlineMode =
@@ -653,22 +695,56 @@ export function BrowseWorkspace({
             </div>
           ) : null}
 
-          {view.named_filters.length ? (
+          {view.named_filters.length || savedViewsSupported ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
-                  variant={filterName === "all" ? "outline" : "secondary"}
+                  variant={
+                    activeSavedView !== null || filterName !== "all"
+                      ? "secondary"
+                      : "outline"
+                  }
                 >
                   <Filter />
-                  {selectedFilter?.label ?? "All records"}
+                  {activeSavedView ?? selectedFilter?.label ?? "All records"}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuLabel>Named filter</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuRadioGroup
-                  value={filterName}
-                  onValueChange={setFilterName}
+                  value={
+                    activeSavedView !== null
+                      ? `saved:${activeSavedView}`
+                      : filterName
+                  }
+                  onValueChange={(value) => {
+                    if (value.startsWith("saved:")) {
+                      const entry = savedViews.find(
+                        (candidate) => `saved:${candidate.name}` === value,
+                      )
+                      if (!entry) {
+                        return
+                      }
+                      // Apply the components wholesale: the controls
+                      // must show exactly what constrained the rows
+                      // when the view was saved.
+                      const state = applySavedView(entry)
+                      setFilterName(state.filterName)
+                      setValueFilters(state.valueFilters)
+                      setSort(state.sort)
+                      setSavedColumns(state.columns)
+                      setActiveSavedView(entry.name)
+                      return
+                    }
+                    // A declared filter keeps its existing semantics --
+                    // funnels compose, nothing else resets -- but
+                    // leaving a saved view returns the columns to the
+                    // standing arrangement.
+                    setFilterName(value)
+                    setSavedColumns(null)
+                    setActiveSavedView(null)
+                  }}
                 >
                   <DropdownMenuRadioItem value="all">
                     All records
@@ -681,9 +757,137 @@ export function BrowseWorkspace({
                       {item.label}
                     </DropdownMenuRadioItem>
                   ))}
+                  {savedViews.length ? (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel>Saved views</DropdownMenuLabel>
+                      {savedViews.map((entry) => (
+                        <DropdownMenuRadioItem
+                          key={entry.name}
+                          value={`saved:${entry.name}`}
+                          className="group/saved pr-1"
+                        >
+                          <span className="flex-1 truncate">
+                            {entry.name}
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={`Delete saved view ${entry.name}`}
+                            title={`Delete saved view ${entry.name}`}
+                            className="ml-2 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover/saved:opacity-100"
+                            onPointerDown={(event) => {
+                              event.stopPropagation()
+                              event.preventDefault()
+                            }}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              event.preventDefault()
+                              void (async () => {
+                                await api.deleteSavedView(view, entry.name)
+                                if (activeSavedView === entry.name) {
+                                  setActiveSavedView(null)
+                                }
+                                await queryClient.invalidateQueries({
+                                  queryKey: [
+                                    "saved-views",
+                                    principal,
+                                    view.view,
+                                  ],
+                                })
+                              })()
+                            }}
+                          >
+                            <X className="size-3.5" />
+                          </button>
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </>
+                  ) : null}
                 </DropdownMenuRadioGroup>
               </DropdownMenuContent>
             </DropdownMenu>
+          ) : null}
+
+          {savedViewsSupported ? (
+            <Popover
+              open={savingView}
+              onOpenChange={(next) => {
+                setSavingView(next)
+                if (next) {
+                  setSaveName(activeSavedView ?? "")
+                }
+              }}
+            >
+              <PopoverTrigger asChild>
+                <Button
+                  aria-label="Save current view"
+                  title="Save current view"
+                  size="icon"
+                  variant="outline"
+                >
+                  <BookmarkPlus />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-72">
+                <div className="mb-2 text-sm font-medium">
+                  Save current view
+                </div>
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    const name = saveName.trim()
+                    if (!name) {
+                      return
+                    }
+                    void (async () => {
+                      try {
+                        await api.saveSavedView(
+                          view,
+                          captureSavedView(name, {
+                            filterName,
+                            valueFilters,
+                            sort,
+                            columns: activeColumns,
+                          }),
+                        )
+                        await queryClient.invalidateQueries({
+                          queryKey: ["saved-views", principal, view.view],
+                        })
+                        setActiveSavedView(name)
+                        setSavedColumns(activeColumns)
+                        setSavingView(false)
+                      } catch (error) {
+                        setFeedback({
+                          tone: "error",
+                          message:
+                            error instanceof TideApiError
+                              ? error.message
+                              : "The view could not be saved.",
+                        })
+                        setSavingView(false)
+                      }
+                    })()
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <Input
+                      aria-label="View name"
+                      placeholder="Name this view"
+                      value={saveName}
+                      autoFocus
+                      onChange={(event) => setSaveName(event.target.value)}
+                    />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      disabled={!saveName.trim()}
+                    >
+                      Save
+                    </Button>
+                  </div>
+                </form>
+              </PopoverContent>
+            </Popover>
           ) : null}
 
           {form ? (

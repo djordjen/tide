@@ -284,6 +284,23 @@ export interface TideViewState {
   columns: TideViewStateColumn[]
 }
 
+/**
+ * One named grid state: the components a browse screen restores.
+ * `columns` is a snapshot of the arrangement, or null to follow the
+ * person's standing arrangement of the view.
+ */
+export interface TideSavedView {
+  name: string
+  named_filter: string | null
+  value_filters: Record<string, unknown[]>
+  sort: TideSortInput[]
+  columns: TideViewStateColumn[] | null
+}
+
+export interface TideSavedViewList {
+  views: TideSavedView[]
+}
+
 export interface TideBrowsePresentation {
   view: string
   entity: string
