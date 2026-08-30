@@ -169,6 +169,43 @@ def test_only_a_real_browse_view_answers() -> None:
     asyncio.run(exercise())
 
 
+def test_the_catalogue_answers_everything_with_its_view_names() -> None:
+    """The home surface's one ask: every saved view this principal keeps,
+    each entry carrying the browse it belongs to, view then name."""
+
+    app = _app("sales_clerk")
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            await client.put(
+                "/api/v1/_tide/saved-views/sales.Invoice.browse/Overdue",
+                json=OVERDUE_DOCUMENT,
+            )
+            await client.put(
+                "/api/v1/_tide/saved-views/catalog.Product.browse/Cheap",
+                json={
+                    "name": "Cheap",
+                    "named_filter": None,
+                    "value_filters": {},
+                    "sort": [],
+                    "columns": None,
+                },
+            )
+
+            catalogue = await client.get("/api/v1/_tide/saved-views")
+            assert catalogue.status_code == 200, catalogue.text
+            entries = catalogue.json()["views"]
+            assert [(entry["view"], entry["name"]) for entry in entries] == [
+                ("catalog.Product.browse", "Cheap"),
+                ("sales.Invoice.browse", "Overdue"),
+            ]
+            overdue = entries[1]
+            assert overdue["named_filter"] == "drafts"
+            assert overdue["value_filters"] == {"status": ["draft", None]}
+
+    asyncio.run(exercise())
+
+
 def test_the_routes_require_authentication() -> None:
     app = _app("sales_clerk")
 
@@ -181,5 +218,7 @@ def test_the_routes_require_authentication() -> None:
                 "/api/v1/_tide/saved-views/sales.Invoice.browse"
             )
             assert response.status_code == 401
+            catalogue = await anonymous.get("/api/v1/_tide/saved-views")
+            assert catalogue.status_code == 401
 
     asyncio.run(exercise())

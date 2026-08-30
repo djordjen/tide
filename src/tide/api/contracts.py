@@ -834,6 +834,21 @@ class TideSavedView(BaseModel):
     columns: tuple[TideViewStateColumn, ...] | None = None
 
 
+class TideOwnSavedView(TideSavedView):
+    """One saved view carrying the browse it belongs to, for the home
+    surface's catalogue."""
+
+    view: str = Field(min_length=1)
+
+
+class TideSavedViewCatalog(BaseModel):
+    """Everything one principal keeps, across browses, view then name."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    views: tuple[TideOwnSavedView, ...] = ()
+
+
 class TideSavedViewList(BaseModel):
     """Every saved view one principal holds for one browse, by name."""
 

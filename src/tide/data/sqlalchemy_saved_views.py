@@ -143,6 +143,36 @@ class SQLAlchemySavedViewStore:
             _deserialize(str(row["name"]), str(row["document"])) for row in rows
         )
 
+    def list_mine(self, principal: str) -> tuple[tuple[str, SavedView], ...]:
+        try:
+            with self.engine.connect() as connection:
+                rows = (
+                    connection.execute(
+                        select(
+                            self.saved_table.c.view,
+                            self.saved_table.c.name,
+                            self.saved_table.c.document,
+                        )
+                        .where(self.saved_table.c.principal == principal)
+                        .order_by(
+                            self.saved_table.c.view, self.saved_table.c.name
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+        except SQLAlchemyError as error:
+            raise SavedViewStoreError(
+                "could not read the saved views"
+            ) from error
+        return tuple(
+            (
+                str(row["view"]),
+                _deserialize(str(row["name"]), str(row["document"])),
+            )
+            for row in rows
+        )
+
     def put(self, principal: str, view: str, entry: SavedView) -> None:
         document = _serialize(entry)
         if len(document.encode("utf-8")) > MAX_DOCUMENT_BYTES:

@@ -67,6 +67,8 @@ from tide.api.contracts import (
     TideSearchResult,
     TideSessionInfo,
     TideSavedView,
+    TideOwnSavedView,
+    TideSavedViewCatalog,
     TideSavedViewList,
     TideUpdateLocalUserInput,
     TideViewState,
@@ -1419,6 +1421,26 @@ def build_fastapi_app(
                     if entry.columns is not None
                     else None
                 ),
+            )
+
+        @app.get(
+            f"{base_path.rstrip('/')}/_tide/saved-views",
+            tags=["TIDE"],
+            summary="Everything this identity keeps, across browses",
+            response_model=TideSavedViewCatalog,
+            responses=_documented_errors(401),
+        )
+        def saved_views_catalogue(
+            context: RequestContext = Depends(request_context),
+        ) -> TideSavedViewCatalog:
+            return TideSavedViewCatalog(
+                views=tuple(
+                    TideOwnSavedView(
+                        view=view_name,
+                        **_saved_view_wire(entry).model_dump(),
+                    )
+                    for view_name, entry in saved_views.list_mine(context)
+                )
             )
 
         @app.get(

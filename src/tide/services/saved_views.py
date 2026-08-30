@@ -48,6 +48,10 @@ class SavedViewRows(Protocol):
 
     def list(self, principal: str, view: str) -> tuple[SavedView, ...]: ...
 
+    def list_mine(
+        self, principal: str
+    ) -> tuple[tuple[str, SavedView], ...]: ...
+
     def put(self, principal: str, view: str, entry: SavedView) -> None: ...
 
     def delete(self, principal: str, view: str, name: str) -> None: ...
@@ -70,6 +74,18 @@ class InMemorySavedViewRows:
                     if owner == principal and owner_view == view
                 ),
                 key=lambda entry: entry.name,
+            )
+        )
+
+    def list_mine(self, principal: str) -> tuple[tuple[str, SavedView], ...]:
+        return tuple(
+            sorted(
+                (
+                    (owner_view, entry)
+                    for (owner, owner_view, _), entry in self._rows.items()
+                    if owner == principal
+                ),
+                key=lambda item: (item[0], item[1].name),
             )
         )
 
@@ -122,6 +138,23 @@ class SavedViewService:
     ) -> tuple[SavedView, ...]:
         self._browse_view(view_name)
         return self.rows.list(context.principal.identifier, view_name)
+
+    def list_mine(
+        self, context: RequestContext
+    ) -> tuple[tuple[str, SavedView], ...]:
+        """Everything this principal keeps, across views, for the home
+        surface. A saved view outlives the application changing under it,
+        so a row whose view is no longer a browse is left dormant rather
+        than offered as a broken tile."""
+
+        return tuple(
+            (view_name, entry)
+            for view_name, entry in self.rows.list_mine(
+                context.principal.identifier
+            )
+            if (view := self.model.views.get(view_name)) is not None
+            and view.kind == "browse"
+        )
 
     def put(
         self, context: RequestContext, view_name: str, entry: SavedView

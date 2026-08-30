@@ -101,6 +101,32 @@ def test_saved_views_are_private_and_listed_by_name(
     assert rows.list("user:1", "catalog.Product.browse") == ()
 
 
+@pytest.mark.parametrize("backend", ["sql", "memory"])
+def test_the_whole_catalogue_lists_by_view_then_name(
+    backend: str, tmp_path: Path
+) -> None:
+    """The dashboard's ask: everything one principal keeps, across views,
+    in a stable order, and nobody else's."""
+
+    rows = sql_store(tmp_path) if backend == "sql" else InMemorySavedViewRows()
+    second = SavedView(name="All drafts")
+    elsewhere = SavedView(name="Cheap items")
+
+    rows.put("user:1", "sales.Invoice.browse", OVERDUE)
+    rows.put("user:1", "sales.Invoice.browse", second)
+    rows.put("user:1", "catalog.Product.browse", elsewhere)
+    rows.put("user:2", "sales.Invoice.browse", SavedView(name="Not yours"))
+
+    assert [
+        (view, entry.name) for view, entry in rows.list_mine("user:1")
+    ] == [
+        ("catalog.Product.browse", "Cheap items"),
+        ("sales.Invoice.browse", "All drafts"),
+        ("sales.Invoice.browse", "Overdue invoices"),
+    ]
+    assert rows.list_mine("user:3") == ()
+
+
 def test_a_saved_view_survives_a_restart(tmp_path: Path) -> None:
     url = f"sqlite+pysqlite:///{(tmp_path / 'saved-views.db').as_posix()}"
     store = SQLAlchemySavedViewStore(url, mode="managed")
@@ -146,6 +172,27 @@ def test_the_service_keeps_and_lists_a_valid_view() -> None:
     assert service.list(clerk, "sales.Invoice.browse") == (OVERDUE,)
     service.delete(clerk, "sales.Invoice.browse", "Overdue invoices")
     assert service.list(clerk, "sales.Invoice.browse") == ()
+
+
+def test_the_service_catalogue_drops_views_that_no_longer_exist() -> None:
+    """A saved view outlives the application changing under it; the
+    catalogue answers only for views that are still browses, so a renamed
+    or removed view leaves a dormant row rather than a broken tile."""
+
+    service = _service()
+    clerk = _context("sales_clerk")
+    service.put(clerk, "sales.Invoice.browse", OVERDUE)
+    service.rows.put(
+        clerk.principal.identifier,
+        "gone.View.browse",
+        SavedView(name="Orphaned"),
+    )
+
+    catalogue = service.list_mine(clerk)
+
+    assert [(view, entry.name) for view, entry in catalogue] == [
+        ("sales.Invoice.browse", "Overdue invoices")
+    ]
 
 
 def test_every_refusal_reason_is_named_at_once() -> None:
