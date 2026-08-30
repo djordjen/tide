@@ -69,6 +69,7 @@ import {
   type TideFormDraft,
   type TideFormErrors,
 } from "@/lib/form-draft"
+import { gridStateFilters } from "@/lib/grid-query"
 import { applySavedView, captureSavedView } from "@/lib/saved-views"
 import { cn } from "@/lib/utils"
 
@@ -190,10 +191,10 @@ export function BrowseWorkspace({
     setSavedColumns(null)
   }, [view.view])
   const filters = useMemo<TideFilterInput[]>(() => {
-    const result = [...(selectedFilter?.conditions ?? [])]
-    for (const [field, values] of Object.entries(valueFilters)) {
-      result.push({ field, operator: "in", value: values })
-    }
+    // The shared composition (named filter + funnels) plus this screen's
+    // own live search clause -- a dashboard tile asks with the same
+    // function and no search box.
+    const result = gridStateFilters(view, { filterName, valueFilters })
     if (debouncedSearch && view.search_field) {
       result.push({
         field: view.search_field,
@@ -202,7 +203,7 @@ export function BrowseWorkspace({
       })
     }
     return result
-  }, [debouncedSearch, selectedFilter, valueFilters, view.search_field])
+  }, [debouncedSearch, filterName, valueFilters, view])
 
   const query = useInfiniteQuery({
     queryKey: [
