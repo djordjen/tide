@@ -876,6 +876,68 @@ test("finds the work again from home", async ({ page }) => {
   await page.keyboard.press("Escape")
 })
 
+test("ranges a date, floors a total, and the saved view relights them", async ({
+  page,
+}) => {
+  await signIn(page)
+
+  // The invoice-date funnel is a From/To pair now -- a list of individual
+  // dates was never the question.
+  await page.getByRole("button", { name: "Filter Invoice Date" }).click()
+  await page.getByLabel("From", { exact: true }).fill("2026-07-04")
+  await page.getByLabel("To", { exact: true }).fill("2026-07-12")
+  await page.getByRole("button", { name: "Apply" }).click()
+
+  await page.getByRole("button", { name: "Filter Total" }).click()
+  await page.getByLabel("Min", { exact: true }).fill("500")
+  await page.getByRole("button", { name: "Apply" }).click()
+
+  // Three seeded rows answer, drafts and posted alike -- the range asks
+  // about dates and totals, not status -- and the footer answers for the
+  // same filtered set the rows come from.
+  await expect(page.getByTestId("grid-summary-number")).toHaveText(/Count3/)
+  await expect(page.getByRole("row", { name: /INV-2026-0003/ })).toBeVisible()
+  await expect(page.getByRole("row", { name: /INV-2026-0004/ })).toBeVisible()
+  await expect(page.getByRole("row", { name: /INV-2026-0002/ })).toHaveCount(0)
+
+  const savedName = unique("Window ")
+  await page.getByRole("button", { name: "Save current view" }).click()
+  await page.getByRole("textbox", { name: "View name" }).fill(savedName)
+  await page.keyboard.press("Enter")
+  await expect(page.getByRole("button", { name: savedName })).toBeVisible()
+
+  // The Home tile answers with the same numbers the footer showed.
+  await page.getByRole("button", { name: "Home" }).click()
+  const tile = page
+    .getByRole("region", { name: "My views" })
+    .getByRole("button", { name: new RegExp(savedName) })
+  await expect(tile.getByTestId("tile-numbers")).toContainText("3,112.50")
+
+  // Opening the tile relights the controls, bounds included -- a grid
+  // constrained by conditions its controls do not show would be lying.
+  await tile.click()
+  await expect(page.getByRole("button", { name: savedName })).toBeVisible()
+  const dateFunnel = page.getByRole("button", {
+    name: "Filter Invoice Date",
+  })
+  await expect(dateFunnel).toHaveAttribute("aria-pressed", "true")
+  await dateFunnel.click()
+  await expect(page.getByLabel("From", { exact: true })).toHaveValue("2026-07-04")
+  await expect(page.getByLabel("To", { exact: true })).toHaveValue("2026-07-12")
+  await page.keyboard.press("Escape")
+  await expect(page.getByTestId("grid-summary-number")).toHaveText(/Count3/)
+
+  // Leave nothing behind.
+  await page.getByRole("button", { name: savedName }).click()
+  await page
+    .getByRole("button", { name: `Delete saved view ${savedName}` })
+    .click()
+  await expect(
+    page.getByRole("menuitemradio", { name: savedName }),
+  ).toHaveCount(0)
+  await page.keyboard.press("Escape")
+})
+
 test("names a grid state and the server hands it back", async ({ page }) => {
   await signIn(page)
   const savedName = unique("Chase ")

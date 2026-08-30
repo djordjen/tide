@@ -70,7 +70,10 @@ import {
   type TideFormDraft,
   type TideFormErrors,
 } from "@/lib/form-draft"
-import { gridStateFilters } from "@/lib/grid-query"
+import {
+  gridStateFilters,
+  type ColumnFilterState,
+} from "@/lib/grid-query"
 import { applySavedView, captureSavedView } from "@/lib/saved-views"
 import { cn } from "@/lib/utils"
 
@@ -187,31 +190,49 @@ export function BrowseWorkspace({
   const selectedFilter = view.named_filters.find(
     (candidate) => candidate.name === filterName,
   )
-  // Per-column value filters: field -> the checked values, each becoming
-  // one `in` condition beside the named filter and the search. A null
-  // element is the blank checkbox -- rows where the column is empty.
-  const [valueFilters, setValueFilters] = useState<
-    Record<string, unknown[]>
+  // Per-column filters: one discriminated state each -- a membership
+  // list (null element = the blank checkbox), a range, or a contains.
+  // One active mode per column, by construction.
+  const [columnFilters, setColumnFilters] = useState<
+    Record<string, ColumnFilterState>
   >({})
-  useEffect(() => setValueFilters({}), [view.view])
+  useEffect(() => setColumnFilters({}), [view.view])
   useEffect(() => {
     setActiveSavedView(null)
     setSavedColumns(null)
   }, [view.view])
-  const filters = useMemo<TideFilterInput[]>(() => {
-    // The shared composition (named filter + funnels) plus this screen's
-    // own live search clause -- a dashboard tile asks with the same
-    // function and no search box.
-    const result = gridStateFilters(view, { filterName, valueFilters })
-    if (debouncedSearch && view.search_field) {
-      result.push({
-        field: view.search_field,
-        operator: "icontains",
-        value: debouncedSearch,
+  // The shared composition (named filter + column filters) plus this
+  // screen's own live search clause -- a dashboard tile asks with the
+  // same function and no search box. One builder serves the query and
+  // each funnel's "every condition except my own".
+  const composeFilters = useCallback(
+    (except?: string): TideFilterInput[] => {
+      const considered = except
+        ? Object.fromEntries(
+            Object.entries(columnFilters).filter(
+              ([name]) => name !== except,
+            ),
+          )
+        : columnFilters
+      const result = gridStateFilters(view, {
+        filterName,
+        columnFilters: considered,
       })
-    }
-    return result
-  }, [debouncedSearch, filterName, valueFilters, view])
+      if (debouncedSearch && view.search_field) {
+        result.push({
+          field: view.search_field,
+          operator: "icontains",
+          value: debouncedSearch,
+        })
+      }
+      return result
+    },
+    [columnFilters, debouncedSearch, filterName, view],
+  )
+  const filters = useMemo<TideFilterInput[]>(
+    () => composeFilters(),
+    [composeFilters],
+  )
 
   const query = useInfiniteQuery({
     queryKey: [
@@ -252,30 +273,27 @@ export function BrowseWorkspace({
     scrollReset.current?.()
     setSelectedIdentity(null)
     setFeedback(null)
-  }, [debouncedSearch, filterName, sort, valueFilters])
+  }, [debouncedSearch, filterName, sort, columnFilters])
 
-  const columnFilters = useMemo(
+  const funnelControl = useMemo(
     () => ({
-      active: valueFilters,
-      // A column's own list must reflect the other conditions and never
-      // its own, so an applied filter can be widened from its popup.
-      conditionsExcept: (field: string) =>
-        filters.filter(
-          (condition) =>
-            !(condition.operator === "in" && condition.field === field),
-        ),
-      onApply: (field: string, values: unknown[] | null) =>
-        setValueFilters((current) => {
+      active: columnFilters,
+      // A column's own popup must reflect the other conditions and never
+      // its own, whatever kind its own is, so an applied filter can be
+      // widened from its popup.
+      conditionsExcept: (field: string) => composeFilters(field),
+      onApply: (field: string, filter: ColumnFilterState | null) =>
+        setColumnFilters((current) => {
           const next = { ...current }
-          if (values === null) {
+          if (filter === null) {
             delete next[field]
           } else {
-            next[field] = values
+            next[field] = filter
           }
           return next
         }),
     }),
-    [filters, valueFilters],
+    [columnFilters, composeFilters],
   )
 
   const identityOf = useCallback(
@@ -382,7 +400,7 @@ export function BrowseWorkspace({
   function applyEntry(entry: TideSavedView) {
     const state = applySavedView(entry)
     setFilterName(state.filterName)
-    setValueFilters(state.valueFilters)
+    setColumnFilters(state.columnFilters)
     setSort(state.sort)
     setSavedColumns(state.columns)
     setActiveSavedView(entry.name)
@@ -890,7 +908,7 @@ export function BrowseWorkspace({
                           view,
                           captureSavedView(name, {
                             filterName,
-                            valueFilters,
+                            columnFilters,
                             sort,
                             columns: activeColumns,
                           }),
@@ -1072,7 +1090,7 @@ export function BrowseWorkspace({
         views={views}
         records={records}
         summaries={summaries}
-        columnFilters={columnFilters}
+        columnFilters={funnelControl}
         inlineEdit={
           inlineEdit && form
             ? {

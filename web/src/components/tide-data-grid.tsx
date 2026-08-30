@@ -28,6 +28,7 @@ import {
 } from "lucide-react"
 
 import { ColumnValueFilter } from "@/components/column-value-filter"
+import type { ColumnFilterState } from "@/lib/grid-query"
 import { GridCellEditor } from "@/components/grid-cell-editor"
 import { TideDisplayValue } from "@/components/tide-display-value"
 import { Button } from "@/components/ui/button"
@@ -66,10 +67,10 @@ const ROW_HEIGHT = 43
 
 /** Per-column value filters, owned by the workspace. */
 export interface GridColumnFilters {
-  active: Record<string, unknown[]>
-  /** Every active condition except the named column's own value filter. */
+  active: Record<string, ColumnFilterState>
+  /** Every active condition except the named column's own filter. */
   conditionsExcept: (field: string) => TideFilterInput[]
-  onApply: (field: string, values: unknown[] | null) => void
+  onApply: (field: string, filter: ColumnFilterState | null) => void
 }
 
 /** The one row currently editing in place, owned by the workspace. */
@@ -657,8 +658,8 @@ export function TideDataGrid({
                     otherConditions={columnFilters.conditionsExcept(
                       column.name,
                     )}
-                    onApply={(values) =>
-                      columnFilters.onApply(column.name, values)
+                    onApply={(filter) =>
+                      columnFilters.onApply(column.name, filter)
                     }
                   />
                 ) : null}
