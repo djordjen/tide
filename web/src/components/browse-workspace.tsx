@@ -814,6 +814,7 @@ export function BrowseWorkspace({
         application={application}
         principal={principal}
         view={arrangedView}
+        arranged={arrangedView !== view}
         views={views}
         records={records}
         summaries={summaries}

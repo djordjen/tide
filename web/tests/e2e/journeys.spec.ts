@@ -670,3 +670,61 @@ test("takes the filtered grid away as a file the server built", async ({
     },
   ])
 })
+
+test("arranges the grid and the server remembers the arrangement", async ({
+  page,
+}) => {
+  await signIn(page)
+  // A journey that writes creates what it writes to; this one edits the
+  // signed-in user's own arrangement, so it starts by resetting it and
+  // leaves it reset -- running twice is safe, and the declared header is
+  // a known starting point rather than an assumption. Through the UI, not
+  // page.request: unsafe methods on a cookie session need the X-TIDE-CSRF
+  // header, and a raw DELETE without it earns a 403.
+  await page.getByRole("button", { name: "Choose columns" }).click()
+  await page.getByRole("button", { name: "Reset to default" }).click()
+  await expect(
+    page.getByRole("button", { name: "Filter Number" }),
+  ).toBeVisible()
+
+  await page.getByRole("button", { name: "Choose columns" }).click()
+  await page.getByRole("checkbox", { name: "Show Version" }).click()
+  await page.getByRole("textbox", { name: "Rename Number" }).fill("No.")
+  // Move the freshly shown column to the front: three swaps from the end
+  // of a five-column arrangement. This is what proves the chooser's order
+  // reaches the grid -- the drag-remembered client order stands aside
+  // while an arrangement is active, and the header redraws on Apply.
+  for (let step = 0; step < 5; step += 1) {
+    await page.getByRole("button", { name: "Move Version up" }).click()
+  }
+  await page.getByRole("button", { name: "Apply" }).click()
+
+  await expect(page.getByRole("button", { name: "Filter No." })).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "Filter Version" }),
+  ).toBeVisible()
+  await expect(
+    page.locator('button[aria-label^="Filter "]').first(),
+  ).toHaveAttribute("aria-label", "Filter Version")
+
+  // A fresh load rebuilds the grid from the server's answer, not from
+  // anything this tab kept -- which is the difference between a stored
+  // arrangement and a styling accident.
+  await page.reload()
+  await expect(page.getByRole("button", { name: "Filter No." })).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "Filter Version" }),
+  ).toBeVisible()
+  await expect(
+    page.locator('button[aria-label^="Filter "]').first(),
+  ).toHaveAttribute("aria-label", "Filter Version")
+
+  await page.getByRole("button", { name: "Choose columns" }).click()
+  await page.getByRole("button", { name: "Reset to default" }).click()
+  await expect(
+    page.getByRole("button", { name: "Filter Number" }),
+  ).toBeVisible()
+  await expect(page.getByRole("button", { name: "Filter Version" })).toHaveCount(
+    0,
+  )
+})

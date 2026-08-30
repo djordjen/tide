@@ -87,6 +87,13 @@ interface TideDataGridProps {
   application: string
   principal: string
   view: TideBrowsePresentation
+  /**
+   * Whether `view.columns` is a stored per-user arrangement rather than
+   * the declared view. An arrangement is the order authority: the
+   * drag-remembered order stands aside while one is active, and the
+   * columns follow every change the chooser applies.
+   */
+  arranged?: boolean
   /** For reference cells' doors to their records. */
   views?: TidePresentationManifest["views"]
   records: TideRecord[]
@@ -114,6 +121,7 @@ export function TideDataGrid({
   application,
   principal,
   view,
+  arranged = false,
   views,
   records,
   summaries,
@@ -154,8 +162,17 @@ export function TideDataGrid({
     [view.columns],
   )
   const [columnOrder, setColumnOrder] = useState<ColumnOrderState>(
-    savedLayout?.order ?? columnNames,
+    arranged ? columnNames : (savedLayout?.order ?? columnNames),
   )
+  // The arrangement is the order authority while one is active. Without
+  // this the drag-remembered order beat a chooser reorder silently, and
+  // an Apply that changed the order redrew nothing: the state below was
+  // seeded once and never followed the columns it ordered.
+  useEffect(() => {
+    if (arranged) {
+      setColumnOrder(columnNames)
+    }
+  }, [arranged, columnNames])
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({
     ...defaultSizes,
     ...savedLayout?.sizes,
