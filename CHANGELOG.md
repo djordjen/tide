@@ -798,6 +798,22 @@ silently beaten by any column ever dragged. Parent-type property paths
 contract decision; the terminal and MCP abstain, the same split as
 search and export.
 
+A grid state can be named and kept. "Save current view" beside the
+named-filter dropdown stores the screen's components -- the declared
+filter, the funnel checks, the sort, and a snapshot of the columns as
+arranged -- as one of up to twenty saved views per browse, per person,
+in a seventh framework store reached through `/_tide/saved-views/`.
+Selecting one restores the components wholesale, so the controls
+relight exactly as saved rather than the rows merely matching; the
+snapshot outlives a reset of the standing arrangement, which is what
+makes it a state worth naming. Validation happens once in a service
+every transport shares, with the funnel and sort fields judged by the
+same field-type rules the manifest's capability lists are built from;
+what a stored value matches is deliberately not re-validated, because
+a replayed condition goes through the query service like any other.
+Search text is not part of a saved view, edits after selection are
+just edits, and the terminal and MCP abstain.
+
 ### Machine interfaces and AI-assisted generation
 
 `tide serve` requires a 32-character-or-longer development bearer token in

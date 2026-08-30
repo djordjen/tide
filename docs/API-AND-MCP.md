@@ -239,6 +239,34 @@ sessions take. Cookie-session callers send `X-TIDE-CSRF` on `PUT` and
 same split as global search and export; exports keep the view's
 declared columns.
 
+### Named grid states
+
+Beside the single standing arrangement, a person may keep up to twenty
+**saved views** per browse: named documents carrying the components a
+screen restores -- the declared named filter (or none), per-column value
+filters as the wire's own JSON, the sort, and a columns snapshot or
+null to follow the standing arrangement. Components rather than a
+flattened filter list, because a grid whose rows are constrained by
+conditions its controls do not show is lying.
+
+- `GET    /api/v1/_tide/saved-views/{view}` lists them by name.
+- `PUT    /api/v1/_tide/saved-views/{view}/{name}` upserts one; the
+  path names the entry, so a rename is a PUT to the new name and a
+  DELETE of the old. Validation is the service's: a real browse view,
+  a declared filter or none, funnel and sort fields judged by the same
+  field-type rules the capability lists are built from plus the
+  caller's readability, columns per the arrangement rules, names 1-60
+  characters. What a stored value matches is deliberately not
+  validated -- a replayed condition goes through the query service
+  like any other, so a stale value simply matches nothing.
+- `DELETE /api/v1/_tide/saved-views/{view}/{name}` forgets one.
+
+The store is the `tide_saved_view` framework table where the database
+is managed, process-local where it is not. No manifest change: saved
+views are pure user state, fetched per view, and a server that
+predates them answers 404, which the web reads as "nothing offered".
+The terminal and MCP abstain.
+
 ### Exporting a browse view
 
 A reader who has filtered, sorted and totalled a grid can take the result

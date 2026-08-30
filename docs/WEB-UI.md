@@ -133,6 +133,15 @@ invisible until it is rebuilt.
   capability lists widen to the whole offer; export deliberately keeps
   the view's declared columns, because the export is the view, not one
   person's arrangement of it;
+- saved views: the named-filter dropdown gains the person's own named
+  grid states -- a bookmark button saves the current one (Enter in the
+  name box is the save), each entry restores its components wholesale so
+  the controls relight exactly as saved (the named filter, the funnel
+  checks, the sort, and a snapshot of the columns as arranged -- or the
+  standing arrangement, when saved without one), and a delete beside
+  each entry forgets it. Stored on the server per principal and view
+  (`/_tide/saved-views/`), at most twenty per browse; search text is
+  deliberately not part of a saved view;
 - row selection plus one **Open** path through button, double-click, or Enter;
 - a browse grid that is one tab stop rather than one per row: the selected row
   owns it, Up/Down move it, Home and End reach the ends of what is loaded, and
