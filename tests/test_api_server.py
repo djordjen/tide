@@ -100,6 +100,7 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
             "currency",
             "cancelled_at",
             "cancelled_by",
+            "cancelled_reason",
             "status",
             "lines",
             "posted_at",
@@ -228,6 +229,7 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
         assert invoice_view["filterable_fields"] == [
             "cancelled_at",
             "cancelled_by",
+            "cancelled_reason",
             "currency",
             "customer",
             "id",
@@ -304,7 +306,28 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
                 "name": "post",
                 "label": "Post",
                 "idempotent": True,
-            }
+                "parameters": [
+                    {
+                        "name": "occurred_at",
+                        "label": "Occurred At",
+                        "type": "datetime",
+                        "required": False,
+                    }
+                ],
+            },
+            {
+                "name": "void",
+                "label": "Void",
+                "idempotent": True,
+                "parameters": [
+                    {
+                        "name": "reason",
+                        "label": "Reason",
+                        "type": "string",
+                        "required": True,
+                    }
+                ],
+            },
         ]
         assert list(invoice_form["fields"]) == [
             "number",
@@ -316,6 +339,9 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
             "posted_at",
             "version",
             "signed_document",
+            "cancelled_at",
+            "cancelled_by",
+            "cancelled_reason",
         ]
         assert invoice_form["sections"][0] == {
             "kind": "group",
@@ -331,6 +357,8 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
                 # are visible and leaves the invisible one to be dropped whole.
                 ["posted_at", "version"],
                 ["signed_document"],
+                ["cancelled_at", "cancelled_by"],
+                ["cancelled_reason"],
             ],
             "tab": None,
         }

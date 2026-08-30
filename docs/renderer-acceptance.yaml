@@ -41,6 +41,8 @@ reference_contract:
             - [customer, total]
             - [posted_at, version]
             - [posted_by, signed_document]
+            - [cancelled_at, cancelled_by]
+            - [cancelled_reason]
         - kind: collection
           label: Lines
           collection: lines

@@ -1177,6 +1177,16 @@ def test_textual_form_renders_portable_tabs_and_action_bar_order(
     project = shutil.copytree(INVOICING, tmp_path / "invoicing")
     view_file = project / "views" / "sales" / "invoice-edit.yaml"
     source = view_file.read_text(encoding="utf-8")
+    # Prove each rewrite has something to rewrite: when the checked-in view
+    # drifts, a silent no-op here re-tests the default order and calls it
+    # portable.
+    for anchor in (
+        "  - group: Invoice\n",
+        "  - collection: lines\n",
+        "    actions: [add, apply, remove]",
+        "actions: [cancel, save, post, void]",
+    ):
+        assert anchor in source, f"rewrite anchor missing: {anchor!r}"
     source = source.replace(
         "  - group: Invoice\n",
         "  - group: Invoice\n    tab: Details\n",
@@ -1187,8 +1197,8 @@ def test_textual_form_renders_portable_tabs_and_action_bar_order(
         "    actions: [add, apply, remove]",
         "    actions: [remove, add, apply]",
     ).replace(
-        "actions: [cancel, save, post]",
-        "actions: [post, cancel, save]",
+        "actions: [cancel, save, post, void]",
+        "actions: [post, cancel, save, void]",
     )
     view_file.write_text(source, encoding="utf-8")
     app = _demo_app(page_size=3, project=project)
@@ -1215,6 +1225,7 @@ def test_textual_form_renders_portable_tabs_and_action_bar_order(
                 "post-record",
                 "cancel-form",
                 "save-form",
+                "record-action-void",
             ]
             assert [child.id for child in screen.query_one("#line-actions").children] == [
                 "remove-line",

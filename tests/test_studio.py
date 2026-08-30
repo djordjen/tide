@@ -64,7 +64,7 @@ def test_studio_service_builds_semantic_tree_without_writing_sources() -> None:
     assert invoice.properties[0].value == "sales.Invoice"
     assert invoice.properties[0].editable is False
     assert next(item for item in invoice.properties if item.name == "fields").value == (
-        "14 properties"
+        "15 properties"
     )
     label = next(item for item in invoice.properties if item.path == ("label",))
     assert label.editable is True
@@ -237,6 +237,7 @@ def test_studio_service_resolves_list_form_and_inline_view_structure() -> None:
         ("Invoice", 0, 5),
         ("Totals", 2, 1),
         ("Posting", 3, 4),
+        ("Cancellation", 4, 3),
     ]
     assert not form.groups[0].can_move_down
     assert not form.groups[1].can_move_up
@@ -483,7 +484,7 @@ def test_studio_service_manages_local_groups_and_explicit_add_targets() -> None:
     structure = service.view_structure(form)
     assert [group.label for group in structure.groups][-2:] == [
         "Internal audit",
-        "Posting",
+        "Cancellation",
     ]
     audit = next(group for group in structure.groups if group.label == "Internal audit")
     removed_group = service.remove_view_group(form, audit.key)
@@ -535,8 +536,9 @@ def test_studio_service_manages_tabs_collections_and_action_bars_in_memory() -> 
         ("Lines", "collection"),
         ("Totals", "group"),
         ("Posting", "group"),
+        ("Cancellation", "group"),
     ]
-    assert structure.record_actions == ("cancel", "save", "post")
+    assert structure.record_actions == ("cancel", "save", "post", "void")
     lines = next(
         section for section in structure.sections if section.collection == "lines"
     )
@@ -575,6 +577,7 @@ def test_studio_service_manages_tabs_collections_and_action_bars_in_memory() -> 
         "Totals",
         "Lines",
         "Posting",
+        "Cancellation",
     ]
     lines = next(
         section for section in structure.sections if section.collection == "lines"
@@ -1071,20 +1074,20 @@ def test_textual_studio_colors_yaml_and_searches_current_preview() -> None:
             query.value = "readonly"
             await pilot.pause()
 
-            assert len(app._search_matches) == 8
+            assert len(app._search_matches) == 9
             assert preview.selected_text.casefold() == "readonly"
-            assert "1 / 8" in str(
+            assert "1 / 9" in str(
                 app.query_one("#source-search-status", Static).content
             )
 
             await pilot.press("enter")
             await pilot.pause()
-            assert "2 / 8" in str(
+            assert "2 / 9" in str(
                 app.query_one("#source-search-status", Static).content
             )
             await pilot.click("#search-previous")
             await pilot.pause()
-            assert "1 / 8" in str(
+            assert "1 / 9" in str(
                 app.query_one("#source-search-status", Static).content
             )
 
@@ -1589,7 +1592,7 @@ def test_textual_studio_manages_tabs_and_action_order_in_memory() -> None:
             await pilot.pause()
 
             assert app.view_structure is not None
-            assert app.view_structure.record_actions == ("save", "cancel", "post")
+            assert app.view_structure.record_actions == ("save", "cancel", "post", "void")
             action_diff = app.query_one("#source-preview", TextArea).text
             assert "+  - save" in action_diff
             assert "+  - cancel" in action_diff

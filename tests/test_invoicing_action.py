@@ -48,3 +48,31 @@ def test_post_invoice_is_transaction_friendly_and_idempotent() -> None:
 def test_post_invoice_rejects_invalid_transitions(invoice: dict) -> None:
     with pytest.raises(actions.PostingError):
         actions.post_invoice(invoice, principal="user:42")
+
+
+def test_void_invoice_records_who_when_and_why() -> None:
+    invoice = draft_invoice()
+    occurred_at = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
+
+    result = actions.void_invoice(
+        invoice,
+        principal="user:42",
+        reason="Ordered twice by mistake",
+        occurred_at=occurred_at,
+    )
+
+    assert result is invoice
+    assert invoice["status"] == "cancelled"
+    assert invoice["cancelled_at"] == occurred_at
+    assert invoice["cancelled_by"] == "user:42"
+    assert invoice["cancelled_reason"] == "Ordered twice by mistake"
+
+
+def test_void_invoice_reruns_keep_the_first_reason() -> None:
+    invoice = draft_invoice()
+    actions.void_invoice(invoice, principal="user:42", reason="first")
+
+    actions.void_invoice(invoice, principal="user:43", reason="second")
+
+    assert invoice["cancelled_reason"] == "first"
+    assert invoice["cancelled_by"] == "user:42"

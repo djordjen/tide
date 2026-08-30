@@ -44,7 +44,7 @@ TideBrowseExportFormat = Literal["csv", "xlsx"]
 Deliberately narrower than a report's. A 10,000-row PDF is not a document
 anybody wanted, and HTML of a grid is a worse CSV.
 """
-TideReportParameterType = Literal[
+TideParameterType = Literal[
     "string", "integer", "decimal", "boolean", "date", "datetime"
 ]
 
@@ -683,6 +683,10 @@ class TidePresentationFormAction(BaseModel):
     name: str = Field(min_length=1)
     label: str = Field(min_length=1)
     idempotent: bool = False
+    # A renderer opens a dialog when any of these is required and offers
+    # them all there; an optional-only action stays one click, its
+    # parameters a programmatic door.
+    parameters: tuple[TideParameter, ...] = ()
 
 
 class TideFormPresentation(BaseModel):
@@ -847,21 +851,22 @@ class TidePresentationNavigationGroup(BaseModel):
     items: tuple[TidePresentationNavigationItem, ...] = Field(min_length=1)
 
 
-class TideReportParameter(BaseModel):
-    """One value a renderer collects as text before building a summary.
+class TideParameter(BaseModel):
+    """One declared value a renderer collects as text before it calls.
 
-    `required` means the caller must supply the value. A parameter whose
-    definition carries a default is offered as optional here, because the
-    report service fills the default on its own; typing and range checks
-    also stay with the service, so the renderer sends strings and nothing
-    else.
+    Reports collect these before building a summary and actions before
+    executing; the shape is one contract. `required` means the caller must
+    supply the value. A parameter whose definition carries a default is
+    offered as optional here, because the owning service fills the default
+    on its own; typing and range checks also stay with the service, so the
+    renderer sends strings and nothing else.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str = Field(min_length=1)
     label: str = Field(min_length=1)
-    type: TideReportParameterType
+    type: TideParameterType
     required: bool = False
 
 
@@ -884,7 +889,7 @@ class TidePresentationReport(BaseModel):
     """
     # Empty for record reports: their identity parameter is bound from the
     # URL, so a renderer has nothing to collect.
-    parameters: tuple[TideReportParameter, ...] = ()
+    parameters: tuple[TideParameter, ...] = ()
 
 
 class TidePresentationManifest(BaseModel):

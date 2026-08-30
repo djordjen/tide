@@ -24,7 +24,7 @@ from tide.api.contracts import (
     TidePresentationLookup,
     TidePresentationReference,
     TidePresentationReport,
-    TideReportParameter,
+    TideParameter,
     TideSessionInfo,
     TideSummaryInput,
 )
@@ -318,21 +318,18 @@ def build_presentation_manifest(
     )
 
 
-def _report_parameters(
-    report: Mapping[str, Any],
-) -> tuple[TideReportParameter, ...]:
-    """What a renderer asks the user for before building a summary.
+def _parameter_descriptors(
+    definitions: Mapping[str, Mapping[str, Any]],
+) -> tuple[TideParameter, ...]:
+    """What a renderer asks the user for, for reports and actions alike.
 
-    A record report binds its identity parameter from the URL, so only
-    summaries collect values. The wire `required` flag means "the caller
-    must supply this": a declared default satisfies the report service on
-    its own, so that parameter is offered as optional.
+    The wire `required` flag means "the caller must supply this": a
+    declared default satisfies the owning service on its own, so that
+    parameter is offered as optional.
     """
 
-    if report.get("kind", "record") != "summary":
-        return ()
     return tuple(
-        TideReportParameter(
+        TideParameter(
             name=name,
             label=humanize(name),
             type=str(definition.get("type", "string")),
@@ -341,8 +338,18 @@ def _report_parameters(
                 and definition.get("default") is None
             ),
         )
-        for name, definition in report.get("parameters", {}).items()
+        for name, definition in definitions.items()
     )
+
+
+def _report_parameters(
+    report: Mapping[str, Any],
+) -> tuple[TideParameter, ...]:
+    """A record report binds its identity from the URL; only summaries collect."""
+
+    if report.get("kind", "record") != "summary":
+        return ()
+    return _parameter_descriptors(report.get("parameters", {}))
 
 
 def _form_contract(
@@ -574,6 +581,9 @@ def _form_contract(
                 label=action_label(action_name, entity.actions[action_name]),
                 idempotent=bool(
                     entity.actions[action_name].get("idempotent")
+                ),
+                parameters=_parameter_descriptors(
+                    entity.actions[action_name].get("parameters", {})
                 ),
             )
             for action_name in (

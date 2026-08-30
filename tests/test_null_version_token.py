@@ -129,7 +129,12 @@ def test_an_action_matches_and_refuses_the_null_assertion() -> None:
     records, actions, context = _runtime()
 
     voided = actions.execute(
-        "sales.Invoice", "void", 90, {}, context, expected_version=NULL_VERSION
+        "sales.Invoice",
+        "void",
+        90,
+        {"reason": "null assertion probe"},
+        context,
+        expected_version=NULL_VERSION,
     )
     assert voided["status"] == "cancelled"
     assert voided["version"] == 1
@@ -142,7 +147,7 @@ def test_an_action_matches_and_refuses_the_null_assertion() -> None:
             "sales.Invoice",
             "void",
             91,
-            {},
+            {"reason": "null assertion probe"},
             context,
             expected_version=NULL_VERSION,
         )

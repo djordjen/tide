@@ -26,6 +26,13 @@ layout:
     rows:
       - [posted_at, version, posted_by, signed_document]
 
+  # Empty until the void action fills it, like Posting before a post:
+  # the who, when and why of a cancellation belong on the record, not
+  # only in its history tab.
+  - group: Cancellation
+    rows:
+      - [cancelled_at, cancelled_by, cancelled_reason]
+
 fields:
   customer:
     editor: lookup
@@ -33,7 +40,7 @@ fields:
     allow_create: true
     create_view: crm.Customer.edit
 
-actions: [cancel, save, post]
+actions: [cancel, save, post, void]
 
 surfaces:
   tui:

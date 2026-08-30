@@ -265,12 +265,6 @@ def _swagger_ui_html(*, title: str, assets_path: str) -> str:
     )
 
 
-class TideEmptyActionPayload(BaseModel):
-    """Current action metadata declares no request payload fields."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-
 class TideReadiness(BaseModel):
     """Safe operational readiness result without dependency details."""
 
@@ -2257,11 +2251,14 @@ def _action_endpoint(
 ) -> Any:
     def execute_action(
         response: Response,
-        payload: TideEmptyActionPayload,
         context: RequestContext = Depends(context_dependency),
         identity: str = Path(alias=primary_key.name, description="Record identity"),
         if_match: str | None = Header(None, alias="If-Match"),
         idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+        # The body is the declared parameters object itself, exactly like
+        # the report routes: the transport carries, the action service
+        # types and refuses. `{}` keeps meaning what it always meant.
+        parameters: dict[str, Any] = Body(default_factory=dict),
     ) -> BaseModel:
         try:
             typed_identity = _coerce_identity(actions.model, primary_key, identity)
@@ -2274,7 +2271,7 @@ def _action_endpoint(
             entity.name,
             action_name,
             typed_identity,
-            payload.model_dump(exclude_unset=True),
+            parameters,
             context,
             idempotency_key=idempotency_key,
             expected_version=expected,

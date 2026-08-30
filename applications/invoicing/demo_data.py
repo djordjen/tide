@@ -129,6 +129,7 @@ def _invoice(
     price_value = Decimal(unit_price)
     total = (quantity_value * price_value).quantize(Decimal("0.01"))
     posted = status == "posted"
+    cancelled = status == "cancelled"
     return {
         "id": identity,
         "number": number,
@@ -141,6 +142,15 @@ def _invoice(
             else None
         ),
         "posted_by": "demo:clerk" if posted else None,
+        "cancelled_at": (
+            datetime(2026, 7, invoice_date.day, 15, 0, tzinfo=timezone.utc)
+            if cancelled
+            else None
+        ),
+        "cancelled_by": "demo:clerk" if cancelled else None,
+        # The reason the void action would have required: a seeded record
+        # should look like one the application produced.
+        "cancelled_reason": "Ordered twice by mistake" if cancelled else None,
         "version": 2 if posted else 1,
         "customer": customer,
         "lines": [

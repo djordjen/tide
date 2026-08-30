@@ -32,6 +32,6 @@ def configure_runtime(records: RecordsService, actions: ActionService) -> None:
         lambda record, context, payload: invoicing_actions.void_invoice(
             record,
             principal=context.principal.identifier,
-            occurred_at=payload.get("occurred_at"),
+            reason=payload["reason"],
         ),
     )

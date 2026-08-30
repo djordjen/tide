@@ -95,7 +95,7 @@ def test_invoicing_fixture_compiles_to_immutable_model() -> None:
         "allow_create": True,
         "create_view": "crm.Customer.edit",
     }
-    assert resolved.data["actions"] == ("cancel", "save", "post")
+    assert resolved.data["actions"] == ("cancel", "save", "post", "void")
     assert resolved.data["layout"][1]["actions"] == (
         "add",
         "apply",

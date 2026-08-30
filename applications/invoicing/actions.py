@@ -50,14 +50,19 @@ def void_invoice(
     invoice: MutableMapping[str, Any],
     *,
     principal: str,
+    reason: str,
     occurred_at: datetime | None = None,
 ) -> MutableMapping[str, Any]:
-    """Cancel a draft exactly once and stamp who did it.
+    """Cancel a draft exactly once and stamp who, when, and why.
 
     `cancelled` was a declared state with no action that produced it, while the
     demo data seeded an invoice already in it -- a record the application could
     neither create nor leave. The transition block now makes an unreachable
     state a compile error, which is what surfaced this.
+
+    The reason is a required action parameter: a cancellation that cannot say
+    why is the kind of record an auditor sends back. A rerun keeps the first
+    stamps -- the void that already happened owns its story.
     """
 
     status = invoice.get("status")
@@ -69,4 +74,5 @@ def void_invoice(
     invoice["status"] = "cancelled"
     invoice["cancelled_at"] = occurred_at or datetime.now(timezone.utc)
     invoice["cancelled_by"] = principal
+    invoice["cancelled_reason"] = reason
     return invoice
