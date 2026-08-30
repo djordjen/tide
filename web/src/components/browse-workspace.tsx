@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react"
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ChartNoAxesCombined,
   CircleAlert,
@@ -25,6 +25,7 @@ import { TideDataGrid } from "@/components/tide-data-grid"
 import { Badge } from "@/components/ui/badge"
 import { TideLine } from "@/components/tide-line"
 import { BrowseExportControl } from "@/components/browse-export-control"
+import { ColumnChooser } from "@/components/column-chooser"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -49,6 +50,7 @@ import type {
   TidePresentationReport,
   TideRecord,
   TideSortInput,
+  TideViewState,
 } from "@/lib/contracts"
 import {
   EDITABLE_SCALAR_TYPES,
@@ -280,6 +282,41 @@ export function BrowseWorkspace({
   // what is writable, the form's own draft/validate/diff helpers shape the
   // save, and the PATCH carries the GET's version. References and
   // collections stay the form's business, so a cell edits scalars only.
+  // A person's stored arrangement of this browse: which offered columns
+  // it shows, in what order, under what names. Empty means the declared
+  // view applies. The rows already carry every readable field, so a
+  // changed arrangement never refetches records -- it redraws them.
+  const chooserOffered = Boolean(view.available_columns?.length)
+  const arrangementQuery = useQuery({
+    queryKey: ["view-state", principal, view.view],
+    queryFn: ({ signal }): Promise<TideViewState> =>
+      api.viewState(view, signal),
+    enabled: chooserOffered,
+  })
+  const arrangement = useMemo(
+    () => arrangementQuery.data?.columns ?? [],
+    [arrangementQuery.data],
+  )
+  const arrangedView = useMemo<TideBrowsePresentation>(() => {
+    if (!arrangement.length) {
+      return view
+    }
+    const offered = new Map(
+      (view.available_columns ?? []).map((column) => [column.name, column]),
+    )
+    const columns = arrangement.flatMap((chosen) => {
+      const column = offered.get(chosen.name)
+      if (!column) {
+        // Stored before the offer changed -- a field renamed away or
+        // newly unreadable. Skipping it keeps the rest of the
+        // arrangement rather than failing the whole grid.
+        return []
+      }
+      return [chosen.label ? { ...column, label: chosen.label } : column]
+    })
+    return columns.length ? { ...view, columns } : view
+  }, [arrangement, view])
+
   const queryClient = useQueryClient()
   const inlineMode =
     view.edit === "inline" && form !== null && view.operations.includes("update")
@@ -697,6 +734,25 @@ export function BrowseWorkspace({
             </Button>
           ))}
 
+          {chooserOffered ? (
+            <ColumnChooser
+              view={view}
+              state={arrangement}
+              onSave={async (columns) => {
+                await api.saveViewState(view, columns)
+                await queryClient.invalidateQueries({
+                  queryKey: ["view-state", principal, view.view],
+                })
+              }}
+              onReset={async () => {
+                await api.resetViewState(view)
+                await queryClient.invalidateQueries({
+                  queryKey: ["view-state", principal, view.view],
+                })
+              }}
+            />
+          ) : null}
+
           <BrowseExportControl
             api={api}
             view={view}
@@ -757,7 +813,7 @@ export function BrowseWorkspace({
         api={api}
         application={application}
         principal={principal}
-        view={view}
+        view={arrangedView}
         views={views}
         records={records}
         summaries={summaries}

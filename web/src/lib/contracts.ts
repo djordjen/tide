@@ -271,6 +271,19 @@ export interface TideSummaryValue extends TideSummaryRequest {
   value: unknown
 }
 
+export interface TideViewStateColumn {
+  name: string
+  label: string | null
+}
+
+/**
+ * A person's own arrangement of one browse view, stored on the server.
+ * Empty `columns` means no customization: the declared view applies.
+ */
+export interface TideViewState {
+  columns: TideViewStateColumn[]
+}
+
 export interface TideBrowsePresentation {
   view: string
   entity: string
@@ -282,6 +295,12 @@ export interface TideBrowsePresentation {
   search_field: string | null
   search_label: string | null
   named_filters: TidePresentationNamedFilter[]
+  /**
+   * Every field a person may arrange this browse to show -- the offer
+   * behind the column chooser. Optional for the version-skew reason the
+   * neighbours give; absence means no chooser.
+   */
+  available_columns?: TidePresentationColumn[]
   sortable_fields: string[]
   /**
    * Shown columns a per-column value filter can constrain. Optional for

@@ -29,6 +29,8 @@ import type {
   TideSessionInfo,
   TideAuditHistory,
   TideSearchResult,
+  TideViewState,
+  TideViewStateColumn,
 } from "@/lib/contracts"
 
 const WIRE_VERSION = "0.1"
@@ -438,6 +440,44 @@ export class TideApi {
     await this.authorizedResponse(
       `${this.basePath}/_tide/administration/users/${encodeURIComponent(username)}/password`,
       { method: "POST", body: JSON.stringify({ password }) },
+      signal,
+    )
+  }
+
+  /**
+   * This identity's stored arrangement of one browse view. Empty
+   * columns mean no customization: the declared view applies.
+   */
+  async viewState(
+    view: TideBrowsePresentation,
+    signal?: AbortSignal,
+  ): Promise<TideViewState> {
+    return this.request<TideViewState>(
+      `${this.basePath}/_tide/view-state/${encodeURIComponent(view.view)}`,
+      { method: "GET" },
+      signal,
+    )
+  }
+
+  async saveViewState(
+    view: TideBrowsePresentation,
+    columns: TideViewStateColumn[],
+    signal?: AbortSignal,
+  ): Promise<void> {
+    await this.authorizedResponse(
+      `${this.basePath}/_tide/view-state/${encodeURIComponent(view.view)}`,
+      { method: "PUT", body: JSON.stringify({ columns }) },
+      signal,
+    )
+  }
+
+  async resetViewState(
+    view: TideBrowsePresentation,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    await this.authorizedResponse(
+      `${this.basePath}/_tide/view-state/${encodeURIComponent(view.view)}`,
+      { method: "DELETE" },
       signal,
     )
   }
