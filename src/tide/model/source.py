@@ -419,6 +419,14 @@ class TransitionSource(SourceModel):
         return (value,) if isinstance(value, str) else value
 
 
+class ParameterSource(SourceModel):
+    """One declared scalar input, shared by reports and actions."""
+
+    type: Literal["string", "integer", "decimal", "boolean", "date", "datetime"]
+    required: bool = False
+    default: Any = None
+
+
 class ActionSource(SourceModel):
     label: str
     shortcut: str | None = None
@@ -431,6 +439,7 @@ class ActionSource(SourceModel):
     idempotent: bool = False
     audit: bool = True
     transition: TransitionSource | None = None
+    parameters: dict[str, ParameterSource] = Field(default_factory=dict)
 
 
 class FilterSource(SourceModel):
@@ -496,12 +505,6 @@ class PresetSource(SourceModel):
 
 class PresetDocumentSource(SourceModel):
     presets: dict[str, PresetSource]
-
-
-class ParameterSource(SourceModel):
-    type: Literal["string", "integer", "decimal", "boolean", "date", "datetime"]
-    required: bool = False
-    default: Any = None
 
 
 class QuerySource(SourceModel):

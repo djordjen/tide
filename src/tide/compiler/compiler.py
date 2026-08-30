@@ -51,6 +51,7 @@ from tide.model.source import (
 
 SourceType = TypeVar("SourceType", bound=BaseModel)
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$")
+PARAMETER_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 DISPLAY_FIELD = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 FRAMEWORK_VIEW_DEFAULTS: dict[str, dict[str, Any]] = {
     "browse": {
@@ -1229,6 +1230,17 @@ def _validate_entities(
                         ("actions", action_name, "shortcut"),
                     )
                 shortcut_actions[shortcut] = action_name
+            for parameter_name in action.parameters:
+                if not PARAMETER_NAME.fullmatch(parameter_name):
+                    _add(
+                        diagnostics,
+                        "TIDE292",
+                        f"parameter {parameter_name!r} must be a plain "
+                        "identifier: each one becomes a field on the "
+                        "generated MCP tool arguments",
+                        document,
+                        ("actions", action_name, "parameters", parameter_name),
+                    )
             for property_name in ("enabled_when", "visible_when"):
                 expression = getattr(action, property_name)
                 if expression:

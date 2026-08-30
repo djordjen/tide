@@ -2,6 +2,7 @@
   "$defs": {
     "ParameterSource": {
       "additionalProperties": false,
+      "description": "One declared scalar input, shared by reports and actions.",
       "properties": {
         "type": {
           "enum": [

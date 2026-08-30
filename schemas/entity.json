@@ -104,6 +104,13 @@
             }
           ],
           "default": null
+        },
+        "parameters": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ParameterSource"
+          },
+          "title": "Parameters",
+          "type": "object"
         }
       },
       "required": [
@@ -874,6 +881,38 @@
         }
       },
       "title": "McpExposureSource",
+      "type": "object"
+    },
+    "ParameterSource": {
+      "additionalProperties": false,
+      "description": "One declared scalar input, shared by reports and actions.",
+      "properties": {
+        "type": {
+          "enum": [
+            "string",
+            "integer",
+            "decimal",
+            "boolean",
+            "date",
+            "datetime"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "default": {
+          "default": null,
+          "title": "Default"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "ParameterSource",
       "type": "object"
     },
     "PreviousTableSource": {
