@@ -2721,6 +2721,17 @@ def _validate_reports(
                 document,
                 ("permission",),
             )
+        for parameter_name in report.parameters:
+            if not PARAMETER_NAME.fullmatch(parameter_name):
+                _add(
+                    diagnostics,
+                    "TIDE292",
+                    f"parameter {parameter_name!r} must be a plain "
+                    "identifier: each one becomes a field on the "
+                    "generated MCP tool arguments",
+                    document,
+                    ("parameters", parameter_name),
+                )
         parameters = {name: parameter.type for name, parameter in report.parameters.items()}
         if report.query.criteria:
             _validate_expression_at(

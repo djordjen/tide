@@ -1129,6 +1129,68 @@ def test_summary_report_contract_is_compiler_validated(tmp_path: Path) -> None:
     assert {"TIDE254", "TIDE257"} <= codes
 
 
+def test_report_parameter_names_must_be_plain_identifiers(
+    tmp_path: Path,
+) -> None:
+    """The same TIDE292 gate action parameters have, for the same reason:
+    each name becomes a field on the generated MCP tool arguments model.
+    Unchecked, a dashed name compiled cleanly and crashed `tide serve` at
+    MCP startup inside pydantic's create_model."""
+
+    project = tmp_path / "dashed-parameter"
+    (project / "models").mkdir(parents=True)
+    (project / "reports").mkdir()
+    (project / "tide.yaml").write_text(
+        "\n".join(
+            [
+                'schema_version: "0.1"',
+                "application: {name: Dashed Parameter, version: 0.1.0}",
+                "model: {paths: [models]}",
+                "reports: {paths: [reports]}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (project / "models" / "item.yaml").write_text(
+        "\n".join(
+            [
+                "entity: demo.Item",
+                "fields:",
+                "  id: {type: integer, primary_key: true}",
+                "  amount: {type: decimal, precision: 12, scale: 2}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (project / "reports" / "totals.yaml").write_text(
+        "\n".join(
+            [
+                "report: demo.totals",
+                "title: Totals",
+                "entity: demo.Item",
+                "kind: summary",
+                "unrestricted: true",
+                "parameters:",
+                "  from-date: {type: date}",
+                "aggregates:",
+                "  - {name: total_amount, function: sum, field: amount}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(project)
+
+    diagnostics = {
+        diagnostic.code: diagnostic.message
+        for diagnostic in caught.value.diagnostics
+    }
+    # The dashed name is the report's only sin, so the gate must fire alone.
+    assert set(diagnostics) == {"TIDE292"}
+    assert "'from-date'" in diagnostics["TIDE292"]
+
+
 def test_grouped_listing_columns_are_compiler_validated(tmp_path: Path) -> None:
     """`columns:` must name real scalar fields, and only a summary may have it."""
 
