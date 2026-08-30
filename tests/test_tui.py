@@ -19,6 +19,7 @@ from tide import compile_project
 from tide.cli import main
 from tide.data import (
     InMemoryRepository,
+    QuerySpec,
     SQLAlchemyActionExecutionStore,
     SQLAlchemyCursorStore,
     SQLAlchemyRepository,
@@ -1237,6 +1238,61 @@ def test_textual_form_renders_portable_tabs_and_action_bar_order(
             tabs.active = "form-tab-1"
             await _wait_until(pilot, lambda: tabs.active == "form-tab-1")
             assert tabs.active == "form-tab-1"
+
+    asyncio.run(exercise())
+
+
+def test_textual_duplicate_opens_a_prefilled_draft_that_saves_as_new() -> None:
+    """Duplicate is a head start, not a copy: the form opens as a new
+    record carrying what a person could have typed on the original, and
+    Save allocates a fresh number while the original stays whole."""
+
+    app = _demo_app(page_size=10)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            table = app.query_one("#records", DataTable)
+            await _wait_until(pilot, lambda: table.row_count > 0)
+            table.move_cursor(row=0)  # INV-2026-0001, posted, one line
+            await pilot.pause()
+
+            duplicate = app.query_one("#duplicate-record", Button)
+            assert duplicate.display
+            assert not duplicate.disabled
+            await pilot.click("#duplicate-record")
+            await _wait_until(
+                pilot, lambda: isinstance(app.screen, RecordEditScreen)
+            )
+
+            screen = app.screen
+            assert isinstance(screen, RecordEditScreen)
+            # A new record: no number yet, default state, copied values.
+            assert screen.session.identity is None
+            assert screen.session.values.get("number") in (None, "")
+            assert screen.session.values["status"] == "draft"
+            assert screen.session.values["currency"] == "EUR"
+            assert len(screen.session.values["lines"]) == 1
+
+            await pilot.click("#save-form")
+            await _wait_until(
+                pilot, lambda: not isinstance(app.screen, RecordEditScreen)
+            )
+
+            source = app.records.get("sales.Invoice", 1, app.context)
+            rows = app.records.query(
+                "sales.Invoice", QuerySpec(), app.context
+            )
+            copies = [
+                row
+                for row in rows
+                if row["total"] == source["total"]
+                and row["customer"] == source["customer"]
+                and row["id"] != 1
+                and row["status"] == "draft"
+            ]
+            assert copies, "the duplicate was not saved as a new record"
+            assert copies[0]["number"] != source["number"]
 
     asyncio.run(exercise())
 

@@ -196,6 +196,7 @@ class TideApp(App[None]):
         Binding("d", "toggle_sort_direction", "Direction"),
         Binding("c", "create_record", "Create"),
         Binding("e", "edit_record", "Edit"),
+        Binding("u", "duplicate_record", "Duplicate"),
         Binding("delete", "delete_record", "Delete"),
         Binding("r", "reload", "Refresh"),
         Binding("v", "preview_report", "Preview"),
@@ -339,6 +340,15 @@ class TideApp(App[None]):
                 variant="success",
             )
             yield Button("Edit", id="edit-record", disabled=True)
+            duplicate_button = Button(
+                "Duplicate",
+                id="duplicate-record",
+                disabled=True,
+            )
+            # Duplicating is reading plus creating, so the button exists
+            # exactly where New does.
+            duplicate_button.display = self._create_allowed
+            yield duplicate_button
             delete_button = Button(
                 "Delete",
                 id="delete-record",
@@ -385,6 +395,8 @@ class TideApp(App[None]):
             self.action_reload()
         elif event.button.id == "edit-record":
             self.action_edit_record()
+        elif event.button.id == "duplicate-record":
+            self.action_duplicate_record()
         elif event.button.id == "delete-record":
             self.action_delete_record()
         elif event.button.id == "preview-report":
@@ -477,6 +489,31 @@ class TideApp(App[None]):
             session = self.records.create(self.entity.name, self.context)
         except TideRuntimeError as error:
             self.notify(str(error), severity="error")
+            return
+        self._open_form(session)
+
+    def action_duplicate_record(self) -> None:
+        """Open a new-record form carrying what the highlighted row holds.
+
+        The records service owns what copies; this only points at the row.
+        Nothing is stored until the person saves, and the create path then
+        allocates identity and number and revalidates as for any new record.
+        """
+
+        record = self._selected_record()
+        if record is None or not self._create_allowed:
+            return
+        if self.form_view is None:
+            self._notify_missing_form()
+            return
+        identity = record[_primary_key(self.entity)]
+        try:
+            draft = self.records.duplicate_draft(
+                self.entity.name, identity, self.context
+            )
+            session = self.records.create(self.entity.name, self.context, draft)
+        except TideRuntimeError as error:
+            self.notify(f"Duplicate failed: {error}", severity="error")
             return
         self._open_form(session)
 
@@ -831,6 +868,9 @@ class TideApp(App[None]):
                 sorts.value = Select.NULL
             self.query_one("#create-record", Button).disabled = not self._create_allowed
             self.query_one("#edit-record", Button).disabled = True
+            duplicate_button = self.query_one("#duplicate-record", Button)
+            duplicate_button.display = self._create_allowed
+            duplicate_button.disabled = True
             delete_button = self.query_one("#delete-record", Button)
             delete_button.display = self._delete_allowed
             delete_button.disabled = True
@@ -1038,12 +1078,14 @@ class TideApp(App[None]):
 
     def _update_record_controls(self) -> None:
         edit = self._browse_widget("#edit-record", Button)
+        duplicate = self._browse_widget("#duplicate-record", Button)
         delete = self._browse_widget("#delete-record", Button)
         audit = self._browse_widget("#audit-history", Button)
-        if edit is None or delete is None or audit is None:
+        if edit is None or duplicate is None or delete is None or audit is None:
             return
         has_records = bool(self._current_records)
         edit.disabled = not (has_records and self._edit_allowed)
+        duplicate.disabled = not (has_records and self._create_allowed)
         delete.disabled = not (has_records and self._delete_allowed)
         audit.disabled = not (has_records and self._audit_allowed)
         self._update_report_control(has_records)
