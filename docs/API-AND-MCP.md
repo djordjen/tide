@@ -666,6 +666,14 @@ string and typed spellings of one request replay as one request. Reusing a key
 for a different request or retrying an uncertain failed execution fails closed
 through `ActionService`.
 
+## The saved-view catalogue
+
+`GET /_tide/saved-views` (no view segment) answers everything the
+principal keeps across browses, each entry carrying its `view` name, view
+then name — the home surface's one server ask. Entries whose view is no
+longer a browse are left dormant rather than offered. The per-view
+listing, keeping and forgetting routes are unchanged beside it.
+
 ## Duplicating a record
 
 `GET {resource}/{identity}/duplicate-draft` answers `{values}` — what a

@@ -56,6 +56,17 @@ permission. The `TIDE292` identifier gate covers report parameter names too:
 a dashed name used to compile cleanly and crash `tide serve` at MCP startup,
 since every declared name becomes a field on the generated tool arguments.
 
+The web lands on **Home**: a personal dashboard assembled from what the
+principal keeps rather than declared in YAML. Saved views are tiles wearing
+their live numbers — the browse's declared summaries, guaranteed a count,
+asked of the ordinary query door under the saved components — and open
+their browse with the whole state relit; the navigation becomes workspace
+tiles; the summary reports become shortcuts into the existing preview. One
+new REST door serves it: `GET /_tide/saved-views`, the principal's whole
+catalogue with view names attached. Home keeps the clean URL as the
+default landing, and an unknown view in a shared link now falls back to it
+rather than to the first navigation item.
+
 A record can be **duplicated** into a new unsaved draft of what a person
 could have typed on the original: writable scalars, chosen references, and
 owned collection rows minus their identities and computed values — never
