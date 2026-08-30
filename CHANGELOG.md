@@ -54,6 +54,18 @@ recorded to the new `cancelled_reason` field, and `post` declares an optional
 through the real pipeline, now a declared door for any caller holding the
 permission.
 
+A record can be **duplicated** into a new unsaved draft of what a person
+could have typed on the original: writable scalars, chosen references, and
+owned collection rows minus their identities and computed values — never
+identity, workflow state, stamps, file bytes, or anything field security
+protects. The rule lives once in `RecordsService.duplicate_draft`; REST
+serves it as `GET {resource}/{id}/duplicate-draft` wherever get and create
+are both exposed, the terminal browse gains a Duplicate button beside Edit,
+and the browser record's footer reopens the form in create mode seeded with
+the draft, defaults intact for anything it does not carry. The draft goes
+through the ordinary create, so the new record allocates its own number,
+starts in the default state, and recomputes its own totals. MCP abstains.
+
 The headless runtime adds secured record/query/action services, a repository
 protocol with in-memory and synchronous SQLAlchemy Core implementations,
 `RecordSession`, computed master-detail values, field protection, validation,

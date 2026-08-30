@@ -219,6 +219,11 @@ invisible until it is rebuilt.
   payload, and withholding one is a field permission's job;
 - save-then-action execution for changed drafts using the saved record's fresh
   ETag plus a unique idempotency key where the action requires one;
+- **Duplicate** on the open record wherever create is offered: the server
+  builds the draft (writable values, references and owned rows — never
+  identity, workflow state, stamps, files or protected values) and the
+  form reopens in create mode seeded with it, defaults intact for
+  anything the draft does not carry;
 - capability-filtered record and summary report discovery, including each
   summary's declared parameters;
 - responsive report preview from the server-built immutable document, with a

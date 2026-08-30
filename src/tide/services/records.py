@@ -18,7 +18,11 @@ from tide.compiler.expressions import (
     evaluate_expression,
 )
 from tide.appearance import record_appearance
-from tide.compiler.normalized import ApplicationModel, NormalizedEntity
+from tide.compiler.normalized import (
+    ApplicationModel,
+    NormalizedEntity,
+    NormalizedField,
+)
 from tide.data.repository import (
     FILTER_OPERATORS,
     DeleteCollection,

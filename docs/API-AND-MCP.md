@@ -666,6 +666,19 @@ string and typed spellings of one request replay as one request. Reusing a key
 for a different request or retrying an uncertain failed execution fails closed
 through `ActionService`.
 
+## Duplicating a record
+
+`GET {resource}/{identity}/duplicate-draft` answers `{values}` — what a
+person could have typed on the original: writable scalars, chosen
+references, and owned collection rows minus their identities and computed
+values. Identity, workflow state, stamps, file bytes and anything field
+security protects stay behind. Nothing is stored by asking: the values
+POST straight back through the ordinary create, which allocates, defaults,
+validates and authorizes as for any new record. The route exists exactly
+where the entity exposes both `get` and `create`; MCP abstains, since an
+agent composes read and create itself and the fields it must not copy are
+the ones create refuses anyway.
+
 ## Developer MCP server
 
 The first local developer MCP is implemented as a read/propose-only stdio
