@@ -218,6 +218,56 @@ class RecordsService:
             entity_name, identity, context, operations=("read",)
         )
 
+    def duplicate_draft(
+        self,
+        entity_name: str,
+        identity: Any,
+        context: RequestContext,
+    ) -> dict[str, Any]:
+        """The values a create form opens with to duplicate one record.
+
+        What copies is what a person could have typed on the original:
+        writable scalars, chosen references, and the rows of collections
+        this record owns -- each row minus its own identity, readonly,
+        system-written and computed fields. Identity, workflow state,
+        stamps, file bytes and anything field security protected stay
+        behind, so the new record allocates and computes its own and a
+        duplicate is never a way to read what the grid would not show.
+
+        This stores nothing and authorizes only the read; the draft goes
+        through the ordinary create path, which owns creation as always.
+        """
+
+        entity = self.model.entity(entity_name)
+        source = self.get(entity_name, identity, context)
+        draft: dict[str, Any] = {}
+        for name, field in entity.fields.items():
+            if not _field_duplicates(field):
+                continue
+            value = source.get(name)
+            if value is None or value is PROTECTED:
+                continue
+            if str(field.metadata["type"]) != "collection":
+                draft[name] = value
+                continue
+            child = self.model.entity(str(field.metadata["target"]))
+            inverse = field.metadata.get("inverse")
+            rows: list[dict[str, Any]] = []
+            for row in value:
+                rows.append(
+                    {
+                        child_name: row[child_name]
+                        for child_name, child_field in child.fields.items()
+                        if child_name != inverse
+                        and _field_duplicates(child_field)
+                        and child_name in row
+                        and row[child_name] is not None
+                        and row[child_name] is not PROTECTED
+                    }
+                )
+            draft[name] = rows
+        return draft
+
     def delete(
         self,
         entity_name: str,
@@ -2086,6 +2136,31 @@ def _attribute_parts(node: ast.Attribute) -> tuple[str, ...]:
         return ()
     parts.append(value.id)
     return tuple(reversed(parts))
+
+
+def _field_duplicates(field: NormalizedField) -> bool:
+    """Whether a duplicate draft carries this field of the original.
+
+    The line each exclusion draws: a person could not have typed it on a
+    new record. Identity and system/action-written values are allocated,
+    computed values are derived, and a file's bytes belong to the record
+    that received them. A collection travels only when this record owns
+    row creation -- the same `cascade` that lets a create carry rows.
+    """
+
+    metadata = field.metadata
+    if metadata.get("primary_key") or metadata.get("readonly"):
+        return False
+    if metadata.get("write", "normal") != "normal":
+        return False
+    if metadata.get("computed"):
+        return False
+    kind = str(metadata["type"])
+    if kind == "file":
+        return False
+    if kind == "collection":
+        return "create" in tuple(metadata.get("cascade") or ())
+    return True
 
 
 def _version_field(entity: NormalizedEntity) -> str | None:
