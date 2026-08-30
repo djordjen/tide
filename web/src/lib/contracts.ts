@@ -381,6 +381,11 @@ export interface TidePresentationFormAction {
   name: string
   label: string
   idempotent: boolean
+  // A renderer opens a dialog when any of these is required and offers
+  // them all there; an optional-only action stays one click. Optional in
+  // the type for the same reason a report's is: a manifest from an older
+  // server simply has none, and the action then behaves as before.
+  parameters?: TideParameter[]
 }
 
 export interface TideFormPresentation {
@@ -404,7 +409,7 @@ export interface TidePresentationNavigationGroup {
   items: TidePresentationNavigationItem[]
 }
 
-export type TideReportParameterType =
+export type TideParameterType =
   | "string"
   | "integer"
   | "decimal"
@@ -415,10 +420,10 @@ export type TideReportParameterType =
 // One value a renderer collects as text before building a summary. The wire
 // `required` flag means the caller must supply it: a parameter with a
 // server-side default arrives here as optional.
-export interface TideReportParameter {
+export interface TideParameter {
   name: string
   label: string
-  type: TideReportParameterType
+  type: TideParameterType
   required: boolean
 }
 
@@ -430,7 +435,7 @@ export interface TidePresentationReport {
   resource_path: string
   export_formats: TideReportExportFormat[]
   // Absent or empty for record reports: their identity is bound from the URL.
-  parameters?: TideReportParameter[]
+  parameters?: TideParameter[]
 }
 
 export interface TidePresentationManifest {

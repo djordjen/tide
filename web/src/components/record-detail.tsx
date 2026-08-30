@@ -35,8 +35,17 @@ import {
   DetailGroup,
   DetailSkeleton,
 } from "@/components/record-detail-sections"
+import {
+  ActionParametersForm,
+  actionOpensDialog,
+} from "@/components/parameters"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import {
   actionApiError,
   TideApiError,
@@ -144,6 +153,7 @@ interface RecordActionAttempt {
   base: TideRecordSnapshot
   saveAttempt: SaveAttempt
   idempotencyKey: string | null
+  parameters: Record<string, string>
 }
 
 interface RecordActionResult {
@@ -234,6 +244,8 @@ export function RecordDetail({
     savedBeforeAction: boolean
   } | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  // Which action's parameter popover is open; at most one at a time.
+  const [parameterAction, setParameterAction] = useState<string | null>(null)
   const [rebaseNotice, setRebaseNotice] = useState<string | null>(null)
   const [conflictReview, setConflictReview] =
     useState<PendingConflictReview | null>(null)
@@ -483,6 +495,7 @@ export function RecordDetail({
             attempt.action,
             current.etag,
             attempt.idempotencyKey,
+            attempt.parameters,
           ),
         }
       } catch (error) {
@@ -724,7 +737,10 @@ export function RecordDetail({
     }
   }
 
-  function runAction(action: TidePresentationFormAction) {
+  function runAction(
+    action: TidePresentationFormAction,
+    parameters: Record<string, string>,
+  ) {
     if (
       mode !== "update" ||
       identity === null ||
@@ -763,6 +779,7 @@ export function RecordDetail({
       idempotencyKey: action.idempotent
         ? `web:${globalThis.crypto.randomUUID()}`
         : null,
+      parameters,
     })
   }
 
@@ -1512,7 +1529,7 @@ export function RecordDetail({
             : null}
           {visibleActions.map((action) => {
             const state = record?._tide?.actions?.[action.name]
-            return (
+            const button = (
               <Button
                 key={action.name}
                 // While the draft is dirty the natural next step is Save, and
@@ -1531,7 +1548,11 @@ export function RecordDetail({
                       ? `Save the draft, then run ${action.label}`
                       : `Run ${action.label}`
                 }
-                onClick={() => runAction(action)}
+                onClick={
+                  actionOpensDialog(action)
+                    ? undefined
+                    : () => runAction(action, {})
+                }
               >
                 {actionMutation.isPending ? (
                   <LoaderCircle className="animate-spin" />
@@ -1540,6 +1561,34 @@ export function RecordDetail({
                 )}
                 {action.label}
               </Button>
+            )
+            if (!actionOpensDialog(action)) {
+              return button
+            }
+            // A required parameter is a question: the button opens the
+            // form, and running it from there executes with the answers.
+            return (
+              <Popover
+                key={action.name}
+                open={parameterAction === action.name}
+                onOpenChange={(next) =>
+                  setParameterAction(next ? action.name : null)
+                }
+              >
+                <PopoverTrigger asChild>{button}</PopoverTrigger>
+                <PopoverContent align="end" className="w-72">
+                  <div className="mb-2 text-sm font-medium">
+                    {action.label}
+                  </div>
+                  <ActionParametersForm
+                    action={action}
+                    onRun={(parameters) => {
+                      setParameterAction(null)
+                      runAction(action, parameters)
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
             )
           })}
         </div>

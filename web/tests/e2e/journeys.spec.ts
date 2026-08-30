@@ -357,6 +357,49 @@ test("drafts an invoice through both lookups and posts it", async ({
   await expect(page.getByRole("button", { name: "Post" })).toBeDisabled()
 })
 
+test("voids an invoice only after answering for its reason", async ({
+  page,
+}) => {
+  await signIn(page)
+  await page.getByRole("button", { name: "New" }).click()
+
+  await page.getByRole("button", { name: "Select Customer" }).click()
+  const customers = page.getByRole("dialog", { name: "Select Customer" })
+  await customers.getByRole("row", { name: /ADRIA/ }).click()
+  await customers.getByRole("button", { name: "Select" }).click()
+
+  await page.getByRole("button", { name: "Add Line" }).click()
+  await page.getByRole("button", { name: "Select Product" }).click()
+  const products = page.getByRole("dialog", { name: "Select Product" })
+  await products.getByRole("row", { name: /CONS/ }).click()
+  await products.getByRole("button", { name: "Select" }).click()
+  await page.getByRole("textbox", { name: "Quantity" }).fill("1")
+  await page.getByRole("button", { name: "Apply Line" }).click()
+  await page.getByRole("button", { name: "Save", exact: true }).click()
+  await expect(createdRow(page)).toContainText("Draft")
+
+  await page.getByRole("button", { name: "Open" }).click()
+
+  // The required parameter turns the button into a question: clicking Void
+  // opens the form instead of executing, and the popover's own Void waits
+  // for the answer.
+  await page.getByRole("button", { name: "Void" }).click()
+  const ask = page.getByRole("dialog")
+  await expect(ask.getByRole("textbox", { name: "Reason" })).toBeVisible()
+  await expect(ask.getByRole("button", { name: "Void" })).toBeDisabled()
+
+  await ask.getByRole("textbox", { name: "Reason" }).fill("Damaged in transit")
+  await ask.getByRole("button", { name: "Void" }).click()
+
+  await expect(page.getByText("Void completed successfully.")).toBeVisible()
+  await expect(page.getByText("Cancelled", { exact: true })).toBeVisible()
+  // The answer landed on the record: the now-locked Cancellation group
+  // shows it as read-only text.
+  await expect(page.getByText("Damaged in transit")).toBeVisible()
+  // The action is spent: the transition guard no longer holds.
+  await expect(page.getByRole("button", { name: "Void" })).toBeDisabled()
+})
+
 test("attaches the signed document after posting and reads it back", async ({
   page,
 }) => {

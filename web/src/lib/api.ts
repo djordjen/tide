@@ -700,6 +700,9 @@ export class TideApi {
     action: TidePresentationFormAction,
     etag: string | null,
     idempotencyKey: string | null,
+    // The body is the declared parameters object itself; values travel as
+    // the strings a dialog collects, and the action service does the typing.
+    parameters: Record<string, unknown> = {},
     signal?: AbortSignal,
   ): Promise<TideRecordSnapshot> {
     const identitySegment = encodeURIComponent(String(identity))
@@ -708,7 +711,7 @@ export class TideApi {
       `${view.resource_path}/${identitySegment}/actions/${actionSegment}`,
       {
         method: "POST",
-        body: JSON.stringify({}),
+        body: JSON.stringify(parameters),
         headers: {
           ...(etag ? { "If-Match": etag } : {}),
           ...(idempotencyKey

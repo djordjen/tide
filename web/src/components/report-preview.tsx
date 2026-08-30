@@ -10,13 +10,17 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  parameterInputMode,
+  parameterInputType,
+  parameterPlaceholder,
+} from "@/components/parameters"
 import { TideApiError, type TideApi } from "@/lib/api"
 import type {
   TidePresentationReport,
   TideReportCell,
   TideReportDocument,
   TideReportExportFormat,
-  TideReportParameterType,
 } from "@/lib/contracts"
 import { useDialogFocus } from "@/lib/dialog-focus"
 import { cn } from "@/lib/utils"
@@ -362,39 +366,8 @@ function ReportPage({ document }: { document: TideReportDocument }) {
   )
 }
 
-function parameterInputType(type: TideReportParameterType): string {
-  // Native date controls collect exactly the ISO strings the report service
-  // parses, and give the phone-sized Web surface a real picker.
-  return type === "date"
-    ? "date"
-    : type === "datetime"
-      ? "datetime-local"
-      : "text"
-}
 
-function parameterInputMode(
-  type: TideReportParameterType,
-): "numeric" | "decimal" | undefined {
-  return type === "integer"
-    ? "numeric"
-    : type === "decimal"
-      ? "decimal"
-      : undefined
-}
 
-function parameterPlaceholder(
-  type: TideReportParameterType,
-): string | undefined {
-  return type === "integer"
-    ? "a whole number"
-    : type === "decimal"
-      ? "a number"
-      : type === "boolean"
-        ? "true or false"
-        : type === "string"
-          ? "text"
-          : undefined
-}
 
 function reportBodyRows(document: TideReportDocument) {
   const groups = document.groups ?? []
