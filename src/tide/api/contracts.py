@@ -805,6 +805,29 @@ class TideViewState(BaseModel):
 
     columns: tuple[TideViewStateColumn, ...] = ()
 
+class TideSavedView(BaseModel):
+    """One named grid state: the components a browse screen restores.
+
+    `columns` is a snapshot of the arrangement, or null to follow the
+    person's standing arrangement of the view.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str = Field(min_length=1, max_length=200)
+    named_filter: str | None = None
+    value_filters: dict[str, tuple[Any, ...]] = Field(default_factory=dict)
+    sort: tuple[TideSortInput, ...] = ()
+    columns: tuple[TideViewStateColumn, ...] | None = None
+
+
+class TideSavedViewList(BaseModel):
+    """Every saved view one principal holds for one browse, by name."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    views: tuple[TideSavedView, ...] = ()
+
 class TidePresentationNavigationItem(BaseModel):
     """One browse destination in secured application navigation."""
 

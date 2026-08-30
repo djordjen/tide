@@ -42,6 +42,10 @@ from tide.services.attachment_store import (
     InMemoryAttachmentRows,
 )
 from tide.services.attachments import AttachmentService, file_fields
+from tide.services.saved_views import (
+    InMemorySavedViewRows,
+    SavedViewService,
+)
 from tide.services.view_state import (
     InMemoryViewStateRows,
     ViewStateService,
@@ -715,6 +719,13 @@ def _serve_api(arguments: argparse.Namespace) -> int:
             if storage.view_state_rows is not None
             else InMemoryViewStateRows(),
         )
+        saved_views = SavedViewService(
+            model,
+            records.security,
+            storage.saved_view_rows
+            if storage.saved_view_rows is not None
+            else InMemorySavedViewRows(),
+        )
         try:
             configure_application_runtime(model, records, actions)
             app = build_fastapi_app(
@@ -724,6 +735,7 @@ def _serve_api(arguments: argparse.Namespace) -> int:
                 actions=actions,
                 attachments=attachments,
                 view_state=view_state,
+                saved_views=saved_views,
                 base_path=arguments.base_path,
                 max_request_body_bytes=limits.max_request_body_bytes,
                 request_body_timeout_seconds=(

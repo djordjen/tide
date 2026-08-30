@@ -35,6 +35,7 @@ from tide.data.sqlalchemy_attachments import SQLAlchemyAttachmentRows
 from tide.data.sqlalchemy_cursors import SQLAlchemyCursorStore
 from tide.data.sqlalchemy_leases import SQLAlchemyServerLeaseStore
 from tide.data.sqlalchemy_sessions import SQLAlchemySessionStore
+from tide.data.sqlalchemy_saved_views import SQLAlchemySavedViewStore
 from tide.data.sqlalchemy_view_state import SQLAlchemyViewStateStore
 
 
@@ -78,6 +79,7 @@ class FrameworkStores:
     leases: SQLAlchemyServerLeaseStore
     attachments: SQLAlchemyAttachmentRows
     view_state: SQLAlchemyViewStateStore
+    saved_views: SQLAlchemySavedViewStore
 
     @property
     def all(self) -> tuple[ManagedStore, ...]:
@@ -132,4 +134,5 @@ def framework_stores(
         leases=SQLAlchemyServerLeaseStore(bind, mode=mode),
         attachments=SQLAlchemyAttachmentRows(bind, mode=mode),
         view_state=SQLAlchemyViewStateStore(bind, mode=mode),
+        saved_views=SQLAlchemySavedViewStore(bind, mode=mode),
     )

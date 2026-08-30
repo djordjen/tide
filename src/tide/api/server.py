@@ -54,6 +54,7 @@ from tide.api.contracts import (
     TidePresentationManifest,
     TidePasswordLoginInput,
     TideQueryInput,
+    TideSortInput,
     TideReferenceSelectionInput,
     TideReferenceSelectionResult,
     TideReportDocument,
@@ -64,6 +65,8 @@ from tide.api.contracts import (
     TideSearchInput,
     TideSearchResult,
     TideSessionInfo,
+    TideSavedView,
+    TideSavedViewList,
     TideUpdateLocalUserInput,
     TideViewState,
     TideViewStateColumn,
@@ -160,6 +163,12 @@ from tide.security import PROTECTED
 from tide.services import ActionService, AuditHistoryReader, AuditHistoryService, RecordsService
 from tide.model.source import parse_size_literal
 from tide.services.attachment_store import AttachmentStoreError, AttachmentTooLarge
+from tide.services.saved_views import (
+    SavedView,
+    SavedViewError,
+    SavedViewService,
+    UnknownSavedViewView,
+)
 from tide.services.view_state import (
     UnknownViewStateView,
     ViewStateColumn,
@@ -356,6 +365,7 @@ class TideApiRuntime:
     request_body_timeout_seconds: int
     attachments: AttachmentService | None = None
     view_state: ViewStateService | None = None
+    saved_views: SavedViewService | None = None
 
 
 def build_fastapi_app(
@@ -368,6 +378,7 @@ def build_fastapi_app(
     audits: AuditHistoryReader | None = None,
     attachments: AttachmentService | None = None,
     view_state: ViewStateService | None = None,
+    saved_views: SavedViewService | None = None,
     base_path: str = DEFAULT_BASE_PATH,
     logger: logging.Logger | None = None,
     max_request_body_bytes: int = DEFAULT_MAX_REQUEST_BODY_BYTES,
@@ -1379,6 +1390,140 @@ def build_fastapi_app(
                 view_state.delete(context, view_name)
             except UnknownViewStateView as error:
                 raise _view_state_missing(error) from error
+            return Response(status_code=204)
+
+    if saved_views is not None:
+        saved_list_path = f"{base_path.rstrip('/')}/_tide/saved-views/{{view_name}}"
+        saved_item_path = f"{saved_list_path}/{{name}}"
+
+        def _saved_view_missing(error: UnknownSavedViewView) -> HTTPException:
+            return HTTPException(
+                status_code=404,
+                detail={
+                    "code": "not_found",
+                    "message": f"no browse view named {error.args[0]!r}",
+                },
+            )
+
+        def _saved_view_wire(entry: SavedView) -> TideSavedView:
+            return TideSavedView(
+                name=entry.name,
+                named_filter=entry.named_filter,
+                value_filters=dict(entry.value_filters),
+                sort=tuple(
+                    TideSortInput(field=field_name, descending=descending)
+                    for field_name, descending in entry.sort
+                ),
+                columns=(
+                    tuple(
+                        TideViewStateColumn(
+                            name=column.name, label=column.label
+                        )
+                        for column in entry.columns
+                    )
+                    if entry.columns is not None
+                    else None
+                ),
+            )
+
+        @app.get(
+            saved_list_path,
+            tags=["TIDE"],
+            summary="This identity's saved views of a browse",
+            response_model=TideSavedViewList,
+            responses=_documented_errors(401, 404),
+        )
+        def saved_views_list(
+            view_name: str,
+            context: RequestContext = Depends(request_context),
+        ) -> TideSavedViewList:
+            try:
+                entries = saved_views.list(context, view_name)
+            except UnknownSavedViewView as error:
+                raise _saved_view_missing(error) from error
+            return TideSavedViewList(
+                views=tuple(_saved_view_wire(entry) for entry in entries)
+            )
+
+        @app.put(
+            saved_item_path,
+            tags=["TIDE"],
+            summary="Keep one named grid state",
+            status_code=204,
+            responses=_documented_errors(400, 401, 404),
+        )
+        def saved_views_write(
+            view_name: str,
+            name: str,
+            payload: TideSavedView,
+            context: RequestContext = Depends(request_context),
+        ) -> Response:
+            try:
+                saved_views.put(
+                    context,
+                    view_name,
+                    SavedView(
+                        # The path names the entry; the body's copy of
+                        # the name is informational, so a rename is a
+                        # PUT to the new name and a DELETE of the old.
+                        name=name,
+                        named_filter=payload.named_filter,
+                        value_filters={
+                            field_name: tuple(values)
+                            for field_name, values in payload.value_filters.items()
+                        },
+                        sort=tuple(
+                            (item.field, item.descending)
+                            for item in payload.sort
+                        ),
+                        columns=(
+                            tuple(
+                                ViewStateColumn(
+                                    name=column.name, label=column.label
+                                )
+                                for column in payload.columns
+                            )
+                            if payload.columns is not None
+                            else None
+                        ),
+                    ),
+                )
+            except UnknownSavedViewView as error:
+                raise _saved_view_missing(error) from error
+            except SavedViewError as error:
+                return JSONResponse(
+                    status_code=400,
+                    content=TideApiError(
+                        code="saved_view_invalid",
+                        message="the saved view was refused",
+                        issues=tuple(
+                            TideApiValidationIssue(
+                                rule="saved_view",
+                                message=issue,
+                                fields=(),
+                            )
+                            for issue in error.issues
+                        ),
+                    ).model_dump(),
+                )
+            return Response(status_code=204)
+
+        @app.delete(
+            saved_item_path,
+            tags=["TIDE"],
+            summary="Forget one named grid state",
+            status_code=204,
+            responses=_documented_errors(401, 404),
+        )
+        def saved_views_forget(
+            view_name: str,
+            name: str,
+            context: RequestContext = Depends(request_context),
+        ) -> Response:
+            try:
+                saved_views.delete(context, view_name, name)
+            except UnknownSavedViewView as error:
+                raise _saved_view_missing(error) from error
             return Response(status_code=204)
 
     @app.post(
