@@ -160,20 +160,33 @@ def test_action_expected_version_is_checked_before_idempotency_claim() -> None:
     assert posted["version"] == created["version"] + 1
 
 
-def test_fingerprint_preserves_payload_value_types() -> None:
+def test_a_reused_key_for_a_different_record_is_a_conflict() -> None:
+    """The fingerprint spans the whole request, and a mismatch is audited.
+
+    This test used to pin the opposite for payloads -- that the datetime and
+    ISO-string spellings of one `occurred_at` conflicted -- which parameter
+    coercion deliberately reversed: the service types the payload before
+    fingerprinting, so spellings replay as one request (proven in
+    test_action_parameters.py). What must survive is that a key reused for a
+    genuinely different request still refuses and lands in audit as CONFLICT.
+    """
+
     store = InMemoryActionExecutionStore()
     model, _, records = _memory_runtime()
-    created = records.commit(
+    first = records.commit(
         records.create("sales.Invoice", _context("create"), _invoice_values()),
         _context("create"),
     )
+    second = records.commit(
+        records.create("sales.Invoice", _context("create-2"), _invoice_values()),
+        _context("create-2"),
+    )
     actions = _actions(model, records, store)
-    occurred_at = datetime(2026, 7, 15, 10, 30, tzinfo=timezone.utc)
     actions.execute(
         "sales.Invoice",
         "post",
-        created["id"],
-        {"occurred_at": occurred_at},
+        first["id"],
+        {},
         _context("first"),
         idempotency_key="typed-payload",
     )
@@ -182,8 +195,8 @@ def test_fingerprint_preserves_payload_value_types() -> None:
         actions.execute(
             "sales.Invoice",
             "post",
-            created["id"],
-            {"occurred_at": occurred_at.isoformat()},
+            second["id"],
+            {},
             _context("conflict"),
             idempotency_key="typed-payload",
         )

@@ -19,6 +19,7 @@ from tide.runtime.errors import (
     NullVersion,
     TideRuntimeError,
 )
+from tide.runtime.parameters import coerce_parameters
 from tide.security.engine import SecurityEngine
 from tide.services.action_store import (
     ActionAuditEvent,
@@ -100,6 +101,16 @@ class ActionService:
         claimed: IdempotencyRecord | None = None
         outcome = AuditOutcome.SUCCEEDED
         try:
+            # The declaration is the payload contract for every door: typed
+            # values and their string forms land identically, defaults fill,
+            # and an action declaring nothing accepts nothing. Coercion runs
+            # before the fingerprint so two spellings of one request replay
+            # as one request.
+            payload = coerce_parameters(
+                action.get("parameters") or {},
+                payload,
+                rule="action_parameter",
+            )
             fingerprint = (
                 _fingerprint(entity_name, action_name, identity, payload, context)
                 if key is not None
