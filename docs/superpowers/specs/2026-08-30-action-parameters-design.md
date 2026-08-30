@@ -46,7 +46,8 @@ surfaces already render a dialog for them. Actions reuse every piece:
 `ActionService.execute` validates the payload against the declaration —
 always, for every door. Unknown names, missing required values, and
 uncoercible values are refused together in one `ValidationFailed` whose
-issues carry rule `action_parameter` and the parameter name as the field.
+issues carry rule `action_parameter` and the parameter name as the field
+— arriving over REST as the house 422, exactly as report parameters do.
 An action that declares no parameters accepts only an empty payload — the
 same refusal today's transports enforce separately, now owned by the
 service. Transports carry and never judge:
@@ -123,7 +124,7 @@ Compiler: declaration accepted, bad names refused. Service: unknown /
 missing / uncoercible refused together; defaults applied; declared-empty
 actions refuse payloads; coercion-before-fingerprint proven by replaying
 the string and typed forms under one key. REST: parametrized invoke,
-house 400 with `action_parameter` issues, `{}` still valid for
+house 422 with `action_parameter` issues, `{}` still valid for
 parameterless actions. MCP: tool schema carries the parameters model;
 execution forwards. TUI: pilot drives the Void dialog. Web: vitest for
 the popover, one Playwright journey voiding with a reason and reading
