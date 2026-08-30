@@ -19,6 +19,7 @@ from tide.data import (
 from tide.data.sqlalchemy_leases import SQLAlchemyServerLeaseStore
 from tide.data.sqlalchemy_attachments import SQLAlchemyAttachmentRows
 from tide.data.sqlalchemy_sessions import SQLAlchemySessionStore
+from tide.data.sqlalchemy_view_state import SQLAlchemyViewStateStore
 from tide.runtime import TideRuntimeError
 from tide.services import (
     ActionExecutionStore,
@@ -34,6 +35,7 @@ class RunStorage:
     execution_store: ActionExecutionStore | None = None
     session_store: SQLAlchemySessionStore | None = None
     attachment_rows: SQLAlchemyAttachmentRows | None = None
+    view_state_rows: SQLAlchemyViewStateStore | None = None
     lease_store: SQLAlchemyServerLeaseStore | None = None
     """Browser sessions every process can see, when there is a place to put them.
 
@@ -105,6 +107,7 @@ def open_run_storage(
             execution_store=stores.actions if stores is not None else None,
             session_store=stores.sessions if stores is not None else None,
             attachment_rows=stores.attachments if stores is not None else None,
+            view_state_rows=stores.view_state if stores is not None else None,
             lease_store=stores.leases if stores is not None else None,
         )
     except (SQLAlchemyError, TideRuntimeError, ValueError) as error:
