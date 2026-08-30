@@ -42,6 +42,10 @@ from tide.services.attachment_store import (
     InMemoryAttachmentRows,
 )
 from tide.services.attachments import AttachmentService, file_fields
+from tide.services.view_state import (
+    InMemoryViewStateRows,
+    ViewStateService,
+)
 
 from .auth import parse_oidc_role_map, print_local_store_remedy
 from .storage import RunStorage, open_run_storage
@@ -700,6 +704,17 @@ def _serve_api(arguments: argparse.Namespace) -> int:
             records,
             execution_store=storage.execution_store,
         )
+        # Arrangements are durable where the database is managed and
+        # process-local where it is not -- the same degradation browser
+        # sessions take, and for the same reason: a database TIDE does
+        # not own is a database TIDE may not create a table in.
+        view_state = ViewStateService(
+            model,
+            records.security,
+            storage.view_state_rows
+            if storage.view_state_rows is not None
+            else InMemoryViewStateRows(),
+        )
         try:
             configure_application_runtime(model, records, actions)
             app = build_fastapi_app(
@@ -708,6 +723,7 @@ def _serve_api(arguments: argparse.Namespace) -> int:
                 authenticator,
                 actions=actions,
                 attachments=attachments,
+                view_state=view_state,
                 base_path=arguments.base_path,
                 max_request_body_bytes=limits.max_request_body_bytes,
                 request_body_timeout_seconds=(

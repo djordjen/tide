@@ -749,9 +749,18 @@ class TideBrowsePresentation(BaseModel):
     search_field: str | None = None
     search_label: str | None = None
     named_filters: tuple[TidePresentationNamedFilter, ...] = ()
+    available_columns: tuple[TidePresentationColumn, ...] = ()
+    """Every field a person may arrange this browse to show.
+
+    The readable, non-collection fields of the entity, in declaration
+    order -- the offer behind the column chooser. The declared `columns`
+    stay the default every principal starts from; an arrangement is a
+    per-user overlay stored through the view-state routes, never a
+    second declaration of the view.
+    """
     sortable_fields: tuple[str, ...] = ()
     filterable_fields: tuple[str, ...] = ()
-    """Shown columns a per-column value filter can constrain."""
+    """Offered fields a per-column value filter can constrain."""
     summaries: tuple[TideSummaryInput, ...] = ()
     """What the view's footer asks of every page query, column-filtered.
 
@@ -776,6 +785,25 @@ class TideBrowsePresentation(BaseModel):
     operations: tuple[TideOperation, ...] = ()
     detail_view: str | None = None
 
+
+class TideViewStateColumn(BaseModel):
+    """One chosen column of a stored per-user browse arrangement."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str = Field(min_length=1)
+    label: str | None = Field(default=None, max_length=200)
+
+
+class TideViewState(BaseModel):
+    """A person's own arrangement of one browse view.
+
+    Empty `columns` means no customization: the declared view applies.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    columns: tuple[TideViewStateColumn, ...] = ()
 
 class TidePresentationNavigationItem(BaseModel):
     """One browse destination in secured application navigation."""

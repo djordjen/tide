@@ -220,14 +220,23 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
             {"field": "number", "function": "count"},
             {"field": "total", "function": "sum"},
         ]
-        # Every shown stored column can carry a value filter, references
-        # included -- they filter by identity and enumerate with names.
+        # Every offered stored column can carry a value filter --
+        # references included, which filter by identity and enumerate
+        # with names. Offered, not merely shown: the column chooser lets
+        # an arrangement display any of these, so the capability list
+        # covers the offer. Collections and the file field stay out.
         assert invoice_view["filterable_fields"] == [
-            "number",
-            "invoice_date",
+            "cancelled_at",
+            "cancelled_by",
+            "currency",
             "customer",
+            "id",
+            "invoice_date",
+            "number",
+            "posted_at",
             "status",
             "total",
+            "version",
         ]
         # The browse edit mode travels with the view: invoices keep the
         # form, the flat product catalogue offers editing in the row.

@@ -65,6 +65,8 @@ from tide.api.contracts import (
     TideSearchResult,
     TideSessionInfo,
     TideUpdateLocalUserInput,
+    TideViewState,
+    TideViewStateColumn,
 )
 from tide.api.config import (
     DEFAULT_MAX_REQUEST_BODY_BYTES,
@@ -158,6 +160,12 @@ from tide.security import PROTECTED
 from tide.services import ActionService, AuditHistoryReader, AuditHistoryService, RecordsService
 from tide.model.source import parse_size_literal
 from tide.services.attachment_store import AttachmentStoreError, AttachmentTooLarge
+from tide.services.view_state import (
+    UnknownViewStateView,
+    ViewStateColumn,
+    ViewStateError,
+    ViewStateService,
+)
 from tide.services.attachments import AttachmentService, file_fields
 from tide.services.search import GlobalSearchService
 
@@ -347,6 +355,7 @@ class TideApiRuntime:
     max_request_body_bytes: int
     request_body_timeout_seconds: int
     attachments: AttachmentService | None = None
+    view_state: ViewStateService | None = None
 
 
 def build_fastapi_app(
@@ -358,6 +367,7 @@ def build_fastapi_app(
     reports: ReportService | None = None,
     audits: AuditHistoryReader | None = None,
     attachments: AttachmentService | None = None,
+    view_state: ViewStateService | None = None,
     base_path: str = DEFAULT_BASE_PATH,
     logger: logging.Logger | None = None,
     max_request_body_bytes: int = DEFAULT_MAX_REQUEST_BODY_BYTES,
@@ -1276,6 +1286,100 @@ def build_fastapi_app(
                 and administration.can_administer(context)
             ),
         )
+
+    if view_state is not None:
+        state_path = f"{base_path.rstrip('/')}/_tide/view-state/{{view_name}}"
+
+        def _view_state_missing(error: UnknownViewStateView) -> HTTPException:
+            return HTTPException(
+                status_code=404,
+                detail={
+                    "code": "not_found",
+                    "message": f"no browse view named {error.args[0]!r}",
+                },
+            )
+
+        @app.get(
+            state_path,
+            tags=["TIDE"],
+            summary="This identity's stored arrangement of a browse view",
+            response_model=TideViewState,
+            responses=_documented_errors(401, 404),
+        )
+        def view_state_read(
+            view_name: str,
+            context: RequestContext = Depends(request_context),
+        ) -> TideViewState:
+            try:
+                stored = view_state.get(context, view_name)
+            except UnknownViewStateView as error:
+                raise _view_state_missing(error) from error
+            return TideViewState(
+                columns=tuple(
+                    TideViewStateColumn(name=column.name, label=column.label)
+                    for column in stored
+                )
+            )
+
+        @app.put(
+            state_path,
+            tags=["TIDE"],
+            summary="Keep this identity's arrangement of a browse view",
+            status_code=204,
+            responses=_documented_errors(400, 401, 404),
+        )
+        def view_state_write(
+            view_name: str,
+            payload: TideViewState,
+            context: RequestContext = Depends(request_context),
+        ) -> Response:
+            try:
+                view_state.put(
+                    context,
+                    view_name,
+                    tuple(
+                        ViewStateColumn(name=column.name, label=column.label)
+                        for column in payload.columns
+                    ),
+                )
+            except UnknownViewStateView as error:
+                raise _view_state_missing(error) from error
+            except ViewStateError as error:
+                # The house error shape: a code, a sentence, and one
+                # issue per reason, so the chooser can show them all.
+                return JSONResponse(
+                    status_code=400,
+                    content=TideApiError(
+                        code="view_state_invalid",
+                        message="the arrangement was refused",
+                        issues=tuple(
+                            TideApiValidationIssue(
+                                rule="view_state",
+                                message=issue,
+                                fields=(),
+                            )
+                            for issue in error.issues
+                        ),
+                    ).model_dump(),
+                )
+            return Response(status_code=204)
+
+        @app.delete(
+            state_path,
+            tags=["TIDE"],
+            summary="Forget this identity's arrangement of a browse view",
+            status_code=204,
+            responses=_documented_errors(401, 404),
+        )
+        def view_state_reset(
+            view_name: str,
+            context: RequestContext = Depends(request_context),
+        ) -> Response:
+            try:
+                view_state.delete(context, view_name)
+            except UnknownViewStateView as error:
+                raise _view_state_missing(error) from error
+            return Response(status_code=204)
 
     @app.post(
         f"{base_path.rstrip('/')}/_tide/search",

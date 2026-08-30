@@ -129,6 +129,15 @@ def build_presentation_manifest(
             capabilities = session.entities[entity.name]
             field_names = accessible_columns[view.name]
             readable = frozenset(capabilities.readable_fields)
+            # The offer behind the column chooser: every readable field
+            # that can be a column at all, in declaration order. A
+            # collection is navigation, not a cell.
+            arrangeable = tuple(
+                name
+                for name, field in entity.fields.items()
+                if name in readable
+                and str(field.metadata["type"]) != "collection"
+            )
             form = _form_contract(
                 model,
                 entity,
@@ -171,6 +180,17 @@ def build_presentation_manifest(
                     )
                     for field_name in field_names
                 ),
+                available_columns=tuple(
+                    _column_contract(
+                        entity,
+                        field_name,
+                        model,
+                        session,
+                        exposures,
+                        base_path=base_path,
+                    )
+                    for field_name in arrangeable
+                ),
                 search_field=search_field,
                 search_label=(
                     field_label(entity.field(search_field))
@@ -192,12 +212,16 @@ def build_presentation_manifest(
                     )
                     for named_filter in filters.values()
                 ),
+                # Widened from the displayed columns to the whole offer:
+                # an arrangement may sort and funnel what it shows. The
+                # field-type rules still decide, and the service still
+                # refuses what it always refused.
                 sortable_fields=browse_sortable_fields(
-                    field_names,
+                    arrangeable,
                     entity,
                 ),
                 filterable_fields=browse_filterable_fields(
-                    field_names,
+                    arrangeable,
                     entity,
                 ),
                 summaries=tuple(
