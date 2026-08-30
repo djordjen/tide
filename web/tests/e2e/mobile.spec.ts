@@ -92,6 +92,46 @@ async function open(page: Page, invoice: RegExp): Promise<void> {
   await page.getByRole("heading", { level: 1, name: invoice }).waitFor()
 }
 
+test("keeps a funnel popover on screen wherever its column sits", async ({
+  page,
+}) => {
+  await page.setViewportSize(PHONE)
+  await signIn(page)
+  await expect(page.getByRole("row", { name: /INV-2026-0001/ })).toBeVisible()
+
+  // Status and Total are past the fold of a phone-width grid; a person
+  // scrolls the grid to reach their funnels, so the probe does the same.
+  // What is measured is the popover, not the page: a filter form that
+  // opens mostly off-screen is a filter that cannot be filled.
+  const checklist = page.getByRole("button", { name: "Filter Status" })
+  await checklist.scrollIntoViewIfNeeded()
+  await checklist.click()
+  const values = page.getByRole("dialog", { name: "Status values" })
+  await expect(values).toBeVisible()
+  expect(await escaping(page, values), "checklist popover").toEqual([])
+  const valuesBox = await values.boundingBox()
+  expect(valuesBox, "checklist popover box").not.toBeNull()
+  expect(valuesBox!.x).toBeGreaterThanOrEqual(-0.5)
+  expect(valuesBox!.x + valuesBox!.width).toBeLessThanOrEqual(
+    PHONE.width + 0.5,
+  )
+  await page.keyboard.press("Escape")
+
+  // The range mode gets the same guarantee.
+  const range = page.getByRole("button", { name: "Filter Total" })
+  await range.scrollIntoViewIfNeeded()
+  await range.click()
+  const bounds = page.getByRole("dialog", { name: "Total values" })
+  await expect(bounds.getByLabel("Min", { exact: true })).toBeVisible()
+  const boundsBox = await bounds.boundingBox()
+  expect(boundsBox, "range popover box").not.toBeNull()
+  expect(boundsBox!.x).toBeGreaterThanOrEqual(-0.5)
+  expect(boundsBox!.x + boundsBox!.width).toBeLessThanOrEqual(
+    PHONE.width + 0.5,
+  )
+  await page.keyboard.press("Escape")
+})
+
 test("keeps every control on screen at phone width", async ({ page }) => {
   await page.setViewportSize(PHONE)
 
