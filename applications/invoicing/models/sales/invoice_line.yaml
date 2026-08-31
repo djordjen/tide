@@ -71,3 +71,14 @@ fields:
     computed:
       expression: "round(quantity * unit_price, 2)"
       materialization: stored
+
+# A child rule: the issue carries this entity's rule id, and acknowledging
+# it at the invoice save covers every line the rule fired on.
+validations:
+  - id: unusual_quantity
+    when: "quantity != null"
+    assert: "quantity <= 100"
+    severity: warning
+    message: The line quantity is unusually large.
+    fields: [quantity]
+    run: [before_commit]
