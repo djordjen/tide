@@ -147,8 +147,21 @@ test("keeps the warning panel on screen at phone width", async ({ page }) => {
   const products = page.getByRole("dialog", { name: "Select Product" })
   await products.getByRole("row", { name: /CONS/ }).click()
   await products.getByRole("button", { name: "Select" }).click()
+  // The selection assignments arrive by a server round trip; wait on the
+  // value, not on the dialog's closing. Save reads whatever has landed,
+  // and a row still missing its price fails client validation SILENTLY --
+  // no request, no panel -- which is how this test flaked on a loaded
+  // CI runner.
+  await expect(page.getByRole("textbox", { name: "Unit Price" })).toHaveValue(
+    "85.00",
+  )
   await page.getByRole("textbox", { name: "Quantity" }).fill("500")
   await page.getByRole("button", { name: "Apply Line" }).click()
+  // The applied row rendering its quantity is the claim Save depends on;
+  // it also lets Apply's focus scroll finish before the click below aims.
+  await expect(
+    page.getByRole("row", { name: /Consulting hour/ }),
+  ).toContainText("500.000")
 
   const save = page.getByRole("button", { name: "Save", exact: true })
   await save.scrollIntoViewIfNeeded()
@@ -159,7 +172,7 @@ test("keeps the warning panel on screen at phone width", async ({ page }) => {
   const panel = page
     .getByRole("alert")
     .filter({ hasText: "The line quantity is unusually large." })
-  await expect(panel).toBeVisible()
+  await expect(panel).toBeVisible({ timeout: 10_000 })
   expect(await escaping(page, panel), "warning panel").toEqual([])
   expect(await colliding(panel), "warning panel overlaps").toEqual([])
 
