@@ -8,6 +8,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from tide.api.contracts import TIDE_WIRE_VERSION, TideFilterOperator, TideParameter
+from tide.api.openapi import TideApiValidationIssue
 from tide.model.source import TideSummaryFunction
 
 
@@ -106,6 +107,16 @@ class TideMcpMutationResult(BaseModel):
     action: str | None = None
     identity: Any
     record: dict[str, Any] | None = None
+    notices: tuple[TideApiValidationIssue, ...] | None = Field(
+        default=None,
+        min_length=1,
+        exclude_if=lambda value: value is None,
+        description=(
+            "What the successful mutation still wants said: info-severity "
+            "issues, and the warnings the call acknowledged. Absent when "
+            "there is nothing to say."
+        ),
+    )
     correlation_id: str
 
     def model_post_init(self, __context: Any) -> None:

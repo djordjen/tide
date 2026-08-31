@@ -37,6 +37,7 @@ from tide.mcp.contracts import (
     TideMcpSummaryValue,
 )
 from tide.reporting import ReportService, ReportValue, TypedReport
+from tide.api.openapi import TideApiValidationIssue
 from tide.runtime import (
     ConcurrencyError,
     NotFoundError,
@@ -44,6 +45,7 @@ from tide.runtime import (
     RequestContext,
     VersionPreconditionRequired,
 )
+from tide.runtime.errors import ValidationIssue
 from tide.services import ActionService, AuditHistoryReader, RecordsService
 
 
@@ -326,16 +328,23 @@ class RuntimeMcpService:
         entity_name: str,
         values: Mapping[str, Any],
         context: RequestContext,
+        *,
+        acknowledged_warnings: frozenset[str] = frozenset(),
     ) -> TideMcpMutationResult:
         self._require(entity_name, "tools", "create")
         session = self.records.create(entity_name, context, values)
-        stored = self.records.commit(session, context)
+        stored = self.records.commit(
+            session,
+            context,
+            acknowledged_warnings=acknowledged_warnings,
+        )
         return self._mutation_result(
             entity_name,
             "create",
             session.identity,
             stored,
             context,
+            notices=session.notices,
         )
 
     def update(
@@ -346,6 +355,7 @@ class RuntimeMcpService:
         context: RequestContext,
         *,
         expected_version: int | NullVersion | None = None,
+        acknowledged_warnings: frozenset[str] = frozenset(),
     ) -> TideMcpMutationResult:
         self._require(entity_name, "tools", "update")
         if not values:
@@ -366,13 +376,18 @@ class RuntimeMcpService:
             )
         for field_name, value in values.items():
             session.set(field_name, value)
-        stored = self.records.commit(session, context)
+        stored = self.records.commit(
+            session,
+            context,
+            acknowledged_warnings=acknowledged_warnings,
+        )
         return self._mutation_result(
             entity_name,
             "update",
             typed_identity,
             stored,
             context,
+            notices=session.notices,
         )
 
     def delete(
@@ -415,6 +430,7 @@ class RuntimeMcpService:
         *,
         expected_version: int | NullVersion | None = None,
         idempotency_key: str | None = None,
+        acknowledged_warnings: frozenset[str] = frozenset(),
     ) -> TideMcpMutationResult:
         exposure = self._require_action(entity_name, action_name)
         if self.actions is None:
@@ -438,6 +454,7 @@ class RuntimeMcpService:
             context,
             idempotency_key=idempotency_key,
             expected_version=expected_version,
+            acknowledged_warnings=acknowledged_warnings,
         )
         return self._mutation_result(
             entity_name,
@@ -446,6 +463,7 @@ class RuntimeMcpService:
             outcome.record,
             context,
             action=action_name,
+            notices=outcome.notices,
         )
 
     def _mutation_result(
@@ -457,6 +475,7 @@ class RuntimeMcpService:
         context: RequestContext,
         *,
         action: str | None = None,
+        notices: tuple[ValidationIssue, ...] = (),
     ) -> TideMcpMutationResult:
         entity = self.model.entity(entity_name)
         return TideMcpMutationResult(
@@ -477,6 +496,19 @@ class RuntimeMcpService:
                     ),
                 )
                 if values is not None
+                else None
+            ),
+            notices=(
+                tuple(
+                    TideApiValidationIssue(
+                        rule=issue.rule,
+                        message=issue.message,
+                        fields=issue.fields,
+                        severity=issue.severity,
+                    )
+                    for issue in notices
+                )
+                if notices
                 else None
             ),
             correlation_id=context.correlation_id,

@@ -352,18 +352,33 @@ def _search_tool(
     return search_records
 
 
+_ACKNOWLEDGE_FIELD: Any = Field(
+    default=None,
+    description=(
+        "Warning rule ids this call accepts. A commit refused only by "
+        "warning-severity rules proceeds once every raised warning's id is "
+        "listed; ids that did not fire are ignored, and errors are never "
+        "acknowledgeable. The refusal names the ids to list here."
+    ),
+)
+
+
 def _create_tool(
     service: RuntimeMcpService,
     entity_name: str,
     tool_name: str,
     input_model: type[BaseModel],
 ) -> Any:
-    async def create_record(values: BaseModel) -> TideMcpMutationResult:
+    async def create_record(
+        values: BaseModel,
+        acknowledge_warnings: list[str] | None = _ACKNOWLEDGE_FIELD,
+    ) -> TideMcpMutationResult:
         return await asyncio.to_thread(
             service.create,
             entity_name,
             values.model_dump(by_alias=True, exclude_unset=True),
             _request_context(),
+            acknowledged_warnings=frozenset(acknowledge_warnings or ()),
         )
 
     create_record.__name__ = tool_name
@@ -412,6 +427,7 @@ def _update_tool(
         # would arrive as an absent version. _expected_version refuses
         # every string but the one spelling.
         expected_version: Annotated[int, Field(ge=1)] | str | None = None,
+        acknowledge_warnings: list[str] | None = _ACKNOWLEDGE_FIELD,
     ) -> TideMcpMutationResult:
         return await asyncio.to_thread(
             service.update,
@@ -420,6 +436,7 @@ def _update_tool(
             values.model_dump(by_alias=True, exclude_unset=True),
             _request_context(),
             expected_version=_expected_version(expected_version),
+            acknowledged_warnings=frozenset(acknowledge_warnings or ()),
         )
 
     update_record.__name__ = tool_name
@@ -477,6 +494,7 @@ def _action_tool(
         payload: Mapping[str, Any],
         expected_version: Any,
         idempotency_key: str | None,
+        acknowledge_warnings: list[str] | None,
     ) -> Any:
         return asyncio.to_thread(
             service.execute_action,
@@ -487,6 +505,7 @@ def _action_tool(
             _request_context(),
             expected_version=_expected_version(expected_version),
             idempotency_key=idempotency_key,
+            acknowledged_warnings=frozenset(acknowledge_warnings or ()),
         )
 
     tool: Any
@@ -500,20 +519,29 @@ def _action_tool(
         # every string but the one spelling.
         expected_version: Annotated[int, Field(ge=1)] | str | None = None,
         idempotency_key: str | None = Field(default=None, min_length=1),
+        acknowledge_warnings: list[str] | None = _ACKNOWLEDGE_FIELD,
     ) -> TideMcpMutationResult:
-        return await _run(identity, {}, expected_version, idempotency_key)
+        return await _run(
+            identity,
+            {},
+            expected_version,
+            idempotency_key,
+            acknowledge_warnings,
+        )
 
     async def execute_required(
         identity: Any,
         parameters: BaseModel,
         expected_version: Annotated[int, Field(ge=1)] | str | None = None,
         idempotency_key: str | None = Field(default=None, min_length=1),
+        acknowledge_warnings: list[str] | None = _ACKNOWLEDGE_FIELD,
     ) -> TideMcpMutationResult:
         return await _run(
             identity,
             parameters.model_dump(exclude_unset=True, exclude_none=True),
             expected_version,
             idempotency_key,
+            acknowledge_warnings,
         )
 
     async def execute_optional(
@@ -521,13 +549,20 @@ def _action_tool(
         parameters: BaseModel | None = None,
         expected_version: Annotated[int, Field(ge=1)] | str | None = None,
         idempotency_key: str | None = Field(default=None, min_length=1),
+        acknowledge_warnings: list[str] | None = _ACKNOWLEDGE_FIELD,
     ) -> TideMcpMutationResult:
         supplied = (
             {}
             if parameters is None
             else parameters.model_dump(exclude_unset=True, exclude_none=True)
         )
-        return await _run(identity, supplied, expected_version, idempotency_key)
+        return await _run(
+            identity,
+            supplied,
+            expected_version,
+            idempotency_key,
+            acknowledge_warnings,
+        )
 
     if parameters_model is None:
         tool = execute_bare

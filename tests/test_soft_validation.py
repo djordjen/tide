@@ -22,9 +22,11 @@ import pytest
 from tide import compile_project
 from tide.api.server import DevelopmentTokenAuthenticator, build_fastapi_app
 from tide.data import InMemoryRepository
+from tide.mcp.runtime import RuntimeMcpService
+from tide.mcp.server import build_runtime_mcp_server, mount_runtime_mcp
 from tide.runtime import Channel, Principal, RequestContext
 from tide.runtime.errors import ValidationFailed
-from tide.services import ActionService, RecordsService
+from tide.services import ActionService, AuditHistoryService, RecordsService
 
 TOKEN = "tide-development-token-that-is-long-enough"
 
@@ -545,6 +547,198 @@ def test_rest_update_and_action_doors_take_the_same_parameter(
             assert [
                 issue["rule"] for issue in envelope["_tide"]["notices"]
             ] == ["heavy_shipment"]
+
+    asyncio.run(exercise())
+
+
+def _mcp(tmp_path: Path) -> tuple[RuntimeMcpService, RequestContext]:
+    model = compile_project(_project(tmp_path))
+    records = RecordsService(model, InMemoryRepository())
+    actions = ActionService(model, records)
+    actions.register("actions.dispatch", _dispatch)
+    audits = AuditHistoryService(
+        model,
+        actions.execution_store,
+        records,
+        records.security,
+    )
+    service = RuntimeMcpService(model, records, actions=actions, audits=audits)
+    return service, _context()
+
+
+def test_mcp_create_gates_and_reports_notices_on_the_result(
+    tmp_path: Path,
+) -> None:
+    service, context = _mcp(tmp_path)
+
+    with pytest.raises(ValidationFailed):
+        service.create(
+            "demo.Shipment",
+            {"reference": "S-20", "weight": 500, "note": "fragile"},
+            context,
+        )
+
+    result = service.create(
+        "demo.Shipment",
+        {"reference": "S-20", "weight": 500, "note": "fragile"},
+        context,
+        acknowledged_warnings=frozenset({"heavy_shipment"}),
+    )
+    dumped = result.model_dump(mode="json")
+    assert dumped["notices"] == [
+        {
+            "rule": "heavy_shipment",
+            "message": "The shipment weight is unusually high.",
+            "fields": ["weight"],
+            "severity": "warning",
+        }
+    ]
+
+    quiet = service.update(
+        "demo.Shipment",
+        result.identity,
+        {"weight": 60},
+        context,
+    )
+    assert "notices" not in quiet.model_dump(mode="json")
+
+
+def test_mcp_action_gate_takes_the_same_argument(tmp_path: Path) -> None:
+    service, context = _mcp(tmp_path)
+    created = service.create(
+        "demo.Shipment",
+        {"reference": "S-21", "weight": 500, "note": "fragile"},
+        context,
+        acknowledged_warnings=frozenset({"heavy_shipment"}),
+    )
+
+    with pytest.raises(ValidationFailed):
+        service.execute_action(
+            "demo.Shipment",
+            "dispatch",
+            created.identity,
+            {},
+            context,
+            idempotency_key="mcp-dispatch-1",
+        )
+
+    dispatched = service.execute_action(
+        "demo.Shipment",
+        "dispatch",
+        created.identity,
+        {},
+        context,
+        idempotency_key="mcp-dispatch-2",
+        acknowledged_warnings=frozenset({"heavy_shipment"}),
+    )
+    assert dispatched.record is not None
+    assert dispatched.record["status"] == "dispatched"
+    assert [issue.rule for issue in dispatched.notices or ()] == [
+        "heavy_shipment"
+    ]
+
+
+def test_mcp_tools_expose_the_acknowledgement_argument(tmp_path: Path) -> None:
+    """An agent's flow end to end: refused, told which rule, acknowledged."""
+
+    import json
+
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+
+    model = compile_project(_project(tmp_path))
+    records = RecordsService(model, InMemoryRepository())
+    actions = ActionService(model, records)
+    actions.register("actions.dispatch", _dispatch)
+    audits = AuditHistoryService(
+        model,
+        actions.execution_store,
+        records,
+        records.security,
+    )
+    authenticator = DevelopmentTokenAuthenticator(
+        TOKEN,
+        Principal("mcp:test", roles=frozenset({"operator"})),
+    )
+    app = build_fastapi_app(
+        model,
+        records,
+        authenticator,
+        actions=actions,
+        audits=audits,
+    )
+    mount_runtime_mcp(
+        app,
+        build_runtime_mcp_server(
+            RuntimeMcpService(model, records, actions=actions, audits=audits),
+            authenticator,
+            issuer_url="http://127.0.0.1:8000",
+            resource_url="http://127.0.0.1:8000/mcp",
+        ),
+    )
+
+    async def exercise() -> None:
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://127.0.0.1:8000",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+            ) as http:
+                async with streamable_http_client(
+                    "http://127.0.0.1:8000/mcp",
+                    http_client=http,
+                ) as (read_stream, write_stream, _session_id):
+                    async with ClientSession(read_stream, write_stream) as session:
+                        await session.initialize()
+                        shipment = {
+                            "reference": "S-30",
+                            "weight": 500,
+                            "note": "fragile",
+                        }
+                        refused = await session.call_tool(
+                            "create_demo_shipment",
+                            {"values": shipment},
+                        )
+                        assert refused.isError
+                        assert "unusually high" in refused.content[0].text
+
+                        accepted = await session.call_tool(
+                            "create_demo_shipment",
+                            {
+                                "values": shipment,
+                                "acknowledge_warnings": ["heavy_shipment"],
+                            },
+                        )
+                        assert not accepted.isError
+                        payload = json.loads(accepted.content[0].text)
+                        assert [
+                            notice["rule"] for notice in payload["notices"]
+                        ] == ["heavy_shipment"]
+                        identity = payload["identity"]
+
+                        gated = await session.call_tool(
+                            "dispatch_demo_shipment",
+                            {
+                                "identity": identity,
+                                "idempotency_key": "mcp-tool-dispatch-1",
+                            },
+                        )
+                        assert gated.isError
+
+                        dispatched = await session.call_tool(
+                            "dispatch_demo_shipment",
+                            {
+                                "identity": identity,
+                                "idempotency_key": "mcp-tool-dispatch-2",
+                                "acknowledge_warnings": ["heavy_shipment"],
+                            },
+                        )
+                        assert not dispatched.isError
+                        outcome = json.loads(dispatched.content[0].text)
+                        assert outcome["record"]["status"] == "dispatched"
+                        assert [
+                            notice["rule"] for notice in outcome["notices"]
+                        ] == ["heavy_shipment"]
 
     asyncio.run(exercise())
 
