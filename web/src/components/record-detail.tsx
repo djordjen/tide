@@ -61,6 +61,7 @@ import type {
   TidePresentationReport,
   TideRecord,
   TideRecordSnapshot,
+  TideValidationIssue,
 } from "@/lib/contracts"
 import {
   compareRecordConflict,
@@ -149,6 +150,8 @@ interface SaveAttempt {
   originalValues: Record<string, unknown>
   draftValues: Record<string, unknown>
   intent: SaveIntent
+  /** Warning rule ids this attempt accepts; the retry after Save anyway. */
+  acknowledgedWarnings?: readonly string[]
 }
 
 interface PendingConflictReview {
@@ -164,11 +167,50 @@ interface RecordActionAttempt {
   saveAttempt: SaveAttempt
   idempotencyKey: string | null
   parameters: Record<string, string>
+  /**
+   * Warning rule ids this attempt accepts, applied to the pre-save and the
+   * action commit alike -- either can gate, and the set accumulates.
+   */
+  acknowledgedWarnings?: readonly string[]
 }
 
 interface RecordActionResult {
   action: TidePresentationFormAction
   snapshot: TideRecordSnapshot
+}
+
+/**
+ * The issues, when a refusal is one a person may accept: 422 with at least
+ * one issue and nothing harder than a warning in it. Anything else is not
+ * this panel's business.
+ */
+function warningOnlyIssues(error: TideApiError): TideValidationIssue[] | null {
+  if (error.status !== 422 || error.issues.length === 0) {
+    return null
+  }
+  return error.issues.every((issue) => issue.severity === "warning")
+    ? error.issues
+    : null
+}
+
+function withWarningRules(
+  acknowledged: readonly string[] | undefined,
+  warnings: TideValidationIssue[],
+): string[] {
+  return [
+    ...new Set([
+      ...(acknowledged ?? []),
+      ...warnings.map((issue) => issue.rule),
+    ]),
+  ]
+}
+
+/** Info-severity notices on a written record; the acknowledged warnings are
+ * deliberately not read back -- the person just confirmed them. */
+function recordInfoNotices(record: TideRecord): string[] {
+  return (record._tide?.notices ?? [])
+    .filter((issue) => issue.severity === "info")
+    .map((issue) => issue.message)
 }
 
 class RecordActionExecutionError extends Error {
@@ -255,6 +297,17 @@ export function RecordDetail({
     error: TideApiError
     savedBeforeAction: boolean
   } | null>(null)
+  // A warning-only refusal waiting to be weighed: what the rules said, the
+  // wording on the confirming button, and the retry that reruns the same
+  // door with the warnings acknowledged.
+  const [warningGate, setWarningGate] = useState<{
+    messages: string[]
+    confirmLabel: string
+    retry: () => void
+  } | null>(null)
+  // Info-severity notices from the last successful write. Advisory only,
+  // and gone with the screen: a save that closes the record takes them.
+  const [infoNotices, setInfoNotices] = useState<string[]>([])
   const [notice, setNotice] = useState<string | null>(null)
   // Which action's parameter popover is open; at most one at a time.
   const [parameterAction, setParameterAction] = useState<string | null>(null)
@@ -401,6 +454,8 @@ export function RecordDetail({
       setFieldErrors({})
       setSaveError(null)
       setActionError(null)
+      setWarningGate(null)
+      setInfoNotices([])
       setNotice(null)
       setRebaseNotice(null)
       setConflictReview(null)
@@ -410,14 +465,21 @@ export function RecordDetail({
   }, [form, mode, query.isPlaceholderData, record, seed])
 
   const saveMutation = useMutation({
-    mutationFn: ({ payload }: SaveAttempt) =>
+    mutationFn: ({ payload, acknowledgedWarnings }: SaveAttempt) =>
       mode === "create"
-        ? api.createRecord(view, payload)
+        ? api.createRecord(
+            view,
+            payload,
+            undefined,
+            acknowledgedWarnings ?? [],
+          )
         : api.updateRecord(
             view,
             identity,
             payload,
             snapshot?.etag ?? null,
+            undefined,
+            acknowledgedWarnings ?? [],
           ),
     onSuccess: (saved, attempt) => {
       setFieldErrors({})
@@ -428,6 +490,8 @@ export function RecordDetail({
       setConflictReview(null)
       setConflictChoices({})
       setConflictOpen(false)
+      setWarningGate(null)
+      setInfoNotices(recordInfoNotices(saved.record))
       if (mode === "update" && identity !== null) {
         queryClient.setQueryData(
           ["record-detail", view.view, identity],
@@ -457,6 +521,26 @@ export function RecordDetail({
         mutationError instanceof TideApiError
           ? mutationError
           : new TideApiError("The record could not be saved.")
+      const warnings = warningOnlyIssues(apiError)
+      if (warnings) {
+        // Weighed, not failed: no red banner, no red fields. Confirming
+        // reruns the same attempt with every raised warning acknowledged
+        // on top of what it already carried.
+        const acknowledged = withWarningRules(
+          attempt.acknowledgedWarnings,
+          warnings,
+        )
+        setWarningGate({
+          messages: warnings.map((issue) => issue.message),
+          confirmLabel: "Save anyway",
+          retry: () =>
+            saveMutation.mutate({
+              ...attempt,
+              acknowledgedWarnings: acknowledged,
+            }),
+        })
+        return
+      }
       setSaveError(apiError)
       setFieldErrors(issueFieldErrors(form, apiError.issues))
       if (
@@ -480,6 +564,8 @@ export function RecordDetail({
             identity,
             attempt.saveAttempt.payload,
             attempt.base.etag,
+            undefined,
+            attempt.acknowledgedWarnings ?? [],
           )
         } catch (error) {
           throw new RecordActionExecutionError(
@@ -510,6 +596,8 @@ export function RecordDetail({
             current.etag,
             attempt.idempotencyKey,
             attempt.parameters,
+            undefined,
+            attempt.acknowledgedWarnings ?? [],
           ),
         }
       } catch (error) {
@@ -533,6 +621,8 @@ export function RecordDetail({
       setConflictReview(null)
       setConflictChoices({})
       setConflictOpen(false)
+      setWarningGate(null)
+      setInfoNotices(recordInfoNotices(completed.record))
       setNotice(`${action.label} completed successfully.`)
       onActionCompleted(completed.record, action.label)
     },
@@ -572,6 +662,34 @@ export function RecordDetail({
             intent: "close",
           })
         }
+        return
+      }
+      const warnings = warningOnlyIssues(failure.apiError)
+      if (warnings) {
+        // The pre-save may already have landed; the retry starts from the
+        // refreshed snapshot with nothing left to pre-save, and mints a
+        // fresh idempotency key -- a refused attempt burns its key.
+        const base = failure.saved ?? attempt.base
+        const acknowledged = withWarningRules(
+          attempt.acknowledgedWarnings,
+          warnings,
+        )
+        setWarningGate({
+          messages: warnings.map((issue) => issue.message),
+          confirmLabel: `${attempt.action.label} anyway`,
+          retry: () =>
+            actionMutation.mutate({
+              ...attempt,
+              base,
+              saveAttempt: failure.saved
+                ? { ...attempt.saveAttempt, payload: {} }
+                : attempt.saveAttempt,
+              idempotencyKey: attempt.action.idempotent
+                ? `web:${globalThis.crypto.randomUUID()}`
+                : null,
+              acknowledgedWarnings: acknowledged,
+            }),
+        })
         return
       }
       setNotice(null)
@@ -717,6 +835,8 @@ export function RecordDetail({
     }
     setSaveError(null)
     setActionError(null)
+    setWarningGate(null)
+    setInfoNotices([])
     setNotice(null)
     setRebaseNotice(null)
     setConflictReview(null)
@@ -799,6 +919,8 @@ export function RecordDetail({
     }
     setSaveError(null)
     setActionError(null)
+    setWarningGate(null)
+    setInfoNotices([])
     setNotice(null)
     setRebaseNotice(null)
     setConflictReview(null)
@@ -1133,6 +1255,52 @@ export function RecordDetail({
           >
             Try again
           </Button>
+        </div>
+      ) : null}
+
+      {warningGate ? (
+        <div
+          role="alert"
+          className="mb-4 flex shrink-0 flex-wrap items-start justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200"
+        >
+          <div className="flex min-w-0 items-start gap-3">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            <div className="min-w-0">
+              {warningGate.messages.map((message) => (
+                <p key={message} className="leading-5">
+                  {message}
+                </p>
+              ))}
+            </div>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setWarningGate(null)}
+            >
+              Cancel
+            </Button>
+            <Button size="sm" onClick={warningGate.retry}>
+              {warningGate.confirmLabel}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {infoNotices.length > 0 ? (
+        <div
+          role="status"
+          className="mb-4 flex shrink-0 items-start gap-3 rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
+        >
+          <ShieldCheck className="mt-0.5 size-4 shrink-0" />
+          <div>
+            {infoNotices.map((message) => (
+              <p key={message} className="leading-5">
+                {message}
+              </p>
+            ))}
+          </div>
         </div>
       ) : null}
 

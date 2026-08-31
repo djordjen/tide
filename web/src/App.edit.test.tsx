@@ -518,6 +518,163 @@ function leaveIsGuarded(): boolean {
   return leaving.defaultPrevented
 }
 
+it("weighs a warning-only refusal and saves anyway with the acknowledgement", async () => {
+  const patches: string[] = []
+  let stored = product(1, "P00001", "Support", "10.00")
+
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: false,
+          mode: null,
+          login_path: null,
+          session_path: null,
+          logout_path: null,
+        })
+      }
+      if (url.endsWith("/_tide/session")) {
+        return jsonResponse(session)
+      }
+      if (url.endsWith("/_tide/presentation")) {
+        return jsonResponse(presentation)
+      }
+      if (url.endsWith("/products/_query")) {
+        return jsonResponse({ records: [stored], next_cursor: null })
+      }
+      if (url.endsWith("/products/1") && init?.method === "GET") {
+        return jsonResponse(stored, { headers: { ETag: '"7"' } })
+      }
+      if (url.includes("/products/1") && init?.method === "PATCH") {
+        patches.push(url)
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>
+        if (!url.includes("acknowledge_warnings=big_price")) {
+          return jsonResponse(
+            {
+              code: "validation_failed",
+              message: "The price is unusually high.",
+              issues: [
+                {
+                  rule: "big_price",
+                  message: "The price is unusually high.",
+                  fields: ["unit_price"],
+                  severity: "warning",
+                },
+              ],
+            },
+            { status: 422 },
+          )
+        }
+        stored = { ...stored, ...body }
+        return jsonResponse(stored, { headers: { ETag: '"8"' } })
+      }
+      throw new Error(`Unexpected URL ${url}`)
+    }),
+  )
+
+  const user = userEvent.setup()
+  renderApp()
+  await connectWithToken(user)
+
+  const row = await screen.findByRole("row", { name: /P00001/ })
+  await user.dblClick(row)
+  const price = await screen.findByLabelText(/^Unit Price/)
+  await user.clear(price)
+  await user.type(price, "9999.00")
+  await user.click(screen.getByRole("button", { name: "Save" }))
+
+  expect(
+    await screen.findByText("The price is unusually high."),
+  ).toBeInTheDocument()
+  // A warning weighs; it does not fail. The refusal banner stays away.
+  expect(
+    screen.queryByText("The record could not be saved."),
+  ).not.toBeInTheDocument()
+
+  await user.click(screen.getByRole("button", { name: "Save anyway" }))
+  await waitFor(() => expect(patches).toHaveLength(2))
+  expect(patches[1]).toContain("acknowledge_warnings=big_price")
+  expect(
+    await screen.findByRole("heading", {
+      name: "Product — P00001 - Support",
+    }),
+  ).toBeInTheDocument()
+})
+
+it("keeps info notices beside the created notice on save-and-new", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith("/_tide/browser-auth")) {
+        return jsonResponse({
+          enabled: false,
+          mode: null,
+          login_path: null,
+          session_path: null,
+          logout_path: null,
+        })
+      }
+      if (url.endsWith("/_tide/session")) {
+        return jsonResponse(session)
+      }
+      if (url.endsWith("/_tide/presentation")) {
+        return jsonResponse(presentation)
+      }
+      if (url.endsWith("/products/_query")) {
+        return jsonResponse({ records: [], next_cursor: null })
+      }
+      if (url.endsWith("/products") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>
+        const created = product(
+          2,
+          String(body.code),
+          String(body.name),
+          String(body.unit_price),
+        )
+        return jsonResponse(
+          {
+            ...created,
+            _tide: {
+              ...created._tide,
+              notices: [
+                {
+                  rule: "note_helps",
+                  message: "A note helps the courier.",
+                  fields: [],
+                  severity: "info",
+                },
+              ],
+            },
+          },
+          { status: 201 },
+        )
+      }
+      throw new Error(`Unexpected URL ${url}`)
+    }),
+  )
+
+  const user = userEvent.setup()
+  renderApp()
+  await connectWithToken(user)
+
+  await user.click(await screen.findByRole("button", { name: "New" }))
+  await screen.findByRole("heading", { name: "New Product" })
+  await user.type(screen.getByLabelText(/^Code/), "P00009")
+  await user.type(screen.getByLabelText(/^Unit Price/), "5.00")
+  await user.type(screen.getByLabelText(/^Name/), "Courier note")
+  await user.click(screen.getByRole("button", { name: "Save and New" }))
+
+  expect(
+    await screen.findByText("Product created. Continue with the next one."),
+  ).toBeInTheDocument()
+  expect(
+    await screen.findByText("A note helps the courier."),
+  ).toBeInTheDocument()
+})
+
 function renderApp() {
   // The suite predates Home: land where the old default landed.
   window.history.replaceState(null, "", "/?view=catalog.Product.browse")

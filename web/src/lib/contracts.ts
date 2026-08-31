@@ -527,12 +527,25 @@ export interface TideReportDownload {
   filename: string
 }
 
+export interface TideValidationIssue {
+  rule: string
+  message: string
+  fields: string[]
+  severity: string
+}
+
 export interface TideProtectionMetadata {
   protected_fields?: string[]
   writable_fields?: string[]
   actions?: Record<string, TideRecordActionState>
   /** How each reference on this record names its target, resolved server-side. */
   references?: Record<string, string>
+  /**
+   * What a successful write still wants said: info-severity issues, and
+   * the warnings the request acknowledged. Absent on reads and on writes
+   * with nothing to say.
+   */
+  notices?: TideValidationIssue[]
   /**
    * What the entity's `appearance:` rules made of this record, evaluated
    * server-side. Absent when no rule matched -- and `string` rather than the

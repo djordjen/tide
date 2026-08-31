@@ -33,6 +33,7 @@ import type {
   TideOwnSavedView,
   TideSavedViewCatalog,
   TideSavedViewList,
+  TideValidationIssue,
   TideViewState,
   TideViewStateColumn,
 } from "@/lib/contracts"
@@ -45,12 +46,7 @@ interface TideErrorEnvelope {
   issues?: unknown
 }
 
-export interface TideValidationIssue {
-  rule: string
-  message: string
-  fields: string[]
-  severity: string
-}
+export type { TideValidationIssue } from "@/lib/contracts"
 
 export class TideApiError extends Error {
   readonly status: number
@@ -653,9 +649,10 @@ export class TideApi {
     view: TideBrowsePresentation,
     values: Record<string, unknown>,
     signal?: AbortSignal,
+    acknowledgeWarnings: readonly string[] = [],
   ): Promise<TideRecordSnapshot> {
     return this.recordRequest(
-      view.resource_path,
+      withAcknowledgements(view.resource_path, acknowledgeWarnings),
       {
         method: "POST",
         body: JSON.stringify(values),
@@ -719,10 +716,14 @@ export class TideApi {
     values: Record<string, unknown>,
     etag: string | null,
     signal?: AbortSignal,
+    acknowledgeWarnings: readonly string[] = [],
   ): Promise<TideRecordSnapshot> {
     const segment = encodeURIComponent(String(identity))
     return this.recordRequest(
-      `${view.resource_path}/${segment}`,
+      withAcknowledgements(
+        `${view.resource_path}/${segment}`,
+        acknowledgeWarnings,
+      ),
       {
         method: "PATCH",
         body: JSON.stringify(values),
@@ -742,11 +743,15 @@ export class TideApi {
     // the strings a dialog collects, and the action service does the typing.
     parameters: Record<string, unknown> = {},
     signal?: AbortSignal,
+    acknowledgeWarnings: readonly string[] = [],
   ): Promise<TideRecordSnapshot> {
     const identitySegment = encodeURIComponent(String(identity))
     const actionSegment = encodeURIComponent(action.name)
     return this.recordRequest(
-      `${view.resource_path}/${identitySegment}/actions/${actionSegment}`,
+      withAcknowledgements(
+        `${view.resource_path}/${identitySegment}/actions/${actionSegment}`,
+        acknowledgeWarnings,
+      ),
       {
         method: "POST",
         body: JSON.stringify(parameters),
@@ -1119,6 +1124,25 @@ async function throwResponseError(response: Response): Promise<never> {
 
 function safeMethod(method: string | undefined): boolean {
   return ["GET", "HEAD", "OPTIONS"].includes((method ?? "GET").toUpperCase())
+}
+
+/**
+ * The repeatable `acknowledge_warnings` query values, or the path untouched.
+ *
+ * Omitted entirely when empty so the request line stays what it always was
+ * against servers that predate the parameter.
+ */
+function withAcknowledgements(
+  path: string,
+  acknowledgeWarnings: readonly string[],
+): string {
+  if (acknowledgeWarnings.length === 0) {
+    return path
+  }
+  const parameters = new URLSearchParams(
+    acknowledgeWarnings.map((rule) => ["acknowledge_warnings", rule]),
+  )
+  return `${path}?${parameters.toString()}`
 }
 
 function safeValidationIssues(value: unknown): TideValidationIssue[] {
