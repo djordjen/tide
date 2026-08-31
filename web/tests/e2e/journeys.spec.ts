@@ -1003,3 +1003,40 @@ test("names a grid state and the server hands it back", async ({ page }) => {
   ).toHaveCount(0)
   await page.keyboard.press("Escape")
 })
+
+test("weighs a large-quantity warning and saves anyway", async ({ page }) => {
+  await signIn(page)
+  await page.getByRole("button", { name: "New" }).click()
+
+  await page.getByRole("button", { name: "Select Customer" }).click()
+  const customers = page.getByRole("dialog", { name: "Select Customer" })
+  await customers.getByRole("row", { name: /ADRIA/ }).click()
+  await customers.getByRole("button", { name: "Select" }).click()
+
+  await page.getByRole("button", { name: "Add Line" }).click()
+  await page.getByRole("button", { name: "Select Product" }).click()
+  const products = page.getByRole("dialog", { name: "Select Product" })
+  await products.getByRole("row", { name: /CONS/ }).click()
+  await products.getByRole("button", { name: "Select" }).click()
+  await page.getByRole("textbox", { name: "Quantity" }).fill("500")
+  await page.getByRole("button", { name: "Apply Line" }).click()
+  await page.getByRole("button", { name: "Save", exact: true }).click()
+
+  // The declared `severity: warning` rule on the line entity, evaluated at
+  // the invoice commit and answered as a question rather than a failure:
+  // amber, the rule's own words, and no red banner anywhere.
+  await expect(
+    page.getByText("The line quantity is unusually large."),
+  ).toBeVisible()
+  await expect(
+    page.getByText("The record could not be saved."),
+  ).not.toBeVisible()
+
+  // Acknowledging resubmits with the rule id and the same draft; the
+  // computed total proves the write went through the ordinary pipeline.
+  await page.getByRole("button", { name: "Save anyway" }).click()
+  const created = createdRow(page)
+  await expect(created).toContainText(/INV-\d{4}-\d{4}/)
+  await expect(created).toContainText("42,500.00")
+  await expect(created).toContainText("Draft")
+})

@@ -132,6 +132,42 @@ test("keeps a funnel popover on screen wherever its column sits", async ({
   await page.keyboard.press("Escape")
 })
 
+test("keeps the warning panel on screen at phone width", async ({ page }) => {
+  await page.setViewportSize(PHONE)
+  await signIn(page)
+  await page.getByRole("button", { name: "New" }).click()
+
+  await page.getByRole("button", { name: "Select Customer" }).click()
+  const customers = page.getByRole("dialog", { name: "Select Customer" })
+  await customers.getByRole("row", { name: /ADRIA/ }).click()
+  await customers.getByRole("button", { name: "Select" }).click()
+
+  await page.getByRole("button", { name: "Add Line" }).click()
+  await page.getByRole("button", { name: "Select Product" }).click()
+  const products = page.getByRole("dialog", { name: "Select Product" })
+  await products.getByRole("row", { name: /CONS/ }).click()
+  await products.getByRole("button", { name: "Select" }).click()
+  await page.getByRole("textbox", { name: "Quantity" }).fill("500")
+  await page.getByRole("button", { name: "Apply Line" }).click()
+
+  const save = page.getByRole("button", { name: "Save", exact: true })
+  await save.scrollIntoViewIfNeeded()
+  await save.click()
+
+  // The amber panel is a new layout element on the one surface a phone can
+  // use, so it gets both properties: inside the viewport, nothing stacked.
+  const panel = page
+    .getByRole("alert")
+    .filter({ hasText: "The line quantity is unusually large." })
+  await expect(panel).toBeVisible()
+  expect(await escaping(page, panel), "warning panel").toEqual([])
+  expect(await colliding(panel), "warning panel overlaps").toEqual([])
+
+  // Cancel, not Save anyway: this spec measures, and leaves nothing behind.
+  await panel.getByRole("button", { name: "Cancel" }).click()
+  await expect(panel).not.toBeVisible()
+})
+
 test("keeps every control on screen at phone width", async ({ page }) => {
   await page.setViewportSize(PHONE)
 
