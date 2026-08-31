@@ -266,13 +266,27 @@ validations:
     run: [before_commit]
 
   - id: unusually_large_discount
-    when: "discount > 30"
+    assert: "discount <= 30"
     severity: warning
     message: The discount exceeds 30 percent.
 ```
 
-Errors prevent commit. Warnings may require confirmation. Informational rules
-provide guidance without blocking.
+Errors prevent commit. A warning prevents commit **until it is
+acknowledged**: the refusal lists the warning issues with their rule ids,
+the caller resubmits naming the ids it accepts, and the commit proceeds
+only if every warning raised is in the acknowledged set — a warning that
+appears between the two requests still gates. Acknowledgement is per
+request, never stored, so the next save of the same record gates again.
+Ids that did not fire are ignored, and errors are never acknowledgeable.
+Informational rules never block: their issues travel with the successful
+result as notices, beside the warnings that were acknowledged.
+
+A rule that fires on several collection rows produces several issues with
+one id, and one acknowledgement covers them all. Over REST the
+acknowledgement is the repeatable `acknowledge_warnings` query parameter
+on the create, update and action routes; the Web renderer offers it as
+**Save anyway**, the terminal as a confirmation dialog, and the MCP
+mutation tools as an `acknowledge_warnings` argument.
 
 Pure local rules may run on change. Database- or service-dependent checks run
 before commit or before a named action, not on every keystroke.

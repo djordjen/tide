@@ -67,6 +67,26 @@ membership map, so a range relights its bounds on restore and a Home tile
 counts the same window the browse shows. `datetime` columns deliberately
 keep the checklist until aware-range semantics are settled.
 
+A declared rule's severity now means something: **`warning` gates the
+commit until acknowledged, `info` never gates**. Errors refuse as they
+always did; a warning-only refusal lists its rule ids and the caller
+resubmits naming the ids it accepts — the repeatable
+`acknowledge_warnings` query parameter on the create, update and action
+routes, the same-named argument on the MCP mutation tools. The commit
+proceeds only if every warning raised is listed, so a warning appearing
+between the two requests still gates, and acknowledgement is per request,
+never stored. Info issues, plus the warnings that were accepted, ride the
+success as `_tide.notices`. The browser renders the question as an amber
+**Save anyway** panel rather than a red failure, the terminal as a
+confirmation dialog, and an agent on MCP must name what it accepts — the
+reason the gate is deliberately stricter than the XAF ancestor, whose
+warnings never block: a warning attached to a success is a warning no
+client is obliged to render. The severity had been schema-legal since the
+initial commit and documented with an example, while the service
+evaluated warnings and silently kept only the errors. Invoicing ships the
+first rule: an unusually large line quantity warns at the invoice save,
+and one acknowledgement covers every line it fired on.
+
 The web lands on **Home**: a personal dashboard assembled from what the
 principal keeps rather than declared in YAML. Saved views are tiles wearing
 their live numbers — the browse's declared summaries, guaranteed a count,

@@ -191,6 +191,12 @@ invisible until it is rebuilt.
   regular-expression, numeric-mask, precision/scale, range, and choice hints;
 - Enter traversal, date `+`/`-` shortcuts, changed-fields-only updates, and
   field-addressable client and server validation feedback;
+- **Save anyway** for warning-severity rules: a refusal carrying only
+  warnings renders as an amber question rather than a red failure, and
+  confirming resubmits the same draft with those rule ids acknowledged —
+  an action's button asks as "*Label* anyway" and retries under a fresh
+  idempotency key. Info-severity notices from a successful write appear in
+  a quiet strip and leave with the screen;
 - modal dialogs — reference lookup, conflict review, and report preview — that
   take focus when they open, hold `Tab` and `Shift+Tab` within their own
   controls, and hand focus back to whatever opened them, so `aria-modal="true"`

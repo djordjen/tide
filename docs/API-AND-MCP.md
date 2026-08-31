@@ -954,6 +954,19 @@ rule, message, severity, and field names to the stable error envelope. Clients
 can place those messages beside controls; non-validation errors retain the
 existing compact envelope.
 
+Declared rules with `severity: warning` gate a commit until acknowledged:
+the create, update and action routes take a repeatable
+`acknowledge_warnings` query parameter naming the warning rule ids the
+request accepts, and the commit proceeds only if every warning raised is
+listed. Ids that did not fire are ignored; errors are never
+acknowledgeable. A successful write answers `_tide.notices` — the
+info-severity issues plus the warnings that were acknowledged — absent
+when there is nothing to say. The MCP `create_*`, `update_*` and action
+tools take the same list as an `acknowledge_warnings` argument and answer
+`notices` on the mutation result. One idempotency note: a gated action
+attempt records its key as failed exactly like any refused execution, so
+the acknowledged resubmit is a new request under a fresh `Idempotency-Key`.
+
 This contract does not make the browser an authorization authority. The Web
 client may use capabilities to avoid offering unavailable controls, but actual
 reads, edits, actions, and reports still use the generated FastAPI routes and

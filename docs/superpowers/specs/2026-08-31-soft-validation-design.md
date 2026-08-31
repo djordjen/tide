@@ -123,11 +123,13 @@ absent when there is nothing to say (the `writable_fields` /
   notices arrive as `notify(severity="information")`.
 - **Web** — the record form's save failure handler renders warning-only
   refusals as an amber panel with **Save anyway**; the resubmit carries the
-  ids. Actions reuse the same panel from the action failure path. Info
-  notices toast on success. Inline browse editing (grid cell) shows the
-  warning message but offers no acknowledgement in v1 — the record form is
-  where a person weighs a warning (deliberate out, below). Child-row
-  warnings surface at parent save and are covered by the form panel.
+  ids. Actions reuse the same panel from the action failure path, asking as
+  "*Label* anyway" under a fresh idempotency key. Info notices render as a
+  quiet inline strip on success and leave with the screen. Inline browse
+  editing (grid cell) shows the warning message but offers no
+  acknowledgement in v1 — the record form is where a person weighs a
+  warning (deliberate out, below). Child-row warnings surface at parent
+  save and are covered by the form panel.
 
 ## Reference application
 
