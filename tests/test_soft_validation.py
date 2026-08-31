@@ -819,8 +819,13 @@ def test_tui_save_anyway_confirms_the_warning_and_speaks_the_info(
                 "unusually high" in message for message in dialog.messages
             )
             await pilot.click("#confirm-warnings")
+            # The claim, not a proxy: while the dialog is up the screen is
+            # already not a RecordEditScreen, so a screen-class wait passes
+            # instantly and a slow runner shuts the app down mid-retry.
+            # The info notification is the last observable of the retry.
             await _wait(
-                pilot, lambda: not isinstance(app.screen, RecordEditScreen)
+                pilot,
+                lambda: ("A note helps the courier.", "information") in spoken,
             )
 
     asyncio.run(exercise())
