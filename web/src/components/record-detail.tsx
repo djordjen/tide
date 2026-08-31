@@ -48,6 +48,12 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs"
+import {
   actionApiError,
   TideApiError,
   type TideApi,
@@ -1102,11 +1108,6 @@ export function RecordDetail({
     activeCollection !== null && panelTabs.includes(activeCollection)
       ? activeCollection
       : (panelTabs[0] ?? null)
-  const historyOpen = openPanelTab === HISTORY_TAB
-  const openCollection =
-    splitCollections.find(
-      (section) => section.name === openPanelTab,
-    ) ?? null
   const cardSections =
     splitCollections.length > 0
       ? visibleSections.filter((section) => section.kind === "group")
@@ -1535,75 +1536,38 @@ export function RecordDetail({
           // rows get the full width the record's own fields keep. Every
           // collection is a tab -- the strip shows even for one, naming the
           // panel and the pattern a second collection joins -- and the
-          // record's history, where granted, is the tab after them.
+          // record's history, where granted, is the tab after them. The
+          // primitive supplies what the hand-rolled strip never had: the
+          // ARIA tabs keyboard pattern, arrows moving the selection over one
+          // roving tab stop, with the trigger/panel wiring generated.
           <section aria-label={`${form.label} details`}>
-            <div
-              role="tablist"
-              aria-label={`${form.label} details`}
-              className="mb-3 flex gap-1 overflow-x-auto border-b"
-            >
+            <Tabs value={openPanelTab} onValueChange={setActiveCollection}>
+              <TabsList aria-label={`${form.label} details`}>
+                {splitCollections.map((section) => (
+                  <TabsTrigger key={section.name} value={section.name}>
+                    {section.label}
+                  </TabsTrigger>
+                ))}
+                {historyAvailable ? (
+                  <TabsTrigger value={HISTORY_TAB}>History</TabsTrigger>
+                ) : null}
+              </TabsList>
               {splitCollections.map((section) => (
-                <button
-                  key={section.name}
-                  id={`collection-tab-${section.name}`}
-                  type="button"
-                  role="tab"
-                  aria-selected={section.name === openPanelTab}
-                  aria-controls={`collection-panel-${section.name}`}
-                  className={cn(
-                    "-mb-px rounded-t-md border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40",
-                    section.name === openPanelTab
-                      ? "border-primary text-primary"
-                      : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
-                  )}
-                  onClick={() => setActiveCollection(section.name)}
-                >
-                  {section.label}
-                </button>
+                <TabsContent key={section.name} value={section.name}>
+                  {renderCollectionSection(section, false)}
+                </TabsContent>
               ))}
               {historyAvailable ? (
-                <button
-                  id="collection-tab-history"
-                  type="button"
-                  role="tab"
-                  aria-selected={historyOpen}
-                  aria-controls="collection-panel-history"
-                  className={cn(
-                    "-mb-px rounded-t-md border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40",
-                    historyOpen
-                      ? "border-primary text-primary"
-                      : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
-                  )}
-                  onClick={() => setActiveCollection(HISTORY_TAB)}
-                >
-                  History
-                </button>
+                <TabsContent value={HISTORY_TAB}>
+                  <RecordHistory
+                    api={api}
+                    view={view}
+                    form={form}
+                    identity={identity}
+                  />
+                </TabsContent>
               ) : null}
-            </div>
-            <div
-              id={
-                historyOpen
-                  ? "collection-panel-history"
-                  : `collection-panel-${openPanelTab}`
-              }
-              role="tabpanel"
-              aria-labelledby={
-                historyOpen
-                  ? "collection-tab-history"
-                  : `collection-tab-${openPanelTab}`
-              }
-            >
-              {historyOpen ? (
-                <RecordHistory
-                  api={api}
-                  view={view}
-                  form={form}
-                  identity={identity}
-                />
-              ) : openCollection ? (
-                renderCollectionSection(openCollection, false)
-              ) : null}
-            </div>
+            </Tabs>
           </section>
         ) : null}
       </div>

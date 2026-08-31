@@ -18,6 +18,7 @@ import {
 import { AttachmentField } from "@/components/attachment-field"
 import { TideDisplayValue } from "@/components/tide-display-value"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -393,23 +394,15 @@ function FieldEditor({
           {field.label}
         </label>
         <div className="flex min-h-9 items-center">
-          {/* The one editor still drawn from a bare element. `ui/input.tsx`
-              is text-shaped -- full width, 36px tall, padded for a caret --
-              and a tick box is none of those; shadcn draws this from a
-              separate Radix primitive that is not vendored here. A native
-              checkbox is also the one control a screen reader and a phone
-              both already handle perfectly, so it is left until a Checkbox
-              is wanted for its own sake rather than for the tally. */}
-          <input
+          <Checkbox
             id={id}
             data-tide-editor
-            type="checkbox"
-            className="size-4 cursor-pointer rounded border-border accent-primary"
+            className="cursor-pointer"
             checked={Boolean(value)}
             disabled={disabled}
             aria-invalid={Boolean(error)}
             aria-describedby={describedBy}
-            onChange={(event) => onChange(event.target.checked)}
+            onCheckedChange={(checked) => onChange(checked === true)}
             onKeyDown={moveOnEnter}
           />
         </div>

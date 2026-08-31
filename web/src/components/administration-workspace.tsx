@@ -4,6 +4,7 @@ import { KeyRound, Plus, RefreshCw, ShieldCheck, UserRoundPlus } from "lucide-re
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { TideLine } from "@/components/tide-line"
 import { sectionCaptionClass } from "@/components/form-field"
@@ -461,11 +462,13 @@ function RoleChoices({
           className="flex items-center gap-2 text-sm"
           key={role}
         >
-          <input
+          {/* The name is spelled out rather than inherited: a wrapping
+              label forwards clicks to the Radix button, but only inputs
+              take their accessible name from one. */}
+          <Checkbox
+            aria-label={role}
             checked={checked.includes(role)}
-            className="size-4 accent-primary"
-            onChange={() => onToggle(role)}
-            type="checkbox"
+            onCheckedChange={() => onToggle(role)}
           />
           {role}
         </label>

@@ -775,9 +775,19 @@ export function TideDataGrid({
                       // aimed at an open listbox -- or one a control already
                       // consumed -- is not a row command: acting on it saved
                       // the pre-pick draft and discarded the pick.
+                      //
+                      // The boolean editor is the stated exception: Radix's
+                      // checkbox preventDefaults Enter as an anti-submit
+                      // guard, not as consumption -- ARIA gives a checkbox
+                      // no Enter meaning at all -- so its Enter stays the
+                      // row's commit, exactly as the native input's did.
+                      const target = event.target as HTMLElement
+                      const booleanEditor =
+                        target.getAttribute("role") === "checkbox" &&
+                        target.hasAttribute("data-tide-editor")
                       if (
-                        event.defaultPrevented ||
-                        !event.currentTarget.contains(event.target as Node)
+                        (event.defaultPrevented && !booleanEditor) ||
+                        !event.currentTarget.contains(target)
                       ) {
                         return
                       }

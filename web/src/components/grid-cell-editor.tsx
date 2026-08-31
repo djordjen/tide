@@ -1,3 +1,4 @@
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -43,16 +44,15 @@ export function GridCellEditor({
 }: GridCellEditorProps) {
   if (column.field_type === "boolean") {
     return (
-      <input
-        type="checkbox"
+      <Checkbox
         data-tide-editor
         aria-label={column.label}
         aria-invalid={Boolean(error)}
         title={error}
-        className="size-4 cursor-pointer rounded border-border accent-primary"
+        className="cursor-pointer"
         checked={Boolean(value)}
         disabled={disabled}
-        onChange={(event) => onChange(event.target.checked)}
+        onCheckedChange={(checked) => onChange(checked === true)}
       />
     )
   }

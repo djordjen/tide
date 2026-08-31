@@ -2,6 +2,7 @@ import { useState } from "react"
 import { Filter } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import {
   Popover,
@@ -337,12 +338,10 @@ export function ColumnValueFilter({
             ) : (
               <>
                 <label className="flex items-center gap-2 border-b pb-1.5 text-sm">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     aria-label="Select all"
-                    className="size-4 rounded border-border accent-primary"
                     checked={allStaged}
-                    onChange={() =>
+                    onCheckedChange={() =>
                       setStaged(
                         allStaged
                           ? new Set()
@@ -360,12 +359,11 @@ export function ColumnValueFilter({
                       key={index}
                       className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm hover:bg-accent/45"
                     >
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         aria-label={labelFor(item)}
-                        className="size-4 shrink-0 rounded border-border accent-primary"
+                        className="shrink-0"
                         checked={staged.has(item.value)}
-                        onChange={() =>
+                        onCheckedChange={() =>
                           setStaged((current) => {
                             const next = new Set(current)
                             if (next.has(item.value)) {

@@ -10,6 +10,7 @@ import { Check, ChevronDown, ChevronUp, Columns3, X } from "lucide-react"
 import { useState, type ReactElement } from "react"
 
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import {
   Popover,
@@ -183,12 +184,10 @@ export function ColumnChooser({
             <ul className="flex max-h-40 flex-col gap-1 overflow-y-auto">
               {hidden.map((column) => (
                 <li key={column.name} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     aria-label={`Show ${column.label}`}
-                    className="size-4 accent-primary"
                     checked={false}
-                    onChange={() =>
+                    onCheckedChange={() =>
                       setDraft((current) => [
                         ...current,
                         { name: column.name, label: "" },

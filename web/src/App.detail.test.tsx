@@ -184,6 +184,13 @@ it("gathers every collection into one tabbed panel below the record", async () =
   expect(approvals).toHaveAttribute("aria-selected", "true")
   // One row is one row on the read-only side too.
   expect(screen.getByText("1 row")).toBeInTheDocument()
+
+  // The strip speaks the ARIA tabs keyboard pattern: focus rests on the
+  // active tab and an arrow moves the selection itself, panel and all.
+  await user.keyboard("{ArrowLeft}")
+  expect(await screen.findByText("Demo line 1")).toBeInTheDocument()
+  expect(lines).toHaveAttribute("aria-selected", "true")
+  expect(approvals).toHaveAttribute("aria-selected", "false")
 })
 
 function renderApp() {
