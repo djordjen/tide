@@ -7,7 +7,7 @@ from dataclasses import dataclass, field as dataclass_field
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 import re
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 from uuid import UUID, uuid4
 
 from textual import events
@@ -53,6 +53,7 @@ from tide.presentation import (
     view_field_hidden,
 )
 from tide.runtime import RequestContext, TideRuntimeError, ValidationFailed
+from tide.runtime.errors import ValidationIssue
 from tide.security import PROTECTED
 from tide.tui.table import table_cell, table_label
 from tide.services import ActionService, RecordsService
@@ -64,6 +65,7 @@ from tide.tui.conflict import (
 )
 from tide.tui.lookup import LookupField, LookupScreen
 from tide.tui.parameters import ParametersScreen
+from tide.tui.warnings import WarningsScreen
 
 
 class DateInput(Input):
@@ -722,12 +724,19 @@ class RecordEditScreen(Screen[Any]):
         buttons = list(self.query("#save-form"))
         if not buttons or buttons[0].disabled:
             return
+        self._run_save(frozenset())
+
+    def _run_save(self, acknowledged: frozenset[str]) -> None:
         if not self._collect_form():
             return
         try:
-            stored = self.records.commit(self.session, self.context)
+            stored = self.records.commit(
+                self.session,
+                self.context,
+                acknowledged_warnings=acknowledged,
+            )
         except ValidationFailed as error:
-            self._show_validation(error)
+            self._offer_warnings(error, acknowledged, self._run_save)
             return
         except TideRuntimeError as error:
             if error.code == "stale_version" and not self.session.is_new:
@@ -735,6 +744,7 @@ class RecordEditScreen(Screen[Any]):
                 return
             self._show_error(error)
             return
+        self._speak_notices(self.session.notices)
         self.notify("Record saved.", severity="information")
         self.dismiss(stored if self.select_after_save else True)
 
@@ -769,14 +779,21 @@ class RecordEditScreen(Screen[Any]):
         self._run_record_action(action_name, {})
 
     def _run_record_action(
-        self, action_name: str, payload: dict[str, Any]
+        self,
+        action_name: str,
+        payload: dict[str, Any],
+        acknowledged: frozenset[str] = frozenset(),
     ) -> None:
         saved_before_post = False
         if not self._collect_form():
             return
         try:
             if self.session.changed_fields:
-                self.records.commit(self.session, self.context)
+                self.records.commit(
+                    self.session,
+                    self.context,
+                    acknowledged_warnings=acknowledged,
+                )
                 saved_before_post = True
             outcome = self.actions.execute(
                 self.entity.name,
@@ -786,16 +803,24 @@ class RecordEditScreen(Screen[Any]):
                 self.context,
                 idempotency_key=f"tui:{uuid4()}",
                 expected_version=self.session.expected_version,
+                acknowledged_warnings=acknowledged,
             )
         except ValidationFailed as error:
-            self._show_validation(error)
             self._recover_after_failed_post(saved_before_post)
+            self._offer_warnings(
+                error,
+                acknowledged,
+                lambda acked: self._run_record_action(
+                    action_name, payload, acked
+                ),
+            )
             return
         except (TideRuntimeError, RuntimeError, ValueError) as error:
             self._show_error(error, prefix="Post failed")
             self._recover_after_failed_post(saved_before_post)
             return
         self.session.values = deepcopy(outcome.record)
+        self._speak_notices(outcome.notices)
         label = self.entity.actions[action_name].get("label") or action_name
         self.notify(f"{label} completed.", severity="information")
         self.dismiss(True)
@@ -1358,6 +1383,42 @@ class RecordEditScreen(Screen[Any]):
                 buttons[0].disabled = not pane_editable or (
                     action_name in {"apply", "remove"} and pane.selected is None
                 )
+
+    def _offer_warnings(
+        self,
+        error: ValidationFailed,
+        acknowledged: frozenset[str],
+        retry: "Callable[[frozenset[str]], None]",
+    ) -> None:
+        """Weigh a warning-only refusal; anything harder is shown as ever.
+
+        Confirming reruns the same door with every raised warning
+        acknowledged on top of what this attempt already carried -- an
+        action's pre-save and its own commit can each gate, so the set
+        accumulates across the retries.
+        """
+
+        issues = error.issues
+        if not issues or any(issue.severity != "warning" for issue in issues):
+            self._show_validation(error)
+            return
+        combined = acknowledged | {issue.rule for issue in issues}
+
+        def decided(confirmed: bool | None) -> None:
+            if confirmed:
+                retry(combined)
+
+        self.app.push_screen(
+            WarningsScreen(tuple(issue.message for issue in issues)),
+            decided,
+        )
+
+    def _speak_notices(self, notices: tuple[ValidationIssue, ...]) -> None:
+        # Only the info severities: the person just confirmed the warnings,
+        # and reading them back would be the dialog repeating itself.
+        for notice in notices:
+            if notice.severity == "info":
+                self.notify(notice.message, severity="information")
 
     def _show_validation(self, error: ValidationFailed) -> None:
         messages = "; ".join(issue.message for issue in error.issues)

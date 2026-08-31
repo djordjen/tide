@@ -743,6 +743,119 @@ def test_mcp_tools_expose_the_acknowledgement_argument(tmp_path: Path) -> None:
     asyncio.run(exercise())
 
 
+# --- the gate, in the terminal ----------------------------------------------
+
+
+def _tui_app(tmp_path: Path) -> tuple[Any, RecordsService, RequestContext]:
+    from tide.tui import TideApp
+
+    model = compile_project(_project(tmp_path))
+    records = RecordsService(model, InMemoryRepository())
+    actions = ActionService(model, records)
+    actions.register("actions.dispatch", _dispatch)
+    context = RequestContext(
+        Principal("tui:test", roles=frozenset({"operator"})),
+        channel=Channel.TUI,
+        correlation_id="soft-validation-tui",
+    )
+    seeded = records.create(
+        "demo.Shipment", context, {"reference": "S-40", "weight": 50}
+    )
+    records.commit(seeded, context)
+    return TideApp(model, records, context, actions=actions), records, context
+
+
+async def _wait(pilot: Any, condition: Any) -> None:
+    for _ in range(80):
+        if condition():
+            return
+        await pilot.pause()
+    raise AssertionError("condition was not reached")
+
+
+def _weight_editable(app: Any) -> bool:
+    """The content claim, not the screen class: the form body mounts after
+    a refresh, so an empty RecordEditScreen is `not yet`, never `ready`."""
+
+    from tide.tui.form import RecordEditScreen
+
+    screen = app.screen
+    return isinstance(screen, RecordEditScreen) and bool(
+        screen.query("#field-weight")
+    )
+
+
+def test_tui_save_anyway_confirms_the_warning_and_speaks_the_info(
+    tmp_path: Path,
+) -> None:
+    from textual.widgets import Input
+
+    from tide.tui.form import RecordEditScreen
+    from tide.tui.warnings import WarningsScreen
+
+    app, records, _context = _tui_app(tmp_path)
+    spoken: list[tuple[str, str]] = []
+    original_notify = app.notify
+
+    def capture(message: Any, **options: Any) -> None:
+        spoken.append((str(message), str(options.get("severity", "information"))))
+        original_notify(message, **options)
+
+    app.notify = capture  # type: ignore[method-assign]
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.open_record(1)
+            await _wait(pilot, lambda: _weight_editable(app))
+            screen = app.screen
+            assert isinstance(screen, RecordEditScreen)
+            screen.query_one("#field-weight", Input).value = "500"
+            await pilot.click("#save-form")
+            await _wait(pilot, lambda: isinstance(app.screen, WarningsScreen))
+            dialog = app.screen
+            assert isinstance(dialog, WarningsScreen)
+            assert any(
+                "unusually high" in message for message in dialog.messages
+            )
+            await pilot.click("#confirm-warnings")
+            await _wait(
+                pilot, lambda: not isinstance(app.screen, RecordEditScreen)
+            )
+
+    asyncio.run(exercise())
+
+    stored = records.repository.get("demo.Shipment", 1)
+    assert stored["weight"] == 500
+    assert ("A note helps the courier.", "information") in spoken
+
+
+def test_tui_cancel_keeps_the_form_and_writes_nothing(tmp_path: Path) -> None:
+    from textual.widgets import Input
+
+    from tide.tui.form import RecordEditScreen
+    from tide.tui.warnings import WarningsScreen
+
+    app, records, _context = _tui_app(tmp_path)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.open_record(1)
+            await _wait(pilot, lambda: _weight_editable(app))
+            screen = app.screen
+            assert isinstance(screen, RecordEditScreen)
+            screen.query_one("#field-weight", Input).value = "500"
+            await pilot.click("#save-form")
+            await _wait(pilot, lambda: isinstance(app.screen, WarningsScreen))
+            await pilot.click("#cancel-warnings")
+            await _wait(pilot, lambda: isinstance(app.screen, RecordEditScreen))
+
+    asyncio.run(exercise())
+
+    assert records.repository.get("demo.Shipment", 1)["weight"] == 50
+
+
 def test_rest_info_notices_ride_success_without_ever_gating(
     tmp_path: Path,
 ) -> None:
