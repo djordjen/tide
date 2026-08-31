@@ -153,6 +153,7 @@ from tide.runtime import (
     ValidationFailed,
     VersionPreconditionRequired,
 )
+from tide.runtime.errors import ValidationIssue
 from tide.reporting import (
     TypedReport,
     PdfDependencyMissing,
@@ -2226,6 +2227,14 @@ def _audit_endpoint(
     return record_audit
 
 
+_ACKNOWLEDGE_WARNINGS_DOC = (
+    "Warning rule ids this request accepts. A commit refused only by "
+    "warning-severity rules proceeds once every raised warning's id is "
+    "listed; ids that did not fire are ignored. Errors are never "
+    "acknowledgeable."
+)
+
+
 def _create_endpoint(
     records: RecordsService,
     entity: NormalizedEntity,
@@ -2238,15 +2247,29 @@ def _create_endpoint(
         response: Response,
         payload: BaseModel = Body(),
         context: RequestContext = Depends(context_dependency),
+        acknowledge_warnings: list[str] = Query(
+            default_factory=list,
+            description=_ACKNOWLEDGE_WARNINGS_DOC,
+        ),
     ) -> BaseModel:
         values = payload.model_dump(by_alias=True, exclude_unset=True)
         session = records.create(entity.name, context, values)
-        stored = records.commit(session, context)
+        stored = records.commit(
+            session,
+            context,
+            acknowledged_warnings=frozenset(acknowledge_warnings),
+        )
         _set_etag(response, entity, stored)
         identity = stored[_primary_key(entity).name]
         response.headers["Location"] = f"{resource_path}/{identity}"
         return record_model.model_validate(
-            _wire_record_with_state(records, entity, stored, context)
+            _wire_record_with_state(
+                records,
+                entity,
+                stored,
+                context,
+                notices=session.notices,
+            )
         )
 
     create_record.__name__ = f"create_{entity.name.replace('.', '_')}"
@@ -2268,6 +2291,10 @@ def _update_endpoint(
         context: RequestContext = Depends(context_dependency),
         identity: str = Path(alias=primary_key.name, description="Record identity"),
         if_match: str | None = Header(None, alias="If-Match"),
+        acknowledge_warnings: list[str] = Query(
+            default_factory=list,
+            description=_ACKNOWLEDGE_WARNINGS_DOC,
+        ),
     ) -> BaseModel:
         try:
             typed_identity = _coerce_identity(records.model, primary_key, identity)
@@ -2281,10 +2308,20 @@ def _update_endpoint(
             raise _bad_request("update payload must contain at least one field")
         for field_name, value in values.items():
             session.set(field_name, value)
-        stored = records.commit(session, context)
+        stored = records.commit(
+            session,
+            context,
+            acknowledged_warnings=frozenset(acknowledge_warnings),
+        )
         _set_etag(response, entity, stored)
         return record_model.model_validate(
-            _wire_record_with_state(records, entity, stored, context)
+            _wire_record_with_state(
+                records,
+                entity,
+                stored,
+                context,
+                notices=session.notices,
+            )
         )
 
     update_record.__name__ = f"update_{entity.name.replace('.', '_')}"
@@ -2315,6 +2352,10 @@ def _action_endpoint(
         # the report routes: the transport carries, the action service
         # types and refuses. `{}` keeps meaning what it always meant.
         parameters: dict[str, Any] = Body(default_factory=dict),
+        acknowledge_warnings: list[str] = Query(
+            default_factory=list,
+            description=_ACKNOWLEDGE_WARNINGS_DOC,
+        ),
     ) -> BaseModel:
         try:
             typed_identity = _coerce_identity(actions.model, primary_key, identity)
@@ -2331,6 +2372,7 @@ def _action_endpoint(
             context,
             idempotency_key=idempotency_key,
             expected_version=expected,
+            acknowledged_warnings=frozenset(acknowledge_warnings),
         )
         _set_etag(response, entity, outcome.record)
         return record_model.model_validate(
@@ -2339,6 +2381,7 @@ def _action_endpoint(
                 entity,
                 outcome.record,
                 context,
+                notices=outcome.notices,
             )
         )
 
@@ -2918,6 +2961,8 @@ def _wire_record_with_state(
     entity: NormalizedEntity,
     values: Mapping[str, Any],
     context: RequestContext,
+    *,
+    notices: tuple[ValidationIssue, ...] = (),
 ) -> dict[str, Any]:
     projected = _wire_record(
         records.model,
@@ -2950,6 +2995,18 @@ def _wire_record_with_state(
     if action_states:
         projected.setdefault("_tide", {})["actions"] = action_states
     _apply_appearance(projected, entity, values, appearance)
+    if notices:
+        # Absent when there is nothing to say, like every other sidecar key:
+        # a read pays no bytes and an old client meets no new shape.
+        projected.setdefault("_tide", {})["notices"] = [
+            {
+                "rule": issue.rule,
+                "message": issue.message,
+                "fields": list(issue.fields),
+                "severity": issue.severity,
+            }
+            for issue in notices
+        ]
     return projected
 
 

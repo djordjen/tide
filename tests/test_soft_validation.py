@@ -12,16 +12,21 @@ of them, and the way that breaks is one layer quietly not reading it.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping
 
+import httpx
 import pytest
 
 from tide import compile_project
+from tide.api.server import DevelopmentTokenAuthenticator, build_fastapi_app
 from tide.data import InMemoryRepository
 from tide.runtime import Channel, Principal, RequestContext
 from tide.runtime.errors import ValidationFailed
 from tide.services import ActionService, RecordsService
+
+TOKEN = "tide-development-token-that-is-long-enough"
 
 MANIFEST = (
     'schema_version: "0.1"\n'
@@ -408,3 +413,162 @@ def test_a_gated_attempt_burns_its_idempotency_key_like_any_refusal(
             idempotency_key="burned",
             acknowledged_warnings=frozenset({"heavy_shipment"}),
         )
+
+
+# --- the gate, over REST -----------------------------------------------------
+
+
+def _api_app(tmp_path: Path) -> Any:
+    model = compile_project(_project(tmp_path))
+    records = RecordsService(model, InMemoryRepository())
+    actions = ActionService(model, records)
+    actions.register("actions.dispatch", _dispatch)
+    return build_fastapi_app(
+        model,
+        records,
+        DevelopmentTokenAuthenticator(
+            TOKEN,
+            Principal("api:test", roles=frozenset({"operator"})),
+        ),
+        actions=actions,
+    )
+
+
+def _client(app: Any) -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://testserver",
+    )
+
+
+def _headers(**extra: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {TOKEN}", **extra}
+
+
+def test_rest_create_gates_and_acknowledges_through_the_query_parameter(
+    tmp_path: Path,
+) -> None:
+    app = _api_app(tmp_path)
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            refused = await client.post(
+                "/api/v1/shipments",
+                headers=_headers(),
+                json={"reference": "S-9", "weight": 500, "note": "fragile"},
+            )
+            assert refused.status_code == 422
+            body = refused.json()
+            assert body["code"] == "validation_failed"
+            assert [
+                (issue["rule"], issue["severity"]) for issue in body["issues"]
+            ] == [("heavy_shipment", "warning")]
+
+            accepted = await client.post(
+                "/api/v1/shipments",
+                headers=_headers(),
+                params=[("acknowledge_warnings", "heavy_shipment")],
+                json={"reference": "S-9", "weight": 500, "note": "fragile"},
+            )
+            assert accepted.status_code == 201
+            envelope = accepted.json()
+            assert envelope["_tide"]["notices"] == [
+                {
+                    "rule": "heavy_shipment",
+                    "message": "The shipment weight is unusually high.",
+                    "fields": ["weight"],
+                    "severity": "warning",
+                }
+            ]
+
+            quiet = await client.post(
+                "/api/v1/shipments",
+                headers=_headers(),
+                json={"reference": "S-10", "weight": 50, "note": "calm"},
+            )
+            assert quiet.status_code == 201
+            assert "notices" not in (quiet.json().get("_tide") or {})
+
+    asyncio.run(exercise())
+
+
+def test_rest_update_and_action_doors_take_the_same_parameter(
+    tmp_path: Path,
+) -> None:
+    app = _api_app(tmp_path)
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            created = await client.post(
+                "/api/v1/shipments",
+                headers=_headers(),
+                json={"reference": "S-11", "weight": 50, "note": "calm"},
+            )
+            assert created.status_code == 201
+            identity = created.json()["id"]
+
+            heavier = await client.patch(
+                f"/api/v1/shipments/{identity}",
+                headers=_headers(),
+                json={"weight": 700},
+            )
+            assert heavier.status_code == 422
+
+            acknowledged = await client.patch(
+                f"/api/v1/shipments/{identity}",
+                headers=_headers(),
+                params=[("acknowledge_warnings", "heavy_shipment")],
+                json={"weight": 700},
+            )
+            assert acknowledged.status_code == 200
+            assert [
+                issue["rule"]
+                for issue in acknowledged.json()["_tide"]["notices"]
+            ] == ["heavy_shipment"]
+
+            gated = await client.post(
+                f"/api/v1/shipments/{identity}/actions/dispatch",
+                headers=_headers(**{"Idempotency-Key": "rest-dispatch-1"}),
+                json={},
+            )
+            assert gated.status_code == 422
+
+            dispatched = await client.post(
+                f"/api/v1/shipments/{identity}/actions/dispatch",
+                headers=_headers(**{"Idempotency-Key": "rest-dispatch-2"}),
+                params=[("acknowledge_warnings", "heavy_shipment")],
+                json={},
+            )
+            assert dispatched.status_code == 200
+            envelope = dispatched.json()
+            assert envelope["status"] == "dispatched"
+            assert [
+                issue["rule"] for issue in envelope["_tide"]["notices"]
+            ] == ["heavy_shipment"]
+
+    asyncio.run(exercise())
+
+
+def test_rest_info_notices_ride_success_without_ever_gating(
+    tmp_path: Path,
+) -> None:
+    app = _api_app(tmp_path)
+
+    async def exercise() -> None:
+        async with _client(app) as client:
+            created = await client.post(
+                "/api/v1/shipments",
+                headers=_headers(),
+                json={"reference": "S-12", "weight": 50},
+            )
+            assert created.status_code == 201
+            assert created.json()["_tide"]["notices"] == [
+                {
+                    "rule": "missing_note",
+                    "message": "A note helps the courier.",
+                    "fields": ["note"],
+                    "severity": "info",
+                }
+            ]
+
+    asyncio.run(exercise())

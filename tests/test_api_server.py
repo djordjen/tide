@@ -627,6 +627,7 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
         "id",
         "If-Match",
         "Idempotency-Key",
+        "acknowledge_warnings",
     }
 
 

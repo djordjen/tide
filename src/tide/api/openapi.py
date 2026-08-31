@@ -84,6 +84,17 @@ class TideRecordActionState(BaseModel):
     enabled: bool
 
 
+class TideApiValidationIssue(BaseModel):
+    """One safe field-addressable validation issue."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    rule: str
+    message: str
+    fields: tuple[str, ...] = ()
+    severity: str = "error"
+
+
 class TideProtectionMetadata(BaseModel):
     """Safe per-record wire metadata for fields and domain actions."""
 
@@ -113,6 +124,16 @@ class TideProtectionMetadata(BaseModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+    notices: tuple[TideApiValidationIssue, ...] | None = Field(
+        default=None,
+        min_length=1,
+        exclude_if=lambda value: value is None,
+        description=(
+            "What a successful write still wants said: info-severity "
+            "issues, and the warnings the request acknowledged. Absent on "
+            "reads and on writes with nothing to say."
+        ),
+    )
 
 
 class TideAttachmentValue(BaseModel):
@@ -129,17 +150,6 @@ class TideAttachmentValue(BaseModel):
     filename: str
     size: int
     content_type: str
-
-
-class TideApiValidationIssue(BaseModel):
-    """One safe field-addressable validation issue."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    rule: str
-    message: str
-    fields: tuple[str, ...] = ()
-    severity: str = "error"
 
 
 class TideApiError(BaseModel):
