@@ -13,6 +13,7 @@ of them, and the way that breaks is one layer quietly not reading it.
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -766,11 +767,25 @@ def _tui_app(tmp_path: Path) -> tuple[Any, RecordsService, RequestContext]:
 
 
 async def _wait(pilot: Any, condition: Any) -> None:
-    for _ in range(80):
+    """Wall-clock bounded, never attempt-counted: a `pilot.pause()` drains
+    the queue in no wall time, so a budget of pause rounds is spent before
+    a slow runner's deferred work arrives (the rails' measured 0-to-4
+    refresh callbacks per pause). Twenty seconds is far past any healthy
+    mount and far short of the suite timeout."""
+
+    deadline = time.monotonic() + 20.0
+    while time.monotonic() < deadline:
         if condition():
             return
-        await pilot.pause()
+        await pilot.pause(0.05)
     raise AssertionError("condition was not reached")
+
+
+async def _browse_ready(pilot: Any, app: Any) -> None:
+    """`open_record` queries the browse table; on a cold runner the app's
+    default screen has not composed it after one pause."""
+
+    await _wait(pilot, lambda: bool(app.screen.query("#records")))
 
 
 def _weight_editable(app: Any) -> bool:
@@ -806,6 +821,7 @@ def test_tui_save_anyway_confirms_the_warning_and_speaks_the_info(
     async def exercise() -> None:
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
+            await _browse_ready(pilot, app)
             app.open_record(1)
             await _wait(pilot, lambda: _weight_editable(app))
             screen = app.screen
@@ -846,6 +862,7 @@ def test_tui_cancel_keeps_the_form_and_writes_nothing(tmp_path: Path) -> None:
     async def exercise() -> None:
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
+            await _browse_ready(pilot, app)
             app.open_record(1)
             await _wait(pilot, lambda: _weight_editable(app))
             screen = app.screen
