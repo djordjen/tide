@@ -187,8 +187,8 @@ def test_remote_facades_browse_create_edit_lookup_and_post_via_http() -> None:
             idempotency_key="remote-facade-post",
             expected_version=edit.expected_version,
         )
-        assert posted["status"] == "posted"
-        assert posted["version"] == 3
+        assert posted.record["status"] == "posted"
+        assert posted.record["version"] == 3
 
 
 def test_remote_capabilities_hide_mutations_and_reports_fail_closed() -> None:

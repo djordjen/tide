@@ -959,6 +959,7 @@ class RecordsService:
         context: RequestContext,
         *,
         source: MutationSource = MutationSource.USER,
+        acknowledged_warnings: frozenset[str] = frozenset(),
     ) -> dict[str, Any]:
         session.ensure_active()
         entity = self.model.entity(session.entity)
@@ -1012,9 +1013,25 @@ class RecordsService:
             *self._validate_entity(entity.name, values),
             *self._attachment_issues(entity, session, values, context),
         ]
-        errors = [issue for issue in issues if issue.severity == "error"]
-        if errors:
-            raise ValidationFailed(errors)
+        # Errors always refuse; a warning refuses until its rule id is in the
+        # acknowledged set. Info never blocks -- it rides the success as a
+        # notice, alongside the warnings that were acknowledged, so the
+        # caller sees what was accepted. Acknowledging an id that did not
+        # fire is ignored: a client may echo a previous refusal wholesale.
+        blockers = [
+            issue
+            for issue in issues
+            if issue.severity == "error"
+            or (
+                issue.severity == "warning"
+                and issue.rule not in acknowledged_warnings
+            )
+        ]
+        if blockers:
+            raise ValidationFailed(blockers)
+        pending_notices = tuple(
+            issue for issue in issues if issue.severity != "error"
+        )
         if session.is_new:
             self.security.require_row(
                 entity.name,
@@ -1090,6 +1107,7 @@ class RecordsService:
         session.expected_version = (
             stored.get(version_field) if version_field is not None else None
         )
+        session.notices = pending_notices
         session.mark_committed(stored)
         del original, was_new  # the audit entry was written with the record
         return self._project(entity, stored, context)

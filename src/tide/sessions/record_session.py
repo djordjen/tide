@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from tide.runtime.errors import InvalidSessionError
+from tide.runtime.errors import InvalidSessionError, ValidationIssue
 
 
 class SessionState(StrEnum):
@@ -25,6 +25,10 @@ class RecordSession:
     expected_version: int | None
     is_new: bool = False
     state: SessionState = SessionState.ACTIVE
+    # What a successful commit still wants said: info-severity issues, plus
+    # the warnings the caller acknowledged. Empty until then; a refusal
+    # carries its issues in the exception instead.
+    notices: tuple[ValidationIssue, ...] = ()
 
     def ensure_active(self) -> None:
         if self.state is not SessionState.ACTIVE:

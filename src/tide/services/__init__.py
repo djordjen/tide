@@ -1,4 +1,4 @@
-from tide.services.actions import ActionService
+from tide.services.actions import ActionOutcome, ActionService
 from tide.services.audit import AuditHistoryReader, AuditHistoryService
 from tide.services.search import GlobalSearchService, SearchGroup, SearchHit
 from tide.services.action_store import (
@@ -29,6 +29,7 @@ from tide.services.references import NO_REFERENCE_DISPLAYS, ReferenceDisplays
 from tide.services.records import FilterCondition, MutationSource, QuerySpec, RecordsService, SortField
 
 __all__ = [
+    "ActionOutcome",
     "ActionService",
     "ActionAuditEvent",
     "ActionExecutionStore",

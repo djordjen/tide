@@ -107,7 +107,7 @@ def test_in_memory_store_survives_action_service_recreation() -> None:
     )
 
     assert isinstance(store, ActionExecutionStore)
-    assert posted["version"] == replayed["version"] == 2
+    assert posted.record["version"] == replayed.record["version"] == 2
     assert repository.get("sales.Invoice", created["id"])["status"] == "posted"
     idempotency = store.get_idempotency("durable-post-1")
     assert idempotency is not None
@@ -156,8 +156,8 @@ def test_action_expected_version_is_checked_before_idempotency_claim() -> None:
         expected_version=created["version"],
     )
 
-    assert posted["status"] == "posted"
-    assert posted["version"] == created["version"] + 1
+    assert posted.record["status"] == "posted"
+    assert posted.record["version"] == created["version"] + 1
 
 
 def test_a_reused_key_for_a_different_record_is_a_conflict() -> None:
@@ -376,7 +376,7 @@ def test_sql_store_persists_replay_and_audit_across_restart(tmp_path: Path) -> N
         idempotency_key="sql-durable-post",
     )
 
-    assert replayed["version"] == 2
+    assert replayed.record["version"] == 2
     assert (
         restarted_store.get_idempotency("sql-durable-post").status
         is IdempotencyStatus.COMPLETED

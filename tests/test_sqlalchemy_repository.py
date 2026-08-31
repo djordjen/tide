@@ -727,7 +727,7 @@ def test_managed_repository_runs_the_posting_action(sql_runtime) -> None:
         {},
         context(),
         idempotency_key="sql-post-1",
-    )
+    ).record
     retried = actions.execute(
         "sales.Invoice",
         "post",
@@ -735,7 +735,7 @@ def test_managed_repository_runs_the_posting_action(sql_runtime) -> None:
         {},
         context(),
         idempotency_key="sql-post-1",
-    )
+    ).record
 
     assert posted["status"] == "posted"
     assert posted["version"] == 2

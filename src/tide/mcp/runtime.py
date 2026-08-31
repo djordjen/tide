@@ -430,7 +430,7 @@ class RuntimeMcpService:
             identity,
         )
         _require_expected_version(entity, expected_version)
-        stored = self.actions.execute(
+        outcome = self.actions.execute(
             entity_name,
             action_name,
             typed_identity,
@@ -443,7 +443,7 @@ class RuntimeMcpService:
             entity_name,
             "action",
             typed_identity,
-            stored,
+            outcome.record,
             context,
             action=action_name,
         )

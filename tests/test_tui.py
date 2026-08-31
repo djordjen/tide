@@ -1946,7 +1946,7 @@ def test_textual_stale_edit_does_not_rebase_fields_locked_by_new_workflow_state(
                 app.context,
                 idempotency_key="concurrent-post-before-rebase",
                 expected_version=1,
-            )
+            ).record
             assert posted["status"] == "posted"
 
             screen.query_one("#field-currency", Input).value = "GBP"

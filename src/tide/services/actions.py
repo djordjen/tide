@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 from typing import Any, Callable, Mapping
@@ -18,6 +19,7 @@ from tide.runtime.errors import (
     NotFoundError,
     NullVersion,
     TideRuntimeError,
+    ValidationIssue,
 )
 from tide.runtime.parameters import coerce_parameters
 from tide.security.engine import SecurityEngine
@@ -32,6 +34,19 @@ from tide.services.action_store import (
 from tide.services.records import MutationSource, RecordsService
 
 ActionHandler = Callable[[dict[str, Any], RequestContext, Mapping[str, Any]], Any]
+
+
+@dataclass(frozen=True, slots=True)
+class ActionOutcome:
+    """The stored record an action produced, and what remains to be said.
+
+    Notices are the commit's info-severity issues plus the warnings the
+    caller acknowledged; a replayed execution carries none, because no
+    validation ran.
+    """
+
+    record: dict[str, Any]
+    notices: tuple[ValidationIssue, ...] = ()
 
 
 class ActionService:
@@ -79,7 +94,8 @@ class ActionService:
         *,
         idempotency_key: str | None = None,
         expected_version: int | NullVersion | None = None,
-    ) -> dict[str, Any]:
+        acknowledged_warnings: frozenset[str] = frozenset(),
+    ) -> ActionOutcome:
         entity = self.model.entity(entity_name)
         action = entity.actions.get(action_name)
         if action is None:
@@ -100,6 +116,7 @@ class ActionService:
         )
         claimed: IdempotencyRecord | None = None
         outcome = AuditOutcome.SUCCEEDED
+        notices: tuple[ValidationIssue, ...] = ()
         try:
             # The declaration is the payload contract for every door: typed
             # values and their string forms land identically, defaults fill,
@@ -196,7 +213,9 @@ class ActionService:
                         session,
                         context,
                         source=MutationSource.ACTION,
+                        acknowledged_warnings=acknowledged_warnings,
                     )
+                    notices = session.notices
                     if claimed is not None:
                         self.execution_store.complete_idempotency(
                             claimed.key,
@@ -208,7 +227,7 @@ class ActionService:
             raise
 
         self._finish_audit(audit, outcome=outcome)
-        return result
+        return ActionOutcome(record=result, notices=notices)
 
     def _replay(
         self,

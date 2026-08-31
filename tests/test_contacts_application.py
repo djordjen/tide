@@ -177,9 +177,9 @@ def test_contacts_demo_exercises_shared_security_and_action_services() -> None:
         idempotency_key="contacts-demo-archive-1",
     )
 
-    assert archived["status"] == replayed["status"] == "archived"
-    assert archived["archived_by"] == "contacts:editor"
-    assert archived["archived_at"].tzinfo is not None
+    assert archived.record["status"] == replayed.record["status"] == "archived"
+    assert archived.record["archived_by"] == "contacts:editor"
+    assert archived.record["archived_at"].tzinfo is not None
     with pytest.raises(AuthorizationError):
         records.create("crm.Company", viewer, {"code": "NO", "name": "Denied"})
     with pytest.raises(AuthorizationError):
@@ -228,8 +228,8 @@ def test_contacts_workflow_runs_on_managed_sqlalchemy_storage() -> None:
         )
 
         repository.check_readiness()
-        assert archived["status"] == "archived"
-        assert archived["company"] == company["id"]
+        assert archived.record["status"] == "archived"
+        assert archived.record["company"] == company["id"]
     finally:
         repository.dispose()
 

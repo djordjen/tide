@@ -135,7 +135,7 @@ def test_an_action_matches_and_refuses_the_null_assertion() -> None:
         {"reason": "null assertion probe"},
         context,
         expected_version=NULL_VERSION,
-    )
+    ).record
     assert voided["status"] == "cancelled"
     assert voided["version"] == 1
 

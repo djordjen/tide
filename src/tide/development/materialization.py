@@ -1562,7 +1562,7 @@ def _verify_actions(
                 {},
                 context,
                 idempotency_key=idempotency_key,
-            )
+            ).record
         except Exception as error:
             return CandidateCheck(
                 name="action_integration",
@@ -1605,7 +1605,7 @@ def _verify_actions(
                     {},
                     context,
                     idempotency_key=idempotency_key,
-                )
+                ).record
             except Exception as error:
                 return CandidateCheck(
                     name="action_integration",

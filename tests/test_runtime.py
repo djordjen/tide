@@ -471,7 +471,7 @@ def test_headless_invoice_create_post_retry_and_protection(runtime) -> None:
         {"occurred_at": occurred_at},
         clerk,
         idempotency_key="post-invoice-1",
-    )
+    ).record
 
     assert posted["status"] == "posted"
     assert posted["version"] == 2
@@ -484,7 +484,7 @@ def test_headless_invoice_create_post_retry_and_protection(runtime) -> None:
         {"occurred_at": occurred_at},
         clerk,
         idempotency_key="post-invoice-1",
-    )
+    ).record
     assert retried["version"] == 2
 
     audited = records.get("sales.Invoice", created["id"], auditor)
@@ -540,7 +540,7 @@ def test_action_permission_does_not_require_general_update_permission(runtime) -
         {},
         poster,
         idempotency_key="poster-post-1",
-    )
+    ).record
     assert posted["status"] == "posted"
     assert posted["version"] == 2
 

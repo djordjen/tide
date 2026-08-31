@@ -2323,7 +2323,7 @@ def _action_endpoint(
         expected = _required_version(entity, if_match)
         if action.get("idempotent") and idempotency_key is None:
             raise _precondition_required("Idempotency-Key header is required")
-        stored = actions.execute(
+        outcome = actions.execute(
             entity.name,
             action_name,
             typed_identity,
@@ -2332,12 +2332,12 @@ def _action_endpoint(
             idempotency_key=idempotency_key,
             expected_version=expected,
         )
-        _set_etag(response, entity, stored)
+        _set_etag(response, entity, outcome.record)
         return record_model.model_validate(
             _wire_record_with_state(
                 actions.records,
                 entity,
-                stored,
+                outcome.record,
                 context,
             )
         )

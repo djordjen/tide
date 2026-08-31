@@ -778,7 +778,7 @@ class RecordEditScreen(Screen[Any]):
             if self.session.changed_fields:
                 self.records.commit(self.session, self.context)
                 saved_before_post = True
-            result = self.actions.execute(
+            outcome = self.actions.execute(
                 self.entity.name,
                 action_name,
                 self.session.identity,
@@ -795,7 +795,7 @@ class RecordEditScreen(Screen[Any]):
             self._show_error(error, prefix="Post failed")
             self._recover_after_failed_post(saved_before_post)
             return
-        self.session.values = deepcopy(result)
+        self.session.values = deepcopy(outcome.record)
         label = self.entity.actions[action_name].get("label") or action_name
         self.notify(f"{label} completed.", severity="information")
         self.dismiss(True)

@@ -7,7 +7,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
 import re
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 from urllib.parse import quote, urlsplit
 
 import httpx
@@ -31,6 +31,7 @@ from tide.api.openapi import DEFAULT_BASE_PATH, REST_OPERATIONS, rest_exposures
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 from tide.data import FilterCondition, QuerySpec, SummaryRequest
 from tide.runtime import TideRuntimeError
+from tide.runtime.errors import ValidationIssue
 from tide.reporting.document import (
     ReportCell,
     ReportColumn,
@@ -64,6 +65,10 @@ class TideApiRecord:
     values: dict[str, Any]
     etag: str | None = None
     references: ReferenceDisplays = NO_REFERENCE_DISPLAYS
+    notices: tuple[ValidationIssue, ...] = ()
+    """What a successful write still wants said: info-severity issues and
+    the warnings the request acknowledged. Empty from reads and from
+    servers that have nothing to say."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,9 +95,16 @@ class TideApiPage:
 class TideApiClientError(TideRuntimeError):
     """A stable error returned by the remote TIDE service."""
 
-    def __init__(self, status_code: int, code: str, message: str) -> None:
+    def __init__(
+        self,
+        status_code: int,
+        code: str,
+        message: str,
+        issues: tuple[ValidationIssue, ...] = (),
+    ) -> None:
         self.status_code = status_code
         self.code = code
+        self.issues = issues
         super().__init__(message)
 
 
@@ -426,12 +438,15 @@ class TideApiClient:
         self,
         entity_name: str,
         values: Mapping[str, Any],
+        *,
+        acknowledge_warnings: Sequence[str] = (),
     ) -> TideApiRecord:
         entity = self.model.entity(entity_name)
         response = self._request(
             "POST",
             self._resource(entity_name, "create"),
             expected=(201,),
+            params=self._acknowledge_params(acknowledge_warnings),
             json=_encode_record(self.model, entity, values),
         )
         return self._record_response(entity, response)
@@ -443,6 +458,7 @@ class TideApiClient:
         values: Mapping[str, Any],
         *,
         if_match: str | int | None = None,
+        acknowledge_warnings: Sequence[str] = (),
     ) -> TideApiRecord:
         entity = self.model.entity(entity_name)
         resource = self._resource(entity_name, "update")
@@ -452,6 +468,7 @@ class TideApiClient:
             f"{resource}/{_identity_segment(identity)}",
             expected=(200,),
             headers=headers,
+            params=self._acknowledge_params(acknowledge_warnings),
             json=_encode_record(self.model, entity, values),
         )
         return self._record_response(entity, response)
@@ -480,6 +497,7 @@ class TideApiClient:
         *,
         if_match: str | int | None = None,
         idempotency_key: str | None = None,
+        acknowledge_warnings: Sequence[str] = (),
     ) -> TideApiRecord:
         entity = self.model.entity(entity_name)
         action = entity.actions.get(action_name)
@@ -497,6 +515,7 @@ class TideApiClient:
             f"{resource}/{_identity_segment(identity)}/actions/{quote(action_name, safe='')}",
             expected=(200,),
             headers=headers,
+            params=self._acknowledge_params(acknowledge_warnings),
             json=_encode_generic(payload or {}),
         )
         return self._record_response(entity, response)
@@ -775,15 +794,17 @@ class TideApiClient:
         response: httpx.Response,
     ) -> TideApiRecord:
         references: dict[tuple[str, Any], str] = {}
+        raw = self._json_object(response)
         return TideApiRecord(
             values=_decode_record(
                 self.model,
                 entity,
-                self._json_object(response),
+                raw,
                 references,
             ),
             etag=response.headers.get("ETag"),
             references=ReferenceDisplays(references),
+            notices=_decode_notices(entity, raw),
         )
 
     def _request(
@@ -828,10 +849,29 @@ class TideApiClient:
                 if isinstance(payload, Mapping) and payload.get("message")
                 else f"TIDE API returned HTTP {response.status_code}"
             )
-            raise TideApiClientError(response.status_code, code, message)
+            issues = (
+                _lenient_validation_issues(payload.get("issues"))
+                if isinstance(payload, Mapping)
+                else ()
+            )
+            raise TideApiClientError(response.status_code, code, message, issues)
         raise TideApiContractError(
             f"TIDE API returned unexpected HTTP {response.status_code}"
         )
+
+    @staticmethod
+    def _acknowledge_params(
+        acknowledge_warnings: Sequence[str],
+    ) -> dict[str, list[str]] | None:
+        """Repeatable `acknowledge_warnings` query values, or nothing at all.
+
+        Omitted entirely when empty so the request line stays what it always
+        was against servers that predate the parameter.
+        """
+
+        if not acknowledge_warnings:
+            return None
+        return {"acknowledge_warnings": [str(rule) for rule in acknowledge_warnings]}
 
     @staticmethod
     def _json_object(response: httpx.Response) -> Mapping[str, Any]:
@@ -890,6 +930,71 @@ def _precondition_headers(
     return headers
 
 
+def _lenient_validation_issues(raw: Any) -> tuple[ValidationIssue, ...]:
+    """Rebuild the error envelope's issues without ever raising.
+
+    This runs while an error response is being turned into an exception, so
+    a malformed issues array must degrade to no issues rather than mask the
+    error it rode in on.
+    """
+
+    if not isinstance(raw, list):
+        return ()
+    issues: list[ValidationIssue] = []
+    for item in raw:
+        if not isinstance(item, Mapping):
+            continue
+        fields = item.get("fields")
+        issues.append(
+            ValidationIssue(
+                rule=str(item.get("rule") or ""),
+                message=str(item.get("message") or ""),
+                fields=(
+                    tuple(str(name) for name in fields)
+                    if isinstance(fields, list)
+                    else ()
+                ),
+                severity=str(item.get("severity") or "error"),
+            )
+        )
+    return tuple(issues)
+
+
+def _decode_notices(
+    entity: NormalizedEntity,
+    raw: Mapping[str, Any],
+) -> tuple[ValidationIssue, ...]:
+    metadata = raw.get("_tide")
+    if not isinstance(metadata, Mapping):
+        return ()
+    notices = metadata.get("notices")
+    if notices is None:
+        return ()
+    if not isinstance(notices, list):
+        raise TideApiContractError(f"{entity.name} notice metadata is invalid")
+    decoded: list[ValidationIssue] = []
+    for item in notices:
+        if (
+            not isinstance(item, Mapping)
+            or not isinstance(item.get("rule"), str)
+            or not isinstance(item.get("message"), str)
+        ):
+            raise TideApiContractError(f"{entity.name} notice metadata is invalid")
+        fields = item.get("fields") or []
+        severity = item.get("severity", "info")
+        if not isinstance(fields, list) or not isinstance(severity, str):
+            raise TideApiContractError(f"{entity.name} notice metadata is invalid")
+        decoded.append(
+            ValidationIssue(
+                rule=item["rule"],
+                message=item["message"],
+                fields=tuple(str(name) for name in fields),
+                severity=severity,
+            )
+        )
+    return tuple(decoded)
+
+
 def _decode_record(
     model: ApplicationModel,
     entity: NormalizedEntity,
@@ -911,6 +1016,10 @@ def _decode_record(
             # check refuses everything it has not been told about, and a
             # server with appearance rules would otherwise be undecodable.
             "appearance",
+            # Decoded by _decode_notices rather than here, same reasoning:
+            # a server whose commit raised an info notice must stay
+            # decodable.
+            "notices",
         }:
             raise TideApiContractError(f"{entity.name} protection metadata is invalid")
         raw_protected = metadata.get("protected_fields") or []

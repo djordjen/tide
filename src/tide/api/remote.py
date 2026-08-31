@@ -20,7 +20,7 @@ from tide.runtime import (
 from tide.runtime.errors import ValidationIssue
 from tide.reporting.document import ReportDocument
 from tide.security import PROTECTED
-from tide.services import AuditEvent, QueryPage
+from tide.services import ActionOutcome, AuditEvent, QueryPage
 from tide.sessions import RecordSession
 
 
@@ -252,12 +252,15 @@ class RemoteRecordsService:
         self,
         session: RecordSession,
         context: RequestContext,
+        *,
+        acknowledged_warnings: frozenset[str] = frozenset(),
         **_arguments: Any,
     ) -> dict[str, Any]:
         session.ensure_active()
         entity = self.model.entity(session.entity)
         operation = "create" if session.is_new else "update"
         self._require(entity, operation, context)
+        acknowledged = sorted(acknowledged_warnings)
         if session.is_new:
             payload = _mutation_payload(
                 self.model,
@@ -266,7 +269,11 @@ class RemoteRecordsService:
                 operation="create",
             )
             remote = self._translate_validation(
-                lambda: self.client.create_record(entity.name, payload)
+                lambda: self.client.create_record(
+                    entity.name,
+                    payload,
+                    acknowledge_warnings=acknowledged,
+                )
             )
         else:
             changed = {
@@ -289,11 +296,13 @@ class RemoteRecordsService:
                     session.identity,
                     payload,
                     if_match=_wire_if_match(entity, session.expected_version),
+                    acknowledge_warnings=acknowledged,
                 )
             )
         stored = remote.values
         session.identity = stored[_primary_key(entity).name]
         session.expected_version = _etag_version(remote.etag, entity, stored)
+        session.notices = remote.notices
         session.mark_committed(stored)
         return stored
 
@@ -340,9 +349,25 @@ class RemoteRecordsService:
         except TideApiClientError as error:
             if error.code == "validation_failed":
                 raise ValidationFailed(
-                    [ValidationIssue("remote", str(error))]
+                    _remote_validation_issues(error)
                 ) from error
             raise
+
+
+def _remote_validation_issues(
+    error: TideApiClientError,
+) -> list[ValidationIssue]:
+    """The server's own issues when the envelope carried them.
+
+    Severity and rule ids must survive the HTTP hop, or a remote renderer
+    cannot tell a warning it may acknowledge from an error it must fix. The
+    flattened single issue remains only as the fallback for a server that
+    sent none.
+    """
+
+    if error.issues:
+        return list(error.issues)
+    return [ValidationIssue("remote", str(error))]
 
 
 class RemoteActionService:
@@ -361,9 +386,10 @@ class RemoteActionService:
         *,
         idempotency_key: str | None = None,
         expected_version: int | NullVersion | None = None,
-    ) -> dict[str, Any]:
+        acknowledged_warnings: frozenset[str] = frozenset(),
+    ) -> ActionOutcome:
         try:
-            return self.client.execute_action(
+            envelope = self.client.execute_action(
                 entity_name,
                 action_name,
                 identity,
@@ -374,13 +400,15 @@ class RemoteActionService:
                     else expected_version
                 ),
                 idempotency_key=idempotency_key,
-            ).values
+                acknowledge_warnings=sorted(acknowledged_warnings),
+            )
         except TideApiClientError as error:
             if error.code == "validation_failed":
                 raise ValidationFailed(
-                    [ValidationIssue("remote", str(error))]
+                    _remote_validation_issues(error)
                 ) from error
             raise
+        return ActionOutcome(record=envelope.values, notices=envelope.notices)
 
 
 class RemoteAuditHistoryService:
