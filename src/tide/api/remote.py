@@ -197,6 +197,7 @@ class RemoteRecordsService:
         context: RequestContext,
         *,
         limit: int = 20,
+        source: tuple[str, str] | None = None,
     ) -> tuple[dict[str, Any], ...]:
         if not search_fields:
             raise ValueError("lookup search requires at least one field")
@@ -211,7 +212,7 @@ class RemoteRecordsService:
         if not candidate:
             return self.query_page(
                 entity_name,
-                QuerySpec(sort=sort, limit=limit),
+                QuerySpec(sort=sort, limit=limit, lookup_source=source),
                 context,
             ).records
         matches: dict[Any, dict[str, Any]] = {}
@@ -224,6 +225,7 @@ class RemoteRecordsService:
                     ),
                     sort=sort,
                     limit=limit,
+                    lookup_source=source,
                 ),
                 context,
             )

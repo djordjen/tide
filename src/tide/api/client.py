@@ -17,6 +17,7 @@ from tide.api.contracts import (
     TideAuditHistory,
     TideDistinctInput,
     TideFilterInput,
+    TideLookupSourceInput,
     TidePresentationManifest,
     TideQueryInput,
     TideReferenceSelectionInput,
@@ -311,12 +312,26 @@ class TideApiClient:
                 TideSummaryInput(field=item.field, function=item.function)
                 for item in query.summaries
             ),
+            lookup_source=(
+                TideLookupSourceInput(
+                    entity=query.lookup_source[0],
+                    field=query.lookup_source[1],
+                )
+                if query.lookup_source is not None
+                else None
+            ),
         )
+        body = payload.model_dump(mode="json")
+        if payload.lookup_source is None:
+            # Absent, not null: a server from before the edge existed
+            # forbids unknown keys, and a query that names no edge must
+            # stay byte-identical to what it always sent.
+            body.pop("lookup_source", None)
         response = self._request(
             "POST",
             f"{resource}/_query",
             expected=(200,),
-            json=payload.model_dump(mode="json"),
+            json=body,
         )
         body = self._json_object(response)
         raw_records = body.get("records")

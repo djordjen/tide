@@ -2546,6 +2546,11 @@ def _query_endpoint(
                         SummaryRequest(item.field, item.function)
                         for item in payload.summaries
                     ),
+                    lookup_source=(
+                        (payload.lookup_source.entity, payload.lookup_source.field)
+                        if payload.lookup_source is not None
+                        else None
+                    ),
                 ),
                 context,
             )

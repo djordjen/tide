@@ -254,7 +254,7 @@ def test_query_criteria_narrow_both_repositories(
     page = records.query_page(
         "demo.Carrier",
         QuerySpec(
-            criteria=records.lookup_criteria("demo.Order", "carrier"),
+            lookup_source=("demo.Order", "carrier"),
             sort=(SortField("name"),),
         ),
         context,
@@ -272,7 +272,7 @@ def test_criteria_compose_with_ordinary_filters(
         "demo.Carrier",
         QuerySpec(
             filters=(FilterCondition("name", "icontains", "a"),),
-            criteria=records.lookup_criteria("demo.Order", "carrier"),
+            lookup_source=("demo.Order", "carrier"),
             sort=(SortField("name"),),
         ),
         context,
@@ -292,7 +292,7 @@ def test_criteria_may_name_fields_the_requester_cannot_read(
     page = records.query_page(
         "demo.Carrier",
         QuerySpec(
-            criteria=records.lookup_criteria("demo.Order", "premium_carrier"),
+            lookup_source=("demo.Order", "premium_carrier"),
             sort=(SortField("name"),),
         ),
         context,
@@ -311,11 +311,11 @@ def test_cursor_pages_keep_the_criteria(
     runtime: tuple[RecordsService, RequestContext],
 ) -> None:
     records, _repository, context = runtime
-    criteria = records.lookup_criteria("demo.Order", "carrier")
+    source = ("demo.Order", "carrier")
 
     first = records.query_page(
         "demo.Carrier",
-        QuerySpec(criteria=criteria, sort=(SortField("name"),), limit=2),
+        QuerySpec(lookup_source=source, sort=(SortField("name"),), limit=2),
         context,
     )
     assert [record["id"] for record in first.records] == [1, 2]
@@ -324,7 +324,7 @@ def test_cursor_pages_keep_the_criteria(
     second = records.query_page(
         "demo.Carrier",
         QuerySpec(
-            criteria=criteria,
+            lookup_source=source,
             sort=(SortField("name"),),
             limit=2,
             cursor=first.next_cursor,
@@ -347,17 +347,38 @@ def test_lookup_records_threads_criteria(
     runtime: tuple[RecordsService, RequestContext],
 ) -> None:
     records, _repository, context = runtime
-    criteria = records.lookup_criteria("demo.Order", "carrier")
+    source = ("demo.Order", "carrier")
 
     browsing = records.lookup_records(
-        "demo.Carrier", ("name",), "", context, criteria=criteria
+        "demo.Carrier", ("name",), "", context, source=source
     )
     assert [record["id"] for record in browsing] == [1, 2, 4]
 
     searching = records.lookup_records(
-        "demo.Carrier", ("name",), "Coastal", context, criteria=criteria
+        "demo.Carrier", ("name",), "Coastal", context, source=source
     )
     assert searching == ()
+
+
+def test_a_lookup_source_must_target_the_queried_entity(
+    runtime: tuple[RecordsService, object, RequestContext],
+) -> None:
+    from tide.runtime.errors import QueryFieldError
+
+    records, _repository, context = runtime
+
+    with pytest.raises(QueryFieldError):
+        records.query_page(
+            "demo.Carrier",
+            QuerySpec(lookup_source=("demo.Item", "order")),
+            context,
+        )
+    with pytest.raises(QueryFieldError):
+        records.query_page(
+            "demo.Carrier",
+            QuerySpec(lookup_source=("demo.Order", "missing")),
+            context,
+        )
 
 
 # --- writes refuse newly chosen ineligible rows -------------------------------
@@ -526,3 +547,188 @@ def test_changing_a_child_reference_to_an_ineligible_row_refuses(
     assert [(issue.rule, issue.fields) for issue in failure.value.issues] == [
         ("lookup_filter", ("part",))
     ]
+
+
+# --- the doors: REST ----------------------------------------------------------
+
+
+TOKEN = "tide-development-token-that-is-long-enough"
+
+
+def _api_app(tmp_path: Path) -> tuple[object, object]:
+    import asyncio as _asyncio  # noqa: F401  (httpx drives the ASGI app)
+
+    from tide.api.server import DevelopmentTokenAuthenticator, build_fastapi_app
+
+    model = compile_project(_project(tmp_path))
+    repository = InMemoryRepository()
+    repository.seed("demo.Carrier", CARRIERS)
+    repository.seed("demo.Part", PARTS)
+    records = RecordsService(model, repository)
+    return model, build_fastapi_app(
+        model,
+        records,
+        DevelopmentTokenAuthenticator(
+            TOKEN,
+            Principal("api:test", roles=frozenset({"operator"})),
+        ),
+    )
+
+
+def _rest(app: object, method: str, path: str, **kwargs: object) -> object:
+    import asyncio
+
+    import httpx
+
+    async def exercise() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),  # type: ignore[arg-type]
+            base_url="http://testserver",
+        ) as client:
+            return await client.request(
+                method,
+                path,
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                **kwargs,  # type: ignore[arg-type]
+            )
+
+    return asyncio.run(exercise())
+
+
+def test_rest_query_narrows_through_lookup_source(tmp_path: Path) -> None:
+    _model, app = _api_app(tmp_path)
+
+    filtered = _rest(
+        app,
+        "POST",
+        "/api/v1/carriers/_query",
+        json={
+            "lookup_source": {"entity": "demo.Order", "field": "carrier"},
+            "sort": [{"field": "name"}],
+        },
+    )
+    assert filtered.status_code == 200  # type: ignore[attr-defined]
+    payload = filtered.json()  # type: ignore[attr-defined]
+    assert [record["id"] for record in payload["records"]] == [1, 2, 4]
+
+    # Without the edge the query is what it always was -- an old client
+    # keeps working and simply sees an unfiltered picker.
+    unfiltered = _rest(
+        app,
+        "POST",
+        "/api/v1/carriers/_query",
+        json={"sort": [{"field": "name"}]},
+    )
+    assert unfiltered.status_code == 200  # type: ignore[attr-defined]
+    assert len(unfiltered.json()["records"]) == 4  # type: ignore[attr-defined]
+
+
+def test_rest_query_refuses_a_nonsense_lookup_source(tmp_path: Path) -> None:
+    _model, app = _api_app(tmp_path)
+
+    for source in (
+        {"entity": "demo.Missing", "field": "carrier"},
+        {"entity": "demo.Order", "field": "missing"},
+        {"entity": "demo.Order", "field": "code"},
+        {"entity": "demo.Item", "field": "order"},
+    ):
+        response = _rest(
+            app,
+            "POST",
+            "/api/v1/carriers/_query",
+            json={"lookup_source": source},
+        )
+        assert response.status_code == 400, source  # type: ignore[attr-defined]
+
+
+def test_rest_query_ignores_a_source_with_no_declared_filter(
+    tmp_path: Path,
+) -> None:
+    _model, app = _api_app(tmp_path)
+
+    response = _rest(
+        app,
+        "POST",
+        "/api/v1/orders/_query",
+        json={"lookup_source": {"entity": "demo.Item", "field": "order"}},
+    )
+
+    assert response.status_code == 200  # type: ignore[attr-defined]
+
+
+# --- the doors: the typed client and remote mode ------------------------------
+
+
+def test_remote_lookup_forwards_the_edge_and_omits_it_when_absent(
+    tmp_path: Path,
+) -> None:
+    """The edge rides the wire; expressions never do. And a query naming no
+    edge must stay byte-identical to what the client always sent, so an old
+    server keeps answering it."""
+
+    import asyncio
+    import json
+    from concurrent.futures import ThreadPoolExecutor
+
+    import httpx
+
+    from tide.api.client import TideApiClient
+    from tide.api.remote import RemoteRecordsService
+
+    model, app = _api_app(tmp_path)
+    base_url = "http://127.0.0.1"
+    query_bodies: list[dict[str, object]] = []
+
+    def dispatch(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/_query"):
+            query_bodies.append(json.loads(request.content.decode("utf-8")))
+
+        async def send() -> httpx.Response:
+            async with httpx.AsyncClient(
+                base_url=base_url,
+                transport=httpx.ASGITransport(app=app),  # type: ignore[arg-type]
+            ) as forwarded:
+                response = await forwarded.request(
+                    request.method,
+                    str(request.url),
+                    headers=request.headers,
+                    content=request.content,
+                )
+                return httpx.Response(
+                    response.status_code,
+                    headers=response.headers,
+                    content=await response.aread(),
+                    request=request,
+                )
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            return executor.submit(asyncio.run, send()).result()
+
+    with httpx.Client(
+        base_url=base_url, transport=httpx.MockTransport(dispatch)
+    ) as transport:
+        client = TideApiClient(model, base_url, TOKEN, http_client=transport)
+        session = client.connect()
+        context = RequestContext(
+            Principal(session.principal, roles=frozenset(session.roles)),
+            channel=Channel.TUI,
+        )
+        records = RemoteRecordsService(model, client, session)
+
+        filtered = records.lookup_records(
+            "demo.Carrier",
+            ("name",),
+            "",
+            context,
+            source=("demo.Order", "carrier"),
+        )
+        assert [record["id"] for record in filtered] == [1, 2, 4]
+
+        unfiltered = records.lookup_records("demo.Carrier", ("name",), "", context)
+        assert len(unfiltered) == 4
+
+    assert query_bodies[0]["lookup_source"] == {
+        "entity": "demo.Order",
+        "field": "carrier",
+    }
+    assert "lookup_source" not in query_bodies[1]

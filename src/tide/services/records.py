@@ -384,8 +384,7 @@ class RecordsService:
     ) -> tuple[str, ...]:
         """The declared eligibility criteria for one reference edge.
 
-        The single reader of ``lookup_filter``: every picker resolves the
-        edge here and passes the result along, so the rule stays declared in
+        Every picker resolves the edge here, so the rule stays declared in
         one place. An undeclared edge answers with silence rather than an
         error -- callers may ask about any reference.
         """
@@ -399,6 +398,40 @@ class RecordsService:
         declared = field.metadata.get("lookup_filter")
         return (str(declared),) if declared else ()
 
+    def _resolve_lookup_source(
+        self, queried_entity: str, source: tuple[str, str]
+    ) -> tuple[str, ...]:
+        """Turn a query's reference edge into its declared criteria.
+
+        Raises ``QueryFieldError`` -- the caller-facing refusal every query
+        door already maps -- because a bad edge is a bad query, not a server
+        fault. The edge must point at the entity being queried: anything
+        else is a claim about some other picker's rows.
+        """
+
+        owner_name, field_name = source
+        try:
+            owner = self.model.entity(owner_name)
+        except (KeyError, ValueError) as error:
+            raise QueryFieldError(
+                f"unknown lookup source entity {owner_name!r}"
+            ) from error
+        if field_name not in owner.fields:
+            raise QueryFieldError(
+                f"unknown lookup source field {field_name!r}"
+            )
+        field = owner.field(field_name)
+        if field.metadata["type"] != "reference" or not field.target_entity:
+            raise QueryFieldError(
+                f"lookup source field {field_name!r} is not a reference"
+            )
+        if field.target_entity != queried_entity:
+            raise QueryFieldError(
+                f"lookup source {owner_name}.{field_name} does not target "
+                f"{queried_entity}"
+            )
+        return self.lookup_criteria(owner_name, field_name)
+
     def lookup_records(
         self,
         entity_name: str,
@@ -407,7 +440,7 @@ class RecordsService:
         context: RequestContext,
         *,
         limit: int = 20,
-        criteria: tuple[str, ...] = (),
+        source: tuple[str, str] | None = None,
     ) -> tuple[dict[str, Any], ...]:
         """Return a bounded secured lookup result, matching any search field."""
 
@@ -427,7 +460,7 @@ class RecordsService:
             return tuple(
                 self.query(
                     entity_name,
-                    QuerySpec(sort=sort, limit=limit, criteria=criteria),
+                    QuerySpec(sort=sort, limit=limit, lookup_source=source),
                     context,
                 )
             )
@@ -439,7 +472,7 @@ class RecordsService:
                     filters=(FilterCondition(field_name, "icontains", candidate),),
                     sort=sort,
                     limit=limit,
-                    criteria=criteria,
+                    lookup_source=source,
                 ),
                 context,
             )
@@ -591,6 +624,11 @@ class RecordsService:
                     f"{request.function} cannot summarize {field_type} "
                     f"field {request.field!r}"
                 )
+        criteria = (
+            self._resolve_lookup_source(entity_name, query.lookup_source)
+            if query.lookup_source is not None
+            else ()
+        )
         normalized_filters = tuple(
             _normalize_filter(self.model, entity, condition)
             for condition in query.filters
@@ -610,7 +648,7 @@ class RecordsService:
                 context.principal.identifier,
                 tuple(sorted(self.security.effective_permissions(context.principal))),
             ),
-            criteria=query.criteria,
+            criteria=criteria,
         )
         after: tuple[Any, ...] | None = None
         if query.cursor is not None:
@@ -636,7 +674,7 @@ class RecordsService:
             # not the principal's right to them.
             row_criteria=(
                 *self.security.row_criteria(entity_name, "list"),
-                *query.criteria,
+                *criteria,
             ),
             criteria_parameters=self.security.policy_parameters(context),
             relationships=self._relationship_plan(
@@ -690,7 +728,7 @@ class RecordsService:
                 query.summaries,
                 normalized_filters,
                 context,
-                criteria=query.criteria,
+                criteria=criteria,
             ),
         )
 

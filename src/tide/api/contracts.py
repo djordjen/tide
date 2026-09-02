@@ -145,6 +145,20 @@ class TideSummaryInput(BaseModel):
     function: TideSummaryFunction
 
 
+class TideLookupSourceInput(BaseModel):
+    """The reference edge a picker query serves.
+
+    Naming the edge -- rather than shipping conditions -- keeps the rule on
+    the server: it resolves the edge's declared lookup filter from its own
+    model and narrows the query. An edge with nothing declared is a no-op.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    entity: str = Field(min_length=1)
+    field: str = Field(min_length=1)
+
+
 class TideQueryInput(BaseModel):
     """Structured query body; values are normalized against entity metadata."""
 
@@ -155,6 +169,7 @@ class TideQueryInput(BaseModel):
     limit: int = Field(default=100, ge=1, le=500)
     cursor: str | None = Field(default=None, min_length=1)
     summaries: tuple[TideSummaryInput, ...] = ()
+    lookup_source: TideLookupSourceInput | None = None
 
 
 class TideDistinctInput(BaseModel):

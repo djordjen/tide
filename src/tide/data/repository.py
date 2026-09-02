@@ -66,11 +66,12 @@ class QuerySpec:
     cursor: str | None = None
     after: tuple[Any, ...] | None = field(default=None, repr=False, compare=False)
     summaries: tuple[SummaryRequest, ...] = ()
-    # Expression criteria resolved by the service from the model (a reference
-    # field's lookup_filter), never authored by a caller: they may name fields
-    # the requester cannot read, so they bypass the queryable-field gate and
-    # join the row criteria the repositories already evaluate.
-    criteria: tuple[str, ...] = ()
+    # The reference edge this query serves, as (owner entity, field name).
+    # The service resolves it to the edge's declared lookup_filter and
+    # narrows the query; expressions themselves never ride a QuerySpec, so
+    # a remote service can forward the edge and let the server's own model
+    # answer for the rule.
+    lookup_source: tuple[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
