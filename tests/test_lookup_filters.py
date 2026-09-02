@@ -31,6 +31,7 @@ from tide.runtime import (
     Principal,
     RequestContext,
 )
+from tide.runtime.errors import ValidationFailed
 from tide.services import RecordsService
 
 MANIFEST = (
@@ -202,7 +203,7 @@ def _context() -> RequestContext:
 @pytest.fixture(params=("memory", "sql"))
 def runtime(
     request: pytest.FixtureRequest, tmp_path: Path
-) -> Iterator[tuple[RecordsService, RequestContext]]:
+) -> Iterator[tuple[RecordsService, InMemoryRepository | SQLAlchemyRepository, RequestContext]]:
     model = compile_project(_project(tmp_path))
     if request.param == "memory":
         repository: InMemoryRepository | SQLAlchemyRepository = InMemoryRepository()
@@ -211,7 +212,7 @@ def runtime(
         repository.create_schema()
     repository.seed("demo.Carrier", CARRIERS)
     repository.seed("demo.Part", PARTS)
-    yield RecordsService(model, repository), _context()
+    yield RecordsService(model, repository), repository, _context()
     if isinstance(repository, SQLAlchemyRepository):
         repository.dispose()
 
@@ -248,7 +249,7 @@ def test_lookup_criteria_refuses_a_non_reference_edge(tmp_path: Path) -> None:
 def test_query_criteria_narrow_both_repositories(
     runtime: tuple[RecordsService, RequestContext],
 ) -> None:
-    records, context = runtime
+    records, _repository, context = runtime
 
     page = records.query_page(
         "demo.Carrier",
@@ -265,7 +266,7 @@ def test_query_criteria_narrow_both_repositories(
 def test_criteria_compose_with_ordinary_filters(
     runtime: tuple[RecordsService, RequestContext],
 ) -> None:
-    records, context = runtime
+    records, _repository, context = runtime
 
     page = records.query_page(
         "demo.Carrier",
@@ -286,7 +287,7 @@ def test_criteria_may_name_fields_the_requester_cannot_read(
     """The criterion is the model's rule, so field policies do not veto it --
     while the same field in a caller-authored filter is refused as ever."""
 
-    records, context = runtime
+    records, _repository, context = runtime
 
     page = records.query_page(
         "demo.Carrier",
@@ -309,7 +310,7 @@ def test_criteria_may_name_fields_the_requester_cannot_read(
 def test_cursor_pages_keep_the_criteria(
     runtime: tuple[RecordsService, RequestContext],
 ) -> None:
-    records, context = runtime
+    records, _repository, context = runtime
     criteria = records.lookup_criteria("demo.Order", "carrier")
 
     first = records.query_page(
@@ -345,7 +346,7 @@ def test_cursor_pages_keep_the_criteria(
 def test_lookup_records_threads_criteria(
     runtime: tuple[RecordsService, RequestContext],
 ) -> None:
-    records, context = runtime
+    records, _repository, context = runtime
     criteria = records.lookup_criteria("demo.Order", "carrier")
 
     browsing = records.lookup_records(
@@ -357,3 +358,171 @@ def test_lookup_records_threads_criteria(
         "demo.Carrier", ("name",), "Coastal", context, criteria=criteria
     )
     assert searching == ()
+
+
+# --- writes refuse newly chosen ineligible rows -------------------------------
+
+
+def _order(**overrides: object) -> dict[str, object]:
+    values: dict[str, object] = {"code": "O-1"}
+    values.update(overrides)
+    return values
+
+
+def test_create_refuses_an_ineligible_reference(
+    runtime: tuple[RecordsService, object, RequestContext],
+) -> None:
+    records, _repository, context = runtime
+    session = records.create("demo.Order", context, _order(carrier=3))
+
+    with pytest.raises(ValidationFailed) as failure:
+        records.commit(session, context)
+
+    issues = failure.value.issues
+    assert [(issue.rule, issue.severity, issue.fields) for issue in issues] == [
+        ("lookup_filter", "error", ("carrier",))
+    ]
+
+
+def test_create_accepts_an_eligible_reference(
+    runtime: tuple[RecordsService, object, RequestContext],
+) -> None:
+    records, _repository, context = runtime
+    session = records.create("demo.Order", context, _order(carrier=1))
+
+    stored = records.commit(session, context)
+
+    assert stored["carrier"] == 1
+
+
+def test_each_edge_applies_its_own_criterion(
+    runtime: tuple[RecordsService, object, RequestContext],
+) -> None:
+    """Baltic is active (fine for carrier) but silver: only the premium edge
+    refuses it."""
+
+    records, _repository, context = runtime
+    session = records.create(
+        "demo.Order", context, _order(carrier=2, premium_carrier=2)
+    )
+
+    with pytest.raises(ValidationFailed) as failure:
+        records.commit(session, context)
+
+    assert [(issue.rule, issue.fields) for issue in failure.value.issues] == [
+        ("lookup_filter", ("premium_carrier",))
+    ]
+
+
+def test_an_unchanged_stored_reference_never_refires(
+    runtime: tuple[RecordsService, object, RequestContext],
+) -> None:
+    """TIDE tolerates rows it did not write: an order already pointing at a
+    retired carrier stays editable as long as the pointer is not the edit."""
+
+    records, repository, context = runtime
+    repository.seed(  # type: ignore[union-attr]
+        "demo.Order",
+        [{"id": 1, "code": "O-9", "carrier": 3, "premium_carrier": None, "items": []}],
+    )
+
+    edit = records.begin_edit("demo.Order", 1, context)
+    edit.set("code", "O-9-renamed")
+    stored = records.commit(edit, context)
+
+    assert stored["code"] == "O-9-renamed"
+    assert stored["carrier"] == 3
+
+
+def test_changing_to_an_ineligible_reference_refuses(
+    runtime: tuple[RecordsService, object, RequestContext],
+) -> None:
+    records, repository, context = runtime
+    repository.seed(  # type: ignore[union-attr]
+        "demo.Order",
+        [{"id": 1, "code": "O-9", "carrier": 1, "premium_carrier": None, "items": []}],
+    )
+
+    edit = records.begin_edit("demo.Order", 1, context)
+    edit.set("carrier", 3)
+
+    with pytest.raises(ValidationFailed) as failure:
+        records.commit(edit, context)
+
+    assert [(issue.rule, issue.fields) for issue in failure.value.issues] == [
+        ("lookup_filter", ("carrier",))
+    ]
+
+
+def test_child_rows_are_gated_per_row(
+    runtime: tuple[RecordsService, object, RequestContext],
+) -> None:
+    records, _repository, context = runtime
+    session = records.create(
+        "demo.Order",
+        context,
+        _order(carrier=1, items=[{"label": "Fastening", "part": 2}]),
+    )
+
+    with pytest.raises(ValidationFailed) as failure:
+        records.commit(session, context)
+
+    assert [(issue.rule, issue.fields) for issue in failure.value.issues] == [
+        ("lookup_filter", ("part",))
+    ]
+
+
+def test_an_unchanged_child_reference_never_refires(
+    runtime: tuple[RecordsService, object, RequestContext],
+) -> None:
+    records, repository, context = runtime
+    repository.seed(  # type: ignore[union-attr]
+        "demo.Order",
+        [
+            {
+                "id": 1,
+                "code": "O-9",
+                "carrier": 1,
+                "premium_carrier": None,
+                "items": [{"id": 1, "label": "Fastening", "part": 2}],
+            }
+        ],
+    )
+
+    edit = records.begin_edit("demo.Order", 1, context)
+    edit.set("code", "O-9-renamed")
+    stored = records.commit(edit, context)
+
+    assert [item["part"] for item in stored["items"]] == [2]
+
+
+def test_changing_a_child_reference_to_an_ineligible_row_refuses(
+    runtime: tuple[RecordsService, object, RequestContext],
+) -> None:
+    from copy import deepcopy
+
+    records, repository, context = runtime
+    repository.seed(  # type: ignore[union-attr]
+        "demo.Order",
+        [
+            {
+                "id": 1,
+                "code": "O-9",
+                "carrier": 1,
+                "premium_carrier": None,
+                "items": [{"id": 1, "label": "Fastening", "part": 1}],
+            }
+        ],
+    )
+
+    edit = records.begin_edit("demo.Order", 1, context)
+    items = deepcopy(list(edit.values["items"]))
+    items[0]["part"] = 2
+    edit.set("items", items)
+
+    with pytest.raises(ValidationFailed) as failure:
+        records.commit(edit, context)
+
+    assert [(issue.rule, issue.fields) for issue in failure.value.issues] == [
+        ("lookup_filter", ("part",))
+    ]

@@ -46,6 +46,7 @@ from tide.runtime.errors import (
     AuthorizationError,
     ImmutableFieldError,
     InvalidQueryCursor,
+    NotFoundError,
     NullVersion,
     RelationshipExpansionLimit,
     ValidationFailed,
@@ -1046,6 +1047,7 @@ class RecordsService:
             raise ValidationFailed(derived_issues)
         issues = [
             *self._validate_entity(entity.name, values),
+            *self._reference_filter_issues(entity, session, values),
             *self._attachment_issues(entity, session, values, context),
         ]
         # Errors always refuse; a warning refuses until its rule id is in the
@@ -1530,6 +1532,73 @@ class RecordsService:
                 progressed = True
             if not progressed:
                 raise RuntimeError(f"computed dependency cycle in {entity_name}")
+
+    def _reference_filter_issues(
+        self,
+        entity: NormalizedEntity,
+        session: RecordSession,
+        values: dict[str, Any],
+    ) -> list[ValidationIssue]:
+        """Refuse newly chosen rows a reference's lookup_filter excludes.
+
+        Only the choosing moment is gated: a value that arrives unchanged
+        never re-fires, whoever wrote it -- TIDE tolerates rows it did not
+        write, and a history referencing a since-retired row stays editable.
+        A target that does not load keeps the repository's own behaviour;
+        eligibility is a question about rows that exist.
+        """
+
+        issues: list[ValidationIssue] = []
+        original: Mapping[str, Any] = {} if session.is_new else session.original
+        self._collect_reference_filter_issues(entity, values, original, issues)
+        return issues
+
+    def _collect_reference_filter_issues(
+        self,
+        entity: NormalizedEntity,
+        values: Mapping[str, Any],
+        original: Mapping[str, Any],
+        issues: list[ValidationIssue],
+    ) -> None:
+        for field_name, field in entity.fields.items():
+            metadata = field.metadata
+            if metadata["type"] == "reference" and field.target_entity:
+                declared = metadata.get("lookup_filter")
+                value = values.get(field_name)
+                if not declared or value is None:
+                    continue
+                if original.get(field_name) == value:
+                    continue
+                try:
+                    # A model-level read: eligibility is the model's rule
+                    # about the row, so the writer's row policies on the
+                    # target do not participate.
+                    target_row = self.repository.get(field.target_entity, value)
+                except NotFoundError:
+                    continue
+                if not evaluate_expression(str(declared), target_row):
+                    issues.append(
+                        ValidationIssue(
+                            "lookup_filter",
+                            f"{field_name} references a row its lookup filter excludes",
+                            (field_name,),
+                        )
+                    )
+            elif metadata["type"] == "collection" and field.target_entity:
+                child_entity = self.model.entity(field.target_entity)
+                child_key = _primary_key(child_entity)
+                original_children: dict[Any, Mapping[str, Any]] = {}
+                for item in original.get(field_name) or ():
+                    identity = item.get(child_key)
+                    if identity is not None:
+                        original_children[identity] = item
+                for item in values.get(field_name) or ():
+                    self._collect_reference_filter_issues(
+                        child_entity,
+                        item,
+                        original_children.get(item.get(child_key), {}),
+                        issues,
+                    )
 
     def _validate_entity(
         self,
