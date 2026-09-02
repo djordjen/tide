@@ -170,7 +170,8 @@ ORDER_EDIT = (
     "  rows:\n"
     "  - - code\n"
     "    - carrier\n"
-    "  - - fallback_carrier\n"
+    "  - - premium_carrier\n"
+    "    - fallback_carrier\n"
     "fields:\n"
     "  carrier: {editor: lookup}\n"
     "  fallback_carrier: {editor: lookup}\n"
@@ -781,3 +782,137 @@ def test_the_manifest_names_the_edge_only_where_a_filter_is_declared(
         "field": "carrier",
     }
     assert lookups[("demo.Order", "fallback_carrier")] is None
+
+
+# --- the doors: the terminal --------------------------------------------------
+
+
+def _tui_app(tmp_path: Path) -> object:
+    from tide.tui import TideApp
+
+    model = compile_project(_project(tmp_path))
+    repository = InMemoryRepository()
+    repository.seed("demo.Carrier", CARRIERS)
+    repository.seed("demo.Part", PARTS)
+    # Baltic (2) is active but silver: eligible for ``carrier``, stored-but-
+    # ineligible for ``premium_carrier`` -- the select editor must keep it
+    # offerable instead of crashing on a value outside its option list.
+    repository.seed(
+        "demo.Order",
+        [
+            {
+                "id": 1,
+                "code": "O-1",
+                "carrier": 1,
+                "premium_carrier": 2,
+                "fallback_carrier": None,
+                "items": [],
+            }
+        ],
+    )
+    records = RecordsService(model, repository)
+    context = RequestContext(
+        Principal("tui:test", roles=frozenset({"operator"})),
+        channel=Channel.TUI,
+        correlation_id="filtered-lookups-tui",
+    )
+    return TideApp(model, records, context)
+
+
+def _order_form_ready(app: object) -> bool:
+    from tide.tui.form import RecordEditScreen
+
+    screen = app.screen  # type: ignore[attr-defined]
+    return isinstance(screen, RecordEditScreen) and bool(
+        screen.query("#field-premium_carrier")
+    )
+
+
+def test_tui_select_editor_narrows_and_keeps_the_stored_row(
+    tmp_path: Path,
+) -> None:
+    import asyncio
+
+    from textual.widgets import Select
+
+    from textual_support import wait_until
+
+    app = _tui_app(tmp_path)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:  # type: ignore[attr-defined]
+            await pilot.pause()
+            await wait_until(
+                pilot,
+                lambda: bool(app.screen.query("#records")),  # type: ignore[attr-defined]
+                description="the browse table",
+            )
+            app.open_record(1)  # type: ignore[attr-defined]
+            await wait_until(
+                pilot,
+                lambda: _order_form_ready(app),
+                description="the order form",
+            )
+            select = app.screen.query_one(  # type: ignore[attr-defined]
+                "#field-premium_carrier", Select
+            )
+            offered = {value for _label, value in select._options}
+            # Coastal (3) fails the active half and never appears; Baltic (2)
+            # fails the tier half but is the stored value, so it stays.
+            assert 3 not in offered
+            assert {1, 2, 4} <= offered
+            assert select.value == 2
+
+    asyncio.run(exercise())
+
+
+def test_tui_lookup_dialog_excludes_ineligible_rows(tmp_path: Path) -> None:
+    import asyncio
+
+    from textual.widgets import DataTable
+
+    from textual_support import wait_until
+
+    from tide.tui.lookup import LookupField, LookupScreen
+
+    app = _tui_app(tmp_path)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:  # type: ignore[attr-defined]
+            await pilot.pause()
+            await wait_until(
+                pilot,
+                lambda: bool(app.screen.query("#records")),  # type: ignore[attr-defined]
+                description="the browse table",
+            )
+            app.open_record(1)  # type: ignore[attr-defined]
+            await wait_until(
+                pilot,
+                lambda: _order_form_ready(app),
+                description="the order form",
+            )
+            form = app.screen  # type: ignore[attr-defined]
+            editor = form.query_one("#field-carrier", LookupField)
+            editor.focus()
+            await pilot.press("space")
+
+            def dialog_listed() -> bool:
+                screen = app.screen  # type: ignore[attr-defined]
+                if not isinstance(screen, LookupScreen):
+                    return False
+                tables = screen.query("#lookup-results")
+                return bool(tables) and tables.first(DataTable).row_count > 0
+
+            await wait_until(
+                pilot, dialog_listed, description="the filtered lookup rows"
+            )
+            results = app.screen.query_one(  # type: ignore[attr-defined]
+                "#lookup-results", DataTable
+            )
+            names = {
+                str(results.get_row_at(index)[0])
+                for index in range(results.row_count)
+            }
+            assert names == {"Anchor", "Baltic", "Duna"}
+
+    asyncio.run(exercise())

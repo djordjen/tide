@@ -421,8 +421,10 @@ def test_a_runnable_proposal_is_one_the_tui_can_actually_open(
     # A reference with no lookup view cannot be picked: the form reports
     # "No lookup view is configured" and the field is dead. Naming the view is
     # only half of it -- the editor defaults to a select over the first 500
-    # target rows, which cannot hold a legacy table and raises
-    # InvalidSelectValueError outright when the stored key is not among them.
+    # target rows, which cannot hold a legacy table. (A stored key outside
+    # that window kept the whole screen from opening until the select learned
+    # to keep the stored row offerable; the window itself still makes lookup
+    # the only usable editor here.)
     edit = model.views["legacy.CustomerMaster.edit"]
     configured = edit.data["fields"]["owner_employee_no"]
     assert configured["editor"] == "lookup"

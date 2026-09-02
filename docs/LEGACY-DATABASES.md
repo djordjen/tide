@@ -330,9 +330,10 @@ are declared separately per operation so any of them can be taken away.
 The reference wiring is not decoration, and it is two settings rather than one.
 Without `lookup_view` the form answers `No lookup view is configured for …` and
 the value cannot be set at all; without `editor: lookup` the field renders as a
-select over the first 500 rows of the target table, which is both useless on a
-legacy table and fatal — a stored key outside that window raises
-`InvalidSelectValueError` and takes the whole screen down.
+select over the first 500 rows of the target table — a picker in name only on
+a legacy table of any size. (A stored key outside that window used to raise
+`InvalidSelectValueError` and take the whole screen down; the select now keeps
+the stored row offerable, so the failure is merely a uselessly long list.)
 
 Browse and lookup views carry every field, display column first. A wide legacy
 table makes a wide view, which is easier to read and delete from than a short

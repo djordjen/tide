@@ -155,6 +155,7 @@ class LookupScreen(ModalScreen[dict[str, Any] | None]):
         view: ResolvedView,
         *,
         create_view: ResolvedView | None = None,
+        source: tuple[str, str] | None = None,
     ) -> None:
         super().__init__()
         self.model = model
@@ -162,6 +163,9 @@ class LookupScreen(ModalScreen[dict[str, Any] | None]):
         self.actions = actions
         self.context = context
         self.view = view
+        # The reference edge this dialog serves: the service narrows the
+        # rows by the edge's declared lookup filter, here and in remote mode.
+        self.source = source
         self.entity = model.entity(view.entity)
         self.create_view = create_view
         self.can_create = bool(
@@ -287,6 +291,7 @@ class LookupScreen(ModalScreen[dict[str, Any] | None]):
                 search_text,
                 self.context,
                 limit=self.page_size,
+                source=self.source,
             )
         except (TideRuntimeError, ValueError) as error:
             self._records = ()

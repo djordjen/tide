@@ -434,7 +434,7 @@ class RecordEditScreen(Screen[Any]):
         # two collections may both call a field `product`, and the option list
         # depends only on what it points at -- which also means one query
         # serves every field aimed at the same target.
-        self._reference_options: dict[str, tuple[tuple[str, Any], ...]] = {}
+        self._reference_options: dict[tuple[str, str], tuple[tuple[str, Any], ...]] = {}
         self._reference_records: dict[str, dict[Any, dict[str, Any]]] = {}
         self._editors: dict[str, Editor] = {}
         self._pending_conflict: RecordConflict | None = None
@@ -943,8 +943,18 @@ class RecordEditScreen(Screen[Any]):
                     id=widget_id,
                     classes="editable-value",
                 )
+            owner = view.entity or self.entity.name
+            options = self._reference_options.get((owner, field.name), ())
+            if value is not None and all(
+                option_value != value for _label, option_value in options
+            ):
+                # The stored key stays offerable whatever excluded it -- the
+                # lookup filter, the 500-row window, or a row TIDE did not
+                # write -- because Textual's Select refuses a value outside
+                # its option list by taking the whole screen down.
+                options = (*options, (self._reference_display(field, value), value))
             return FormSelect(
-                self._reference_options.get(field.target_entity, ()),
+                options,
                 value=value if value is not None else Select.NULL,
                 allow_blank=True,
                 id=widget_id,
@@ -1084,36 +1094,42 @@ class RecordEditScreen(Screen[Any]):
                 editor.value = ""
 
     def _load_reference_options(self) -> None:
-        fields = [(self.entity.field(name), self.view) for name in self.scalar_fields]
+        fields = [
+            (self.entity.name, self.entity.field(name), self.view)
+            for name in self.scalar_fields
+        ]
         for pane in self.collections.values():
             fields.extend(
-                (pane.entity.field(name), pane.inline_view)
+                (pane.entity.name, pane.entity.field(name), pane.inline_view)
                 for name in pane.editor_fields
             )
-        for field, view in fields:
+        for owner_name, field, view in fields:
             if field.metadata["type"] != "reference" or not field.target_entity:
                 continue
-            if field.target_entity in self._reference_options:
+            # Options are cached per edge, not per target: two references to
+            # one entity may narrow differently, and the edge is what the
+            # service resolves the declared lookup filter from.
+            edge = (owner_name, field.name)
+            if edge in self._reference_options:
                 continue
             if self._reference_editor(field.name, view) == "lookup":
                 continue
             try:
                 page = self.records.query_page(
                     field.target_entity,
-                    QuerySpec(limit=500),
+                    QuerySpec(limit=500, lookup_source=edge),
                     self.context,
                 )
             except TideRuntimeError:
                 continue
             target = self.model.entity(field.target_entity)
             key = _primary_key(target)
-            options = tuple(
+            self._reference_options[edge] = tuple(
                 (_record_title(target, record), record[key]) for record in page.records
             )
-            self._reference_options[field.target_entity] = options
-            self._reference_records[field.target_entity] = {
-                record[key]: record for record in page.records
-            }
+            known = self._reference_records.setdefault(field.target_entity, {})
+            for record in page.records:
+                known.setdefault(record[key], record)
 
     def _open_lookup(self, editor: LookupField) -> None:
         prefix, collection, field_name = _editor_identity(editor.id)
@@ -1145,6 +1161,7 @@ class RecordEditScreen(Screen[Any]):
                 self.context,
                 self.model.views[lookup_name],
                 create_view=self._reference_create_view(field.name, view),
+                source=(entity.name, field.name),
             ),
             lambda result: self._lookup_selected(editor, field, pane, result),
         )
