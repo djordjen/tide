@@ -303,6 +303,36 @@ the runtime shows **New** only when the principal also has entity create access.
 Nested creation commits the referenced record independently, then returns it to
 the parent draft through the ordinary lookup-selection and `on_select` path.
 
+A reference may declare which target rows are eligible to be chosen:
+
+```yaml
+product:
+  type: reference
+  target: catalog.Product
+  lookup_view: catalog.Product.lookup
+  lookup_filter: active == true
+```
+
+`lookup_filter` is one boolean expression over the **target** entity's fields
+— the ordinary expression language, validated at compile time against the
+target, with `$` parameters refused (the criterion is static; it cannot see
+the caller or the draft). It is enforced in two places from the one
+declaration. Every picker narrows by it: the terminal's select and lookup
+editors, the browser's lookup dialog, and remote mode, all of which name the
+reference edge on their queries and let the server resolve the rule from its
+own model. And the commit refuses a **newly chosen** row the criterion
+excludes, whichever surface or API call chose it, with an ordinary
+field-scoped validation error.
+
+What the filter never does is re-litigate history. A stored reference that
+arrives unchanged in an edit is not re-checked — an invoice whose line names
+a since-retired product stays readable and editable, and the stored value
+still renders through the ordinary reference display. This is the same
+stance TIDE takes toward rows it did not write. It is also the difference
+from a row policy: a row policy hides rows from a principal everywhere,
+while a lookup filter only narrows what may be *newly chosen* for one field,
+leaving the target's own browse untouched.
+
 Workflow invariants remain developer-owned entity metadata. For example:
 
 ```yaml

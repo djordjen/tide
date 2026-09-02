@@ -68,6 +68,9 @@ The v0.1 compiler checks:
   (`TIDE251-256`);
 - reference editor modes, lookup-view target compatibility, and type-safe
   `on_select` draft assignments;
+- `lookup_filter` declarations: reference fields only (`TIDE293`), with the
+  expression validated as a boolean over the *target* entity's fields and
+  `$` parameters refused;
 - explicit inline-editor layouts: each row has at most two fields, every
   editable column appears exactly once, and computed, read-only, or hidden
   fields cannot be placed in the editor;
