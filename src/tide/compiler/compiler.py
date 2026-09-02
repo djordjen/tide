@@ -1502,6 +1502,29 @@ def _validate_entities(
                     diagnostics,
                     expected_type="boolean",
                 )
+            if field.lookup_filter is not None:
+                if field.type != "reference":
+                    _add(
+                        diagnostics,
+                        "TIDE293",
+                        "only reference fields may declare lookup_filter",
+                        document,
+                        (*field_path, "lookup_filter"),
+                    )
+                elif field.target and field.target in entities:
+                    # The criterion is a claim about the target's rows, so it
+                    # validates against the target entity -- and with no
+                    # declared parameters, which is the static gate: a ``$``
+                    # binding stays refused until a slice gives it a meaning.
+                    _validate_expression_at(
+                        field.lookup_filter,
+                        entities[field.target],
+                        entities,
+                        document,
+                        (*field_path, "lookup_filter"),
+                        diagnostics,
+                        expected_type="boolean",
+                    )
             if field.generated_by:
                 _validate_handler_reference(
                     field.generated_by,

@@ -1528,3 +1528,111 @@ def test_size_and_accept_belong_to_file_fields_alone(tmp_path: Path) -> None:
         )
 
     assert "TIDE291" in _codes(caught.value)
+
+
+def test_lookup_filter_is_validated_against_the_target(tmp_path: Path) -> None:
+    project = tmp_path / "invalid-lookup-filter"
+    models = project / "models"
+    models.mkdir(parents=True)
+    (project / "tide.yaml").write_text(
+        '\n'.join(
+            [
+                'schema_version: "0.1"',
+                'application: {name: Invalid Lookup Filter, version: 0.1.0}',
+                'model: {paths: [models]}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (models / "product.yaml").write_text(
+        '\n'.join(
+            [
+                'entity: demo.Product',
+                'fields:',
+                '  id: {type: integer, primary_key: true}',
+                '  name: {type: string}',
+                '  active: {type: boolean}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (models / "line.yaml").write_text(
+        '\n'.join(
+            [
+                'entity: demo.Line',
+                'fields:',
+                '  id: {type: integer, primary_key: true}',
+                # Not a reference: the declaration itself is refused.
+                '  note: {type: string, lookup_filter: "active == true"}',
+                # The expression is a claim about the TARGET entity, so an
+                # owner-side field name must not resolve.
+                '  product:',
+                '    type: reference',
+                '    target: demo.Product',
+                '    lookup_filter: "retired == true"',
+                # Static criteria: parameters are refused at compile time.
+                '  backup:',
+                '    type: reference',
+                '    target: demo.Product',
+                '    lookup_filter: "$role == \'clerk\'"',
+                # A criterion is a boolean question, not a projection.
+                '  alternate:',
+                '    type: reference',
+                '    target: demo.Product',
+                '    lookup_filter: "name"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CompilationFailed) as caught:
+        compile_project(project)
+
+    assert {"TIDE293", "TIDE303", "TIDE304", "TIDE307"} <= _codes(caught.value)
+
+
+def test_lookup_filter_compiles_onto_the_reference_metadata(tmp_path: Path) -> None:
+    project = tmp_path / "valid-lookup-filter"
+    models = project / "models"
+    models.mkdir(parents=True)
+    (project / "tide.yaml").write_text(
+        '\n'.join(
+            [
+                'schema_version: "0.1"',
+                'application: {name: Valid Lookup Filter, version: 0.1.0}',
+                'model: {paths: [models]}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (models / "product.yaml").write_text(
+        '\n'.join(
+            [
+                'entity: demo.Product',
+                'fields:',
+                '  id: {type: integer, primary_key: true}',
+                '  name: {type: string}',
+                '  active: {type: boolean}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (models / "line.yaml").write_text(
+        '\n'.join(
+            [
+                'entity: demo.Line',
+                'fields:',
+                '  id: {type: integer, primary_key: true}',
+                '  product:',
+                '    type: reference',
+                '    target: demo.Product',
+                '    lookup_filter: "active == true"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    model = compile_project(project)
+
+    field = model.entity("demo.Line").field("product")
+    assert field.metadata["lookup_filter"] == "active == true"

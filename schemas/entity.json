@@ -727,6 +727,18 @@
           "default": null,
           "title": "Lookup View"
         },
+        "lookup_filter": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lookup Filter"
+        },
         "on_select": {
           "anyOf": [
             {

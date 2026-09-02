@@ -233,6 +233,7 @@ class FieldSource(SourceModel):
     inverse: str | None = None
     on_delete: Literal["restrict", "cascade", "set_null"] | None = None
     lookup_view: str | None = None
+    lookup_filter: str | None = None
     on_select: SelectionSource | None = None
     order_by: str | None = None
     cascade: tuple[Literal["create", "update", "delete"], ...] = ()

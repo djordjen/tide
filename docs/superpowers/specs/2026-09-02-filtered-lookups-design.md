@@ -22,8 +22,10 @@ product:
 - `$` parameters are refused at compile time — that is the static gate, and
   the door left open: a later slice can admit `$this.<field>` bindings
   without changing the key or the grammar.
-- Globals keep parity with row-policy criteria (`today` works: eligibility
-  windows such as `valid_until >= today` are legitimate static criteria).
+- No globals either: the criterion sees exactly what `immutable_when`
+  sees — the (target) entity's fields and literals. A `today`-style global
+  does not exist in the entity expression language, so date-window
+  eligibility stays out until the language itself gains one.
 - Anything the expression language can translate for a row policy it can
   translate here; there is deliberately no second grammar.
 
