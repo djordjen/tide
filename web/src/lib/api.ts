@@ -884,6 +884,10 @@ export class TideApi {
             ],
             limit: lookup.page_size,
             cursor: null,
+            // Echoed verbatim from the manifest; spread so a contract
+            // without a source produces a body with no such key, which is
+            // what a server from before the edge existed will accept.
+            ...(lookup.source ? { lookup_source: lookup.source } : {}),
           } satisfies TideQueryInput),
         },
         signal,

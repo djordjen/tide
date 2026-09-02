@@ -1048,3 +1048,39 @@ test("weighs a large-quantity warning and saves anyway", async ({ page }) => {
   await expect(created).toContainText("42,500.00")
   await expect(created).toContainText("Draft")
 })
+
+test("a retired product leaves the picker but not its own browse", async ({
+  page,
+}) => {
+  const code = unique("RET")
+  await signIn(page)
+
+  // A product born retired: Active is a form control, so the journey's
+  // subject is never pickable to begin with.
+  await page.getByRole("button", { name: "Products" }).click()
+  await page.getByRole("button", { name: "New" }).click()
+  await page.getByRole("textbox", { name: "Code" }).fill(code)
+  await page.getByRole("textbox", { name: "Name" }).fill(`${code} Relic`)
+  await page.getByRole("textbox", { name: "Unit Price" }).fill("5.00")
+  await page.getByRole("checkbox", { name: "Active" }).uncheck()
+  await page.getByRole("button", { name: "Save", exact: true }).click()
+  // The conversion's point: a retired product still stands in its own
+  // browse. The old row policy would have swallowed the row on save.
+  await expect(createdRow(page)).toContainText(code)
+
+  // The line dialog narrows on the server by the declared lookup filter:
+  // the retired product answers nothing while the live catalog still does.
+  await page.getByRole("button", { name: "Invoices" }).click()
+  await page.getByRole("button", { name: "New" }).click()
+  await page.getByRole("button", { name: "Add Line" }).click()
+  await page.getByRole("button", { name: "Select Product" }).click()
+  const products = page.getByRole("dialog", { name: "Select Product" })
+  const search = products.getByRole("textbox", {
+    name: "Search lookup records",
+  })
+  await search.fill(code)
+  await expect(products.getByText("No matching records")).toBeVisible()
+  await search.fill("Consulting")
+  await expect(products.getByRole("row", { name: /CONS/ })).toBeVisible()
+  await products.getByRole("button", { name: "Close lookup" }).click()
+})

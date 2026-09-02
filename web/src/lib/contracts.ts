@@ -190,6 +190,11 @@ export interface TidePresentationColumn {
   values: readonly TideValueLabel[]
 }
 
+export interface TideLookupSource {
+  entity: string
+  field: string
+}
+
 export interface TidePresentationLookup {
   view: string
   title: string
@@ -205,6 +210,13 @@ export interface TidePresentationLookup {
   page_size: number
   operations: TideOperation[]
   create_view: string | null
+  /**
+   * Present only when the reference declares a lookup filter: echo it as
+   * `lookup_source` on every query this contract names. When absent, send
+   * nothing -- an older server forbids keys it does not know. Optional for
+   * version skew: an older server omits the field entirely.
+   */
+  source?: TideLookupSource | null
 }
 
 export interface TidePresentationFormField
@@ -595,6 +607,8 @@ export interface TideQueryInput {
   limit: number
   cursor: string | null
   summaries?: TideSummaryRequest[]
+  /** The reference edge a picker query serves; omit entirely when none. */
+  lookup_source?: TideLookupSource
 }
 
 export interface TideConnection {

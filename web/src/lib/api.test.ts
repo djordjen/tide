@@ -155,3 +155,83 @@ async function withBasePath<T>(
 function viewWithQueryPath(queryPath: string): TideBrowsePresentation {
   return { query_path: queryPath } as unknown as TideBrowsePresentation
 }
+
+describe("a lookup dialog's query", () => {
+  // The manifest's `source` is the marching order: echo it verbatim so the
+  // server narrows the rows by the edge's declared lookup filter. Its
+  // absence is equally load-bearing -- an older server forbids unknown
+  // keys, so a contract without a source must produce the body the client
+  // always sent.
+  const lookupContract = (
+    source: { entity: string; field: string } | null,
+  ) => ({
+    view: "catalog.Product.lookup",
+    title: "Select Product",
+    owner_entity: "sales.InvoiceLine",
+    field: "product",
+    target_entity: "catalog.Product",
+    resource_path: "/api/v1/products",
+    query_path: "/api/v1/products/_query",
+    selection_path: "/api/v1/_tide/reference-selection",
+    identity_field: "id",
+    columns: [
+      {
+        name: "code",
+        label: "Code",
+        field_type: "string",
+        alignment: "left" as const,
+        format: null,
+        format_options: null,
+        target_entity: null,
+        reference: null,
+        values: [],
+      },
+    ],
+    search_fields: ["code"],
+    page_size: 20,
+    operations: ["list" as const, "get" as const],
+    create_view: null,
+    source,
+  })
+
+  const captureQueryBodies = () => {
+    const bodies: Record<string, unknown>[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init?: RequestInit) => {
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+        return Promise.resolve(
+          new Response('{"records":[],"next_cursor":null}', {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+      }),
+    )
+    return bodies
+  }
+
+  it("echoes the manifest's source on every query it issues", async () => {
+    const bodies = captureQueryBodies()
+
+    await new TideApi("token").searchLookup(
+      lookupContract({ entity: "sales.InvoiceLine", field: "product" }),
+      "",
+    )
+
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0].lookup_source).toEqual({
+      entity: "sales.InvoiceLine",
+      field: "product",
+    })
+  })
+
+  it("sends no lookup_source key when the manifest names none", async () => {
+    const bodies = captureQueryBodies()
+
+    await new TideApi("token").searchLookup(lookupContract(null), "")
+
+    expect(bodies).toHaveLength(1)
+    expect("lookup_source" in bodies[0]).toBe(false)
+  })
+})
