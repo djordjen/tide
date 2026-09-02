@@ -92,6 +92,7 @@ ORDER = (
     "entity: demo.Order\n"
     "display: code\n"
     "expose:\n"
+    "  tui: true\n"
     "  rest:\n"
     "    path: orders\n"
     "    operations: [list, get, create, update]\n"
@@ -111,6 +112,11 @@ ORDER = (
     "    target: demo.Carrier\n"
     "    storage: premium_carrier_id\n"
     "    lookup_filter: \"active == true and tier == 'gold'\"\n"
+    "  fallback_carrier:\n"
+    "    type: reference\n"
+    "    target: demo.Carrier\n"
+    "    storage: fallback_carrier_id\n"
+    "    lookup_view: demo.Carrier.lookup\n"
     "  items:\n"
     "    type: collection\n"
     "    target: demo.Item\n"
@@ -148,6 +154,13 @@ CARRIER_LOOKUP = (
     "search: [name]\n"
 )
 
+ORDER_BROWSE = (
+    "view: demo.Order.browse\n"
+    "entity: demo.Order\n"
+    "kind: browse\n"
+    "columns: [code]\n"
+)
+
 ORDER_EDIT = (
     "view: demo.Order.edit\n"
     "entity: demo.Order\n"
@@ -157,8 +170,10 @@ ORDER_EDIT = (
     "  rows:\n"
     "  - - code\n"
     "    - carrier\n"
+    "  - - fallback_carrier\n"
     "fields:\n"
     "  carrier: {editor: lookup}\n"
+    "  fallback_carrier: {editor: lookup}\n"
 )
 
 CARRIERS = [
@@ -184,6 +199,7 @@ def _project(tmp_path: Path) -> Path:
         ("models/order.yaml", ORDER),
         ("models/item.yaml", ITEM),
         ("views/carrier-lookup.yaml", CARRIER_LOOKUP),
+        ("views/order-browse.yaml", ORDER_BROWSE),
         ("views/order-edit.yaml", ORDER_EDIT),
     ):
         target = project / relative
@@ -732,3 +748,36 @@ def test_remote_lookup_forwards_the_edge_and_omits_it_when_absent(
         "field": "carrier",
     }
     assert "lookup_source" not in query_bodies[1]
+
+
+def test_the_manifest_names_the_edge_only_where_a_filter_is_declared(
+    tmp_path: Path,
+) -> None:
+    """The lookup contract's ``source`` is the dialog's marching order: echo
+    it on every query. Its absence is equally load-bearing -- it is how a
+    client knows not to send a key an older server would refuse."""
+
+    _model, app = _api_app(tmp_path)
+
+    response = _rest(app, "GET", "/api/v1/_tide/presentation")
+    assert response.status_code == 200  # type: ignore[attr-defined]
+
+    lookups: dict[tuple[str, str], object] = {}
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            if "owner_entity" in node and "query_path" in node:
+                lookups[(node["owner_entity"], node["field"])] = node.get("source")
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(response.json())  # type: ignore[attr-defined]
+
+    assert lookups[("demo.Order", "carrier")] == {
+        "entity": "demo.Order",
+        "field": "carrier",
+    }
+    assert lookups[("demo.Order", "fallback_carrier")] is None

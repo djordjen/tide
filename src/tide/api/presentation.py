@@ -21,6 +21,7 @@ from tide.api.contracts import (
     TidePresentationNamedFilter,
     TidePresentationNavigationGroup,
     TidePresentationNavigationItem,
+    TideLookupSource,
     TidePresentationLookup,
     TidePresentationReference,
     TidePresentationReport,
@@ -871,6 +872,11 @@ def _lookup_contract(
         title=f"Select {_record_label(target)}",
         owner_entity=owner.name,
         field=field.name,
+        source=(
+            TideLookupSource(entity=owner.name, field=field.name)
+            if field.metadata.get("lookup_filter")
+            else None
+        ),
         target_entity=target.name,
         resource_path=root_path,
         query_path=f"{root_path}/_query",

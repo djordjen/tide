@@ -477,6 +477,7 @@ def test_server_requires_bearer_auth_and_withholds_its_description() -> None:
             "page_size": 20,
             "operations": ["list", "get", "create", "update", "delete"],
             "create_view": "crm.Customer.edit",
+            "source": None,
         }
         product_fields = manifest["forms"]["catalog.Product.edit"]["fields"]
         assert {

@@ -145,7 +145,7 @@ class TideSummaryInput(BaseModel):
     function: TideSummaryFunction
 
 
-class TideLookupSourceInput(BaseModel):
+class TideLookupSource(BaseModel):
     """The reference edge a picker query serves.
 
     Naming the edge -- rather than shipping conditions -- keeps the rule on
@@ -169,7 +169,7 @@ class TideQueryInput(BaseModel):
     limit: int = Field(default=100, ge=1, le=500)
     cursor: str | None = Field(default=None, min_length=1)
     summaries: tuple[TideSummaryInput, ...] = ()
-    lookup_source: TideLookupSourceInput | None = None
+    lookup_source: TideLookupSource | None = None
 
 
 class TideDistinctInput(BaseModel):
@@ -566,6 +566,10 @@ class TidePresentationLookup(BaseModel):
     page_size: int = Field(ge=1, le=500)
     operations: tuple[TideOperation, ...] = ()
     create_view: str | None = None
+    source: TideLookupSource | None = None
+    """Present only when the edge declares a lookup filter: the client echoes
+    it as ``lookup_source`` on every query this contract names, and its
+    absence tells the client not to send a key an older server would refuse."""
 
     @model_validator(mode="after")
     def lookup_configuration_is_consistent(

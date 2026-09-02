@@ -17,7 +17,7 @@ from tide.api.contracts import (
     TideAuditHistory,
     TideDistinctInput,
     TideFilterInput,
-    TideLookupSourceInput,
+    TideLookupSource,
     TidePresentationManifest,
     TideQueryInput,
     TideReferenceSelectionInput,
@@ -313,7 +313,7 @@ class TideApiClient:
                 for item in query.summaries
             ),
             lookup_source=(
-                TideLookupSourceInput(
+                TideLookupSource(
                     entity=query.lookup_source[0],
                     field=query.lookup_source[1],
                 )
