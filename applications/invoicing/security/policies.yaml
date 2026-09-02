@@ -74,10 +74,10 @@ row_policies:
     operations: [list, read]
     criteria: "active == true"
 
-  - id: active_products
-    entity: catalog.Product
-    operations: [list, read]
-    criteria: "active == true"
+  # Products deliberately carry no such policy: eligibility for NEW lines is
+  # the lookup_filter on sales.InvoiceLine.product, so a retired product
+  # stays visible in its own browse (and reactivatable) while no new line
+  # can pick it. The customer policy above stays as the row-policy showcase.
 
 field_policies:
   - entity: sales.Invoice

@@ -206,38 +206,42 @@ def test_delete_permission_fails_closed(runtime) -> None:
 
 
 def test_delete_row_policy_fails_closed(runtime) -> None:
+    # The specimen policy is active_customers: products traded their row
+    # policy for a lookup_filter on the referencing edge, so customers are
+    # where a shipped read policy can be extended to cover delete.
     model, repository, _, _ = runtime
     policies = [deep_thaw(policy) for policy in model.row_policies]
-    active_products = next(
-        policy for policy in policies if policy["id"] == "active_products"
+    active_customers = next(
+        policy for policy in policies if policy["id"] == "active_customers"
     )
-    active_products["operations"].append("delete")
+    active_customers["operations"].append("delete")
     secured_model = replace(
         model,
         row_policies=tuple(immutable_mapping(policy) for policy in policies),
     )
     records = RecordsService(secured_model, repository)
     repository.seed(
-        "catalog.Product",
+        "crm.Customer",
         [
             {
-                "id": 2,
-                "code": "INACTIVE",
-                "name": "Inactive product",
-                "unit_price": Decimal("1.00"),
+                "id": 9,
+                "code": "DORMANT",
+                "name": "Dormant customer",
+                "email": None,
                 "active": False,
+                "invoices": [],
             }
         ],
     )
 
     with pytest.raises(AuthorizationError):
         records.delete(
-            "catalog.Product",
-            2,
+            "crm.Customer",
+            9,
             context("user:clerk", "sales_clerk"),
         )
 
-    assert repository.exists("catalog.Product", 2)
+    assert repository.exists("crm.Customer", 9)
 
 
 def _model_granting_invoice_delete(model):

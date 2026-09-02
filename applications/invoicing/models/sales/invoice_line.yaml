@@ -56,6 +56,11 @@ fields:
     required: true
     on_delete: restrict
     lookup_view: catalog.Product.lookup
+    # Retired products may not be put on new lines, while lines that already
+    # hold one stay readable and editable. The blunt version of this rule was
+    # a row policy hiding inactive products from every read -- including the
+    # products browse where someone would go to reactivate them.
+    lookup_filter: active == true
     on_select:
       assign:
         description: {from: name, overwrite: always}

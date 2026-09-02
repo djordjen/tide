@@ -255,8 +255,11 @@ def test_a_collection_child_resolves_its_own_references(
 
     assert [line["product"] for line in invoice["lines"]] == [1, 2]
     assert displays.display("catalog.Product", 1) == "CONS - Consulting"
-    # Product 2 is inactive, and products carry the same read policy.
-    assert displays.display("catalog.Product", 2) is None
+    # Product 2 is inactive and READABLE: retirement is a lookup_filter on
+    # the referencing edge now, not a read policy, so the historical line
+    # names its product instead of showing a withheld display. The
+    # policy-hidden case stays covered by the customer assertions above.
+    assert displays.display("catalog.Product", 2) == "GONE - Retired"
 
 
 def test_resolving_a_page_costs_one_select_per_target_entity(
