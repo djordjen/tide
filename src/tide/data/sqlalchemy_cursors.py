@@ -265,6 +265,7 @@ def _serialize_state(state: CursorState) -> str:
                     state.shape.principal[0],
                     list(state.shape.principal[1]),
                 ],
+                "criteria": list(state.shape.criteria),
             },
             "values": list(state.values),
         }
@@ -288,6 +289,13 @@ def _deserialize_state(value: str) -> CursorState:
         raise ValueError("cursor principal is invalid")
     if not all(isinstance(permission, str) for permission in principal[1]):
         raise ValueError("cursor permissions are invalid")
+    # Absent in rows stored before criteria existed: those deserialize to an
+    # empty tuple and fail the shape comparison rather than the parse.
+    criteria = shape.get("criteria", [])
+    if not isinstance(criteria, list) or not all(
+        isinstance(item, str) for item in criteria
+    ):
+        raise ValueError("cursor criteria are invalid")
     values = _required_sequence(payload, "values")
     return CursorState(
         version=version,
@@ -298,6 +306,7 @@ def _deserialize_state(value: str) -> CursorState:
             sort=tuple(_sort_field(item) for item in sort),
             limit=_required_integer(shape, "limit"),
             principal=(str(principal[0]), tuple(principal[1])),
+            criteria=tuple(criteria),
         ),
         values=tuple(values),
     )

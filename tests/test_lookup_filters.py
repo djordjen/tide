@@ -1,0 +1,359 @@
+"""A reference field's declared criterion narrows pickers and gates writes.
+
+``lookup_filter`` is one boolean expression over the *target* entity,
+declared on the reference edge. Pickers apply it the way row policies are
+applied -- inside the repository query, whoever is asking -- and the commit
+refuses a newly chosen row the criterion excludes, while never re-firing on
+values that were already stored. Every layer sits in this one suite because
+the feature is one declaration reaching all of them; the way it breaks is
+one layer quietly not reading it.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Iterator
+
+import pytest
+
+from tide import compile_project
+from tide.data import (
+    FilterCondition,
+    InMemoryRepository,
+    QuerySpec,
+    SQLAlchemyRepository,
+    SortField,
+)
+from tide.runtime import (
+    AuthorizationError,
+    Channel,
+    InvalidQueryCursor,
+    Principal,
+    RequestContext,
+)
+from tide.services import RecordsService
+
+MANIFEST = (
+    'schema_version: "0.1"\n'
+    "application: {name: FilteredLookups, version: 0.1.0}\n"
+    "database: {mode: managed}\n"
+    "model: {paths: [models]}\n"
+    "views: {paths: [views]}\n"
+    "security: {paths: [security]}\n"
+)
+
+# ``tier`` is readable only with demo.detail, which the operator is not
+# granted: the criterion referencing it must keep working anyway, because
+# the rule belongs to the model, not to the requester.
+POLICIES = (
+    "permissions:\n"
+    "- demo.all\n"
+    "- demo.detail\n"
+    "roles:\n"
+    "  operator:\n"
+    "    grants:\n"
+    "    - demo.all\n"
+    "field_policies:\n"
+    "- entity: demo.Carrier\n"
+    "  field: tier\n"
+    "  read: demo.detail\n"
+)
+
+CARRIER = (
+    "entity: demo.Carrier\n"
+    "display: name\n"
+    "search_fields: [name]\n"
+    "expose:\n"
+    "  rest:\n"
+    "    path: carriers\n"
+    "    operations: [list, get]\n"
+    "permissions: {list: demo.all, read: demo.all, create: demo.all,"
+    " update: demo.all}\n"
+    "fields:\n"
+    "  id: {type: integer, primary_key: true}\n"
+    "  name: {type: string, length: 60, required: true}\n"
+    "  active: {type: boolean, default: true}\n"
+    "  tier: {type: string, length: 20}\n"
+)
+
+PART = (
+    "entity: demo.Part\n"
+    "display: name\n"
+    "permissions: {list: demo.all, read: demo.all, create: demo.all,"
+    " update: demo.all}\n"
+    "fields:\n"
+    "  id: {type: integer, primary_key: true}\n"
+    "  name: {type: string, length: 60, required: true}\n"
+    "  stocked: {type: boolean, default: true}\n"
+)
+
+ORDER = (
+    "entity: demo.Order\n"
+    "display: code\n"
+    "expose:\n"
+    "  rest:\n"
+    "    path: orders\n"
+    "    operations: [list, get, create, update]\n"
+    "permissions: {list: demo.all, read: demo.all, create: demo.all,"
+    " update: demo.all}\n"
+    "fields:\n"
+    "  id: {type: integer, primary_key: true}\n"
+    "  code: {type: string, length: 40, required: true}\n"
+    "  carrier:\n"
+    "    type: reference\n"
+    "    target: demo.Carrier\n"
+    "    storage: carrier_id\n"
+    "    lookup_view: demo.Carrier.lookup\n"
+    "    lookup_filter: 'active == true'\n"
+    "  premium_carrier:\n"
+    "    type: reference\n"
+    "    target: demo.Carrier\n"
+    "    storage: premium_carrier_id\n"
+    "    lookup_filter: \"active == true and tier == 'gold'\"\n"
+    "  items:\n"
+    "    type: collection\n"
+    "    target: demo.Item\n"
+    "    inverse: order\n"
+    "    cascade: [create, update]\n"
+    "    orphan_delete: true\n"
+)
+
+ITEM = (
+    "entity: demo.Item\n"
+    "permissions: {list: demo.all, read: demo.all, create: demo.all,"
+    " update: demo.all}\n"
+    "fields:\n"
+    "  id: {type: integer, primary_key: true}\n"
+    "  label: {type: string, length: 60, required: true}\n"
+    "  order:\n"
+    "    type: reference\n"
+    "    target: demo.Order\n"
+    "    storage: order_id\n"
+    "    inverse: items\n"
+    "    required: true\n"
+    "    on_delete: cascade\n"
+    "  part:\n"
+    "    type: reference\n"
+    "    target: demo.Part\n"
+    "    storage: part_id\n"
+    "    lookup_filter: 'stocked == true'\n"
+)
+
+CARRIER_LOOKUP = (
+    "view: demo.Carrier.lookup\n"
+    "entity: demo.Carrier\n"
+    "kind: lookup\n"
+    "columns: [name]\n"
+    "search: [name]\n"
+)
+
+ORDER_EDIT = (
+    "view: demo.Order.edit\n"
+    "entity: demo.Order\n"
+    "kind: form\n"
+    "layout:\n"
+    "- group: Order\n"
+    "  rows:\n"
+    "  - - code\n"
+    "    - carrier\n"
+    "fields:\n"
+    "  carrier: {editor: lookup}\n"
+)
+
+CARRIERS = [
+    {"id": 1, "name": "Anchor", "active": True, "tier": "gold"},
+    {"id": 2, "name": "Baltic", "active": True, "tier": "silver"},
+    {"id": 3, "name": "Coastal", "active": False, "tier": "gold"},
+    {"id": 4, "name": "Duna", "active": True, "tier": "gold"},
+]
+
+PARTS = [
+    {"id": 1, "name": "Bolt", "stocked": True},
+    {"id": 2, "name": "Washer", "stocked": False},
+]
+
+
+def _project(tmp_path: Path) -> Path:
+    project = tmp_path / "filtered-lookups"
+    for relative, text in (
+        ("tide.yaml", MANIFEST),
+        ("security/policies.yaml", POLICIES),
+        ("models/carrier.yaml", CARRIER),
+        ("models/part.yaml", PART),
+        ("models/order.yaml", ORDER),
+        ("models/item.yaml", ITEM),
+        ("views/carrier-lookup.yaml", CARRIER_LOOKUP),
+        ("views/order-edit.yaml", ORDER_EDIT),
+    ):
+        target = project / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    return project
+
+
+def _context() -> RequestContext:
+    return RequestContext(
+        Principal("tests:operator", roles=frozenset({"operator"})),
+        channel=Channel.REST,
+        correlation_id="filtered-lookups",
+    )
+
+
+@pytest.fixture(params=("memory", "sql"))
+def runtime(
+    request: pytest.FixtureRequest, tmp_path: Path
+) -> Iterator[tuple[RecordsService, RequestContext]]:
+    model = compile_project(_project(tmp_path))
+    if request.param == "memory":
+        repository: InMemoryRepository | SQLAlchemyRepository = InMemoryRepository()
+    else:
+        repository = SQLAlchemyRepository(model, "sqlite+pysqlite:///:memory:")
+        repository.create_schema()
+    repository.seed("demo.Carrier", CARRIERS)
+    repository.seed("demo.Part", PARTS)
+    yield RecordsService(model, repository), _context()
+    if isinstance(repository, SQLAlchemyRepository):
+        repository.dispose()
+
+
+# --- resolving the edge -------------------------------------------------------
+
+
+def test_lookup_criteria_resolves_the_declared_edge(tmp_path: Path) -> None:
+    model = compile_project(_project(tmp_path))
+    records = RecordsService(model, InMemoryRepository())
+
+    assert records.lookup_criteria("demo.Order", "carrier") == ("active == true",)
+    assert records.lookup_criteria("demo.Order", "premium_carrier") == (
+        "active == true and tier == 'gold'",
+    )
+    # An undeclared edge is silence, not an error: callers may ask for any
+    # reference and apply whatever comes back.
+    assert records.lookup_criteria("demo.Item", "order") == ()
+
+
+def test_lookup_criteria_refuses_a_non_reference_edge(tmp_path: Path) -> None:
+    model = compile_project(_project(tmp_path))
+    records = RecordsService(model, InMemoryRepository())
+
+    with pytest.raises(ValueError):
+        records.lookup_criteria("demo.Order", "missing")
+    with pytest.raises(ValueError):
+        records.lookup_criteria("demo.Order", "code")
+
+
+# --- pickers narrow (both repositories) ---------------------------------------
+
+
+def test_query_criteria_narrow_both_repositories(
+    runtime: tuple[RecordsService, RequestContext],
+) -> None:
+    records, context = runtime
+
+    page = records.query_page(
+        "demo.Carrier",
+        QuerySpec(
+            criteria=records.lookup_criteria("demo.Order", "carrier"),
+            sort=(SortField("name"),),
+        ),
+        context,
+    )
+
+    assert [record["id"] for record in page.records] == [1, 2, 4]
+
+
+def test_criteria_compose_with_ordinary_filters(
+    runtime: tuple[RecordsService, RequestContext],
+) -> None:
+    records, context = runtime
+
+    page = records.query_page(
+        "demo.Carrier",
+        QuerySpec(
+            filters=(FilterCondition("name", "icontains", "a"),),
+            criteria=records.lookup_criteria("demo.Order", "carrier"),
+            sort=(SortField("name"),),
+        ),
+        context,
+    )
+
+    assert [record["id"] for record in page.records] == [1, 2, 4]
+
+
+def test_criteria_may_name_fields_the_requester_cannot_read(
+    runtime: tuple[RecordsService, RequestContext],
+) -> None:
+    """The criterion is the model's rule, so field policies do not veto it --
+    while the same field in a caller-authored filter is refused as ever."""
+
+    records, context = runtime
+
+    page = records.query_page(
+        "demo.Carrier",
+        QuerySpec(
+            criteria=records.lookup_criteria("demo.Order", "premium_carrier"),
+            sort=(SortField("name"),),
+        ),
+        context,
+    )
+    assert [record["id"] for record in page.records] == [1, 4]
+
+    with pytest.raises(AuthorizationError):
+        records.query_page(
+            "demo.Carrier",
+            QuerySpec(filters=(FilterCondition("tier", "eq", "gold"),)),
+            context,
+        )
+
+
+def test_cursor_pages_keep_the_criteria(
+    runtime: tuple[RecordsService, RequestContext],
+) -> None:
+    records, context = runtime
+    criteria = records.lookup_criteria("demo.Order", "carrier")
+
+    first = records.query_page(
+        "demo.Carrier",
+        QuerySpec(criteria=criteria, sort=(SortField("name"),), limit=2),
+        context,
+    )
+    assert [record["id"] for record in first.records] == [1, 2]
+    assert first.next_cursor is not None
+
+    second = records.query_page(
+        "demo.Carrier",
+        QuerySpec(
+            criteria=criteria,
+            sort=(SortField("name"),),
+            limit=2,
+            cursor=first.next_cursor,
+        ),
+        context,
+    )
+    assert [record["id"] for record in second.records] == [4]
+
+    # A cursor minted under the criteria must not open an unfiltered page:
+    # the criteria are part of the query's shape.
+    with pytest.raises(InvalidQueryCursor):
+        records.query_page(
+            "demo.Carrier",
+            QuerySpec(sort=(SortField("name"),), limit=2, cursor=first.next_cursor),
+            context,
+        )
+
+
+def test_lookup_records_threads_criteria(
+    runtime: tuple[RecordsService, RequestContext],
+) -> None:
+    records, context = runtime
+    criteria = records.lookup_criteria("demo.Order", "carrier")
+
+    browsing = records.lookup_records(
+        "demo.Carrier", ("name",), "", context, criteria=criteria
+    )
+    assert [record["id"] for record in browsing] == [1, 2, 4]
+
+    searching = records.lookup_records(
+        "demo.Carrier", ("name",), "Coastal", context, criteria=criteria
+    )
+    assert searching == ()

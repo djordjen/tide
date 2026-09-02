@@ -24,6 +24,10 @@ class CursorShape:
     sort: tuple[SortField, ...]
     limit: int
     principal: tuple[str, tuple[str, ...]]
+    # Last and defaulted so cursors issued before criteria existed still
+    # deserialize -- they then mismatch a criteria-carrying query instead of
+    # silently opening an unfiltered page.
+    criteria: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

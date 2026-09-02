@@ -66,6 +66,11 @@ class QuerySpec:
     cursor: str | None = None
     after: tuple[Any, ...] | None = field(default=None, repr=False, compare=False)
     summaries: tuple[SummaryRequest, ...] = ()
+    # Expression criteria resolved by the service from the model (a reference
+    # field's lookup_filter), never authored by a caller: they may name fields
+    # the requester cannot read, so they bypass the queryable-field gate and
+    # join the row criteria the repositories already evaluate.
+    criteria: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

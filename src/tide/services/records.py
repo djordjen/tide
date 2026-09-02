@@ -378,6 +378,26 @@ class RecordsService:
             connection=connection,
         )
 
+    def lookup_criteria(
+        self, entity_name: str, field_name: str
+    ) -> tuple[str, ...]:
+        """The declared eligibility criteria for one reference edge.
+
+        The single reader of ``lookup_filter``: every picker resolves the
+        edge here and passes the result along, so the rule stays declared in
+        one place. An undeclared edge answers with silence rather than an
+        error -- callers may ask about any reference.
+        """
+
+        entity = self.model.entity(entity_name)
+        if field_name not in entity.fields:
+            raise ValueError(f"unknown field {field_name!r}")
+        field = entity.field(field_name)
+        if field.metadata["type"] != "reference" or not field.target_entity:
+            raise ValueError(f"field {field_name!r} is not a reference")
+        declared = field.metadata.get("lookup_filter")
+        return (str(declared),) if declared else ()
+
     def lookup_records(
         self,
         entity_name: str,
@@ -386,6 +406,7 @@ class RecordsService:
         context: RequestContext,
         *,
         limit: int = 20,
+        criteria: tuple[str, ...] = (),
     ) -> tuple[dict[str, Any], ...]:
         """Return a bounded secured lookup result, matching any search field."""
 
@@ -405,7 +426,7 @@ class RecordsService:
             return tuple(
                 self.query(
                     entity_name,
-                    QuerySpec(sort=sort, limit=limit),
+                    QuerySpec(sort=sort, limit=limit, criteria=criteria),
                     context,
                 )
             )
@@ -417,6 +438,7 @@ class RecordsService:
                     filters=(FilterCondition(field_name, "icontains", candidate),),
                     sort=sort,
                     limit=limit,
+                    criteria=criteria,
                 ),
                 context,
             )
@@ -587,6 +609,7 @@ class RecordsService:
                 context.principal.identifier,
                 tuple(sorted(self.security.effective_permissions(context.principal))),
             ),
+            criteria=query.criteria,
         )
         after: tuple[Any, ...] | None = None
         if query.cursor is not None:
@@ -607,7 +630,13 @@ class RecordsService:
         records = self.repository.query(
             entity_name,
             repository_query,
-            row_criteria=self.security.row_criteria(entity_name, "list"),
+            # The declared criteria ride beside the row policies: same
+            # evaluation, different owner -- the model's rule about the rows,
+            # not the principal's right to them.
+            row_criteria=(
+                *self.security.row_criteria(entity_name, "list"),
+                *query.criteria,
+            ),
             criteria_parameters=self.security.policy_parameters(context),
             relationships=self._relationship_plan(
                 entity_name,
@@ -660,6 +689,7 @@ class RecordsService:
                 query.summaries,
                 normalized_filters,
                 context,
+                criteria=query.criteria,
             ),
         )
 
@@ -767,6 +797,8 @@ class RecordsService:
         requests: tuple[SummaryRequest, ...],
         filters: tuple[FilterCondition, ...],
         context: RequestContext,
+        *,
+        criteria: tuple[str, ...] = (),
     ) -> tuple[tuple[SummaryRequest, Any], ...]:
         """Answer each summary over the whole set the page's query admits.
 
@@ -794,7 +826,10 @@ class RecordsService:
             entity_name,
             tuple(primitives),
             filters=filters,
-            row_criteria=self.security.row_criteria(entity_name, "list"),
+            row_criteria=(
+                *self.security.row_criteria(entity_name, "list"),
+                *criteria,
+            ),
             criteria_parameters=self.security.policy_parameters(context),
             relationships=self._relationship_plan(
                 entity_name,
