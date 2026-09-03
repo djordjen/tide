@@ -1084,3 +1084,54 @@ test("a retired product leaves the picker but not its own browse", async ({
   await expect(products.getByRole("row", { name: /CONS/ })).toBeVisible()
   await products.getByRole("button", { name: "Close lookup" }).click()
 })
+
+test("changes a selection at once, and each row answers for itself", async ({
+  page,
+}) => {
+  await signIn(page)
+
+  // A draft of this journey's own beside the seeded posted invoice: the
+  // pair is the point, one row the change can reach and one it cannot.
+  await page.getByRole("button", { name: "New" }).click()
+  await page.getByRole("button", { name: "Select Customer" }).click()
+  const customers = page.getByRole("dialog", { name: "Select Customer" })
+  await customers.getByRole("row", { name: /ADRIA/ }).click()
+  await customers.getByRole("button", { name: "Select" }).click()
+  await page.getByRole("button", { name: "Save", exact: true }).click()
+  const created = createdRow(page)
+  await expect(created).toContainText("Draft")
+  const number = ((await created.textContent()) ?? "").match(
+    /INV-\d{4}-\d{4}/,
+  )?.[0]
+  expect(number).toBeTruthy()
+
+  await created.getByRole("checkbox", { name: /^Select row/ }).check()
+  const posted = page.getByRole("row", { name: /INV-2026-0001/ })
+  await posted.getByRole("checkbox", { name: /^Select row/ }).check()
+  await expect(page.getByText("2 selected")).toBeVisible()
+
+  await page.getByRole("button", { name: "Change…" }).click()
+  const dialog = page.getByRole("dialog", { name: "Mass update" })
+  await dialog.getByRole("combobox", { name: "Field to change" }).click()
+  await page.getByRole("option", { name: "Currency" }).click()
+  await dialog.getByRole("textbox", { name: "Currency" }).fill("USD")
+  await dialog.getByRole("button", { name: "Apply" }).click()
+
+  // Per-row outcomes, not one error: the posted invoice refuses through
+  // its transition lock while the draft is genuinely written.
+  await expect(dialog.getByText("Updated 1 of 2 records.")).toBeVisible()
+  const refusal = dialog.getByTestId("mass-update-refusal")
+  await expect(refusal).toContainText("INV-2026-0001")
+  await expect(refusal).toContainText("cannot be changed")
+  await dialog.getByRole("button", { name: "Close", exact: true }).click()
+
+  // The grid is virtualized and other journeys mint invoices too, so the
+  // fresh draft can sit below the rendered window: the search box is the
+  // deterministic door to exactly one row.
+  await page.getByRole("textbox", { name: /^Search/ }).fill(number!)
+  await page.getByRole("row", { name: new RegExp(number!) }).click()
+  await page.getByRole("button", { name: "Open" }).click()
+  await expect(page.getByRole("textbox", { name: "Currency" })).toHaveValue(
+    "USD",
+  )
+})
