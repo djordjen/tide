@@ -1755,27 +1755,39 @@ def _editor_value(field: NormalizedField, editor: Editor) -> Any:
         return None if editor.value is Select.NULL else editor.value
     if isinstance(editor, LookupField):
         return editor.value
-    raw = editor.value.strip()
-    if raw == "" and not field.metadata.get("required"):
+    return parse_editor_text(field, editor.value)
+
+
+def parse_editor_text(field: NormalizedField, raw: str) -> Any:
+    """Best-effort typed parse of a text editor's value.
+
+    The one spelling of "what does this typed string mean for this field",
+    shared by the record form and the mass-update dialog. A value that does
+    not parse stays a string so the owning service refuses it with a
+    field-addressable issue instead of the terminal guessing.
+    """
+
+    text = raw.strip()
+    if text == "" and not field.metadata.get("required"):
         return None
     field_type = field.metadata["type"]
     try:
         if field_type == "date":
-            parsed = _parse_date(raw)
-            return parsed if parsed is not None else raw
+            parsed = _parse_date(text)
+            return parsed if parsed is not None else text
         if field_type == "datetime":
-            return datetime.fromisoformat(raw)
+            return datetime.fromisoformat(text)
         if field_type == "integer":
-            return int(raw)
+            return int(text)
         if field_type == "decimal":
-            return Decimal(raw.replace(",", "."))
+            return Decimal(text.replace(",", "."))
         if field_type == "uuid":
-            return UUID(raw)
+            return UUID(text)
     except ValueError:
-        return raw
+        return text
     except InvalidOperation:
-        return raw
-    return raw
+        return text
+    return text
 
 
 _preview_computed_fields = preview_computed_fields

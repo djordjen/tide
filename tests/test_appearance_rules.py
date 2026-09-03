@@ -398,11 +398,13 @@ def test_the_terminal_paints_the_row_the_same_rules_judged(
 
     plain, painted = asyncio.run(drive())
 
-    # The record-level rule reaches every cell of its row; the field-level one
-    # overrides the cell it names.
+    # The record-level rule reaches every cell of its row -- the mark gutter
+    # at index 0 included; the field-level one overrides the cell it names,
+    # one to the right of where it sat before the gutter existed.
     assert all(_style_of(cell) == "dim" for cell in plain) is False
     assert _style_of(painted[0]) == "dim"
-    assert _style_of(painted[2]) == "red"
+    assert _style_of(painted[1]) == "dim"
+    assert _style_of(painted[3]) == "red"
 
 
 def test_the_terminal_leaves_out_a_field_the_rules_hid(tmp_path: Path) -> None:

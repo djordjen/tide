@@ -767,6 +767,184 @@ def test_rest_mass_update_acknowledges_warnings_by_rule_id(
         assert "heavy_hours" in {issue["rule"] for issue in outcome["notices"]}
 
 
+# --- the terminal: marks, the dialog, the answers -----------------------------
+
+
+def _tui_app(tmp_path: Path) -> object:
+    from tide.tui import TideApp
+
+    model = compile_project(_project(tmp_path))
+    repository = InMemoryRepository()
+    repository.seed("demo.Worker", WORKERS)
+    repository.seed("demo.Job", JOBS)
+    repository.seed("demo.Tag", TAGS)
+    records = RecordsService(model, repository)
+    context = RequestContext(
+        Principal("tui:test", roles=frozenset({"operator"})),
+        channel=Channel.TUI,
+        correlation_id="mass-update-tui",
+    )
+    return TideApp(model, records, context, view_name="demo.Job.browse")
+
+
+def _browse_rows_loaded(app: object, count: int) -> bool:
+    from textual.widgets import DataTable
+
+    tables = app.screen.query("#records")  # type: ignore[attr-defined]
+    return bool(tables) and tables.first(DataTable).row_count >= count
+
+
+def test_tui_marks_rows_and_applies_one_change(tmp_path: Path) -> None:
+    import asyncio
+
+    from textual.widgets import Input, Select
+
+    from textual_support import press_button, wait_until
+
+    from tide.tui.mass_update import MassUpdateScreen
+
+    app = _tui_app(tmp_path)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:  # type: ignore[attr-defined]
+            await wait_until(
+                pilot,
+                lambda: _browse_rows_loaded(app, 4),
+                description="the job rows",
+            )
+            await pilot.press("space")  # Alpha
+            await pilot.press("down", "down", "down")
+            await pilot.press("space")  # Delta
+            assert app._marked == {"1", "4"}  # type: ignore[attr-defined]
+            await pilot.press("m")
+            await wait_until(
+                pilot,
+                lambda: isinstance(app.screen, MassUpdateScreen),  # type: ignore[attr-defined]
+                description="the mass-update dialog",
+            )
+            dialog = app.screen  # type: ignore[attr-defined]
+            dialog.query_one("#mass-field", Select).value = "priority"
+            await pilot.pause()
+            dialog.query_one("#mass-value", Input).value = "high"
+            await press_button(pilot, "#mass-apply")
+            await wait_until(
+                pilot,
+                lambda: not isinstance(app.screen, MassUpdateScreen)  # type: ignore[attr-defined]
+                and not app._marked,  # type: ignore[attr-defined]
+                description="the dialog closing and the marks clearing",
+            )
+
+    asyncio.run(exercise())
+    records = app.records  # type: ignore[attr-defined]
+    context = app.context  # type: ignore[attr-defined]
+    assert records.get("demo.Job", 1, context)["priority"] == "high"
+    assert records.get("demo.Job", 4, context)["priority"] == "high"
+    assert records.get("demo.Job", 2, context)["priority"] == "low"
+
+
+def test_tui_mass_update_reports_the_refused_rows(tmp_path: Path) -> None:
+    import asyncio
+
+    from textual.widgets import Input, Select
+
+    from textual_support import press_button, wait_until
+
+    from tide.tui.mass_update import MassUpdateReportScreen, MassUpdateScreen
+
+    app = _tui_app(tmp_path)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:  # type: ignore[attr-defined]
+            await wait_until(
+                pilot,
+                lambda: _browse_rows_loaded(app, 4),
+                description="the job rows",
+            )
+            await pilot.press("space")  # Alpha updates
+            await pilot.press("down")
+            await pilot.press("space")  # Beta is closed: priority is immutable
+            await pilot.press("m")
+            await wait_until(
+                pilot,
+                lambda: isinstance(app.screen, MassUpdateScreen),  # type: ignore[attr-defined]
+                description="the mass-update dialog",
+            )
+            dialog = app.screen  # type: ignore[attr-defined]
+            dialog.query_one("#mass-field", Select).value = "priority"
+            await pilot.pause()
+            dialog.query_one("#mass-value", Input).value = "high"
+            await press_button(pilot, "#mass-apply")
+            await wait_until(
+                pilot,
+                lambda: isinstance(app.screen, MassUpdateReportScreen),  # type: ignore[attr-defined]
+                description="the refusal report",
+            )
+            report = app.screen  # type: ignore[attr-defined]
+            text = " ".join(
+                str(line.render())
+                for line in report.query(".mass-update-refusal")
+            )
+            assert "priority" in text
+            await press_button(pilot, "#close-mass-report")
+
+    asyncio.run(exercise())
+    records = app.records  # type: ignore[attr-defined]
+    context = app.context  # type: ignore[attr-defined]
+    assert records.get("demo.Job", 1, context)["priority"] == "high"
+    assert records.get("demo.Job", 2, context)["priority"] == "low"
+
+
+def test_tui_mass_update_walks_the_warning_acknowledgement(
+    tmp_path: Path,
+) -> None:
+    import asyncio
+
+    from textual.widgets import Input, Select
+
+    from textual_support import press_button, wait_until
+
+    from tide.tui.mass_update import MassUpdateScreen
+    from tide.tui.warnings import WarningsScreen
+
+    app = _tui_app(tmp_path)
+
+    async def exercise() -> None:
+        async with app.run_test(size=(120, 40)) as pilot:  # type: ignore[attr-defined]
+            await wait_until(
+                pilot,
+                lambda: _browse_rows_loaded(app, 4),
+                description="the job rows",
+            )
+            await pilot.press("space")
+            await pilot.press("m")
+            await wait_until(
+                pilot,
+                lambda: isinstance(app.screen, MassUpdateScreen),  # type: ignore[attr-defined]
+                description="the mass-update dialog",
+            )
+            dialog = app.screen  # type: ignore[attr-defined]
+            dialog.query_one("#mass-field", Select).value = "hours"
+            await pilot.pause()
+            dialog.query_one("#mass-value", Input).value = "99"
+            await press_button(pilot, "#mass-apply")
+            await wait_until(
+                pilot,
+                lambda: isinstance(app.screen, WarningsScreen),  # type: ignore[attr-defined]
+                description="the warnings screen",
+            )
+            await press_button(pilot, "#confirm-warnings")
+            await wait_until(
+                pilot,
+                lambda: not app._marked,  # type: ignore[attr-defined]
+                description="the acknowledged apply finishing",
+            )
+
+    asyncio.run(exercise())
+    records = app.records  # type: ignore[attr-defined]
+    context = app.context  # type: ignore[attr-defined]
+    assert records.get("demo.Job", 1, context)["hours"] == Decimal("99")
+
+
 # --- the manifest names the door ----------------------------------------------
 
 

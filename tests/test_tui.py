@@ -234,6 +234,7 @@ def test_textual_invoice_browse_incrementally_loads_on_scroll(monkeypatch) -> No
             assert 5 <= initial_count < 40
             row = table.get_row_at(0)
             assert [str(value) for value in row] == [
+                " ",
                 "INV-2026-0001",
                 "01.07.2026",
                 "ADRIA - Adria Consulting",
@@ -261,8 +262,8 @@ def test_textual_invoice_browse_incrementally_loads_on_scroll(monkeypatch) -> No
                     or app._next_cursor is None,
                 )
             assert table.row_count == 40
-            assert table.get_row_at(0)[0] == "INV-2026-0001"
-            assert table.get_row_at(39)[0] == "INV-2026-0040"
+            assert table.get_row_at(0)[1] == "INV-2026-0001"
+            assert table.get_row_at(39)[1] == "INV-2026-0040"
             assert len(app.current_records) == 40
             status = str(app.query_one("#browse-status", Static).content)
             assert "40 records loaded" in status
@@ -274,7 +275,7 @@ def test_textual_invoice_browse_incrementally_loads_on_scroll(monkeypatch) -> No
                 pilot,
                 lambda: table.row_count >= 5 and not app._query_loading,
             )
-            assert table.get_row_at(0)[0] == "INV-2026-0001"
+            assert table.get_row_at(0)[1] == "INV-2026-0001"
 
     asyncio.run(exercise())
 
@@ -392,7 +393,7 @@ def test_textual_compact_browse_preserves_wide_combining_and_rtl_text() -> None:
 
             table = app.query_one("#records", DataTable)
             rows = [table.get_row_at(index) for index in range(table.row_count)]
-            assert any(row[0] == "UNICODE" and row[1] == unicode_name for row in rows)
+            assert any(row[1] == "UNICODE" and row[2] == unicode_name for row in rows)
             assert table.region.right <= app.size.width
 
     asyncio.run(exercise())
@@ -405,7 +406,7 @@ def test_textual_reference_display_fails_closed_without_target_access() -> None:
         async with app.run_test(size=(100, 24)) as pilot:
             await pilot.pause()
             row = app.query_one("#records", DataTable).get_row_at(0)
-            assert row[2] == "Protected"
+            assert row[3] == "Protected"
             assert "Adria Consulting" not in repr(row)
             assert app.query_one("#create-record", Button).disabled
             assert app.query_one("#edit-record", Button).disabled
@@ -815,10 +816,10 @@ def test_textual_browse_search_named_filters_and_sorting() -> None:
             await _wait_until(
                 pilot,
                 lambda: table.row_count == 1
-                and table.get_row_at(0)[0] == "INV-2026-0008",
+                and table.get_row_at(0)[1] == "INV-2026-0008",
             )
             assert table.row_count == 1
-            assert table.get_row_at(0)[0] == "INV-2026-0008"
+            assert table.get_row_at(0)[1] == "INV-2026-0008"
 
             clear_button.press()
             await _wait_until(
@@ -832,11 +833,11 @@ def test_textual_browse_search_named_filters_and_sorting() -> None:
                 pilot,
                 lambda: table.row_count == 5
                 and all(
-                    table.get_row_at(index)[3] == "Draft" for index in range(5)
+                    table.get_row_at(index)[4] == "Draft" for index in range(5)
                 ),
             )
             assert table.row_count == 5
-            assert all(table.get_row_at(index)[3] == "Draft" for index in range(5))
+            assert all(table.get_row_at(index)[4] == "Draft" for index in range(5))
             assert "Draft invoices" in str(
                 app.query_one("#browse-status", Static).content
             )
@@ -1021,7 +1022,7 @@ def test_textual_workspace_switches_to_customer_management() -> None:
             assert app.view.name == "crm.Customer.browse"
             customer_table = app.query_one("#records", DataTable)
             assert customer_table.row_count == 3
-            assert customer_table.ordered_columns[1].width == 32
+            assert customer_table.ordered_columns[2].width == 32
 
             browse = app.screen
             await pilot.click("#create-record")
@@ -1399,6 +1400,7 @@ def test_textual_view_hidden_fields_match_browse_and_form_rendering(
             await pilot.pause()
             table = app.query_one("#records", DataTable)
             assert [column.key.value for column in table.ordered_columns] == [
+                "_tide_mark",
                 "number",
                 "invoice_date",
                 "customer",
@@ -2032,7 +2034,7 @@ def test_textual_browse_names_its_references_without_a_read_each(
                 pilot,
                 lambda: table.row_count >= 8 and not app._query_loading,
             )
-            assert [str(value) for value in table.get_row_at(0)][2] == (
+            assert [str(value) for value in table.get_row_at(0)][3] == (
                 "ADRIA - Adria Consulting"
             )
             assert [entity for entity, _ in reads if entity == "crm.Customer"] == []

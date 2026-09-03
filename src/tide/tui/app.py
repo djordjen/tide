@@ -45,7 +45,13 @@ from tide.presentation import (
     record_display,
     record_label,
 )
-from tide.runtime import DeleteRestricted, RequestContext, TideRuntimeError
+from tide.runtime import (
+    NULL_VERSION,
+    DeleteRestricted,
+    MassAssignmentError,
+    RequestContext,
+    TideRuntimeError,
+)
 from tide.reporting import ReportService
 from tide.security import PROTECTED
 from tide.tui.table import emphasized, table_cell, table_label
@@ -53,9 +59,18 @@ from tide.services import (
     ActionService,
     AuditHistoryReader,
     AuditHistoryService,
+    MassUpdateResult,
+    MassUpdateRowOutcome,
+    MassUpdateTarget,
     RecordsService,
 )
 from tide.tui.audit import AuditHistoryScreen
+from tide.tui.mass_update import (
+    MassUpdateReportScreen,
+    MassUpdateScreen,
+    mass_assignable_fields,
+)
+from tide.tui.warnings import WarningsScreen
 from tide.tui.confirm import DeleteConfirmationScreen
 from tide.tui.form import ReopenRecordEdit, RecordEditScreen, select_form_view
 from tide.tui.parameters import ParametersScreen
@@ -196,6 +211,8 @@ class TideApp(App[None]):
         Binding("d", "toggle_sort_direction", "Direction"),
         Binding("c", "create_record", "Create"),
         Binding("e", "edit_record", "Edit"),
+        Binding("space", "toggle_mark", "Mark", show=False),
+        Binding("m", "mass_update", "Mass update", show=False),
         Binding("u", "duplicate_record", "Duplicate"),
         Binding("delete", "delete_record", "Delete"),
         Binding("r", "reload", "Refresh"),
@@ -269,6 +286,7 @@ class TideApp(App[None]):
         self.sub_title = self.entity.label
         self._next_cursor: str | None = None
         self._current_records: tuple[dict[str, Any], ...] = ()
+        self._marked: set[str] = set()
         self._reference_cache: dict[tuple[str, Any], str] = {}
         self._reference_cache_lock = Lock()
         self._query_generation = 0
@@ -357,6 +375,13 @@ class TideApp(App[None]):
             )
             delete_button.display = self._delete_allowed
             yield delete_button
+            mass_update_button = Button(
+                "Mass update",
+                id="mass-update",
+                disabled=True,
+            )
+            mass_update_button.display = self._mass_update_allowed
+            yield mass_update_button
             yield Button("Preview", id="preview-report", disabled=True)
             yield Button("Summary", id="summary-report", disabled=True)
             history_button = Button("History", id="audit-history", disabled=True)
@@ -399,6 +424,8 @@ class TideApp(App[None]):
             self.action_duplicate_record()
         elif event.button.id == "delete-record":
             self.action_delete_record()
+        elif event.button.id == "mass-update":
+            self.action_mass_update()
         elif event.button.id == "preview-report":
             self.action_preview_report()
         elif event.button.id == "summary-report":
@@ -480,6 +507,200 @@ class TideApp(App[None]):
             return
         primary_key = _primary_key(self.entity)
         self.open_record(self._current_records[table.cursor_row][primary_key])
+
+    def action_toggle_mark(self) -> None:
+        if not self._mass_update_allowed:
+            return
+        record = self._selected_record()
+        if record is None:
+            return
+        key = str(record[_primary_key(self.entity)])
+        if key in self._marked:
+            self._marked.discard(key)
+            glyph = " "
+        else:
+            self._marked.add(key)
+            glyph = "●"
+        rules = self.entity.metadata.get("appearance") or ()
+        self.query_one("#records", DataTable).update_cell(
+            key,
+            "_tide_mark",
+            emphasized(glyph, record_appearance(rules, record).record),
+        )
+        self._update_mass_update_controls()
+
+    def _update_mass_update_controls(self) -> None:
+        button = self._browse_widget("#mass-update", Button)
+        if button is None:
+            return
+        count = len(self._marked)
+        button.label = f"Mass update ({count})" if count else "Mass update"
+        button.disabled = not count
+
+    def action_mass_update(self) -> None:
+        if not self._mass_update_allowed or not self._marked:
+            return
+
+        def applied(result: tuple[str, Any] | None) -> None:
+            if result is None:
+                return
+            field_name, value = result
+            self._execute_mass_update({field_name: value})
+
+        self.push_screen(
+            MassUpdateScreen(self.entity, len(self._marked)), applied
+        )
+
+    def _mass_targets(
+        self, identities: set[Any] | None = None
+    ) -> list[MassUpdateTarget]:
+        """Marked rows as targets, each asserting the version it was seen at.
+
+        A NULL token on a versioned entity asserts exactly that; a value a
+        field policy withheld leaves the assertion absent, and the row
+        refuses with `version_precondition_required` instead of guessing.
+        """
+
+        primary_key = _primary_key(self.entity)
+        version_field = self.entity.version_field
+        targets: list[MassUpdateTarget] = []
+        for record in self._current_records:
+            identity = record[primary_key]
+            if str(identity) not in self._marked:
+                continue
+            if identities is not None and identity not in identities:
+                continue
+            expected: Any = None
+            if version_field is not None:
+                value = record.get(version_field.name)
+                if isinstance(value, int) and not isinstance(value, bool):
+                    expected = value
+                elif value is None:
+                    expected = NULL_VERSION
+            targets.append(MassUpdateTarget(identity, expected))
+        return targets
+
+    def _execute_mass_update(self, changes: dict[str, Any]) -> None:
+        targets = self._mass_targets()
+        if not targets:
+            self.notify("No marked rows are loaded.", severity="warning")
+            return
+        result = self._run_mass_update(changes, targets)
+        if result is None:
+            return
+        warning_rows = _warning_only_refusals(result)
+        settled_updated = result.updated
+        warning_ids = {id(outcome) for outcome in warning_rows}
+        settled_refused = [
+            outcome
+            for outcome in result.outcomes
+            if outcome.status == "refused" and id(outcome) not in warning_ids
+        ]
+        if not warning_rows:
+            self._report_mass_update(settled_updated, len(targets), settled_refused)
+            return
+        rules = sorted(
+            {
+                issue.rule
+                for outcome in warning_rows
+                for issue in outcome.issues
+                if issue.severity == "warning"
+            }
+        )
+        messages = _distinct_messages(warning_rows)
+
+        def confirmed(save_anyway: bool | None) -> None:
+            if not save_anyway:
+                self._report_mass_update(
+                    settled_updated,
+                    len(targets),
+                    settled_refused
+                    + [
+                        MassUpdateRowOutcome(
+                            identity=outcome.identity,
+                            status="refused",
+                            code="validation_failed",
+                            message="warnings were not acknowledged",
+                            issues=outcome.issues,
+                        )
+                        for outcome in warning_rows
+                    ],
+                )
+                return
+            retry_identities = {outcome.identity for outcome in warning_rows}
+            second = self._run_mass_update(
+                changes,
+                self._mass_targets(retry_identities),
+                acknowledged=frozenset(rules),
+            )
+            if second is None:
+                return
+            self._report_mass_update(
+                settled_updated + second.updated,
+                len(targets),
+                settled_refused
+                + [
+                    outcome
+                    for outcome in second.outcomes
+                    if outcome.status == "refused"
+                ],
+            )
+
+        self.push_screen(
+            WarningsScreen(messages, confirm_label="Apply anyway"),
+            confirmed,
+        )
+
+    def _run_mass_update(
+        self,
+        changes: dict[str, Any],
+        targets: list[MassUpdateTarget],
+        acknowledged: frozenset[str] = frozenset(),
+    ) -> MassUpdateResult | None:
+        try:
+            return self.records.mass_update(
+                self.entity.name,
+                changes,
+                targets,
+                self.context,
+                acknowledged_warnings=acknowledged,
+            )
+        except MassAssignmentError as error:
+            self.notify(str(error), severity="error")
+        except TideRuntimeError as error:
+            self.notify(str(error), severity="error")
+        return None
+
+    def _report_mass_update(
+        self,
+        updated: int,
+        total: int,
+        refusals: list[MassUpdateRowOutcome],
+    ) -> None:
+        labels = {
+            str(record[_primary_key(self.entity)]): _display_record(
+                self.entity, record
+            )
+            for record in self._current_records
+        }
+        self.action_reload()
+        if refusals:
+            self.push_screen(
+                MassUpdateReportScreen(
+                    updated,
+                    total,
+                    [
+                        (
+                            labels.get(str(outcome.identity), str(outcome.identity)),
+                            outcome.message or outcome.code or "refused",
+                        )
+                        for outcome in refusals
+                    ],
+                )
+            )
+            return
+        noun = "record" if total == 1 else "records"
+        self.notify(f"Updated {updated} of {total} {noun}.")
 
     def action_create_record(self) -> None:
         if self.form_view is None:
@@ -742,6 +963,10 @@ class TideApp(App[None]):
         self._query_generation += 1
         self._next_cursor = None
         self._current_records = ()
+        # Any restart rebuilds the rows a mark pointed at -- sort included --
+        # so the marks go with them rather than survive as invisible state.
+        self._marked.clear()
+        self._update_mass_update_controls()
         with self._reference_cache_lock:
             self._reference_cache.clear()
         self._query_started = False
@@ -798,6 +1023,16 @@ class TideApp(App[None]):
                 "update",
                 self.context,
             )
+        )
+        # Deliberately not `_edit_allowed`: mass update needs no form view,
+        # only the permission and something assignable to offer.
+        self._mass_update_allowed = bool(
+            self.records.security.can_access_entity(
+                self.entity,
+                "update",
+                self.context,
+            )
+            and mass_assignable_fields(self.entity)
         )
         settings = view.data.get("settings", {})
         browse_actions = tuple(str(action) for action in settings.get("actions", ()))
@@ -886,6 +1121,9 @@ class TideApp(App[None]):
         self._restart_query()
 
     def _add_table_columns(self, table: DataTable[Any]) -> None:
+        # The mark gutter: its own column key, so the key-addressed sort
+        # handler and every field column stay exactly what they were.
+        table.add_column(" ", key="_tide_mark", width=1)
         for field_name in self.columns:
             field = self.entity.field(field_name)
             configuration = self.view.data.get("fields", {}).get(field_name, {})
@@ -1037,19 +1275,25 @@ class TideApp(App[None]):
         rules: Any,
     ) -> tuple[Any, ...]:
         appearance = record_appearance(rules, record)
-        return tuple(
-            emphasized(
-                table_cell(
-                    entity.field(field_name),
-                    self._format_value(entity.field(field_name), record),
-                    self.model.formats,
-                ),
-                # A rule that named this field speaks for it; otherwise the
-                # record's own verdict reaches every cell of its row, since a
-                # terminal row has no background of its own to tint.
-                appearance.fields.get(field_name) or appearance.record,
-            )
-            for field_name in columns
+        # The mark gutter is part of the row, so the record's verdict tints
+        # it like any other cell -- a muted row with one bright gap reads
+        # as a rendering bug.
+        return (
+            emphasized(" ", appearance.record),
+            *(
+                emphasized(
+                    table_cell(
+                        entity.field(field_name),
+                        self._format_value(entity.field(field_name), record),
+                        self.model.formats,
+                    ),
+                    # A rule that named this field speaks for it; otherwise the
+                    # record's own verdict reaches every cell of its row, since
+                    # a terminal row has no background of its own to tint.
+                    appearance.fields.get(field_name) or appearance.record,
+                )
+                for field_name in columns
+            ),
         )
 
     def _apply_load_error(self, error: Exception) -> None:
@@ -1222,7 +1466,8 @@ class TideApp(App[None]):
         button.disabled = self._sort_field is None
         button.label = "↓ Desc" if self._sort_descending else "↑ Asc"
         table = self.query_one("#records", DataTable)
-        for index, field_name in enumerate(self.columns):
+        # start=1: the mark gutter owns column 0, the fields follow it.
+        for index, field_name in enumerate(self.columns, start=1):
             indicator = ""
             if field_name == self._sort_field:
                 indicator = " ↓" if self._sort_descending else " ↑"
@@ -1349,5 +1594,29 @@ def _version_field(entity: NormalizedEntity) -> str | None:
 _field_label = field_label
 _record_label = record_label
 _display_record = record_display
+
+
+def _warning_only_refusals(result: MassUpdateResult) -> list[MassUpdateRowOutcome]:
+    """The refusals a person may wave through: warnings and nothing else."""
+
+    return [
+        outcome
+        for outcome in result.outcomes
+        if outcome.status == "refused"
+        and outcome.code == "validation_failed"
+        and outcome.issues
+        and all(issue.severity == "warning" for issue in outcome.issues)
+    ]
+
+
+def _distinct_messages(outcomes: list[MassUpdateRowOutcome]) -> list[str]:
+    """Each warning said once, however many rows it fired on."""
+
+    seen: list[str] = []
+    for outcome in outcomes:
+        for issue in outcome.issues:
+            if issue.severity == "warning" and issue.message not in seen:
+                seen.append(issue.message)
+    return seen
 
 
