@@ -22,6 +22,7 @@ from tide.compiler.normalized import (
     ApplicationModel,
     NormalizedEntity,
     NormalizedField,
+    field_is_writable,
 )
 from tide.data.repository import (
     FILTER_OPERATORS,
@@ -44,8 +45,10 @@ from tide.labels import declared_values
 from tide.runtime.context import RequestContext
 from tide.runtime.errors import (
     AuthorizationError,
+    ConcurrencyError,
     ImmutableFieldError,
     InvalidQueryCursor,
+    MassAssignmentError,
     NotFoundError,
     NullVersion,
     RelationshipExpansionLimit,
@@ -92,6 +95,40 @@ class MutationSource(StrEnum):
 
 
 Generator = Callable[[dict[str, Any], RequestContext, Repository], Any]
+
+# Selection-only by design, so the bound is generous for a hand-made
+# selection and still keeps one request's outcome report readable.
+MASS_UPDATE_TARGET_LIMIT = 1_000
+
+
+@dataclass(frozen=True, slots=True)
+class MassUpdateTarget:
+    """One selected row: its identity, and the version the caller observed."""
+
+    identity: Any
+    expected_version: int | NullVersion | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MassUpdateRowOutcome:
+    """One row's answer: updated, or refused with the single-record reason."""
+
+    identity: Any
+    status: str
+    code: str | None = None
+    message: str | None = None
+    issues: tuple[ValidationIssue, ...] = ()
+    notices: tuple[ValidationIssue, ...] = ()
+    version: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MassUpdateResult:
+    """Per-row outcomes in request order, with the counts already summed."""
+
+    outcomes: tuple[MassUpdateRowOutcome, ...]
+    updated: int
+    refused: int
 
 
 class RecordsService:
@@ -377,6 +414,134 @@ class RecordsService:
             context,
             MutationSource.USER,
             connection=connection,
+        )
+
+    def mass_update(
+        self,
+        entity_name: str,
+        changes: Mapping[str, Any],
+        targets: Sequence[MassUpdateTarget],
+        context: RequestContext,
+        *,
+        acknowledged_warnings: frozenset[str] = frozenset(),
+    ) -> MassUpdateResult:
+        """Apply one change set to each selected row, answering row by row.
+
+        The single-record update run N times: every per-record rule -- row
+        and field policies, `immutable_when`, validation, the warning
+        acknowledgement gate, optimistic versions, per-row audit -- meets
+        each row exactly as a hand-made edit would. Each row is its own
+        commit, so a refusal rolls back nothing about its siblings, and the
+        answers come back as outcomes in request order rather than as one
+        exception. Only declaration-level problems -- fields no update may
+        assign, an empty or oversized request -- refuse the whole call.
+        """
+
+        entity = self.model.entity(entity_name)
+        self.security.authorize_entity(entity, "update", context)
+        self._require_mass_assignable(entity, changes)
+        if not targets:
+            raise MassAssignmentError("mass update requires at least one target")
+        if len(targets) > MASS_UPDATE_TARGET_LIMIT:
+            raise MassAssignmentError(
+                f"mass update accepts at most {MASS_UPDATE_TARGET_LIMIT} targets"
+            )
+        outcomes = tuple(
+            self._mass_update_one(
+                entity, changes, target, context, acknowledged_warnings
+            )
+            for target in targets
+        )
+        updated = sum(1 for outcome in outcomes if outcome.status == "updated")
+        return MassUpdateResult(
+            outcomes=outcomes,
+            updated=updated,
+            refused=len(outcomes) - updated,
+        )
+
+    def _require_mass_assignable(
+        self, entity: NormalizedEntity, changes: Mapping[str, Any]
+    ) -> None:
+        if not changes:
+            raise MassAssignmentError("mass update requires at least one field")
+        refused = sorted(
+            name
+            for name in changes
+            if name not in entity.fields
+            or entity.field(name).metadata["type"] == "collection"
+            or not field_is_writable(entity.field(name), "update")
+        )
+        if refused:
+            raise MassAssignmentError(
+                "mass update cannot assign: " + ", ".join(refused)
+            )
+
+    def _mass_update_one(
+        self,
+        entity: NormalizedEntity,
+        changes: Mapping[str, Any],
+        target: MassUpdateTarget,
+        context: RequestContext,
+        acknowledged_warnings: frozenset[str],
+    ) -> MassUpdateRowOutcome:
+        try:
+            session = self.begin_edit(entity.name, target.identity, context)
+            if entity.version_field is not None:
+                if target.expected_version is None:
+                    raise VersionPreconditionRequired(entity.name)
+                asserted = (
+                    None
+                    if isinstance(target.expected_version, NullVersion)
+                    else target.expected_version
+                )
+                if session.expected_version != asserted:
+                    raise ConcurrencyError(asserted, session.expected_version)
+                session.expected_version = asserted
+            for field_name, value in changes.items():
+                session.set(field_name, value)
+            stored = self.commit(
+                session,
+                context,
+                acknowledged_warnings=acknowledged_warnings,
+            )
+        except ValidationFailed as error:
+            return MassUpdateRowOutcome(
+                identity=target.identity,
+                status="refused",
+                code=error.code,
+                message=str(error),
+                issues=error.issues,
+            )
+        except (
+            ImmutableFieldError,
+            ConcurrencyError,
+            VersionPreconditionRequired,
+            NotFoundError,
+            AuthorizationError,
+        ) as error:
+            return MassUpdateRowOutcome(
+                identity=target.identity,
+                status="refused",
+                code=error.code,
+                message=str(error),
+            )
+        except RowPolicyMismatch as error:
+            return MassUpdateRowOutcome(
+                identity=target.identity,
+                status="refused",
+                code="forbidden",
+                message=str(error) or "row policy refuses this record",
+            )
+        version: int | None = None
+        if entity.version_field is not None:
+            value = stored.get(entity.version_field.name)
+            if isinstance(value, int) and not isinstance(value, bool):
+                version = value
+        return MassUpdateRowOutcome(
+            identity=target.identity,
+            status="updated",
+            notices=session.notices,
+            version=version,
         )
 
     def lookup_criteria(

@@ -100,6 +100,18 @@ class QueryFieldError(ValueError):
     """
 
 
+class MassAssignmentError(ValueError):
+    """A mass update named fields or targets it may not.
+
+    Declaration-level, so it refuses the whole request before any row is
+    touched: an unknown or non-assignable field, an empty change set, an
+    empty or oversized target list. A `ValueError` with a TIDE-composed
+    message that is safe to hand to a client verbatim, exactly like
+    `QueryFieldError` -- per-row domain refusals are outcomes, never
+    exceptions.
+    """
+
+
 class InvalidQueryCursor(TideRuntimeError):
     code = "invalid_query_cursor"
 

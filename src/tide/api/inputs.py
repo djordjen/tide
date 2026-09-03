@@ -10,7 +10,12 @@ from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from tide.api.openapi import writable_scalar_annotation
 from tide.presentation import field_label
-from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
+from tide.compiler.normalized import (
+    ApplicationModel,
+    NormalizedEntity,
+    NormalizedField,
+    field_is_writable,
+)
 
 
 def build_writable_models(
@@ -148,22 +153,6 @@ def _writable_fields(
             ),
         )
     return result
-
-
-def field_is_writable(field: NormalizedField, mode: str) -> bool:
-    """Return whether metadata permits a field in this mutation input mode."""
-
-    metadata = field.metadata
-    if metadata.get("computed") or metadata.get("readonly"):
-        return False
-    if metadata.get("write", "normal") != "normal":
-        return False
-    if metadata.get("primary_key"):
-        return mode == "nested"
-    if metadata["type"] == "collection":
-        required_cascade = "create" if mode in {"create", "nested"} else "update"
-        return required_cascade in metadata.get("cascade", ())
-    return True
 
 
 def _input_model_config() -> ConfigDict:

@@ -80,7 +80,7 @@ from tide.api.config import (
     DEFAULT_REQUEST_BODY_TIMEOUT_SECONDS,
 )
 from tide.api.development_auth import is_loopback_host_header
-from tide.api.inputs import build_writable_models, field_is_writable
+from tide.api.inputs import build_writable_models
 from tide.api.administration import (
     AdministrationConflict,
     AdministrationDenied,
@@ -119,7 +119,12 @@ from tide.api.wire import (
     wire_audit_event as _wire_audit_event,
     wire_record as _wire_record,
 )
-from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
+from tide.compiler.normalized import (
+    ApplicationModel,
+    NormalizedEntity,
+    NormalizedField,
+    field_is_writable,
+)
 from tide.data import FilterCondition, QuerySpec, SortField, SummaryRequest
 from tide.observability import (
     CORRELATION_HEADER,

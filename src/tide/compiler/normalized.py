@@ -195,3 +195,25 @@ def deep_thaw(value: Any) -> Any:
     if isinstance(value, (set, frozenset)):
         return sorted(deep_thaw(child) for child in value)
     return value
+
+
+def field_is_writable(field: NormalizedField, mode: str) -> bool:
+    """Return whether metadata permits a field in this mutation input mode.
+
+    The one spelling of write-side assignability: the generated REST/MCP
+    input models and the service-level mass-assignment gate all read it, so
+    the wire contract and the service can never disagree about which fields
+    a caller may set.
+    """
+
+    metadata = field.metadata
+    if metadata.get("computed") or metadata.get("readonly"):
+        return False
+    if metadata.get("write", "normal") != "normal":
+        return False
+    if metadata.get("primary_key"):
+        return mode == "nested"
+    if metadata["type"] == "collection":
+        required_cascade = "create" if mode in {"create", "nested"} else "update"
+        return required_cascade in metadata.get("cascade", ())
+    return True

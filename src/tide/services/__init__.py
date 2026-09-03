@@ -26,7 +26,16 @@ from tide.services.attachment_store import (
 )
 from tide.services.cursors import CursorStore, InMemoryCursorStore, QueryPage
 from tide.services.references import NO_REFERENCE_DISPLAYS, ReferenceDisplays
-from tide.services.records import FilterCondition, MutationSource, QuerySpec, RecordsService, SortField
+from tide.services.records import (
+    FilterCondition,
+    MassUpdateResult,
+    MassUpdateRowOutcome,
+    MassUpdateTarget,
+    MutationSource,
+    QuerySpec,
+    RecordsService,
+    SortField,
+)
 
 __all__ = [
     "ActionOutcome",
@@ -56,6 +65,9 @@ __all__ = [
     "IdempotencyClaim",
     "IdempotencyRecord",
     "IdempotencyStatus",
+    "MassUpdateResult",
+    "MassUpdateRowOutcome",
+    "MassUpdateTarget",
     "MutationSource",
     "NO_REFERENCE_DISPLAYS",
     "QuerySpec",
