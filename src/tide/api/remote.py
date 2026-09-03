@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import date, datetime
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
-from tide.api.client import TideApiClient, TideApiClientError
+from tide.api.client import TideApiClient, TideApiClientError, TideApiContractError
 from tide.api.contracts import TideSessionInfo
 from tide.compiler.normalized import ApplicationModel, NormalizedEntity, NormalizedField
 from tide.data import FilterCondition, QuerySpec, SortField
@@ -20,7 +20,15 @@ from tide.runtime import (
 from tide.runtime.errors import ValidationIssue
 from tide.reporting.document import ReportDocument
 from tide.security import PROTECTED
-from tide.services import ActionOutcome, AuditEvent, QueryPage
+from tide.services import (
+    ActionOutcome,
+    AuditEvent,
+    MassUpdateResult,
+    MassUpdateRowOutcome,
+    MassUpdateTarget,
+    QueryPage,
+)
+from tide.services.records import validate_mass_update_request
 from tide.sessions import RecordSession
 
 
@@ -308,6 +316,57 @@ class RemoteRecordsService:
         session.mark_committed(stored)
         return stored
 
+    def mass_update(
+        self,
+        entity_name: str,
+        changes: Mapping[str, Any],
+        targets: Sequence[MassUpdateTarget],
+        context: RequestContext,
+        *,
+        acknowledged_warnings: frozenset[str] = frozenset(),
+    ) -> MassUpdateResult:
+        """One request for the whole selection; the server runs the loop.
+
+        The twin judges the declaration locally with the same body of rules
+        the service applies, so both TUI modes refuse a bad request
+        identically and nothing unassignable reaches the wire. What travels
+        is values, identities and version assertions -- never sessions.
+        """
+
+        entity = self.model.entity(entity_name)
+        self._require(entity, "update", context)
+        validate_mass_update_request(self.model, entity_name, changes, targets)
+        payload = _mutation_payload(
+            self.model, entity, dict(changes), operation="update"
+        )
+        result = self.client.mass_update_records(
+            entity_name,
+            payload,
+            [_wire_mass_target(target) for target in targets],
+            acknowledge_warnings=sorted(acknowledged_warnings),
+        )
+        if len(result.outcomes) != len(targets):
+            raise TideApiContractError(
+                "server answered a different number of mass-update outcomes "
+                "than targets sent"
+            )
+        return MassUpdateResult(
+            outcomes=tuple(
+                MassUpdateRowOutcome(
+                    identity=target.identity,
+                    status=outcome.status,
+                    code=outcome.code,
+                    message=outcome.message,
+                    issues=_service_issues(outcome.issues),
+                    notices=_service_issues(outcome.notices),
+                    version=outcome.version,
+                )
+                for target, outcome in zip(targets, result.outcomes)
+            ),
+            updated=result.updated,
+            refused=result.refused,
+        )
+
     def delete(
         self,
         entity_name: str,
@@ -354,6 +413,36 @@ class RemoteRecordsService:
                     _remote_validation_issues(error)
                 ) from error
             raise
+
+
+def _wire_mass_target(target: MassUpdateTarget) -> dict[str, Any]:
+    """One target as the wire spells it: identity, and the If-Match words."""
+
+    identity = target.identity
+    wire: dict[str, Any] = {
+        "identity": identity
+        if isinstance(identity, (int, str)) and not isinstance(identity, bool)
+        else str(identity)
+    }
+    if isinstance(target.expected_version, NullVersion):
+        wire["version"] = "null"
+    elif target.expected_version is not None:
+        wire["version"] = target.expected_version
+    return wire
+
+
+def _service_issues(issues: Sequence[Any]) -> tuple[ValidationIssue, ...]:
+    """Wire issues back into the dataclass every renderer already reads."""
+
+    return tuple(
+        ValidationIssue(
+            issue.rule,
+            issue.message,
+            tuple(issue.fields),
+            issue.severity,
+        )
+        for issue in issues
+    )
 
 
 def _remote_validation_issues(

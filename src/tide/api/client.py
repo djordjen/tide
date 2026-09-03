@@ -18,6 +18,7 @@ from tide.api.contracts import (
     TideDistinctInput,
     TideFilterInput,
     TideLookupSource,
+    TideMassUpdateResult,
     TidePresentationManifest,
     TideQueryInput,
     TideReferenceSelectionInput,
@@ -487,6 +488,41 @@ class TideApiClient:
             json=_encode_record(self.model, entity, values),
         )
         return self._record_response(entity, response)
+
+    def mass_update_records(
+        self,
+        entity_name: str,
+        changes: Mapping[str, Any],
+        targets: Sequence[Mapping[str, Any]],
+        *,
+        acknowledge_warnings: Sequence[str] = (),
+    ) -> TideMassUpdateResult:
+        """Apply one change set to the selected rows in a single request.
+
+        ``changes`` holds logical field values and is encoded the way every
+        mutation is; each target is already wire-shaped -- an ``identity``
+        plus the version assertion spelled as the wire spells it. The
+        answer is always a per-row outcome report, never a partial error.
+        """
+
+        entity = self.model.entity(entity_name)
+        resource = self._resource(entity_name, "update")
+        response = self._request(
+            "POST",
+            f"{resource}/_mass-update",
+            expected=(200,),
+            params=self._acknowledge_params(acknowledge_warnings),
+            json={
+                "changes": _encode_record(self.model, entity, changes),
+                "targets": [dict(target) for target in targets],
+            },
+        )
+        try:
+            return TideMassUpdateResult.model_validate(self._json_object(response))
+        except ValidationError as error:
+            raise TideApiContractError(
+                "server returned an invalid mass-update result"
+            ) from error
 
     def delete_record(
         self,

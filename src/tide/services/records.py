@@ -131,6 +131,50 @@ class MassUpdateResult:
     refused: int
 
 
+def require_mass_assignable(
+    model: ApplicationModel, entity_name: str, changes: Mapping[str, Any]
+) -> None:
+    """The declaration gate: which fields a mass update may name.
+
+    A module function so the local service and the remote twin judge a
+    request with the same body of rules -- both TUI modes must refuse a
+    bad request identically, and nothing unassignable should ever reach
+    the wire.
+    """
+
+    entity = model.entity(entity_name)
+    if not changes:
+        raise MassAssignmentError("mass update requires at least one field")
+    refused = sorted(
+        name
+        for name in changes
+        if name not in entity.fields
+        or entity.field(name).metadata["type"] == "collection"
+        or not field_is_writable(entity.field(name), "update")
+    )
+    if refused:
+        raise MassAssignmentError(
+            "mass update cannot assign: " + ", ".join(refused)
+        )
+
+
+def validate_mass_update_request(
+    model: ApplicationModel,
+    entity_name: str,
+    changes: Mapping[str, Any],
+    targets: Sequence[MassUpdateTarget],
+) -> None:
+    """Every declaration-level check a mass update must pass before row one."""
+
+    require_mass_assignable(model, entity_name, changes)
+    if not targets:
+        raise MassAssignmentError("mass update requires at least one target")
+    if len(targets) > MASS_UPDATE_TARGET_LIMIT:
+        raise MassAssignmentError(
+            f"mass update accepts at most {MASS_UPDATE_TARGET_LIMIT} targets"
+        )
+
+
 class RecordsService:
     def __init__(
         self,
@@ -439,13 +483,7 @@ class RecordsService:
 
         entity = self.model.entity(entity_name)
         self.security.authorize_entity(entity, "update", context)
-        self.require_mass_assignable(entity_name, changes)
-        if not targets:
-            raise MassAssignmentError("mass update requires at least one target")
-        if len(targets) > MASS_UPDATE_TARGET_LIMIT:
-            raise MassAssignmentError(
-                f"mass update accepts at most {MASS_UPDATE_TARGET_LIMIT} targets"
-            )
+        validate_mass_update_request(self.model, entity_name, changes, targets)
         outcomes = tuple(
             self._mass_update_one(
                 entity, changes, target, context, acknowledged_warnings
@@ -468,20 +506,7 @@ class RecordsService:
         identity coercion -- the request must still be judged as a request.
         """
 
-        entity = self.model.entity(entity_name)
-        if not changes:
-            raise MassAssignmentError("mass update requires at least one field")
-        refused = sorted(
-            name
-            for name in changes
-            if name not in entity.fields
-            or entity.field(name).metadata["type"] == "collection"
-            or not field_is_writable(entity.field(name), "update")
-        )
-        if refused:
-            raise MassAssignmentError(
-                "mass update cannot assign: " + ", ".join(refused)
-            )
+        require_mass_assignable(self.model, entity_name, changes)
 
     def _mass_update_one(
         self,

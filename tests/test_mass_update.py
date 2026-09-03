@@ -761,6 +761,203 @@ def test_rest_mass_update_acknowledges_warnings_by_rule_id(
         assert "heavy_hours" in {issue["rule"] for issue in outcome["notices"]}
 
 
+# --- the doors: the typed client and remote mode ------------------------------
+
+
+def _remote_stack(tmp_path: Path) -> tuple[object, object, list[dict[str, object]], list[list[str]]]:
+    """The remote TUI's whole stack over a captured wire.
+
+    Returns the compiled model, the ASGI app, the captured `_mass-update`
+    bodies, and the captured `acknowledge_warnings` query values.
+    """
+
+    import asyncio
+    import json
+    from concurrent.futures import ThreadPoolExecutor
+
+    import httpx
+
+    model = compile_project(_project(tmp_path))
+    from tide.api.server import DevelopmentTokenAuthenticator, build_fastapi_app
+
+    repository = InMemoryRepository()
+    repository.seed("demo.Worker", WORKERS)
+    repository.seed("demo.Job", JOBS)
+    repository.seed("demo.Tag", TAGS)
+    app = build_fastapi_app(
+        model,
+        RecordsService(model, repository),
+        DevelopmentTokenAuthenticator(
+            TOKEN,
+            Principal("api:test", roles=frozenset({"operator"})),
+        ),
+    )
+    bodies: list[dict[str, object]] = []
+    acknowledged: list[list[str]] = []
+
+    def dispatch(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/_mass-update"):
+            bodies.append(json.loads(request.content.decode("utf-8")))
+            acknowledged.append(request.url.params.get_list("acknowledge_warnings"))
+
+        async def send() -> httpx.Response:
+            async with httpx.AsyncClient(
+                base_url="http://127.0.0.1",
+                transport=httpx.ASGITransport(app=app),  # type: ignore[arg-type]
+            ) as forwarded:
+                response = await forwarded.request(
+                    request.method,
+                    str(request.url),
+                    headers=request.headers,
+                    content=request.content,
+                )
+                return httpx.Response(
+                    response.status_code,
+                    headers=response.headers,
+                    content=await response.aread(),
+                    request=request,
+                )
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            return executor.submit(asyncio.run, send()).result()
+
+    transport = httpx.Client(
+        base_url="http://127.0.0.1", transport=httpx.MockTransport(dispatch)
+    )
+    return model, transport, bodies, acknowledged
+
+
+def test_remote_mass_update_serializes_values_and_translates_outcomes(
+    tmp_path: Path,
+) -> None:
+    """The twin sends values and identities, never sessions, and hands back
+    the same outcome dataclasses the local service answers with."""
+
+    from tide.api.client import TideApiClient
+    from tide.api.remote import RemoteRecordsService
+    from tide.services import MassUpdateResult
+
+    model, transport, bodies, acknowledged = _remote_stack(tmp_path)
+    with transport:  # type: ignore[attr-defined]
+        client = TideApiClient(
+            model, "http://127.0.0.1", TOKEN, http_client=transport
+        )
+        session = client.connect()
+        context = RequestContext(
+            Principal(session.principal, roles=frozenset(session.roles)),
+            channel=Channel.TUI,
+        )
+        remote = RemoteRecordsService(model, client, session)
+
+        result = remote.mass_update(
+            "demo.Job",
+            {"priority": "high"},
+            [
+                MassUpdateTarget(1, 1),
+                MassUpdateTarget(2, 1),
+                MassUpdateTarget(4, 7),
+            ],
+            context,
+        )
+        assert isinstance(result, MassUpdateResult)
+        assert [outcome.status for outcome in result.outcomes] == [
+            "updated",
+            "refused",
+            "refused",
+        ]
+        assert [outcome.code for outcome in result.outcomes] == [
+            None,
+            "immutable_field",
+            "stale_version",
+        ]
+        assert result.outcomes[0].version == 2
+        assert result.updated == 1
+
+        warned = remote.mass_update(
+            "demo.Job",
+            {"hours": Decimal("99.00")},
+            [MassUpdateTarget(4, 1)],
+            context,
+        )
+        issue_rules = {
+            (issue.rule, issue.severity)
+            for issue in warned.outcomes[0].issues
+        }
+        assert ("heavy_hours", "warning") in issue_rules
+
+        acked = remote.mass_update(
+            "demo.Job",
+            {"hours": Decimal("99.00")},
+            [MassUpdateTarget(4, 1)],
+            context,
+            acknowledged_warnings=frozenset({"heavy_hours"}),
+        )
+        assert acked.updated == 1
+        assert "heavy_hours" in {
+            issue.rule for issue in acked.outcomes[0].notices
+        }
+
+    assert bodies[0] == {
+        "changes": {"priority": "high"},
+        "targets": [
+            {"identity": 1, "version": 1},
+            {"identity": 2, "version": 1},
+            {"identity": 4, "version": 7},
+        ],
+    }
+    # Exact decimals travel as strings, the way every mutation encodes them.
+    assert bodies[1]["changes"] == {"hours": "99.00"}
+    assert acknowledged[:3] == [[], [], ["heavy_hours"]]
+
+
+def test_remote_mass_update_spells_null_and_absent_versions(
+    tmp_path: Path,
+) -> None:
+    from tide.api.client import TideApiClient
+    from tide.api.remote import RemoteRecordsService
+    from tide.runtime.errors import MassAssignmentError as GateError
+
+    model, transport, bodies, _acknowledged = _remote_stack(tmp_path)
+    with transport:  # type: ignore[attr-defined]
+        client = TideApiClient(
+            model, "http://127.0.0.1", TOKEN, http_client=transport
+        )
+        session = client.connect()
+        context = RequestContext(
+            Principal(session.principal, roles=frozenset(session.roles)),
+            channel=Channel.TUI,
+        )
+        remote = RemoteRecordsService(model, client, session)
+
+        nulled = remote.mass_update(
+            "demo.Job",
+            {"priority": "high"},
+            [MassUpdateTarget(1, NULL_VERSION)],
+            context,
+        )
+        assert nulled.outcomes[0].code == "stale_version"
+
+        unversioned = remote.mass_update(
+            "demo.Tag",
+            {"color": "blue"},
+            [MassUpdateTarget(1), MassUpdateTarget(2)],
+            context,
+        )
+        assert unversioned.updated == 2
+
+        # The twin judges a bad request locally, exactly as the service
+        # would, so both TUI modes refuse with the same message shape --
+        # and nothing unassignable ever reaches the wire.
+        with pytest.raises(GateError):
+            remote.mass_update(
+                "demo.Job", {"slug": "x"}, [MassUpdateTarget(1, 1)], context
+            )
+
+    assert bodies[0]["targets"] == [{"identity": 1, "version": "null"}]
+    assert bodies[1]["targets"] == [{"identity": 1}, {"identity": 2}]
+    assert len(bodies) == 2
+
+
 def test_rest_mass_update_on_an_unversioned_entity(tmp_path: Path) -> None:
     app = _api_app(tmp_path)
 
