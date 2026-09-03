@@ -34,7 +34,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field as PydanticField, create_model
 from starlette.staticfiles import StaticFiles
 
 from tide.api.contracts import (
@@ -53,6 +53,9 @@ from tide.api.contracts import (
     TideLocalPasswordInput,
     TideLocalUser,
     TideLocalUserList,
+    TideMassUpdateOutcome,
+    TideMassUpdateResult,
+    TideMassUpdateTarget as TideMassUpdateTargetInput,
     TidePresentationManifest,
     TidePasswordLoginInput,
     TideQueryInput,
@@ -148,6 +151,7 @@ from tide.runtime import (
     IdempotencyConflict,
     ImmutableFieldError,
     InvalidQueryCursor,
+    MassAssignmentError,
     NotFoundError,
     NULL_VERSION,
     NullVersion,
@@ -170,7 +174,14 @@ from tide.reporting import (
     render_pdf,
 )
 from tide.security import PROTECTED
-from tide.services import ActionService, AuditHistoryReader, AuditHistoryService, RecordsService
+from tide.services import (
+    ActionService,
+    AuditHistoryReader,
+    AuditHistoryService,
+    MassUpdateTarget,
+    RecordsService,
+)
+from tide.services.records import MASS_UPDATE_TARGET_LIMIT
 from tide.model.source import parse_size_literal
 from tide.services.attachment_store import AttachmentStoreError, AttachmentTooLarge
 from tide.services.saved_views import (
@@ -1970,6 +1981,25 @@ def build_fastapi_app(
                     400, 401, 403, 404, 408, 409, 412, 413, 422, 428
                 ),
             )
+            mass_update_endpoint = _mass_update_endpoint(
+                records,
+                entity,
+                primary_key,
+                update_models[entity_name],
+                request_context,
+            )
+            app.add_api_route(
+                f"{resource_path}/_mass-update",
+                mass_update_endpoint,
+                methods=["POST"],
+                response_model=TideMassUpdateResult,
+                name=f"Mass update {entity.label}",
+                operation_id=(
+                    f"massUpdate{preview.record_models[entity_name].__name__.removesuffix('Record')}"
+                ),
+                tags=[tag],
+                responses=_documented_errors(400, 401, 403, 408, 413, 422),
+            )
         if "delete" in exposure.operations:
             primary_key = _primary_key(entity)
             delete_endpoint = _delete_endpoint(
@@ -2336,6 +2366,131 @@ def _update_endpoint(
         primary_key,
     )
     return update_record
+
+
+def _wire_mass_update_issues(
+    issues: Sequence[ValidationIssue],
+) -> tuple[TideApiValidationIssue, ...]:
+    return tuple(
+        TideApiValidationIssue(
+            rule=issue.rule,
+            message=issue.message,
+            fields=tuple(issue.fields),
+            severity=issue.severity,
+        )
+        for issue in issues
+    )
+
+
+def _mass_update_endpoint(
+    records: RecordsService,
+    entity: NormalizedEntity,
+    primary_key: NormalizedField,
+    update_model: type[BaseModel],
+    context_dependency: Any,
+) -> Any:
+    # The same generated update payload the PATCH door validates with, so
+    # the wire can never admit a field the single-record update refuses.
+    input_model = create_model(
+        f"{update_model.__name__.removesuffix('UpdateInput')}MassUpdateInput",
+        __config__=ConfigDict(extra="forbid", frozen=True),
+        __module__=__name__,
+        changes=(update_model, ...),
+        targets=(
+            list[TideMassUpdateTargetInput],
+            PydanticField(
+                ...,
+                min_length=1,
+                max_length=MASS_UPDATE_TARGET_LIMIT,
+                description=(
+                    "The selected rows, each with the version its caller "
+                    'observed -- an integer, or "null" for a row whose '
+                    "adopted token was never written."
+                ),
+            ),
+        ),
+    )
+
+    def mass_update_records(
+        payload: BaseModel = Body(),
+        context: RequestContext = Depends(context_dependency),
+        acknowledge_warnings: list[str] = Query(
+            default_factory=list,
+            description=_ACKNOWLEDGE_WARNINGS_DOC,
+        ),
+    ) -> TideMassUpdateResult:
+        changes = payload.changes.model_dump(  # type: ignore[attr-defined]
+            by_alias=True, exclude_unset=True
+        )
+        # An identity that does not coerce refuses its own row, never the
+        # batch: each target is independent, and one malformed key must not
+        # hold the rest hostage.
+        entries: list[tuple[bool, Any]] = []
+        for wire_target in payload.targets:  # type: ignore[attr-defined]
+            try:
+                typed_identity = _coerce_identity(
+                    records.model, primary_key, wire_target.identity
+                )
+            except (TypeError, ValueError, InvalidOperation):
+                entries.append((False, wire_target.identity))
+                continue
+            expected: int | NullVersion | None = (
+                NULL_VERSION if wire_target.version == "null" else wire_target.version
+            )
+            entries.append((True, MassUpdateTarget(typed_identity, expected)))
+        targets = [target for coerced, target in entries if coerced]
+        try:
+            if targets:
+                result = records.mass_update(
+                    entity.name,
+                    changes,
+                    targets,
+                    context,
+                    acknowledged_warnings=frozenset(acknowledge_warnings),
+                )
+                service_outcomes = iter(result.outcomes)
+            else:
+                # Nothing coercible: still answer 403 before an all-refused
+                # report, exactly as the service itself would have.
+                records.security.authorize_entity(entity, "update", context)
+                records.require_mass_assignable(entity.name, changes)
+                service_outcomes = iter(())
+        except MassAssignmentError as error:
+            raise _bad_request(str(error)) from error
+        outcomes: list[TideMassUpdateOutcome] = []
+        for coerced, value in entries:
+            if not coerced:
+                outcomes.append(
+                    TideMassUpdateOutcome(
+                        identity=value,
+                        status="refused",
+                        code="invalid_identity",
+                        message="record identity has an invalid type",
+                    )
+                )
+                continue
+            outcome = next(service_outcomes)
+            outcomes.append(
+                TideMassUpdateOutcome(
+                    identity=value.identity,
+                    status=outcome.status,  # type: ignore[arg-type]
+                    code=outcome.code,
+                    message=outcome.message,
+                    issues=_wire_mass_update_issues(outcome.issues),
+                    notices=_wire_mass_update_issues(outcome.notices),
+                    version=outcome.version,
+                )
+            )
+        updated = sum(1 for outcome in outcomes if outcome.status == "updated")
+        return TideMassUpdateResult(
+            outcomes=tuple(outcomes),
+            updated=updated,
+            refused=len(outcomes) - updated,
+        )
+
+    mass_update_records.__name__ = f"mass_update_{entity.name.replace('.', '_')}"
+    mass_update_records.__annotations__["payload"] = input_model
+    return mass_update_records
 
 
 def _action_endpoint(

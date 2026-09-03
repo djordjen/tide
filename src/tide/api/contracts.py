@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from tide.api.openapi import TideApiValidationIssue
 from tide.model.source import TideBrowseEditMode, TideSummaryFunction
 
 
@@ -218,6 +219,54 @@ class TideDistinctResult(BaseModel):
     field: str
     values: tuple[TideDistinctValue, ...] = ()
     truncated: bool = False
+
+
+class TideMassUpdateTarget(BaseModel):
+    """One selected row and the version its caller observed.
+
+    ``version`` spells the assertion exactly as ``If-Match`` does: an
+    integer, the string ``"null"`` for a row whose adopted token is NULL
+    (the successful write heals it), or omitted only when the entity
+    declares no version field.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    identity: int | str
+    version: int | Literal["null"] | None = None
+
+
+class TideMassUpdateOutcome(BaseModel):
+    """One row's answer: updated, or refused with the single-record reason.
+
+    Issue lists keep rule ids and severity so a client can tell a warning
+    it may acknowledge from an error it must fix -- the same property the
+    single-record envelope guarantees.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    identity: int | str
+    status: Literal["updated", "refused"]
+    code: str | None = None
+    message: str | None = None
+    issues: tuple[TideApiValidationIssue, ...] = ()
+    notices: tuple[TideApiValidationIssue, ...] = ()
+    version: int | None = None
+
+
+class TideMassUpdateResult(BaseModel):
+    """Per-row outcomes in request order, with the counts already summed.
+
+    Always a 200: partial success is a successful report, and refusals are
+    outcomes rather than errors because each target is independent.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    outcomes: tuple[TideMassUpdateOutcome, ...]
+    updated: int
+    refused: int
 
 
 class TideReferenceSelectionInput(BaseModel):

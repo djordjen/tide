@@ -439,7 +439,7 @@ class RecordsService:
 
         entity = self.model.entity(entity_name)
         self.security.authorize_entity(entity, "update", context)
-        self._require_mass_assignable(entity, changes)
+        self.require_mass_assignable(entity_name, changes)
         if not targets:
             raise MassAssignmentError("mass update requires at least one target")
         if len(targets) > MASS_UPDATE_TARGET_LIMIT:
@@ -459,9 +459,16 @@ class RecordsService:
             refused=len(outcomes) - updated,
         )
 
-    def _require_mass_assignable(
-        self, entity: NormalizedEntity, changes: Mapping[str, Any]
+    def require_mass_assignable(
+        self, entity_name: str, changes: Mapping[str, Any]
     ) -> None:
+        """The declaration gate alone: which fields a mass update may name.
+
+        Public because the REST door needs it when no target survived
+        identity coercion -- the request must still be judged as a request.
+        """
+
+        entity = self.model.entity(entity_name)
         if not changes:
             raise MassAssignmentError("mass update requires at least one field")
         refused = sorted(

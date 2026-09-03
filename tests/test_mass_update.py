@@ -62,6 +62,10 @@ POLICIES = (
 WORKER = (
     "entity: demo.Worker\n"
     "display: name\n"
+    "expose:\n"
+    "  rest:\n"
+    "    path: workers\n"
+    "    operations: [list, get]\n"
     "permissions: {list: demo.all, read: demo.all, create: demo.all,"
     " update: demo.all}\n"
     "fields:\n"
@@ -535,3 +539,242 @@ def test_each_update_writes_its_own_audit_event(
     assert sorted(event.identity for event in events) == [1, 4]
     for event in events:
         assert any(change.field == "priority" for change in event.changes)
+
+
+# --- the REST door ------------------------------------------------------------
+
+
+TOKEN = "tide-development-token-that-is-long-enough"
+
+
+def _api_app(tmp_path: Path) -> object:
+    from tide.api.server import DevelopmentTokenAuthenticator, build_fastapi_app
+
+    model = compile_project(_project(tmp_path))
+    repository = InMemoryRepository()
+    repository.seed("demo.Worker", WORKERS)
+    repository.seed("demo.Job", JOBS)
+    repository.seed("demo.Tag", TAGS)
+    records = RecordsService(model, repository)
+    return build_fastapi_app(
+        model,
+        records,
+        DevelopmentTokenAuthenticator(
+            TOKEN,
+            Principal("api:test", roles=frozenset({"operator"})),
+        ),
+    )
+
+
+def _rest(app: object, method: str, path: str, **kwargs: object) -> object:
+    import asyncio
+
+    import httpx
+
+    async def exercise() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),  # type: ignore[arg-type]
+            base_url="http://testserver",
+        ) as client:
+            return await client.request(
+                method,
+                path,
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                **kwargs,  # type: ignore[arg-type]
+            )
+
+    return asyncio.run(exercise())
+
+
+def test_rest_mass_update_answers_row_by_row(tmp_path: Path) -> None:
+    app = _api_app(tmp_path)
+
+    response = _rest(
+        app,
+        "POST",
+        "/api/v1/jobs/_mass-update",
+        json={
+            "changes": {"priority": "high"},
+            "targets": [
+                {"identity": 1, "version": 1},
+                {"identity": 2, "version": 1},
+                {"identity": 99, "version": 1},
+                {"identity": 4, "version": 7},
+            ],
+        },
+    )
+
+    assert response.status_code == 200  # type: ignore[attr-defined]
+    payload = response.json()  # type: ignore[attr-defined]
+    assert payload["updated"] == 1
+    assert payload["refused"] == 3
+    assert [outcome["identity"] for outcome in payload["outcomes"]] == [1, 2, 99, 4]
+    assert [outcome["code"] for outcome in payload["outcomes"]] == [
+        None,
+        "immutable_field",
+        "not_found",
+        "stale_version",
+    ]
+    assert payload["outcomes"][0]["status"] == "updated"
+    assert payload["outcomes"][0]["version"] == 2
+
+
+def test_rest_mass_update_spells_null_versions_like_if_match(
+    tmp_path: Path,
+) -> None:
+    app = _api_app(tmp_path)
+
+    response = _rest(
+        app,
+        "POST",
+        "/api/v1/jobs/_mass-update",
+        json={
+            "changes": {"priority": "high"},
+            "targets": [{"identity": 1, "version": "null"}],
+        },
+    )
+
+    assert response.status_code == 200  # type: ignore[attr-defined]
+    outcome = response.json()["outcomes"][0]  # type: ignore[attr-defined]
+    assert outcome["status"] == "refused"
+    assert outcome["code"] == "stale_version"
+
+
+def test_rest_mass_update_answers_each_identity_for_itself(
+    tmp_path: Path,
+) -> None:
+    app = _api_app(tmp_path)
+
+    response = _rest(
+        app,
+        "POST",
+        "/api/v1/jobs/_mass-update",
+        json={
+            "changes": {"priority": "high"},
+            "targets": [
+                {"identity": "abc", "version": 1},
+                {"identity": 4, "version": 1},
+            ],
+        },
+    )
+
+    assert response.status_code == 200  # type: ignore[attr-defined]
+    payload = response.json()  # type: ignore[attr-defined]
+    assert [outcome["code"] for outcome in payload["outcomes"]] == [
+        "invalid_identity",
+        None,
+    ]
+    assert payload["outcomes"][1]["status"] == "updated"
+    assert payload["updated"] == 1
+
+
+def test_rest_mass_update_refuses_declaration_problems(tmp_path: Path) -> None:
+    app = _api_app(tmp_path)
+
+    # A field the update contract does not admit is refused by the typed
+    # payload itself -- the same model the PATCH door validates with.
+    unknown = _rest(
+        app,
+        "POST",
+        "/api/v1/jobs/_mass-update",
+        json={"changes": {"slug": "x"}, "targets": [{"identity": 1, "version": 1}]},
+    )
+    assert unknown.status_code == 422  # type: ignore[attr-defined]
+
+    empty_changes = _rest(
+        app,
+        "POST",
+        "/api/v1/jobs/_mass-update",
+        json={"changes": {}, "targets": [{"identity": 1, "version": 1}]},
+    )
+    assert empty_changes.status_code == 400  # type: ignore[attr-defined]
+
+    empty_targets = _rest(
+        app,
+        "POST",
+        "/api/v1/jobs/_mass-update",
+        json={"changes": {"priority": "high"}, "targets": []},
+    )
+    assert empty_targets.status_code == 422  # type: ignore[attr-defined]
+
+    oversized = _rest(
+        app,
+        "POST",
+        "/api/v1/jobs/_mass-update",
+        json={
+            "changes": {"priority": "high"},
+            "targets": [
+                {"identity": index, "version": 1} for index in range(1_001)
+            ],
+        },
+    )
+    assert oversized.status_code == 422  # type: ignore[attr-defined]
+
+    # The door exists only where update is exposed: without it the path
+    # falls through to the single-record GET shape, where POST is not a
+    # method at all.
+    missing = _rest(
+        app,
+        "POST",
+        "/api/v1/workers/_mass-update",
+        json={"changes": {"name": "x"}, "targets": [{"identity": 1}]},
+    )
+    assert missing.status_code == 405  # type: ignore[attr-defined]
+
+
+def test_rest_mass_update_acknowledges_warnings_by_rule_id(
+    tmp_path: Path,
+) -> None:
+    app = _api_app(tmp_path)
+    body = {
+        "changes": {"hours": "99.00"},
+        "targets": [
+            {"identity": 1, "version": 1},
+            {"identity": 4, "version": 1},
+        ],
+    }
+
+    first = _rest(app, "POST", "/api/v1/jobs/_mass-update", json=body)
+    assert first.status_code == 200  # type: ignore[attr-defined]
+    outcomes = first.json()["outcomes"]  # type: ignore[attr-defined]
+    assert [outcome["code"] for outcome in outcomes] == [
+        "validation_failed",
+        "validation_failed",
+    ]
+    assert {
+        issue["rule"]
+        for outcome in outcomes
+        for issue in outcome["issues"]
+        if issue["severity"] == "warning"
+    } == {"heavy_hours"}
+
+    second = _rest(
+        app,
+        "POST",
+        "/api/v1/jobs/_mass-update?acknowledge_warnings=heavy_hours",
+        json=body,
+    )
+    assert second.status_code == 200  # type: ignore[attr-defined]
+    payload = second.json()  # type: ignore[attr-defined]
+    assert payload["updated"] == 2
+    for outcome in payload["outcomes"]:
+        assert "heavy_hours" in {issue["rule"] for issue in outcome["notices"]}
+
+
+def test_rest_mass_update_on_an_unversioned_entity(tmp_path: Path) -> None:
+    app = _api_app(tmp_path)
+
+    response = _rest(
+        app,
+        "POST",
+        "/api/v1/tags/_mass-update",
+        json={
+            "changes": {"color": "blue"},
+            "targets": [{"identity": 1}, {"identity": 2}],
+        },
+    )
+
+    assert response.status_code == 200  # type: ignore[attr-defined]
+    payload = response.json()  # type: ignore[attr-defined]
+    assert payload["updated"] == 2
+    assert all(outcome["version"] is None for outcome in payload["outcomes"])
