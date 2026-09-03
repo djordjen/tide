@@ -815,6 +815,24 @@ class TidePresentationNamedFilter(BaseModel):
     conditions: tuple[TideFilterInput, ...] = Field(min_length=1)
 
 
+class TideBrowseMassUpdate(BaseModel):
+    """The mass-update door, where this principal may knock on it.
+
+    ``version_field`` names the declared concurrency token whose value the
+    client reads off the rows it already loaded -- explicit ``null`` means
+    the entity declares none and targets travel without assertions. The
+    object's absence from a browse covers the old-server and the
+    no-permission cases with one signal: a client that sees nothing
+    offers nothing.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    path: str = Field(pattern=r"^/")
+    version_field: str | None = None
+    limit: int = Field(ge=1)
+
+
 class TideBrowsePresentation(BaseModel):
     """One capability-filtered browse contract for remote renderers."""
 
@@ -865,6 +883,7 @@ class TideBrowsePresentation(BaseModel):
     page_size: int = Field(ge=1, le=500)
     operations: tuple[TideOperation, ...] = ()
     detail_view: str | None = None
+    mass_update: TideBrowseMassUpdate | None = None
 
 
 class TideViewStateColumn(BaseModel):

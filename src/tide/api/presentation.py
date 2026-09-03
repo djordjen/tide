@@ -6,7 +6,10 @@ from datetime import date
 from typing import Any, Mapping
 from urllib.parse import quote
 
+from tide.services.records import MASS_UPDATE_TARGET_LIMIT
+
 from tide.api.contracts import (
+    TideBrowseMassUpdate,
     TideBrowsePresentation,
     TideFilterInput,
     TideFormPresentation,
@@ -244,6 +247,23 @@ def build_presentation_manifest(
                 ),
                 operations=capabilities.operations,
                 detail_view=form.view if form is not None else None,
+                # Present only where this server generates the door and
+                # this principal may update -- one signal for both the
+                # old-server and the no-permission absences.
+                mass_update=(
+                    TideBrowseMassUpdate(
+                        path=f"{root_path}/_mass-update",
+                        version_field=(
+                            entity.version_field.name
+                            if entity.version_field is not None
+                            else None
+                        ),
+                        limit=MASS_UPDATE_TARGET_LIMIT,
+                    )
+                    if "update" in exposure.operations
+                    and "update" in capabilities.operations
+                    else None
+                ),
             )
             items.append(
                 TidePresentationNavigationItem(

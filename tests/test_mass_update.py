@@ -40,14 +40,20 @@ POLICIES = (
     "permissions:\n"
     "- demo.all\n"
     "- demo.review\n"
+    "- demo.update\n"
     "roles:\n"
     "  operator:\n"
     "    grants:\n"
     "    - demo.all\n"
+    "    - demo.update\n"
     "  reviewer:\n"
     "    grants:\n"
     "    - demo.all\n"
+    "    - demo.update\n"
     "    - demo.review\n"
+    "  watcher:\n"
+    "    grants:\n"
+    "    - demo.all\n"
     "row_policies:\n"
     "- id: updatable_regions\n"
     "  entity: demo.Job\n"
@@ -83,7 +89,7 @@ JOB = (
     "    path: jobs\n"
     "    operations: [list, get, create, update]\n"
     "permissions: {list: demo.all, read: demo.all, create: demo.all,"
-    " update: demo.all}\n"
+    " update: demo.update}\n"
     "fields:\n"
     "  id: {type: integer, primary_key: true}\n"
     "  title: {type: string, length: 60, required: true}\n"
@@ -547,7 +553,7 @@ def test_each_update_writes_its_own_audit_event(
 TOKEN = "tide-development-token-that-is-long-enough"
 
 
-def _api_app(tmp_path: Path) -> object:
+def _api_app(tmp_path: Path, role: str = "operator") -> object:
     from tide.api.server import DevelopmentTokenAuthenticator, build_fastapi_app
 
     model = compile_project(_project(tmp_path))
@@ -561,7 +567,7 @@ def _api_app(tmp_path: Path) -> object:
         records,
         DevelopmentTokenAuthenticator(
             TOKEN,
-            Principal("api:test", roles=frozenset({"operator"})),
+            Principal("api:test", roles=frozenset({role})),
         ),
     )
 
@@ -759,6 +765,54 @@ def test_rest_mass_update_acknowledges_warnings_by_rule_id(
     assert payload["updated"] == 2
     for outcome in payload["outcomes"]:
         assert "heavy_hours" in {issue["rule"] for issue in outcome["notices"]}
+
+
+# --- the manifest names the door ----------------------------------------------
+
+
+def _browse_presentations(app: object) -> dict[str, dict[str, object]]:
+    response = _rest(app, "GET", "/api/v1/_tide/presentation")
+    assert response.status_code == 200  # type: ignore[attr-defined]
+    browses: dict[str, dict[str, object]] = {}
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            if "view" in node and "resource_path" in node:
+                browses[str(node["view"])] = node
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(response.json())  # type: ignore[attr-defined]
+    return browses
+
+
+def test_the_manifest_names_the_door_only_where_it_may_be_used(
+    tmp_path: Path,
+) -> None:
+    """Presence carries the path, the version field's name and the bound;
+    absence covers the old server and the no-permission principal with one
+    signal, so a client that sees nothing offers nothing."""
+
+    browses = _browse_presentations(_api_app(tmp_path))
+    assert browses["demo.Job.browse"]["mass_update"] == {
+        "path": "/api/v1/jobs/_mass-update",
+        "version_field": "version",
+        "limit": 1_000,
+    }
+    # An entity without a version field says so explicitly: null means
+    # "send targets without assertions", not "old server".
+    assert browses["demo.Tag.browse"]["mass_update"] == {
+        "path": "/api/v1/tags/_mass-update",
+        "version_field": None,
+        "limit": 1_000,
+    }
+
+    watcher = _browse_presentations(_api_app(tmp_path, role="watcher"))
+    assert watcher["demo.Job.browse"]["mass_update"] is None
+    assert watcher["demo.Tag.browse"]["mass_update"] is not None
 
 
 # --- the doors: the typed client and remote mode ------------------------------
