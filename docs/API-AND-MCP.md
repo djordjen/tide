@@ -635,6 +635,23 @@ ask what the draft invoices come to without paging through them. The MCP
 handling, the exact `avg` contract, and what is refused -- are in
 [the query contract](QUERY-AND-CONCURRENCY.md).
 
+`POST /api/v1/{resource}/_mass-update` applies one change set to a
+selection wherever update is exposed: `changes` is the same generated
+update payload the PATCH route validates, `targets` is up to 1,000
+`{identity, version}` pairs with the version spelled the way `If-Match`
+spells it (an integer, `"null"` for a row whose adopted token was never
+written, omitted only when the entity declares none), and
+`acknowledge_warnings` remains the repeatable query parameter. The answer
+is always `200`: per-row outcomes in request order — `updated` with the
+stored version and any notices, or `refused` with the single-record code
+(`stale_version`, `immutable_field`, `validation_failed` with issues,
+`forbidden`, `not_found`, `invalid_identity`) — because each target is
+independent and one locked record must not hold its siblings hostage.
+Declaration-level problems (a field no update may assign, an empty or
+oversized request) refuse the whole call before any row is touched. Each
+row is its own commit with its own audit event; there is deliberately no
+set-level event and no MCP tool.
+
 ## Domain actions
 
 First-class actions map predictably to REST:

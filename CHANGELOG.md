@@ -89,6 +89,30 @@ evaluated warnings and silently kept only the errors. Invoicing ships the
 first rule: an unusually large line quantity warns at the invoice save,
 and one acknowledgement covers every line it fired on.
 
+A selection can be **mass-updated**: one change applied to N chosen rows
+by the service that owns single-record updates, under the existing
+`update` permission — no new YAML, no new permission dimension. Every
+per-record rule meets each row exactly as a hand-made edit would (row and
+field policies, `immutable_when`, validation, the warning acknowledgement
+gate, optimistic versions, per-row audit events), each row is its own
+commit, and the answer is a per-row outcome report rather than one error:
+eighteen updated, two refused, each refusal carrying the single-record
+code and issues. `POST {resource}/_mass-update` joins the set-shaped
+doors wherever update is exposed — typed by the same generated update
+input the PATCH door validates with, each target spelling its version the
+way `If-Match` does — and the manifest names the door, the version field
+and the bound only where this server generates it and the principal may
+update, so one absence covers the old server and the read-only principal
+alike. The browser selects rows in a checkbox gutter and asks through one
+dialog with an amber Apply-anyway for warning-only refusals; the terminal
+marks rows with Space and walks the same acknowledgement through its
+standing warnings screen. References and files stay out of both dialogs
+deliberately — a mass-assigned reference would skip the `on_select`
+assignments a hand pick applies, and a staged file claims exactly once —
+while the service door accepts what the update contract accepts. MCP
+abstains: an agent already holds the single update tool and the report is
+for a person reviewing a set.
+
 The web lands on **Home**: a personal dashboard assembled from what the
 principal keeps rather than declared in YAML. Saved views are tiles wearing
 their live numbers — the browse's declared summaries, guaranteed a count,

@@ -112,6 +112,18 @@ invisible until it is rebuilt.
   scoped by a fresh read of the record, Enter saves through the same
   version-checked PATCH the form uses, Escape cancels, and leaving a dirty
   row saves it; the demo's Products browse works this way;
+- mass update over a selection: where the manifest carries the
+  `mass_update` door, the grid grows a checkbox gutter (Space toggles the
+  focused row, the header box toggles every loaded row), the toolbar
+  counts the selection beside **Change…**, and one dialog assigns one
+  writable scalar field to every selected row — each row asserting the
+  version it was seen at, each answering for itself in a per-row report
+  (a posted invoice refuses through its lock while its neighbours are
+  written), warning-only refusals earning an amber **Apply anyway** that
+  resubmits exactly those rows with the rules acknowledged. Blanking a
+  field is an explicit choice, never an untouched input. The selection
+  survives sorting and further pages and clears when search or filters
+  change what the rows mean;
 - row virtualization, so loaded records do not all become DOM elements;
 - exact decimal and metadata-defined date formatting;
 - authorized reference display through generated REST resources;

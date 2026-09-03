@@ -202,13 +202,20 @@ field; the manifest only supplies its name.
 - **Affordance**: with a non-empty selection the browse toolbar shows the
   count, **Change…** and **Clear selection**. Offered only when the manifest
   carries `mass_update`.
-- **Dialog**: pick one field (the detail form's editable, non-collection,
-  non-file fields), edit one value with the field's own editor type —
-  including a reference picker through the existing lookup dialog, which
-  keeps honoring the field's `lookup_filter` edge — then Apply. The result
+- **Dialog**: pick one field (the detail form's writable scalars), edit
+  one value with the field's own editor type, then Apply. The result
   panel reports "N updated, M refused" with each refusal's row and reason.
   When every refusal is warnings-only, an amber **Apply anyway** resubmits
   exactly those targets with the warnings acknowledged by rule id.
+
+  **Revised during implementation — references are out of both dialogs**
+  (this spec first promised the web a reference picker): a mass-assigned
+  reference goes through `commit`, which never fires the `on_select`
+  assignments a hand pick applies through `apply_reference_selection` —
+  so the dialog would quietly produce rows a person's pick would have
+  filled differently. The service door still accepts references (the
+  `lookup_filter` commit gate covers a mass-chosen row); the click-paths
+  abstain until `on_select` and mass assignment have a settled story.
 - 375px stays a requirement like everywhere else.
 
 ## TUI
@@ -244,6 +251,9 @@ updated.
 - **File fields** in the dialogs — a staged upload claims once; assigning one
   token to N rows is nonsense. The service refuses nothing special; the
   dialogs simply do not offer them.
+- **Reference fields** in the dialogs — see the revision note above: no
+  `on_select` assignments fire on a mass-assigned reference, so the
+  dialogs abstain while the service door accepts.
 - **Set-level audit event** — per-row events are the truth.
 - **MCP tool** — abstains.
 - **Multi-field dialogs** — the wire takes a mapping; the UI offers one field
