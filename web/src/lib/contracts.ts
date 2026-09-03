@@ -328,6 +328,46 @@ export interface TideSavedViewCatalog {
   views: TideOwnSavedView[]
 }
 
+export interface TideBrowseMassUpdate {
+  /** The `_mass-update` door under the browse's resource path. */
+  path: string
+  /**
+   * The declared concurrency token whose value already rides every loaded
+   * row -- explicit null means the entity declares none and targets travel
+   * without assertions.
+   */
+  version_field: string | null
+  /** The most targets one request accepts. */
+  limit: number
+}
+
+export interface TideMassUpdateTarget {
+  identity: number | string
+  /**
+   * The version this client observed, spelled the way If-Match spells it:
+   * an integer, "null" for a row whose adopted token was never written,
+   * or omitted only when the entity declares no version field.
+   */
+  version?: number | "null"
+}
+
+export interface TideMassUpdateOutcome {
+  identity: number | string
+  status: "updated" | "refused"
+  code: string | null
+  message: string | null
+  issues: TideValidationIssue[]
+  notices: TideValidationIssue[]
+  version: number | null
+}
+
+export interface TideMassUpdateResult {
+  /** Per-row outcomes in request order, with the counts already summed. */
+  outcomes: TideMassUpdateOutcome[]
+  updated: number
+  refused: number
+}
+
 export interface TideBrowsePresentation {
   view: string
   entity: string
@@ -373,6 +413,13 @@ export interface TideBrowsePresentation {
   page_size: number
   operations: TideOperation[]
   detail_view: string | null
+  /**
+   * The mass-update door, present only where this server generates it and
+   * this principal may update. Optional for the version-skew reason the
+   * neighbours give, and deliberately so: absence -- old server or no
+   * permission alike -- means offer no selection and no dialog.
+   */
+  mass_update?: TideBrowseMassUpdate | null
 }
 
 export interface TidePresentationFormGroup {

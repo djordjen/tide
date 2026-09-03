@@ -19,10 +19,15 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  SquarePen,
   X,
 } from "lucide-react"
 
 import { TideDataGrid } from "@/components/tide-data-grid"
+import {
+  MassUpdateDialog,
+  massAssignableFields,
+} from "@/components/mass-update-dialog"
 import { Badge } from "@/components/ui/badge"
 import { TideLine } from "@/components/tide-line"
 import { BrowseExportControl } from "@/components/browse-export-control"
@@ -185,6 +190,14 @@ export function BrowseWorkspace({
     report: TidePresentationReport
     identity: unknown | null
   } | null>(null)
+  // The mass-update selection, keyed by identity so it survives sorting
+  // and incremental fetches. It clears when membership changes meaning --
+  // search, filters, named filter -- and the workspace remounting per view
+  // covers the rest.
+  const [massSelection, setMassSelection] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  )
+  const [massUpdating, setMassUpdating] = useState(false)
   const scrollReset = useRef<(() => void) | null>(null)
 
   const selectedFilter = view.named_filters.find(
@@ -275,6 +288,12 @@ export function BrowseWorkspace({
     setFeedback(null)
   }, [debouncedSearch, filterName, sort, columnFilters])
 
+  // Deliberately without `sort`: reordering the same rows does not change
+  // what is selected, while a different search or filter does.
+  useEffect(() => {
+    setMassSelection(new Set())
+  }, [debouncedSearch, filterName, columnFilters])
+
   const funnelControl = useMemo(
     () => ({
       active: columnFilters,
@@ -299,6 +318,46 @@ export function BrowseWorkspace({
   const identityOf = useCallback(
     (record: TideRecord) => record[view.identity_field],
     [view.identity_field],
+  )
+  const massUpdateDoor = view.mass_update ?? null
+  const massUpdateOffered = Boolean(
+    massUpdateDoor && form && massAssignableFields(form).length > 0,
+  )
+  const gridSelection = useMemo(
+    () =>
+      massUpdateOffered
+        ? {
+            selected: massSelection,
+            onToggle: (identity: string) =>
+              setMassSelection((current) => {
+                const next = new Set(current)
+                if (next.has(identity)) {
+                  next.delete(identity)
+                } else {
+                  next.add(identity)
+                }
+                return next
+              }),
+            onToggleAllLoaded: () =>
+              setMassSelection((current) => {
+                const loaded = records.map((record) =>
+                  String(record[view.identity_field]),
+                )
+                const everyLoaded =
+                  loaded.length > 0 &&
+                  loaded.every((identity) => current.has(identity))
+                if (everyLoaded) {
+                  const next = new Set(current)
+                  for (const identity of loaded) {
+                    next.delete(identity)
+                  }
+                  return next
+                }
+                return new Set([...current, ...loaded])
+              }),
+          }
+        : null,
+    [massSelection, massUpdateOffered, records, view.identity_field],
   )
   const activeIndex = records.findIndex(
     (record) =>
@@ -1025,6 +1084,27 @@ export function BrowseWorkspace({
             />
           ) : null}
 
+          {massUpdateOffered && massSelection.size > 0 ? (
+            <>
+              <Badge variant="secondary" className="tabular-nums">
+                {massSelection.size.toLocaleString()} selected
+              </Badge>
+              <Button
+                variant="outline"
+                onClick={() => setMassUpdating(true)}
+              >
+                <SquarePen />
+                Change…
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setMassSelection(new Set())}
+              >
+                Clear selection
+              </Button>
+            </>
+          ) : null}
+
           <BrowseExportControl
             api={api}
             view={view}
@@ -1091,6 +1171,7 @@ export function BrowseWorkspace({
         records={records}
         summaries={summaries}
         columnFilters={funnelControl}
+        selection={gridSelection}
         inlineEdit={
           inlineEdit && form
             ? {
@@ -1208,6 +1289,20 @@ export function BrowseWorkspace({
           onClose={() => setPreviewRequest(null)}
         />
       </Suspense>
+    ) : null}
+    {massUpdating && massUpdateDoor && form ? (
+      <MassUpdateDialog
+        api={api}
+        view={view}
+        massUpdate={massUpdateDoor}
+        form={form}
+        records={records}
+        selected={massSelection}
+        onClose={() => setMassUpdating(false)}
+        onApplied={() => {
+          void query.refetch()
+        }}
+      />
     ) : null}
     </>
   )

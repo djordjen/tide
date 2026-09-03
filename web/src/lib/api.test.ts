@@ -235,3 +235,82 @@ describe("a lookup dialog's query", () => {
     expect("lookup_source" in bodies[0]).toBe(false)
   })
 })
+
+describe("a mass update request", () => {
+  // One door for the whole selection: typed changes beside identity and
+  // version assertions spelled the way If-Match spells them, and the
+  // acknowledgement as the repeatable query parameter it is everywhere.
+  const massUpdateContract = {
+    path: "/api/v1/jobs/_mass-update",
+    version_field: "version",
+    limit: 1000,
+  }
+
+  const captureMassUpdate = (payload: string) => {
+    const calls: { url: string; body: Record<string, unknown> }[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string | URL, init?: RequestInit) => {
+        calls.push({
+          url: String(url),
+          body: JSON.parse(String(init?.body)) as Record<string, unknown>,
+        })
+        return Promise.resolve(
+          new Response(payload, {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+      }),
+    )
+    return calls
+  }
+
+  it("sends changes, targets and acknowledgements the wire way", async () => {
+    const calls = captureMassUpdate(
+      '{"outcomes":[{"identity":1,"status":"updated","code":null,' +
+        '"message":null,"issues":[],"notices":[],"version":2}],' +
+        '"updated":1,"refused":0}',
+    )
+
+    const result = await new TideApi("token").massUpdate(
+      massUpdateContract,
+      { priority: "high" },
+      [
+        { identity: 1, version: 3 },
+        { identity: 9, version: "null" },
+      ],
+      ["heavy_hours"],
+    )
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toContain(
+      "/api/v1/jobs/_mass-update?acknowledge_warnings=heavy_hours",
+    )
+    expect(calls[0].body).toEqual({
+      changes: { priority: "high" },
+      targets: [
+        { identity: 1, version: 3 },
+        { identity: 9, version: "null" },
+      ],
+    })
+    expect(result.updated).toBe(1)
+    expect(result.outcomes[0].version).toBe(2)
+  })
+
+  it("sends no acknowledgement parameter when there is nothing to say", async () => {
+    const calls = captureMassUpdate(
+      '{"outcomes":[],"updated":0,"refused":0}',
+    )
+
+    await new TideApi("token").massUpdate(massUpdateContract, { a: 1 }, [
+      { identity: 1 },
+    ])
+
+    expect(calls[0].url).not.toContain("acknowledge_warnings")
+    expect(calls[0].body).toEqual({
+      changes: { a: 1 },
+      targets: [{ identity: 1 }],
+    })
+  })
+})

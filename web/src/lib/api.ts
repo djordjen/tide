@@ -1,7 +1,10 @@
 import type {
   TideBrowserAuthenticationInfo,
   TideBrowserSessionInfo,
+  TideBrowseMassUpdate,
   TideBrowsePresentation,
+  TideMassUpdateResult,
+  TideMassUpdateTarget,
   TideConnection,
   TideDistinctResult,
   TideFilterInput,
@@ -904,6 +907,31 @@ export class TideApi {
       }
     }
     return [...records.values()]
+  }
+
+  massUpdate(
+    massUpdate: TideBrowseMassUpdate,
+    changes: Record<string, unknown>,
+    targets: TideMassUpdateTarget[],
+    acknowledgeWarnings: string[] = [],
+    signal?: AbortSignal,
+  ): Promise<TideMassUpdateResult> {
+    // One request for the whole selection; refusals come back inside the
+    // 200 as per-row outcomes, never as an error. The acknowledgement is
+    // the repeatable query parameter it is on every other write.
+    const parameters = new URLSearchParams()
+    for (const rule of acknowledgeWarnings) {
+      parameters.append("acknowledge_warnings", rule)
+    }
+    const query = parameters.toString()
+    return this.request<TideMassUpdateResult>(
+      query ? `${massUpdate.path}?${query}` : massUpdate.path,
+      {
+        method: "POST",
+        body: JSON.stringify({ changes, targets }),
+      },
+      signal,
+    )
   }
 
   createLookupRecord(

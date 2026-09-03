@@ -29,6 +29,7 @@ import {
 
 import { ColumnValueFilter } from "@/components/column-value-filter"
 import type { ColumnFilterState } from "@/lib/grid-query"
+import { Checkbox } from "@/components/ui/checkbox"
 import { GridCellEditor } from "@/components/grid-cell-editor"
 import { TideDisplayValue } from "@/components/tide-display-value"
 import { Button } from "@/components/ui/button"
@@ -73,6 +74,18 @@ export interface GridColumnFilters {
   onApply: (field: string, filter: ColumnFilterState | null) => void
 }
 
+/**
+ * Multi-row selection for the mass-update door, owned by the workspace.
+ *
+ * Offered only when the manifest carries `mass_update`, so an old server
+ * or a read-only principal sees the grid exactly as it always was.
+ */
+export interface GridSelection {
+  selected: ReadonlySet<string>
+  onToggle: (identity: string) => void
+  onToggleAllLoaded: () => void
+}
+
 /** The one row currently editing in place, owned by the workspace. */
 export interface GridInlineEdit {
   identity: string
@@ -101,6 +114,7 @@ interface TideDataGridProps {
   /** The whole filtered set's answers, from the newest page fetched. */
   summaries?: TideSummaryValue[] | null
   columnFilters?: GridColumnFilters | null
+  selection?: GridSelection | null
   inlineEdit?: GridInlineEdit | null
   onInlineChange?: (name: string, value: unknown) => void
   onInlineSave?: () => void
@@ -127,6 +141,7 @@ export function TideDataGrid({
   records,
   summaries,
   columnFilters,
+  selection,
   inlineEdit,
   onInlineChange,
   onInlineSave,
@@ -241,12 +256,17 @@ export function TideDataGrid({
   })
 
   const visibleColumns = table.getVisibleLeafColumns()
-  const gridTemplate = visibleColumns
-    .map((column) => `${column.getSize()}px`)
-    .join(" ")
+  // The selection gutter lives outside the table's column model on
+  // purpose: it must never be dragged, resized, persisted or sorted.
+  const selectionWidth = selection ? 36 : 0
+  const gridTemplate = [
+    ...(selection ? ["36px"] : []),
+    ...visibleColumns.map((column) => `${column.getSize()}px`),
+  ].join(" ")
   const contentWidth = Math.max(
     containerWidth,
-    visibleColumns.reduce((total, column) => total + column.getSize(), 0),
+    selectionWidth +
+      visibleColumns.reduce((total, column) => total + column.getSize(), 0),
   )
   const virtualizer = useVirtualizer({
     count: table.getRowModel().rows.length,
@@ -565,6 +585,25 @@ export function TideDataGrid({
             width: contentWidth,
           }}
         >
+          {selection ? (
+            <div
+              role="columnheader"
+              className="flex items-center justify-center border-r border-border/70"
+            >
+              <Checkbox
+                aria-label="Select all loaded rows"
+                checked={
+                  records.length > 0 &&
+                  records.every((record) =>
+                    selection.selected.has(
+                      String(record[view.identity_field]),
+                    ),
+                  )
+                }
+                onCheckedChange={() => selection.onToggleAllLoaded()}
+              />
+            </div>
+          ) : null}
           {table.getFlatHeaders().map((header) => {
             const column = view.columns.find(
               (item) => item.name === header.column.id,
@@ -697,7 +736,7 @@ export function TideDataGrid({
       >
         {loading && records.length === 0 ? (
           <GridSkeleton
-            columns={visibleColumns.length}
+            columns={visibleColumns.length + (selection ? 1 : 0)}
             gridTemplate={gridTemplate}
             width={contentWidth}
           />
@@ -819,9 +858,33 @@ export function TideDataGrid({
                       // scrolling to the bottom does.
                       event.preventDefault()
                       moveActiveRow(rows.length - 1)
+                    } else if (
+                      event.key === " " &&
+                      selection &&
+                      // Only the row itself: a focused checkbox or link
+                      // already gives Space its own meaning, and acting
+                      // here too would toggle twice.
+                      event.target === event.currentTarget
+                    ) {
+                      event.preventDefault()
+                      selection.onToggle(String(identity))
                     }
                   }}
                 >
+                  {selection ? (
+                    <div
+                      role="cell"
+                      className="flex items-center justify-center border-r border-border/45"
+                    >
+                      <Checkbox
+                        aria-label={`Select row ${String(identity)}`}
+                        checked={selection.selected.has(String(identity))}
+                        onCheckedChange={() =>
+                          selection.onToggle(String(identity))
+                        }
+                      />
+                    </div>
+                  ) : null}
                   {row.getVisibleCells().map((cell) => {
                     const column = view.columns.find(
                       (item) => item.name === cell.column.id,
@@ -892,6 +955,9 @@ export function TideDataGrid({
               width: contentWidth,
             }}
           >
+            {selection ? (
+              <div className="border-r border-border/45" />
+            ) : null}
             {visibleColumns.map((gridColumn) => {
               const column = view.columns.find(
                 (item) => item.name === gridColumn.id,
